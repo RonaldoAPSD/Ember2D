@@ -73,6 +73,7 @@ pub enum ToolbarAction {
     TogglePalette,
     ToggleStats,
     TogglePhysics,
+    ToggleHelp,
     // File
     New,
     Open,
@@ -777,6 +778,8 @@ pub fn menu_entries(kind: MenuKind) -> Vec<MenuEntry> {
             Item { label: "Stats",     shortcut: "`   ", action: ToggleStats     },
             Item { label: "Inspector", shortcut: "F2  ", action: ToggleInspector },
             Item { label: "Console",   shortcut: "F1  ", action: ToggleConsole   },
+            Sep,
+            Item { label: "Shortcuts", shortcut: "?   ", action: ToggleHelp      },
         ],
         MenuKind::Tools => vec![
             Item { label: "Paint",  shortcut: "    ", action: SetTool(Paint)  },
@@ -986,12 +989,11 @@ pub fn draw_help_overlay(renderer: &mut Renderer, layout: &Layout) {
     // Column 1: Tools & Canvas
     renderer.draw_str(c1, row(0),  "TOOLS",              Color::Yellow, Color::Black);
     renderer.draw_str(c1, row(1),  " 1-9  Palette",      Color::White,  Color::Black);
-    renderer.draw_str(c1, row(2),  " K    Eyedropper",   Color::White,  Color::Black);
-    renderer.draw_str(c1, row(3),  " L    Line tool",    Color::White,  Color::Black);
-    renderer.draw_str(c1, row(4),  " F    Flood fill",   Color::White,  Color::Black);
-    renderer.draw_str(c1, row(5),  " E    Eraser size",  Color::White,  Color::Black);
-    renderer.draw_str(c1, row(6),  " Q    Select mode",  Color::White,  Color::Black);
-    renderer.draw_str(c1, row(7),  " ;/'  Solid/Trigger",Color::White,  Color::Black);
+    renderer.draw_str(c1, row(2),  " L    Line tool",    Color::White,  Color::Black);
+    renderer.draw_str(c1, row(3),  " F    Flood fill",   Color::White,  Color::Black);
+    renderer.draw_str(c1, row(4),  " E    Eraser size",  Color::White,  Color::Black);
+    renderer.draw_str(c1, row(5),  " Q    Select mode",  Color::White,  Color::Black);
+    renderer.draw_str(c1, row(6),  " ;/'  Solid/Trigger",Color::White,  Color::Black);
     renderer.draw_str(c1, row(9),  "CANVAS",             Color::Yellow, Color::Black);
     renderer.draw_str(c1, row(10), " Wheel   V-scroll",  Color::White,  Color::Black);
     renderer.draw_str(c1, row(11), " Sh+Whl  H-scroll",  Color::White,  Color::Black);

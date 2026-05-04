@@ -599,6 +599,7 @@ impl EditorState {
             ToolbarAction::TogglePalette   => { self.panels.toggle(PanelId::Palette); }
             ToolbarAction::TogglePhysics   => { self.show_physics = !self.show_physics; }
             ToolbarAction::ToggleStats     => { self.panels.toggle(PanelId::Stats); }
+            ToolbarAction::ToggleHelp      => { self.show_help = !self.show_help; }
             ToolbarAction::Save   => { self.save(); }
             ToolbarAction::SaveAs => {
                 self.text_input = Some(TextInput {

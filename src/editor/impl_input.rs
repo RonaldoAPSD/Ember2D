@@ -805,6 +805,10 @@ impl EditorState {
         // ── Keyboard shortcuts ────────────────────────────────────────────────
 
         if input.just_pressed(Key::Escape) {
+            if self.show_help {
+                self.show_help = false;
+                return;
+            }
             if self.rect_anchor.is_some() {
                 self.rect_anchor = None;
                 self.active_tool = ToolKind::Paint;
@@ -866,24 +870,6 @@ impl EditorState {
         if input.just_pressed(Key::Delete) {
             if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
                 self.erase_brush(gx, gy);
-            }
-            return;
-        }
-
-        // K — eyedropper: find closest palette entry matching tile under cursor.
-        if input.just_pressed(Key::K) {
-            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
-                if let Some(tile) = self.grid.get(gx, gy) {
-                    let glyph = tile.glyph;
-                    if let Some(idx) = self.palette.tiles.iter().position(|d| d.glyph == glyph) {
-                        self.palette.select(idx);
-                        self.save_message = Some(format!("Picked: {}", self.palette.tiles[idx].name));
-                        self.save_message_timer = 0;
-                    } else {
-                        self.save_message = Some(format!("No palette match for '{}'", glyph));
-                        self.save_message_timer = 0;
-                    }
-                }
             }
             return;
         }
