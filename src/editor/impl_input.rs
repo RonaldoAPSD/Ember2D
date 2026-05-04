@@ -235,7 +235,7 @@ impl EditorState {
 
 impl EditorState {
     pub(super) fn handle_update(&mut self, ctx: UpdateContext) {
-        let UpdateContext { input, mouse, quit, .. } = ctx;
+        let UpdateContext { input, mouse, .. } = ctx;
 
         // Graph editor mode swallows all input.
         if self.graph_mode.is_some() {
@@ -465,7 +465,10 @@ impl EditorState {
                 self.active_menu = None;
                 if let Some(action) = action {
                     match action {
-                        ToolbarAction::Quit => { *quit = true; return; }
+                        ToolbarAction::CloseProject => {
+                            self.pending_transition = Some(crate::engine::Transition::ToStart);
+                            return;
+                        }
                         ToolbarAction::RenameLevel => {
                             self.text_input = Some(TextInput {
                                 buffer: self.grid.name.clone(),
@@ -808,8 +811,6 @@ impl EditorState {
             } else if self.line_anchor.is_some() {
                 self.line_anchor = None;
                 self.active_tool = ToolKind::Paint;
-            } else {
-                *quit = true;
             }
             return;
         }

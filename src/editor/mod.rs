@@ -622,7 +622,7 @@ impl EditorState {
             // Quit/SetSpawn/AddNamedSpawn/FindReplace/RenameLevel/ResizeLevel
             // need context (mouse pos or quit flag) — handled inline in update()
             // before dispatch_toolbar_action is called, so these are unreachable here.
-            ToolbarAction::Quit
+            ToolbarAction::CloseProject
             | ToolbarAction::FindReplace
             | ToolbarAction::SetSpawn
             | ToolbarAction::AddNamedSpawn

@@ -95,31 +95,41 @@ fn main() {
         let mut engine = Engine::new(screen_w, screen_h, "Ember2D Level Editor")
             .expect("Failed to open window.");
 
-        let editor = if level_path.is_empty() {
-            // Show the start screen so the user can name/configure the project.
-            let mut start = StartScreen::new();
-            if let Err(e) = engine.run(&mut start) {
-                eprintln!("Start screen error: {}", e);
-                std::process::exit(1);
-            }
-            engine.reset_world();
-            match start.result {
-                None => return,  // user quit from the start screen
-                Some(result) => EditorState::new_from_result(result).unwrap_or_else(|e| {
+        let mut current_level_path = level_path.to_string();
+        loop {
+            let editor = if current_level_path.is_empty() {
+                // Show the start screen so the user can name/configure the project.
+                let mut start = StartScreen::new();
+                if let Err(e) = engine.run(&mut start) {
+                    eprintln!("Start screen error: {}", e);
+                    std::process::exit(1);
+                }
+                engine.reset_world();
+                match start.result {
+                    None => break,  // user quit from the start screen
+                    Some(result) => EditorState::new_from_result(result).unwrap_or_else(|e| {
+                        eprintln!("Warning: {}", e);
+                        EditorState::new("")
+                    }),
+                }
+            } else {
+                EditorState::load(&current_level_path).unwrap_or_else(|e| {
                     eprintln!("Warning: {}", e);
-                    EditorState::new("")
-                }),
-            }
-        } else {
-            EditorState::load(level_path).unwrap_or_else(|e| {
-                eprintln!("Warning: {}", e);
-                EditorState::new(level_path)
-            })
-        };
+                    EditorState::new(&current_level_path)
+                })
+            };
 
-        if let Err(e) = run_editor_app(&mut engine, editor) {
-            eprintln!("Editor error: {}", e);
-            std::process::exit(1);
+            match run_editor_app(&mut engine, editor) {
+                Ok(true) => {
+                    current_level_path = String::new();
+                    continue;
+                }
+                Ok(false) => break,
+                Err(e) => {
+                    eprintln!("Editor error: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
 
     } else if let Some(path) = level_file {

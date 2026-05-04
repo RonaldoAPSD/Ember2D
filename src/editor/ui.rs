@@ -79,7 +79,7 @@ pub enum ToolbarAction {
     Save,
     SaveAs,
     Play,
-    Quit,
+    CloseProject,
     // Level
     RenameLevel,
     ResizeLevel,
@@ -749,7 +749,7 @@ pub fn menu_entries(kind: MenuKind) -> Vec<MenuEntry> {
             Sep,
             Item { label: "Play",       shortcut: "F5  ", action: Play   },
             Sep,
-            Item { label: "Quit",       shortcut: "Esc ", action: Quit   },
+            Item { label: "Close Project", shortcut: "    ", action: CloseProject },
         ],
         MenuKind::Edit => vec![
             Item { label: "Undo",         shortcut: "U/^Z", action: Undo        },
@@ -1030,7 +1030,7 @@ pub fn draw_help_overlay(renderer: &mut Renderer, layout: &Layout) {
     renderer.draw_str(c3, row(11), " Sh+S  Save As",     Color::White,  Color::Black);
     renderer.draw_str(c3, row(12), " O    Open",         Color::White,  Color::Black);
     renderer.draw_str(c3, row(13), " F5   Play preview", Color::White,  Color::Black);
-    renderer.draw_str(c3, row(14), " Esc  Quit",         Color::White,  Color::Black);
+    renderer.draw_str(c3, row(14), " Esc  Cancel/Close", Color::White,  Color::Black);
     renderer.draw_str(c3, row(15), " ?    This screen",  Color::White,  Color::Black);
 
     let hint = "Press ? or Esc to close";

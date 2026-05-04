@@ -40,7 +40,7 @@ use crate::scripting::LogEntry;
 /// - F5 in the editor: transitions to play mode with the current grid.
 /// - Escape in play mode: returns to the editor (state preserved).
 /// - Escape in the editor (or closing the window): exits the app.
-pub fn run_editor_app(engine: &mut Engine, mut editor: EditorState) -> io::Result<()> {
+pub fn run_editor_app(engine: &mut Engine, mut editor: EditorState) -> io::Result<bool> {
     loop {
         // ── Run the editor ─────────────────────────────────────────────────
         match engine.run_until_transition(&mut editor)? {
@@ -66,6 +66,7 @@ pub fn run_editor_app(engine: &mut Engine, mut editor: EditorState) -> io::Resul
                             accumulated_log.extend(play.take_log());
                             level_data = next_data;
                         }
+                        _ => break false,
                     }
                 };
                 engine.reset_world();
@@ -73,11 +74,12 @@ pub fn run_editor_app(engine: &mut Engine, mut editor: EditorState) -> io::Resul
                 if window_closed { break; }
                 // outer loop continues back to editor
             }
+            Some(Transition::ToStart) => return Ok(true),
             _ => break, // unexpected transition from editor
         }
     }
 
-    Ok(())
+    Ok(false)
 }
 
 // ── Direct play (no editor) ───────────────────────────────────────────────────

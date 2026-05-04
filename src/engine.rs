@@ -59,6 +59,8 @@ pub enum Transition {
     ToPlay(LevelData),
     /// Switch back to the level editor.
     ToEditor,
+    /// Switch back to the start screen.
+    ToStart,
 }
 
 // ── Frame rate ────────────────────────────────────────────────────────────────

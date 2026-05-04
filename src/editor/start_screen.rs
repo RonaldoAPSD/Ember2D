@@ -386,7 +386,6 @@ impl GameState for StartScreen {
                 if input.just_pressed(Key::Key1) { self.menu_cursor = 0; }
                 if input.just_pressed(Key::Key2) { self.menu_cursor = 1; }
                 if input.just_pressed(Key::Key3) { self.menu_cursor = 2; }
-                if input.just_pressed(Key::Escape) { *quit = true; }
 
                 // Mouse hover
                 if mouse.in_bounds {
@@ -711,7 +710,7 @@ fn draw_main_menu(renderer: &mut Renderer, elapsed: f32, cursor: usize) {
         }
     }
 
-    draw_hint_bar(renderer, "Up/Down or hover: navigate  |  Enter or click: select  |  Esc: quit");
+    draw_hint_bar(renderer, "Up/Down or hover: navigate  |  Enter or click: select");
 }
 
 /// Render a single-field wizard step: a border box with a text input field.
