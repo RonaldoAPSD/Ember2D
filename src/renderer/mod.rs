@@ -170,9 +170,14 @@ impl Renderer {
     /// the larger on-screen window space. No scale division needed by the caller.
     /// `MouseState` in `src/mouse.rs` divides by CELL_W/CELL_H to get cell coords.
     pub fn current_mouse_pos(&self) -> Option<(f32, f32)> {
-        // MouseMode::Clamp clamps the position to the window bounds (never returns
-        // a position outside the window even if the cursor is at the very edge).
-        self.window.get_mouse_pos(minifb::MouseMode::Clamp)
+        // We use MouseMode::Pass instead of MouseMode::Clamp to avoid a known panic
+        // in minifb when the window size drops to 0 (e.g., when minimized).
+        // minifb internally calls `clamp(0.0, width - 1.0)`, panicking with max = -1.0.
+        self.window.get_mouse_pos(minifb::MouseMode::Pass).map(|(x, y)| {
+            let max_x = (self.pixel_width as f32 - 1.0).max(0.0);
+            let max_y = (self.pixel_height as f32 - 1.0).max(0.0);
+            (x.clamp(0.0, max_x), y.clamp(0.0, max_y))
+        })
     }
 
     /// Returns true if the given mouse button is currently held down.

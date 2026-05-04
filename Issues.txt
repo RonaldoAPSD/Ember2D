@@ -1,0 +1,13 @@
+This text shows the current issues with the engine after testing the engine further.
+
+[Major issues]
+1. Whenever there is a panel opened if you edit anything on the pannel while the painter is selected it will paint on the the level editor.
+2. When opening anything on the top bar such as file, edit, ect... pannels will cover it making it unable to be read.
+
+[Minior issues]
+1. Copy work but when I try to click to stamp/place/paste the copied item it does not paste and insted draws what ever is selected on the painter.
+2. Under edit there is a find/replace/ option, what purpose does it server? I cant see what it does as nothing happens when I click it. 
+3. Panning the level editor with the middle mouse button does not work. 
+4. Some of the screens such as the Visual scritor options or opening a new level does not support mouse clicks, everthing should support mouse even if it doesnt support keyboard inputs.
+5. Set spawn on the menu does not prompt you to select where to set spawn it just goes where ever your mouse cursor seems to be after you click it which is often in the same spots.
+6. Level editor does not support zooming in and out with mouse wheel.
