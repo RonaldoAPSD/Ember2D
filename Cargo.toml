@@ -1,0 +1,71 @@
+# Cargo.toml — the manifest file for this Rust project.
+#
+# Every Rust project has one of these. It tells the build tool (Cargo) three things:
+#   1. What this project is called and what version it's on ([package])
+#   2. What other libraries (crates) it depends on ([dependencies])
+#   3. Whether this builds as an executable, a library, or both
+#
+# Because we have BOTH src/lib.rs AND src/main.rs, Cargo automatically builds:
+#   - A LIBRARY crate ("ember2d") that other projects can depend on
+#   - A BINARY crate (the demo game in main.rs) that links against that library
+
+[package]
+name    = "ember2d"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+# minifb: opens a real OS window and gives us a raw u32 pixel buffer to draw into.
+#
+# "mfb" stands for "mini framebuffer." A framebuffer is simply a flat array of pixels
+# that the OS blits to the display. We write colors into it however we want —
+# no terminal, no escape codes, no shell needed.
+#
+# What minifb handles for us:
+#   - Opening a titled, resizable/fixed window (Win32 on Windows, X11 on Linux, Cocoa on macOS)
+#   - Receiving keyboard and mouse events from the OS
+#   - Blitting our pixel buffer to the screen every frame
+#   - Optional built-in integer scaling (Scale::X2 → draws each pixel as a 2×2 block)
+minifb = "0.27"
+
+# font8x8: an embedded 8×8-pixel bitmap font covering the ASCII range (0–127).
+#
+# A bitmap font stores each character as a small pixel grid.
+# For font8x8, each character is 8 bytes — one byte per row of 8 pixels.
+# Bit 0 of each byte is the leftmost pixel; bit 7 is the rightmost.
+#
+# We use this to turn the character stored in a Cell (e.g. '@', '#', '.')
+# into the actual pixels we write into minifb's framebuffer.
+font8x8 = "0.2"
+
+# serde: Rust's universal serialization framework.
+# The "derive" feature enables #[derive(Serialize, Deserialize)] on any struct or enum,
+# which auto-generates all the boilerplate needed to convert it to/from any serde format.
+serde = { version = "1", features = ["derive"] }
+
+# ron: "Rusty Object Notation" — a human-readable data format designed for Rust's type system.
+# It serializes Rust enums, structs, and tuples in syntax that looks like Rust source code.
+# Unlike JSON, RON supports: comments (//), trailing commas, and unquoted enum variants.
+# We use it as the level file format (.level files are RON under the hood).
+ron = "0.8"
+
+# rhai: an embedded scripting language designed for Rust.
+#
+# Why Rhai instead of Lua?
+#   - Pure Rust: no C compiler or C library needed, builds anywhere Rust does.
+#   - Syntax looks like Rust/JavaScript, so it's familiar from day one.
+#   - Designed for embedding: you register Rust functions and types, scripts call them.
+#   - The script type system maps cleanly to Rust: i64, f32, bool, String.
+#
+# Feature flags we use:
+#   no_module  — disables Rhai's module/import system (we don't need it; saves compile time).
+#   no_closure — disables closures/capture in scripts (we don't need them; saves compile time).
+#
+# Scripts live in .rhai files and define an `on_update(entity_id, ctx)` function
+# called every frame by the engine for entities that have a Script component.
+rhai = { version = "1", features = ["no_module", "no_closure"] }
+
+# kira: a game-focused audio library with first-class support for looping,
+# fading, and pausing. Pure Rust — no C dependencies, builds on all platforms.
+# "ogg" and "mp3" enable those decoder features via symphonia.
+kira = { version = "0.9", features = ["ogg", "mp3"] }

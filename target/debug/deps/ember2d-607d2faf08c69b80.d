@@ -1,0 +1,36 @@
+C:\dev\ember2d\target\debug\deps\ember2d-607d2faf08c69b80.d: src\lib.rs src\app.rs src\audio.rs src\components\mod.rs src\components\collider.rs src\components\script.rs src\components\sprite.rs src\components\tag.rs src\components\transform.rs src\editor\mod.rs src\editor\commands.rs src\editor\grid.rs src\editor\palette.rs src\editor\panel.rs src\editor\node_graph.rs src\editor\start_screen.rs src\editor\ui.rs src\editor\impl_input.rs src\editor\impl_render.rs src\engine.rs src\event.rs src\input.rs src\level.rs src\math.rs src\mouse.rs src\play.rs src\project.rs src\renderer\mod.rs src\renderer\buffer.rs src\renderer\color.rs src\scripting.rs src\world.rs
+
+C:\dev\ember2d\target\debug\deps\libember2d-607d2faf08c69b80.rmeta: src\lib.rs src\app.rs src\audio.rs src\components\mod.rs src\components\collider.rs src\components\script.rs src\components\sprite.rs src\components\tag.rs src\components\transform.rs src\editor\mod.rs src\editor\commands.rs src\editor\grid.rs src\editor\palette.rs src\editor\panel.rs src\editor\node_graph.rs src\editor\start_screen.rs src\editor\ui.rs src\editor\impl_input.rs src\editor\impl_render.rs src\engine.rs src\event.rs src\input.rs src\level.rs src\math.rs src\mouse.rs src\play.rs src\project.rs src\renderer\mod.rs src\renderer\buffer.rs src\renderer\color.rs src\scripting.rs src\world.rs
+
+src\lib.rs:
+src\app.rs:
+src\audio.rs:
+src\components\mod.rs:
+src\components\collider.rs:
+src\components\script.rs:
+src\components\sprite.rs:
+src\components\tag.rs:
+src\components\transform.rs:
+src\editor\mod.rs:
+src\editor\commands.rs:
+src\editor\grid.rs:
+src\editor\palette.rs:
+src\editor\panel.rs:
+src\editor\node_graph.rs:
+src\editor\start_screen.rs:
+src\editor\ui.rs:
+src\editor\impl_input.rs:
+src\editor\impl_render.rs:
+src\engine.rs:
+src\event.rs:
+src\input.rs:
+src\level.rs:
+src\math.rs:
+src\mouse.rs:
+src\play.rs:
+src\project.rs:
+src\renderer\mod.rs:
+src\renderer\buffer.rs:
+src\renderer\color.rs:
+src\scripting.rs:
+src\world.rs:

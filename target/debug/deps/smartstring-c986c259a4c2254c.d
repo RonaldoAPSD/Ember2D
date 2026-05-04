@@ -1,0 +1,12 @@
+C:\dev\ember2d\target\debug\deps\smartstring-c986c259a4c2254c.d: C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\lib.rs C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\config.rs C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\marker_byte.rs C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\inline.rs C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\boxed.rs C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\casts.rs C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\iter.rs C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\ops.rs
+
+C:\dev\ember2d\target\debug\deps\libsmartstring-c986c259a4c2254c.rmeta: C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\lib.rs C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\config.rs C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\marker_byte.rs C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\inline.rs C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\boxed.rs C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\casts.rs C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\iter.rs C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\ops.rs
+
+C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\lib.rs:
+C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\config.rs:
+C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\marker_byte.rs:
+C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\inline.rs:
+C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\boxed.rs:
+C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\casts.rs:
+C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\iter.rs:
+C:\Users\ronal\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\smartstring-1.0.1\src\ops.rs:
