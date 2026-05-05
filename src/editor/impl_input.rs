@@ -257,6 +257,13 @@ impl EditorState {
     pub(super) fn handle_update(&mut self, ctx: UpdateContext) {
         let UpdateContext { input, mouse, .. } = ctx;
 
+        // ── Ignore drag state ─────────────────────────────────────────────────
+        if self.ignore_drag {
+            if !mouse.left_held() {
+                self.ignore_drag = false;
+            }
+        }
+
         // Graph editor mode swallows all input.
         if self.graph_mode.is_some() {
             self.update_graph_mode(input, mouse);
@@ -279,6 +286,46 @@ impl EditorState {
 
         let shift = input.is_held(Key::LeftShift) || input.is_held(Key::RightShift);
         let alt   = input.is_held(Key::LeftAlt)   || input.is_held(Key::RightAlt);
+
+        // ── Spawn placement modes ─────────────────────────────────────────────
+        if self.placing_spawn {
+            if input.just_pressed(Key::Escape) || mouse.right_just_pressed() {
+                self.placing_spawn = false;
+                self.save_message = Some("Spawn placement cancelled.".to_string());
+                self.save_message_timer = 0;
+                return;
+            }
+            if mouse.left_just_pressed() {
+                if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                    self.grid.spawn_point = (gx as f32, gy as f32);
+                    self.unsaved = true;
+                    self.placing_spawn = false;
+                    self.ignore_drag = true;
+                    self.save_message = Some("Spawn placed.".to_string());
+                    self.save_message_timer = 0;
+                }
+            }
+            return;
+        }
+        if let Some(buf) = self.placing_named_spawn.clone() {
+            if input.just_pressed(Key::Escape) || mouse.right_just_pressed() {
+                self.placing_named_spawn = None;
+                self.save_message = Some("Spawn placement cancelled.".to_string());
+                self.save_message_timer = 0;
+                return;
+            }
+            if mouse.left_just_pressed() {
+                if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                    self.grid.extra_spawns.push((buf, gx as f32, gy as f32));
+                    self.unsaved = true;
+                    self.placing_named_spawn = None;
+                    self.ignore_drag = true;
+                    self.save_message = Some("Named spawn placed.".to_string());
+                    self.save_message_timer = 0;
+                }
+            }
+            return;
+        }
 
         // ── Text input ────────────────────────────────────────────────────────
         if let Some(ref mut ti) = self.text_input {
@@ -327,10 +374,9 @@ impl EditorState {
                     }
                     TextInputPurpose::NamedSpawn => {
                         if !ti.buffer.is_empty() {
-                            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
-                                self.grid.extra_spawns.push((ti.buffer, gx as f32, gy as f32));
-                                self.unsaved = true;
-                            }
+                            self.placing_named_spawn = Some(ti.buffer);
+                            self.save_message = Some("Click on grid to place named spawn. Esc to cancel.".to_string());
+                            self.save_message_timer = 0;
                         }
                     }
                     TextInputPurpose::ResizeLevel => {
@@ -441,14 +487,17 @@ impl EditorState {
             let row = mouse.cell_y;
             if let Some(pid) = self.panels.close_btn_at(col, row) {
                 self.panels.hide(pid);
+                self.ignore_drag = true;
                 return;
             }
             if let Some(pid) = self.panels.resize_handle_at(col, row) {
                 self.panels.start_resize(pid, col as i32, row as i32);
+                self.ignore_drag = true;
                 return;
             }
             if let Some(pid) = self.panels.title_bar_at(col, row) {
                 self.panels.start_drag(pid, col as i32, row as i32);
+                self.ignore_drag = true;
                 return;
             }
         }
@@ -475,6 +524,7 @@ impl EditorState {
             } else {
                 self.active_menu = None;
             }
+            self.ignore_drag = true;
             return;
         }
 
@@ -483,6 +533,7 @@ impl EditorState {
             if mouse.left_just_pressed() {
                 let action = ui::menu_item_at(menu, mouse.cell_x, mouse.cell_y, &self.layout);
                 self.active_menu = None;
+                self.ignore_drag = true;
                 if let Some(action) = action {
                     match action {
                         ToolbarAction::CloseProject => {
@@ -504,10 +555,9 @@ impl EditorState {
                             return;
                         }
                         ToolbarAction::SetSpawn => {
-                            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
-                                self.grid.spawn_point = (gx as f32, gy as f32);
-                                self.unsaved = true;
-                            }
+                            self.placing_spawn = true;
+                            self.save_message = Some("Click on grid to place spawn. Esc to cancel.".to_string());
+                            self.save_message_timer = 0;
                             return;
                         }
                         ToolbarAction::AddNamedSpawn => {
@@ -541,6 +591,7 @@ impl EditorState {
                 if hier_row == 1 {
                     self.hierarchy_sel = Some(HierarchySelection::Player);
                     self.center_on(self.grid.spawn_point.0 as i32, self.grid.spawn_point.1 as i32);
+                    self.ignore_drag = true;
                     return;
                 } else if hier_row >= 2 {
                     let idx = hier_row - 2;
@@ -548,6 +599,7 @@ impl EditorState {
                         let (_, sx, sy) = self.grid.extra_spawns[idx];
                         self.hierarchy_sel = Some(HierarchySelection::Spawn(idx));
                         self.center_on(sx as i32, sy as i32);
+                        self.ignore_drag = true;
                         return;
                     }
                 }
@@ -635,6 +687,7 @@ impl EditorState {
                 }
                 self.pasting     = false;
                 self.active_tool = ToolKind::Paint;
+                self.ignore_drag = true;
             }
             return;
         }
@@ -675,6 +728,7 @@ impl EditorState {
             if panel.contains(mouse.cell_x, mouse.cell_y) && mouse.cell_y > cy {
                 let idx = mouse.cell_y.saturating_sub(cy + 1);
                 self.palette.select(idx);
+                self.ignore_drag = true;
                 return;
             }
         }
@@ -714,6 +768,7 @@ impl EditorState {
             };
             let insp_panel = self.panels.get(PanelId::Inspector);
             if insp_panel.contains(mouse.cell_x, mouse.cell_y) && mouse.cell_y >= insp_cy {
+                self.ignore_drag = true;
                 let cy = insp_cy;
                 let glyph_row  = cy + INSP_GLYPH_OFF;
                 let tag_row    = cy + INSP_TAG_OFF;
@@ -930,16 +985,15 @@ impl EditorState {
 
         // P / Shift+P — spawn points.
         if input.just_pressed(Key::P) {
-            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
-                if shift {
-                    self.text_input = Some(TextInput {
-                        buffer:  String::new(),
-                        purpose: TextInputPurpose::NamedSpawn,
-                    });
-                } else {
-                    self.grid.spawn_point = (gx as f32, gy as f32);
-                    self.unsaved = true;
-                }
+            if shift {
+                self.text_input = Some(TextInput {
+                    buffer:  String::new(),
+                    purpose: TextInputPurpose::NamedSpawn,
+                });
+            } else {
+                self.placing_spawn = true;
+                self.save_message = Some("Click on grid to place spawn. Esc to cancel.".to_string());
+                self.save_message_timer = 0;
             }
             return;
         }
@@ -1136,6 +1190,7 @@ impl EditorState {
                                 self.stamp_line(self.line_anchor.unwrap(), pos);
                                 self.line_anchor = None;
                                 self.active_tool = ToolKind::Paint;
+                                self.ignore_drag = true;
                             }
                         }
                     }
@@ -1184,7 +1239,7 @@ impl EditorState {
         }
 
         // ── Mouse: alt+drag = scatter paint ──────────────────────────────────
-        if alt && mouse.left_held() {
+        if alt && mouse.left_held() && !self.ignore_drag {
             if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
                 if (gx * 1234 + gy * 5678 + self.undo.len() as i32) % 2 == 0 {
                     let new_tile = self.palette.current().to_tile_record(gx, gy);
@@ -1198,7 +1253,7 @@ impl EditorState {
         }
 
         // ── Normal left-click paint ───────────────────────────────────────────
-        if mouse.left_held() {
+        if mouse.left_held() && !self.ignore_drag {
             if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
                 let new_tile = self.palette.current().to_tile_record(gx, gy);
                 let existing = self.grid.get(gx, gy).cloned();

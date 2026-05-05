@@ -146,6 +146,9 @@ pub struct EditorState {
     select_mode:  bool,
     selected_pos: Option<(i32, i32)>,
     hierarchy_sel: Option<HierarchySelection>,
+    placing_spawn: bool,
+    placing_named_spawn: Option<String>,
+    ignore_drag:  bool,
 
     // ── Panning ───────────────────────────────────────────────────────────────
     pan_anchor:   Option<(usize, usize, i32, i32)>,
@@ -214,6 +217,9 @@ impl EditorState {
             select_mode:    false,
             selected_pos:   None,
             hierarchy_sel:  None,
+            placing_spawn:  false,
+            placing_named_spawn: None,
+            ignore_drag:    false,
             pan_anchor:     None,
             scroll_repeat:  0,
             panels:       PanelManager::new(80, 24),
