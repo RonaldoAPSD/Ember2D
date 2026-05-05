@@ -65,6 +65,26 @@ impl EditorState {
 
             if input.just_pressed(Key::Escape) || rclick { self.graph_palette_open = None; return; }
 
+            let mut clicked_entry = false;
+            let mut clicked_outside = false;
+            if mouse.in_bounds {
+                if mouse.cell_x >= px && mouse.cell_x < px + 22 && mouse.cell_y > py {
+                    let idx = self.graph_palette_scroll + (mouse.cell_y - py - 1);
+                    if idx < entries.len() && !entries[idx].0.is_empty() {
+                        self.graph_palette_cursor = idx;
+                        if click {
+                            clicked_entry = true;
+                        }
+                    }
+                } else if click {
+                    clicked_outside = true;
+                }
+            }
+            if clicked_outside {
+                self.graph_palette_open = None;
+                return;
+            }
+
             if input.just_pressed(Key::Up) {
                 let cur = self.graph_palette_cursor;
                 if let Some(pos) = selectable.iter().position(|&i| i == cur) {
@@ -79,7 +99,7 @@ impl EditorState {
                     self.graph_palette_cursor = selectable[0];
                 }
             }
-            if input.just_pressed(Key::Enter) || click {
+            if input.just_pressed(Key::Enter) || clicked_entry {
                 let key = entries.get(self.graph_palette_cursor).map(|e| e.0).unwrap_or("");
                 if let Some(kind) = palette_make(key) {
                     let graph_x = (px as i32) - self.graph_view_ox;
@@ -552,13 +572,33 @@ impl EditorState {
         // ── File browser ──────────────────────────────────────────────────────
         if self.browsing {
             if input.just_pressed(Key::Escape) { self.browsing = false; return; }
+            
+            let mut clicked_entry = false;
+            if mouse.in_bounds {
+                let max_visible = self.layout.canvas_h.saturating_sub(4);
+                let list_start = self.layout.canvas_y + 3;
+                let list_offset = if self.file_cursor >= max_visible { self.file_cursor - max_visible + 1 } else { 0 };
+
+                if mouse.cell_x >= self.layout.canvas_x && mouse.cell_x < self.layout.canvas_x + self.layout.canvas_w {
+                    if mouse.cell_y >= list_start && mouse.cell_y < list_start + max_visible {
+                        let idx = list_offset + (mouse.cell_y - list_start);
+                        if idx < self.file_list.len() {
+                            self.file_cursor = idx;
+                            if mouse.left_just_pressed() {
+                                clicked_entry = true;
+                            }
+                        }
+                    }
+                }
+            }
+
             if input.just_pressed(Key::Down) && self.file_cursor + 1 < self.file_list.len() {
                 self.file_cursor += 1;
             }
             if input.just_pressed(Key::Up) && self.file_cursor > 0 {
                 self.file_cursor -= 1;
             }
-            if input.just_pressed(Key::Enter) && !self.file_list.is_empty() {
+            if (input.just_pressed(Key::Enter) || clicked_entry) && !self.file_list.is_empty() {
                 let path    = self.file_list[self.file_cursor].clone();
                 let pf      = self.project_folder.clone();
                 let pn      = self.project_name.clone();
