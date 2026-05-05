@@ -65,7 +65,6 @@ pub enum ToolbarAction {
     // Edit
     Undo,
     Redo,
-    FindReplace,
     // View toggles
     ToggleGrid,
     ToggleInspector,
@@ -759,8 +758,6 @@ pub fn menu_entries(kind: MenuKind) -> Vec<MenuEntry> {
             Item { label: "Copy Select",  shortcut: "C   ", action: SetTool(Copy)  },
             Item { label: "Cut Select",   shortcut: "X   ", action: SetTool(Cut)   },
             Item { label: "Paste",        shortcut: "V   ", action: SetTool(Paste) },
-            Sep,
-            Item { label: "Find/Replace", shortcut: "/   ", action: FindReplace },
         ],
         MenuKind::Level => vec![
             Item { label: "New Level",    shortcut: "    ", action: NewLevel      },
@@ -1009,8 +1006,7 @@ pub fn draw_help_overlay(renderer: &mut Renderer, layout: &Layout) {
     renderer.draw_str(c2, row(3),  " C  Copy select",    Color::White,  Color::Black);
     renderer.draw_str(c2, row(4),  " X  Cut select",     Color::White,  Color::Black);
     renderer.draw_str(c2, row(5),  " V  Paste",          Color::White,  Color::Black);
-    renderer.draw_str(c2, row(6),  " /  Find+Replace",   Color::White,  Color::Black);
-    renderer.draw_str(c2, row(7),  " I  Edit tag",       Color::White,  Color::Black);
+    renderer.draw_str(c2, row(6),  " I  Edit tag",       Color::White,  Color::Black);
     renderer.draw_str(c2, row(9),  "LEVEL",              Color::Yellow, Color::Black);
     renderer.draw_str(c2, row(10), " N  Rename",         Color::White,  Color::Black);
     renderer.draw_str(c2, row(11), " Z  Resize",         Color::White,  Color::Black);

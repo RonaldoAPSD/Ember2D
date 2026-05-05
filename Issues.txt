@@ -3,6 +3,7 @@ This text shows the current issues with the engine after testing the engine furt
 [Major issues]
 1. Whenever there is a panel opened if you edit anything on the pannel while the painter is selected it will paint on the the level editor.
 2. When opening anything on the top bar such as file, edit, ect... pannels will cover it making it unable to be read.
+3. You can paint outside of grid size if the screen is big enough. Not sure what to do about this. If we should just prevent painting outside of grid size? but that could get confusing because a user might think they can just paint out there to extend the grid size and then get confused. Not sure how to resolve this.
 
 [Minior issues] 
 2. Under edit there is a find/replace/ option, what purpose does it server? I cant see what it does as nothing happens when I click it. 

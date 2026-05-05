@@ -20,7 +20,6 @@
 //   D                       — Set exit destination (next level path) on tile under cursor
 //   I                       — Edit tag of tile under cursor
 //   ;  / '                  — Toggle solid / trigger on tile under cursor
-//   /                       — Find & replace: swap all tiles matching cursor tile
 //   P                       — Move player spawn to cursor
 //   Shift+P                 — Add named entity spawn at cursor
 //   S / Shift+S             — Save / Save-as
@@ -405,32 +404,6 @@ impl EditorState {
         if !cells.is_empty() { self.undo.push(Command::Batch { cells }); self.unsaved = true; }
     }
 
-    fn find_replace_at(&mut self, gx: i32, gy: i32) {
-        let target = match self.grid.get(gx, gy).cloned() {
-            Some(t) => t,
-            None    => return,
-        };
-        let new_def = self.palette.current();
-        let positions: Vec<(i32, i32)> = self.grid.tiles.iter()
-            .filter(|(_, t)| t.glyph == target.glyph && t.tag == target.tag)
-            .map(|(&pos, _)| pos)
-            .collect();
-        let mut cells = Vec::new();
-        for (px, py) in positions {
-            let new_tile = new_def.to_tile_record(px, py);
-            let before   = self.grid.get(px, py).cloned();
-            self.grid.place(px, py, new_tile.clone());
-            cells.push((px, py, before, Some(new_tile)));
-        }
-        if !cells.is_empty() {
-            let count = cells.len();
-            self.undo.push(Command::Batch { cells });
-            self.unsaved     = true;
-            self.save_message = Some(format!("Replaced {} tile(s)", count));
-            self.save_message_timer = 0;
-        }
-    }
-
     fn erase_brush(&mut self, gx: i32, gy: i32) {
         let half = (self.erase_size as i32) / 2;
         let mut cells = Vec::new();
@@ -620,11 +593,10 @@ impl EditorState {
                 data.path = self.save_path.clone();
                 self.pending_transition = Some(Transition::ToPlay(data));
             }
-            // Quit/SetSpawn/AddNamedSpawn/FindReplace/RenameLevel/ResizeLevel
+            // Quit/SetSpawn/AddNamedSpawn/RenameLevel/ResizeLevel
             // need context (mouse pos or quit flag) — handled inline in update()
             // before dispatch_toolbar_action is called, so these are unreachable here.
             ToolbarAction::CloseProject
-            | ToolbarAction::FindReplace
             | ToolbarAction::SetSpawn
             | ToolbarAction::AddNamedSpawn
             | ToolbarAction::NewLevel

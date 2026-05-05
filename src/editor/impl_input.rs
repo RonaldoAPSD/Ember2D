@@ -504,12 +504,6 @@ impl EditorState {
                             });
                             return;
                         }
-                        ToolbarAction::FindReplace => {
-                            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
-                                self.find_replace_at(gx, gy);
-                            }
-                            return;
-                        }
                         _ => { self.dispatch_toolbar_action(action); return; }
                     }
                 }
@@ -854,15 +848,9 @@ impl EditorState {
             self.center_on(sx as i32, sy as i32);
         }
 
-        // ? (Shift+Slash) — toggle help screen. / — find & replace.
-        if input.just_pressed(Key::Slash) {
-            if shift {
-                self.show_help = !self.show_help;
-                return;
-            }
-            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
-                self.find_replace_at(gx, gy);
-            }
+        // ? (Shift+Slash) — toggle help screen.
+        if input.just_pressed(Key::Slash) && shift {
+            self.show_help = !self.show_help;
             return;
         }
 
