@@ -1,0 +1,324 @@
+// editor/input/canvas.rs — Canvas interaction, painting, tools, and scrolling.
+
+use crate::input::Key;
+use super::super::EditorState;
+use super::super::ui::ToolKind;
+use super::super::commands::Command;
+
+impl EditorState {
+    pub(super) fn handle_canvas_input(&mut self, input: &crate::input::InputManager, mouse: &crate::mouse::MouseState) {
+        let shift = input.is_held(Key::LeftShift) || input.is_held(Key::RightShift);
+        let alt   = input.is_held(Key::LeftAlt)   || input.is_held(Key::RightAlt);
+
+        // ── Middle-mouse drag pan ─────────────────────────────────────────────
+        if mouse.middle_just_pressed() {
+            self.pan_anchor = Some((mouse.cell_x, mouse.cell_y, self.scroll.0, self.scroll.1));
+        }
+        if mouse.middle_held() {
+            if let Some((ax, ay, sx, sy)) = self.pan_anchor {
+                let dx = mouse.cell_x as i32 - ax as i32;
+                let dy = mouse.cell_y as i32 - ay as i32;
+                self.scroll.0 = (sx - dx).max(0);
+                self.scroll.1 = (sy - dy).max(0);
+                self.clamp_scroll();
+            }
+        }
+        if mouse.middle_just_released() { self.pan_anchor = None; }
+
+        // ── File browser ──────────────────────────────────────────────────────
+        if self.browsing {
+            if input.just_pressed(Key::Escape) { self.browsing = false; return; }
+            
+            let mut clicked_entry = false;
+            if mouse.in_bounds {
+                let max_visible = self.layout.canvas_h.saturating_sub(4);
+                let list_start = self.layout.canvas_y + 3;
+                let list_offset = if self.file_cursor >= max_visible { self.file_cursor - max_visible + 1 } else { 0 };
+
+                if mouse.cell_x >= self.layout.canvas_x && mouse.cell_x < self.layout.canvas_x + self.layout.canvas_w {
+                    if mouse.cell_y >= list_start && mouse.cell_y < list_start + max_visible {
+                        let idx = list_offset + (mouse.cell_y - list_start);
+                        if idx < self.file_list.len() {
+                            self.file_cursor = idx;
+                            if mouse.left_just_pressed() {
+                                clicked_entry = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if input.just_pressed(Key::Down) && self.file_cursor + 1 < self.file_list.len() {
+                self.file_cursor += 1;
+            }
+            if input.just_pressed(Key::Up) && self.file_cursor > 0 {
+                self.file_cursor -= 1;
+            }
+            if (input.just_pressed(Key::Enter) || clicked_entry) && !self.file_list.is_empty() {
+                let path    = self.file_list[self.file_cursor].clone();
+                let pf      = self.project_folder.clone();
+                let pn      = self.project_name.clone();
+                match EditorState::load(&path) {
+                    Ok(mut new_editor) => {
+                        new_editor.project_folder = pf;
+                        new_editor.project_name   = pn;
+                        *self = new_editor;
+                    }
+                    Err(e) => {
+                        self.save_message       = Some(format!("Load error: {}", e));
+                        self.save_message_timer = 0;
+                        self.browsing           = false;
+                    }
+                }
+            }
+            return;
+        }
+
+        // ── Paste mode ────────────────────────────────────────────────────────
+        if self.pasting && !self.ignore_drag {
+            if input.just_pressed(Key::Escape) {
+                self.pasting = false;
+                self.active_tool = ToolKind::Paint;
+                return;
+            }
+            if input.just_pressed(Key::H) { self.paste_flip_x = !self.paste_flip_x; }
+            if input.just_pressed(Key::LeftBracket)  { self.paste_rotate = (self.paste_rotate + 3) % 4; }
+            if input.just_pressed(Key::RightBracket) { self.paste_rotate = (self.paste_rotate + 1) % 4; }
+            if input.just_pressed(Key::J) { self.paste_flip_y = !self.paste_flip_y; }
+            if mouse.left_just_pressed() {
+                if let Some(cursor) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                    self.stamp_paste(cursor);
+                    self.pasting     = false;
+                    self.active_tool = ToolKind::Paint;
+                    self.ignore_drag = true;
+                }
+            }
+            return;
+        }
+
+        // ── Copy/Cut select mode ──────────────────────────────────────────────
+        if self.selecting || self.cutting {
+            if input.just_pressed(Key::Escape) {
+                self.selecting   = false;
+                self.cutting     = false;
+                self.sel_anchor  = None;
+                self.active_tool = ToolKind::Paint;
+                return;
+            }
+
+            if !self.ignore_drag {
+                if mouse.left_just_pressed() {
+                    if let Some(pos) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                        self.sel_anchor = Some(pos);
+                    }
+                }
+                if mouse.left_just_released() {
+                    if let (Some(anchor), Some(current)) = (
+                        self.sel_anchor, self.mouse_to_grid(mouse.cell_x, mouse.cell_y),
+                    ) {
+                        if self.cutting { self.cut_selection(anchor, current); }
+                        else            { self.copy_selection(anchor, current); }
+                    }
+
+                    // Only finish/reset if we actually started a selection or if it was a deliberate click
+                    if self.sel_anchor.is_some() {
+                        self.selecting   = false;
+                        self.cutting     = false;
+                        self.sel_anchor  = None;
+                        self.active_tool = ToolKind::Paint;
+                    }
+                }
+            }
+            return;
+        }
+
+        // ── Track inspected tile (last canvas cell the mouse was over) ────────
+        let click = mouse.left_just_pressed();
+        let l = &self.layout;
+        let on_canvas = mouse.in_bounds
+            && mouse.cell_x >= l.canvas_x
+            && mouse.cell_x < l.canvas_x + l.canvas_w
+            && mouse.cell_y >= l.canvas_y
+            && mouse.cell_y < l.canvas_y + l.canvas_h;
+
+        if on_canvas {
+            self.inspected_pos = self.mouse_to_grid(mouse.cell_x, mouse.cell_y);
+            if click || mouse.right_just_pressed() {
+                self.hierarchy_sel = None;
+            }
+        }
+
+        if self.select_mode && click && on_canvas {
+            self.selected_pos = self.inspected_pos;
+            return;
+        }
+
+        // ── Canvas scrolling (Arrow keys + Wheel) ──────────────────────────────
+        
+        // Arrow keys — scroll canvas (smooth: fire on frame 1, then every 2 frames after a 12-frame delay).
+        let any_arrow = input.is_held(Key::Left) || input.is_held(Key::Right)
+            || input.is_held(Key::Up) || input.is_held(Key::Down);
+        if any_arrow { self.scroll_repeat = self.scroll_repeat.saturating_add(1); }
+        else { self.scroll_repeat = 0; }
+        let do_scroll = self.scroll_repeat == 1
+            || (self.scroll_repeat > 12 && self.scroll_repeat % 2 == 0);
+        if do_scroll {
+            let scroll_speed = if shift { 5 } else { 1 };
+            if input.is_held(Key::Left)  { self.scroll.0 -= scroll_speed; }
+            if input.is_held(Key::Right) { self.scroll.0 += scroll_speed; }
+            if input.is_held(Key::Up)    { self.scroll.1 -= scroll_speed; }
+            if input.is_held(Key::Down)  { self.scroll.1 += scroll_speed; }
+            self.clamp_scroll();
+        }
+
+        // Mouse wheel — scroll canvas (vertical = row scroll, horizontal = col scroll).
+        if mouse.wheel_y != 0.0 {
+            let dy = if mouse.wheel_y > 0.0 { 3i32 } else { -3i32 };
+            self.scroll.1 += dy;
+            self.clamp_scroll();
+        }
+        if mouse.wheel_x != 0.0 {
+            let dx = if mouse.wheel_x > 0.0 { 3i32 } else { -3i32 };
+            self.scroll.0 += dx;
+            self.clamp_scroll();
+        }
+
+        // In select mode, no painting or erasing — only selection.
+        if self.select_mode { return; }
+
+        // ── Toolbar sticky tools (no modifier needed) ─────────────────────────
+        if !shift && !alt {
+            match self.active_tool {
+                ToolKind::Rect => {
+                    if mouse.left_just_pressed() {
+                        if let Some(pos) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                            self.rect_anchor = Some(pos);
+                        }
+                    }
+                    if mouse.left_just_released() {
+                        if let (Some(anchor), Some(current)) = (
+                            self.rect_anchor.take(),
+                            self.mouse_to_grid(mouse.cell_x, mouse.cell_y),
+                        ) {
+                            self.stamp_rect(anchor, current);
+                        }
+                    }
+                    if mouse.right_just_pressed() {
+                        if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                            self.erase_brush(gx, gy);
+                        }
+                    } else if mouse.right_held() && self.erase_size == 1 {
+                        if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                            if let Some(removed) = self.grid.erase(gx, gy) {
+                                self.undo.push(Command::EraseTile { before: removed });
+                                self.unsaved = true;
+                            }
+                        }
+                    }
+                    return;
+                }
+                ToolKind::Line => {
+                    if mouse.left_just_pressed() {
+                        if let Some(pos) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                            if self.line_anchor.is_none() {
+                                self.line_anchor = Some(pos);
+                            } else {
+                                self.stamp_line(self.line_anchor.unwrap(), pos);
+                                self.line_anchor = None;
+                                self.active_tool = ToolKind::Paint;
+                                self.ignore_drag = true;
+                            }
+                        }
+                    }
+                    if mouse.right_just_pressed() {
+                        if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                            self.erase_brush(gx, gy);
+                        }
+                    }
+                    return;
+                }
+                ToolKind::Fill => {
+                    if mouse.left_just_pressed() {
+                        if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                            self.flood_fill(gx, gy);
+                        }
+                    }
+                    if mouse.right_just_pressed() {
+                        if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                            self.erase_brush(gx, gy);
+                        }
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        // ── Mouse: rectangle tool (Shift+drag) ────────────────────────────────
+        if shift {
+            if mouse.left_just_pressed() {
+                if let Some(pos) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                    self.rect_anchor = Some(pos);
+                }
+            }
+            if mouse.left_just_released() {
+                if let (Some(anchor), Some(current)) = (
+                    self.rect_anchor.take(),
+                    self.mouse_to_grid(mouse.cell_x, mouse.cell_y),
+                ) {
+                    self.stamp_rect(anchor, current);
+                }
+            }
+            return;
+        } else {
+            self.rect_anchor = None;
+        }
+
+        // ── Mouse: alt+drag = scatter paint ──────────────────────────────────
+        if alt && mouse.left_held() && !self.ignore_drag {
+            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                if !self.grid.in_bounds(gx, gy) { return; }
+                if (gx * 1234 + gy * 5678 + self.undo.len() as i32) % 2 == 0 {
+                    let new_tile = self.palette.current().to_tile_record(gx, gy);
+                    let existing = self.grid.get(gx, gy).cloned();
+                    self.undo.push(Command::PlaceTile { before: existing, after: new_tile.clone() });
+                    self.grid.place(gx, gy, new_tile);
+                    self.unsaved = true;
+                }
+            }
+            return;
+        }
+
+        // ── Normal left-click paint ───────────────────────────────────────────
+        if mouse.left_held() && !self.ignore_drag {
+            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                if !self.grid.in_bounds(gx, gy) { return; }
+                let new_tile = self.palette.current().to_tile_record(gx, gy);
+                let existing = self.grid.get(gx, gy).cloned();
+                let same = existing.as_ref().map(|t| {
+                    t.glyph == new_tile.glyph && t.solid == new_tile.solid
+                        && t.trigger == new_tile.trigger && t.tag == new_tile.tag
+                }).unwrap_or(false);
+                if !same {
+                    self.undo.push(Command::PlaceTile { before: existing, after: new_tile.clone() });
+                    self.grid.place(gx, gy, new_tile);
+                    self.unsaved = true;
+                }
+            }
+        }
+
+        // ── Right-click erase (brush size) ───────────────────────────────────
+        if mouse.right_just_pressed() {
+            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                self.erase_brush(gx, gy);
+            }
+        } else if mouse.right_held() && self.erase_size == 1 {
+            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                if let Some(removed) = self.grid.erase(gx, gy) {
+                    self.undo.push(Command::EraseTile { before: removed });
+                    self.unsaved = true;
+                }
+            }
+        }
+    }
+}

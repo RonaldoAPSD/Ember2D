@@ -312,14 +312,22 @@ impl PanelManager {
             }
             DockSide::Bottom => {
                 // Bottom edge fixed: grow up → y decreases, h increases
-                let new_h = ((oh as i32 - dy).max(MIN_H as i32)) as usize;
+                // Constrain: cannot resize above row 2
+                let mut new_h = ((oh as i32 - dy).max(MIN_H as i32)) as usize;
                 let orig_bottom = self.panels[i].y + oh as i32;
+                let potential_y = orig_bottom - new_h as i32;
+                if potential_y < 2 {
+                    new_h = (orig_bottom - 2) as usize;
+                }
                 self.panels[i].h = new_h;
                 self.panels[i].y = orig_bottom - new_h as i32;
             }
             DockSide::None => {
                 self.panels[i].w = ((ow as i32 + dx).max(MIN_W as i32)) as usize;
-                self.panels[i].h = ((oh as i32 + dy).max(MIN_H as i32)) as usize;
+                let new_h = ((oh as i32 + dy).max(MIN_H as i32)) as usize;
+                // For floating panels, the anchor is top-left, so resizing doesn't move Y.
+                // But we should ensure height doesn't exceed screen.
+                self.panels[i].h = new_h;
             }
         }
     }

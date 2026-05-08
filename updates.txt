@@ -8,3 +8,8 @@ This file is the updates made since the last time I used Claude Code.
 6. Removed redundant feature "Find & Replaced" that was half implemented but not needed in engine at this time. 
 7. Fixed issue where mouse was not able to be used when selecting new level in project or selecting node options in the visual scripter.
 8. Fixed issue where select anything with the menu bar or on pannels would bleed into the level editor while having the paint tool active.
+9. Refactored code base with new rule. No file size can be bigger than 600 lines of code.
+10. Fixed issue where copy select and cut select were not working properly and were in two menus.
+11. Fixed issue where Pannels were being drawn over the menu bar drop downs.
+12. Fixed issue where you could draw outside of the map size the player selected.
+13. Updated start screen to be dynamic.

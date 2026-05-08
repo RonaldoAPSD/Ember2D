@@ -23,6 +23,7 @@ Ember2D is a 2D game engine and editor built with Rust, focusing on a character-
 
 ## Development Guidelines
 
+- **File Size Limit**: Each source file (`.rs`) MUST NOT exceed 600 lines of code. Prefer splitting into sub-modules.
 - **UI/Editor Changes**: Be mindful of the docking system and panel management in `src/editor/`.
 - **Performance**: The renderer blits a raw `u32` buffer; keep operations within the frame budget.
 - **Error Handling**: Use `Result` and `eprintln!` for warnings; prioritize stability in the editor.

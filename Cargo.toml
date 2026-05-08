@@ -11,7 +11,7 @@
 
 [package]
 name    = "ember2d"
-version = "0.3.4"
+version = "0.3.8"
 edition = "2021"
 
 [dependencies]

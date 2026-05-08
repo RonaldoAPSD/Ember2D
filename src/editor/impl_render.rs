@@ -92,6 +92,7 @@ impl EditorState {
 
         ui::draw_menu_toolbar(renderer, self.active_menu, self.active_tool, &layout);
 
+        ui::draw_void(renderer, &self.grid, self.scroll, &layout);
         ui::draw_level_boundary(renderer, &self.grid, self.scroll, &layout);
         if self.show_grid { ui::draw_grid_overlay(renderer, &self.grid, self.scroll, &layout); }
         ui::draw_grid(renderer, &self.grid, self.scroll, &layout);
@@ -143,25 +144,6 @@ impl EditorState {
         if self.show_help {
             ui::draw_help_overlay(renderer, &layout);
         }
-
-        // ── Menu dropdown (drawn over canvas, under title bar) ────────────────
-        if let Some(menu) = self.active_menu {
-            let ms = MenuState {
-                can_undo:       self.undo.len() > 0,
-                can_redo:       self.undo.redo_len() > 0,
-                clipboard_full: !self.clipboard.is_empty(),
-                show_palette:   self.panels.visible(PanelId::Palette),
-                show_grid:      self.show_grid,
-                show_inspector: self.panels.visible(PanelId::Inspector),
-                show_console:   self.panels.visible(PanelId::Console),
-                show_stats:     self.panels.visible(PanelId::Stats),
-                show_physics:   self.show_physics,
-                active_tool:    self.active_tool,
-            };
-            ui::draw_menu_dropdown(renderer, menu, mouse.cell_x, mouse.cell_y, &ms, &layout);
-        }
-
-        // Hierarchy is now a regular panel — drawn in the panels loop below.
 
         // ── Inspector tile / position resolution ──────────────────────────────
         let player_tile: Option<crate::level::TileRecord> =
@@ -222,6 +204,23 @@ impl EditorState {
                     ui::draw_stats_panel(renderer, &self.grid, &self.palette, px, pcy, pw, pch);
                 }
             }
+        }
+
+        // ── Menu dropdown (drawn over panels and canvas) ──────────────────────
+        if let Some(menu) = self.active_menu {
+            let ms = MenuState {
+                can_undo:       self.undo.len() > 0,
+                can_redo:       self.undo.redo_len() > 0,
+                clipboard_full: !self.clipboard.is_empty(),
+                show_palette:   self.panels.visible(PanelId::Palette),
+                show_grid:      self.show_grid,
+                show_inspector: self.panels.visible(PanelId::Inspector),
+                show_console:   self.panels.visible(PanelId::Console),
+                show_stats:     self.panels.visible(PanelId::Stats),
+                show_physics:   self.show_physics,
+                active_tool:    self.active_tool,
+            };
+            ui::draw_menu_dropdown(renderer, menu, mouse.cell_x, mouse.cell_y, &ms, &layout);
         }
 
         // ── Title bar ─────────────────────────────────────────────────────────

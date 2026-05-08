@@ -1,0 +1,87 @@
+// scripting/types.rs — Log types, HUD drawing, and internal scripting types.
+
+use std::collections::HashSet;
+use crate::renderer::color::Color;
+use crate::world::EntityId;
+use crate::input::{InputManager, Key};
+
+// ── Console log types (used by editor console panel) ─────────────────────────
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LogLevel { Error, Warning, Info }
+
+#[derive(Debug, Clone)]
+pub struct LogEntry {
+    pub level: LogLevel,
+    pub text:  String,
+}
+
+impl LogEntry {
+    pub fn error(text: impl Into<String>) -> Self { LogEntry { level: LogLevel::Error,   text: text.into() } }
+    pub fn warn(text:  impl Into<String>) -> Self { LogEntry { level: LogLevel::Warning, text: text.into() } }
+    pub fn info(text:  impl Into<String>) -> Self { LogEntry { level: LogLevel::Info,    text: text.into() } }
+}
+
+// ── HudDraw ───────────────────────────────────────────────────────────────────
+
+pub struct HudDraw {
+    pub x:    usize,
+    pub y:    usize,
+    pub text: String,
+    pub fg:   Color,
+    pub bg:   Color,
+}
+
+// ── SpawnRequest ──────────────────────────────────────────────────────────────
+
+pub(super) struct SpawnRequest {
+    pub id:    EntityId,
+    pub glyph: char,
+    pub x:     f32,
+    pub y:     f32,
+    pub tag:   String,
+}
+
+// ── Color name → Color enum ───────────────────────────────────────────────────
+
+pub fn parse_color(name: &str) -> Color {
+    match name.trim() {
+        "Black"               => Color::Black,
+        "White"               => Color::White,
+        "Red"                 => Color::Red,
+        "Green"               => Color::Green,
+        "Yellow"              => Color::Yellow,
+        "Cyan"                => Color::Cyan,
+        "DarkBlue"            => Color::DarkBlue,
+        "DarkGrey"|"DarkGray" => Color::DarkGrey,
+        "DarkGreen"           => Color::DarkGreen,
+        "Grey"|"Gray"         => Color::Grey,
+        _                     => Color::Reset,
+    }
+}
+
+// ── Key name snapshot ─────────────────────────────────────────────────────────
+
+pub(super) fn snapshot_keys(input: &InputManager) -> (HashSet<String>, HashSet<String>) {
+    const KEY_MAP: &[(Key, &str)] = &[
+        (Key::W, "w"), (Key::A, "a"), (Key::S, "s"), (Key::D, "d"),
+        (Key::Q, "q"), (Key::E, "e"), (Key::R, "r"), (Key::F, "f"),
+        (Key::Z, "z"), (Key::X, "x"), (Key::C, "c"), (Key::V, "v"),
+        (Key::Up, "up"), (Key::Down, "down"), (Key::Left, "left"), (Key::Right, "right"),
+        (Key::Space, "space"), (Key::Enter, "enter"), (Key::Escape, "escape"),
+        (Key::LeftShift, "shift"), (Key::RightShift, "shift"),
+        (Key::LeftCtrl, "ctrl"),  (Key::RightCtrl, "ctrl"),
+        (Key::Key1, "1"), (Key::Key2, "2"), (Key::Key3, "3"),
+        (Key::Key4, "4"), (Key::Key5, "5"), (Key::Key6, "6"),
+        (Key::Key7, "7"), (Key::Key8, "8"), (Key::Key9, "9"), (Key::Key0, "0"),
+        (Key::Tab, "tab"),
+    ];
+
+    let mut held         = HashSet::new();
+    let mut just_pressed = HashSet::new();
+    for (key, name) in KEY_MAP {
+        if input.is_held(*key)      { held.insert(name.to_string()); }
+        if input.just_pressed(*key) { just_pressed.insert(name.to_string()); }
+    }
+    (held, just_pressed)
+}
