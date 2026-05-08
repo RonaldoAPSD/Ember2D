@@ -236,6 +236,11 @@ impl PanelManager {
     /// Begin dragging. Undocks the panel so it floats freely.
     pub fn start_drag(&mut self, id: PanelId, mouse_col: i32, mouse_row: i32) {
         let i = self.idx(id);
+        if self.panels[i].dock != DockSide::None {
+            // Restore to a sensible floating size when undocking
+            self.panels[i].w = self.panels[i].w.min(40).max(MIN_W);
+            self.panels[i].h = self.panels[i].h.min(20).max(MIN_H);
+        }
         self.panels[i].dock = DockSide::None;   // undock on drag start
         self.panels[i].drag_offset = Some((
             mouse_col - self.panels[i].x,
@@ -437,13 +442,13 @@ pub fn draw_panel_chrome(renderer: &mut Renderer, panel: &Panel) {
         // For docked panels, show the resize cursor on the inner edge indicator
         match panel.dock {
             DockSide::Left => {
-                renderer.draw_char(rx, y + h / 2, '|', Color::DarkGrey, Color::DarkGrey);
+                renderer.draw_char(rx, y + h / 2, '|', Color::White, Color::DarkGrey);
             }
             DockSide::Right => {
-                renderer.draw_char(x, y + h / 2, '|', Color::DarkGrey, Color::DarkGrey);
+                renderer.draw_char(x, y + h / 2, '|', Color::White, Color::DarkGrey);
             }
             _ => {
-                renderer.draw_char(rx, ry, '~', Color::DarkGrey, Color::DarkGrey);
+                renderer.draw_char(rx, ry, '~', Color::White, Color::DarkGrey);
             }
         }
     }

@@ -92,49 +92,48 @@ impl EditorState {
 
         ui::draw_menu_toolbar(renderer, self.active_menu, self.active_tool, &layout);
 
-        ui::draw_void(renderer, &self.grid, self.scroll, &layout);
-        ui::draw_level_boundary(renderer, &self.grid, self.scroll, &layout);
-        if self.show_grid { ui::draw_grid_overlay(renderer, &self.grid, self.scroll, &layout); }
-        ui::draw_grid(renderer, &self.grid, self.scroll, &layout);
-        ui::draw_spawn_marker(renderer, self.grid.spawn_point, self.scroll, &layout);
-        ui::draw_extra_spawns(renderer, &self.grid.extra_spawns, self.scroll, &layout);
+
+        ui::draw_void(renderer, &self.grid, self.scroll, self.zoom, &layout);
+        ui::draw_level_boundary(renderer, &self.grid, self.scroll, self.zoom, &layout);
+        if self.show_grid { ui::draw_grid_overlay(renderer, &self.grid, self.scroll, self.zoom, &layout); }
+        ui::draw_grid(renderer, &self.grid, self.scroll, self.zoom, &layout);
+        ui::draw_spawn_marker(renderer, self.grid.spawn_point, self.scroll, self.zoom, &layout);
+        ui::draw_extra_spawns(renderer, &self.grid.extra_spawns, self.scroll, self.zoom, &layout);
 
         // ── Mode overlays ─────────────────────────────────────────────────────
         let grid_cursor = self.mouse_to_grid(mouse.cell_x, mouse.cell_y);
 
         if self.pasting {
             if let Some(cursor) = grid_cursor {
-                let max_dx = self.clipboard.iter().map(|(dx,_,_)| *dx).max().unwrap_or(0);
-                let max_dy = self.clipboard.iter().map(|(_,dy,_)| *dy).max().unwrap_or(0);
                 ui::draw_paste_preview(renderer, &self.clipboard, cursor,
-                    self.paste_flip_x, self.paste_flip_y, self.paste_rotate, self.scroll, &layout);
-                let _ = (max_dx, max_dy);
+                    self.paste_flip_x, self.paste_flip_y, self.paste_rotate, self.scroll, self.zoom, &layout);
             }
         } else if self.selecting || self.cutting {
             if let (Some(anchor), Some(current)) = (self.sel_anchor, grid_cursor) {
-                ui::draw_selection_preview(renderer, anchor, current, self.scroll, &layout);
+                ui::draw_selection_preview(renderer, anchor, current, self.scroll, self.zoom, &layout);
             }
         } else if let Some(anchor) = self.rect_anchor {
             let current = grid_cursor.unwrap_or(anchor);
-            ui::draw_rect_preview(renderer, anchor, current, self.palette.current().glyph, self.scroll, &layout);
+            ui::draw_rect_preview(renderer, anchor, current, self.palette.current().glyph, self.scroll, self.zoom, &layout);
         } else if let Some(anchor) = self.line_anchor {
             let current = grid_cursor.unwrap_or(anchor);
-            ui::draw_line_preview(renderer, anchor, current, self.palette.current().glyph, self.scroll, &layout);
+            ui::draw_line_preview(renderer, anchor, current, self.palette.current().glyph, self.scroll, self.zoom, &layout);
         } else {
-            ui::draw_cursor_highlight(renderer, mouse, &self.palette, self.select_mode, &layout);
+            ui::draw_cursor_highlight(renderer, mouse, &self.palette, self.select_mode, self.zoom, &layout);
         }
 
         // Physics overlay — tints solid/trigger tiles.
         if self.show_physics {
-            ui::draw_physics_overlay(renderer, &self.grid, self.scroll, &layout);
+            ui::draw_physics_overlay(renderer, &self.grid, self.scroll, self.zoom, &layout);
         }
 
         // Erase brush preview — only when right button held and brush > 1 cell.
         if mouse.right_held() && self.erase_size > 1 {
             if let Some(cursor) = grid_cursor {
-                ui::draw_erase_preview(renderer, cursor, self.erase_size, self.scroll, &layout);
+                ui::draw_erase_preview(renderer, cursor, self.erase_size, self.scroll, self.zoom, &layout);
             }
         }
+
 
         if self.browsing {
             ui::draw_file_browser(renderer, &self.file_list, self.file_cursor, &layout);
@@ -208,19 +207,21 @@ impl EditorState {
 
         // ── Menu dropdown (drawn over panels and canvas) ──────────────────────
         if let Some(menu) = self.active_menu {
-            let ms = MenuState {
-                can_undo:       self.undo.len() > 0,
-                can_redo:       self.undo.redo_len() > 0,
+            let menu_state = MenuState {
+                can_undo:       self.undo.can_undo(),
+                can_redo:       self.undo.can_redo(),
                 clipboard_full: !self.clipboard.is_empty(),
                 show_palette:   self.panels.visible(PanelId::Palette),
                 show_grid:      self.show_grid,
+                show_hierarchy: self.panels.visible(PanelId::Hierarchy),
                 show_inspector: self.panels.visible(PanelId::Inspector),
                 show_console:   self.panels.visible(PanelId::Console),
                 show_stats:     self.panels.visible(PanelId::Stats),
                 show_physics:   self.show_physics,
                 active_tool:    self.active_tool,
             };
-            ui::draw_menu_dropdown(renderer, menu, mouse.cell_x, mouse.cell_y, &ms, &layout);
+
+            ui::draw_menu_dropdown(renderer, menu, mouse.cell_x, mouse.cell_y, &menu_state, &layout);
         }
 
         // ── Title bar ─────────────────────────────────────────────────────────

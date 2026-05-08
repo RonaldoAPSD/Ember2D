@@ -39,6 +39,7 @@ pub struct Cell {
     pub ch: char,
     pub fg: Color,
     pub bg: Color,
+    pub scale: f32,
 }
 
 impl Cell {
@@ -49,12 +50,17 @@ impl Cell {
             ch: ' ',
             fg: Color::Reset,
             bg: Color::Reset,
+            scale: 1.0,
         }
     }
 
     /// Create a cell with specific character and colors.
     pub fn new(ch: char, fg: Color, bg: Color) -> Self {
-        Cell { ch, fg, bg }
+        Cell { ch, fg, bg, scale: 1.0 }
+    }
+
+    pub fn new_scaled(ch: char, fg: Color, bg: Color, scale: f32) -> Self {
+        Cell { ch, fg, bg, scale }
     }
 }
 

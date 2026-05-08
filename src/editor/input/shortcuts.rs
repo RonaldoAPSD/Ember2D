@@ -76,13 +76,15 @@ impl EditorState {
         }
 
         if input.just_pressed(Key::Tab) { self.show_grid = !self.show_grid; }
+        if input.just_pressed(Key::H)   { self.panels.toggle(PanelId::Hierarchy); }
         if input.just_pressed(Key::B)   { self.panels.toggle(PanelId::Palette); }
         if input.just_pressed(Key::G)   { self.show_physics = !self.show_physics; }
 
-        // Home — center view on player spawn point.
+        // Home — center view on player spawn point and reset zoom.
         if input.just_pressed(Key::Home) {
             let (sx, sy) = self.grid.spawn_point;
             self.center_on(sx as i32, sy as i32);
+            self.zoom = 1.0;
         }
 
         // ? (Shift+Slash) — toggle help screen.

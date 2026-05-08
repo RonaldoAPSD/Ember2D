@@ -171,10 +171,32 @@ impl EditorState {
             self.clamp_scroll();
         }
 
-        // Mouse wheel — scroll canvas (vertical = row scroll, horizontal = col scroll).
+        // Mouse wheel — zoom canvas (ctrl+wheel for faster zoom).
         if mouse.wheel_y != 0.0 {
-            let dy = if mouse.wheel_y > 0.0 { 3i32 } else { -3i32 };
-            self.scroll.1 += dy;
+            let ctrl = input.is_held(Key::LeftCtrl) || input.is_held(Key::RightCtrl);
+            
+            // 1. Capture grid position under mouse before zoom
+            let mx = mouse.cell_x as f32;
+            let my = mouse.cell_y as f32;
+            let cx = self.layout.canvas_x as f32;
+            let cy = self.layout.canvas_y as f32;
+            
+            let gx_before = (mx - cx) / self.zoom + self.scroll.0 as f32;
+            let gy_before = (my - cy) / self.zoom + self.scroll.1 as f32;
+
+            // 2. Apply multiplicative zoom
+            let factor = if ctrl { 1.5 } else { 1.1 };
+            if mouse.wheel_y > 0.0 {
+                self.zoom *= factor;
+            } else {
+                self.zoom /= factor;
+            }
+            self.zoom = self.zoom.clamp(0.25, 4.0);
+
+            // 3. Adjust scroll to keep the same grid point under the mouse
+            self.scroll.0 = (gx_before - (mx - cx) / self.zoom).round() as i32;
+            self.scroll.1 = (gy_before - (my - cy) / self.zoom).round() as i32;
+            
             self.clamp_scroll();
         }
         if mouse.wheel_x != 0.0 {

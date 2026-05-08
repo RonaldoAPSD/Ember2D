@@ -60,6 +60,7 @@ pub fn menu_entries(kind: MenuKind) -> Vec<MenuEntry> {
             Item { label: "Add Spawn...", shortcut: "S+P ", action: AddNamedSpawn},
         ],
         MenuKind::View => vec![
+            Item { label: "Hierarchy", shortcut: "H   ", action: ToggleHierarchy },
             Item { label: "Palette",   shortcut: "B   ", action: TogglePalette   },
             Item { label: "Grid",      shortcut: "Tab ", action: ToggleGrid      },
             Item { label: "Physics",   shortcut: "G   ", action: TogglePhysics   },
@@ -107,6 +108,7 @@ fn menu_checkmark(action: &ToolbarAction, ms: &MenuState) -> char {
         ToolbarAction::ToggleInspector => if ms.show_inspector  { 'x' } else { ' ' },
         ToolbarAction::ToggleConsole   => if ms.show_console    { 'x' } else { ' ' },
         ToolbarAction::ToggleStats     => if ms.show_stats      { 'x' } else { ' ' },
+        ToolbarAction::ToggleHierarchy => if ms.show_hierarchy  { 'x' } else { ' ' },
         _ => ' ',
     }
 }

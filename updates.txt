@@ -13,3 +13,5 @@ This file is the updates made since the last time I used Claude Code.
 11. Fixed issue where Pannels were being drawn over the menu bar drop downs.
 12. Fixed issue where you could draw outside of the map size the player selected.
 13. Updated start screen to be dynamic.
+14. Updated scroll wheel from scolling horizontally and verticlly to instead be a zoom in and out. Added reset zoom button.
+15. Updated the help menu to be up to date.

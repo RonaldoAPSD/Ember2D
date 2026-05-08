@@ -48,7 +48,7 @@ pub(super) fn draw_main_menu(renderer: &mut Renderer, sw: usize, sh: usize, elap
     renderer.draw_rect_outline(box_x, box_y, box_w, 5, pulse, Color::Black);
     renderer.draw_str(box_x + (box_w.saturating_sub(18)) / 2, box_y + 1, "* E M B E R  2 D *", Color::Yellow, Color::Black);
     renderer.draw_str(box_x + (box_w.saturating_sub(22)) / 2, box_y + 2, "L E V E L   E D I T O R", Color::White, Color::Black);
-    renderer.draw_str(box_x + (box_w.saturating_sub(6)) / 2, box_y + 3, "v0.3.8", Color::DarkGrey, Color::Black);
+    renderer.draw_str(box_x + (box_w.saturating_sub(6)) / 2, box_y + 3, "v0.3.9", Color::DarkGrey, Color::Black);
 
     let menu_x = (sw.saturating_sub(MENU_W)) / 2;
     let menu_y = 10;

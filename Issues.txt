@@ -1,7 +1,6 @@
 This text shows the current issues with the engine after testing the engine further.
 
 [Major issues]
-4. When undocking something from the sides and putting it in the center, it trys to dock to one of the other edges rather being coming its own hovering window. The docking auto sizing also doesnt feel great. There also isnt any indicator to really show where to click to resize the pannel.
+
 
 [Minior issues]
-6. Level editor does not support zooming in and out with mouse wheel it instead scrolls down big grid files which i can already pan by clicking middle mouse buttons and using arrow keys so Id rather be able to zoom in and out.

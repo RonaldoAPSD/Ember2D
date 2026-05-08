@@ -29,8 +29,8 @@ impl EditorState {
         let l = &self.layout;
         if cell_x < l.canvas_x || cell_x >= l.canvas_x + l.canvas_w { return None; }
         if cell_y < l.canvas_y || cell_y >= l.canvas_y + l.canvas_h { return None; }
-        let gx = (cell_x - l.canvas_x) as i32 + self.scroll.0;
-        let gy = (cell_y - l.canvas_y) as i32 + self.scroll.1;
+        let gx = ((cell_x - l.canvas_x) as f32 / self.zoom).floor() as i32 + self.scroll.0;
+        let gy = ((cell_y - l.canvas_y) as f32 / self.zoom).floor() as i32 + self.scroll.1;
         Some((gx, gy))
     }
 
@@ -270,6 +270,7 @@ impl EditorState {
             ToolbarAction::ToggleInspector => { self.panels.toggle(PanelId::Inspector); }
             ToolbarAction::ToggleConsole   => { self.panels.toggle(PanelId::Console); }
             ToolbarAction::TogglePalette   => { self.panels.toggle(PanelId::Palette); }
+            ToolbarAction::ToggleHierarchy => { self.panels.toggle(PanelId::Hierarchy); }
             ToolbarAction::TogglePhysics   => { self.show_physics = !self.show_physics; }
             ToolbarAction::ToggleStats     => { self.panels.toggle(PanelId::Stats); }
             ToolbarAction::ToggleHelp      => { self.show_help = !self.show_help; }

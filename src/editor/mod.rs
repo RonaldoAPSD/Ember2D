@@ -140,6 +140,7 @@ pub struct EditorState {
     pub(super) graph_editing_param: Option<(node_graph::NodeId, String)>,
 
     pub(super) layout: Layout,
+    pub(super) zoom:   f32,
 }
 
 impl EditorState {
@@ -198,6 +199,7 @@ impl EditorState {
             graph_palette_cursor: 0,
             graph_editing_param: None,
             layout:       Layout::new(80, 24),
+            zoom:         1.0,
         }
     }
 
