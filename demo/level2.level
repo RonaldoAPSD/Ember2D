@@ -2206,6 +2206,7 @@
             solid: false,
             trigger: true,
             tag: "door",
+            script: Some("demo/scripts/door.rhai"),
             next_level: Some("level3.level"),
         ),
         (

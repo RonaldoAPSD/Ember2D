@@ -3,6 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::time::SystemTime;
+use std::sync::{Arc, Mutex};
 use rhai::{Engine, Scope, AST};
 
 use crate::world::{EntityId, World};
@@ -17,9 +18,12 @@ use super::api::ScriptCtx;
 pub(super) struct ScriptState {
     pub(super) positions:        HashMap<i64, (f32, f32)>,
     pub(super) velocities:       HashMap<i64, (f32, f32)>,
+    pub(super) colliders:        HashMap<i64, (f32, f32, bool, String)>, // w, h, solid, layer
     pub(super) tags:             HashMap<i64, String>,
     pub(super) tag_to_id:        HashMap<String, i64>,
     pub(super) tag_to_ids:       HashMap<String, Vec<i64>>,
+    pub(super) visibility:       HashMap<i64, bool>,
+    pub(super) z_orders:         HashMap<i64, i32>,
     pub(super) delta_time:       f32,
     pub(super) elapsed:          f32,
     pub(super) next_spawn_id:    EntityId,
@@ -27,11 +31,22 @@ pub(super) struct ScriptState {
     pub(super) just_pressed_keys: HashSet<String>,
     pub(super) extra_spawns:     HashMap<String, (f32, f32)>,
 
+    pub(super) mouse_pos:        (f32, f32),
+    pub(super) mouse_held:       (bool, bool),
+    pub(super) mouse_pressed:    (bool, bool),
+
+    pub(super) globals:          HashMap<String, rhai::Dynamic>,
+    pub(super) persistent:       HashMap<String, rhai::Dynamic>,
+
+    pub(super) camera_pos:       (f32, f32),
+    pub(super) viewport_size:    (usize, usize),
+
     pub(super) pending_velocities: Vec<(i64, f32, f32)>,
     pub(super) pending_positions:  Vec<(i64, f32, f32)>,
     pub(super) pending_glyphs:     Vec<(i64, char)>,
     pub(super) pending_colors:     Vec<(i64, String, String)>,
     pub(super) pending_hud_draws:  Vec<HudDraw>,
+    pub(super) clear_hud:          bool,
     pub(super) despawn_queue:      Vec<i64>,
     pub(super) spawn_queue:        Vec<SpawnRequest>,
     pub(super) pending_level:      Option<String>,
@@ -39,20 +54,48 @@ pub(super) struct ScriptState {
     pub(super) pending_sounds:     Vec<String>,
     pub(super) pending_music:      Option<String>,
     pub(super) stop_music:         bool,
+
+    pub(super) pending_globals:    HashMap<String, rhai::Dynamic>,
+    pub(super) pending_persistent: HashMap<String, rhai::Dynamic>,
+    pub(super) pending_camera:     Option<crate::math::Vec2>,
+    pub(super) pending_shake:      Option<crate::play::ShakeState>,
+    pub(super) pending_visibility: Vec<(i64, bool)>,
+    pub(super) pending_z_order:    Vec<(i64, i32)>,
+    pub(super) pending_collider_layer: Vec<(i64, String)>,
+    pub(super) pending_timers:     Vec<(EntityId, String, f64)>,
+    pub(super) timers:             HashMap<EntityId, HashMap<String, f64>>,
 }
 
 impl ScriptState {
-    pub(super) fn from_world(world: &World, delta_time: f32, elapsed: f32, input: Option<&InputManager>, spawns: &[(String, f32, f32)]) -> Self {
+    pub(super) fn from_world(
+        world: &World,
+        delta_time: f32,
+        elapsed: f32,
+        input: Option<&InputManager>,
+        mouse: Option<&crate::mouse::MouseState>,
+        spawns: &[(String, f32, f32)],
+        globals: HashMap<String, rhai::Dynamic>,
+        persistent: HashMap<String, rhai::Dynamic>,
+        camera_pos: crate::math::Vec2,
+        viewport_size: (usize, usize),
+    ) -> Self {
         let mut positions  = HashMap::new();
         let mut velocities = HashMap::new();
+        let mut colliders  = HashMap::new();
         let mut tags       = HashMap::new();
         let mut tag_to_id  = HashMap::new();
         let mut tag_to_ids: HashMap<String, Vec<i64>> = HashMap::new();
+        let mut visibility = HashMap::new();
+        let mut z_orders   = HashMap::new();
 
         for (id, tf) in &world.transforms {
             let eid = *id as i64;
             positions.insert(eid,  (tf.position.x, tf.position.y));
             velocities.insert(eid, (tf.velocity.x, tf.velocity.y));
+        }
+
+        for (id, col) in &world.colliders {
+            colliders.insert(*id as i64, (col.width, col.height, col.solid, col.layer.clone()));
         }
 
         for (id, tag) in &world.tags {
@@ -62,18 +105,37 @@ impl ScriptState {
             tag_to_ids.entry(tag.name.clone()).or_default().push(eid);
         }
 
+        for (id, sp) in &world.sprites {
+            visibility.insert(*id as i64, sp.visible);
+            z_orders.insert(*id as i64, sp.z_order);
+        }
+
         let (held_keys, just_pressed_keys) = input.map(snapshot_keys).unwrap_or_default();
+
+        let mouse_pos = mouse.map(|m| (m.cell_x as f32, m.cell_y as f32)).unwrap_or((0.0, 0.0));
+        let mouse_held = mouse.map(|m| (m.left_held(), m.right_held())).unwrap_or((false, false));
+        let mouse_pressed = mouse.map(|m| (m.left_just_pressed(), m.right_just_pressed())).unwrap_or((false, false));
 
         let extra_spawns: HashMap<String, (f32, f32)> = spawns.iter().map(|(name, x, y)| (name.clone(), (*x, *y))).collect();
 
         ScriptState {
-            positions, velocities, tags, tag_to_id, tag_to_ids, delta_time, elapsed,
-            next_spawn_id: world.next_id, held_keys, just_pressed_keys, extra_spawns,
+            positions, velocities, colliders, tags, tag_to_id, tag_to_ids, visibility, z_orders,
+            delta_time, elapsed, next_spawn_id: world.next_id, held_keys, just_pressed_keys, extra_spawns,
+            mouse_pos, mouse_held, mouse_pressed,
+            globals, persistent,
+            camera_pos: (camera_pos.x, camera_pos.y),
+            viewport_size,
             pending_velocities: Vec::new(), pending_positions: Vec::new(),
             pending_glyphs: Vec::new(), pending_colors: Vec::new(),
-            pending_hud_draws: Vec::new(), despawn_queue: Vec::new(),
+            pending_hud_draws: Vec::new(), clear_hud: false, despawn_queue: Vec::new(),
             spawn_queue: Vec::new(), pending_level: None, pending_logs: Vec::new(),
             pending_sounds: Vec::new(), pending_music: None, stop_music: false,
+            pending_globals: HashMap::new(), pending_persistent: HashMap::new(),
+            pending_camera: None, pending_shake: None,
+            pending_visibility: Vec::new(), pending_z_order: Vec::new(),
+            pending_collider_layer: Vec::new(),
+            pending_timers: Vec::new(),
+            timers: HashMap::new(),
         }
     }
 }
@@ -84,6 +146,7 @@ pub struct ScriptEngine {
     scopes:    HashMap<EntityId, Scope<'static>>,
     mod_times: HashMap<String, SystemTime>,
     logged_runtime_errors: HashSet<String>,
+    rng:       Arc<Mutex<rand::rngs::SmallRng>>,
     pub pending_hud_draws: Vec<HudDraw>,
     pub pending_sounds:    Vec<String>,
     pub pending_music:     Option<String>,
@@ -121,9 +184,62 @@ impl ScriptEngine {
         engine.register_fn("play_music",      ScriptCtx::play_music);
         engine.register_fn("stop_music",      ScriptCtx::stop_music);
 
+        // V0.4 Extensions
+        engine.register_fn("set_global",      ScriptCtx::set_global);
+        engine.register_fn("get_global",      ScriptCtx::get_global);
+        engine.register_fn("has_global",      ScriptCtx::has_global);
+        engine.register_fn("remove_global",   ScriptCtx::remove_global);
+        engine.register_fn("random_int",      ScriptCtx::random_int);
+        engine.register_fn("random_float",    ScriptCtx::random_float);
+        engine.register_fn("random_bool",     ScriptCtx::random_bool);
+        engine.register_fn("random_choice",   ScriptCtx::random_choice);
+        engine.register_fn("get_entity_at",   ScriptCtx::get_entity_at);
+        engine.register_fn("is_solid_at",     ScriptCtx::is_solid_at);
+        engine.register_fn("find_entities_in_rect", ScriptCtx::find_entities_in_rect);
+        engine.register_fn("get_distance",    ScriptCtx::get_distance);
+        engine.register_fn("get_angle_to",    ScriptCtx::get_angle_to);
+        engine.register_fn("entity_exists",   ScriptCtx::entity_exists);
+        engine.register_fn("count_by_tag",    ScriptCtx::count_by_tag);
+        engine.register_fn("get_collider_w",  ScriptCtx::get_collider_w);
+        engine.register_fn("get_collider_h",  ScriptCtx::get_collider_h);
+        engine.register_fn("is_visible",      ScriptCtx::is_visible);
+        engine.register_fn("set_visible",     ScriptCtx::set_visible);
+        engine.register_fn("get_z_order",     ScriptCtx::get_z_order);
+        engine.register_fn("set_z_order",     ScriptCtx::set_z_order);
+        engine.register_fn("get_mouse_x",     ScriptCtx::get_mouse_x);
+        engine.register_fn("get_mouse_y",     ScriptCtx::get_mouse_y);
+        engine.register_fn("mouse_left_pressed", ScriptCtx::mouse_left_pressed);
+        engine.register_fn("mouse_right_pressed", ScriptCtx::mouse_right_pressed);
+        engine.register_fn("mouse_left_held", ScriptCtx::mouse_left_held);
+        engine.register_fn("mouse_right_held", ScriptCtx::mouse_right_held);
+        engine.register_fn("get_mouse_world_x", ScriptCtx::get_mouse_world_x);
+        engine.register_fn("get_mouse_world_y", ScriptCtx::get_mouse_world_y);
+        engine.register_fn("get_camera_x",    ScriptCtx::get_camera_x);
+        engine.register_fn("get_camera_y",    ScriptCtx::get_camera_y);
+        engine.register_fn("set_camera",      ScriptCtx::set_camera);
+        engine.register_fn("shake_camera",    ScriptCtx::shake_camera);
+        engine.register_fn("set_persistent",   ScriptCtx::set_persistent);
+        engine.register_fn("get_persistent",   ScriptCtx::get_persistent);
+        engine.register_fn("has_persistent",   ScriptCtx::has_persistent);
+        engine.register_fn("clear_persistent", ScriptCtx::clear_persistent);
+        engine.register_fn("clear_all_persistent", ScriptCtx::clear_all_persistent);
+        engine.register_fn("draw_box",        ScriptCtx::draw_box);
+        engine.register_fn("fill_rect",       ScriptCtx::fill_rect);
+        engine.register_fn("clear_hud",       ScriptCtx::clear_hud);
+        engine.register_fn("get_collider_layer", ScriptCtx::get_collider_layer);
+        engine.register_fn("set_collider_layer", ScriptCtx::set_collider_layer);
+        engine.register_fn("get_viewport_width", ScriptCtx::get_viewport_width);
+        engine.register_fn("get_viewport_height", ScriptCtx::get_viewport_height);
+
+        engine.register_fn("start_timer",     ScriptCtx::start_timer);
+        engine.register_fn("timer_done",      ScriptCtx::timer_done);
+        engine.register_fn("cancel_timer",    ScriptCtx::cancel_timer);
+
+        use rand::SeedableRng;
         ScriptEngine {
             engine, ast_cache: HashMap::new(), scopes: HashMap::new(),
             mod_times: HashMap::new(), logged_runtime_errors: HashSet::new(),
+            rng: Arc::new(Mutex::new(rand::rngs::SmallRng::from_entropy())),
             pending_hud_draws: Vec::new(), pending_sounds: Vec::new(),
             pending_music: None, stop_music: false,
         }
@@ -151,54 +267,117 @@ impl ScriptEngine {
         }
     }
 
-    pub fn run_on_start_all(&mut self, world: &mut World, log: &mut Vec<LogEntry>, extra_spawns: &[(String, f32, f32)]) {
+    pub fn run_on_start_all(&mut self, world: &mut World, log: &mut Vec<LogEntry>, extra_spawns: &[(String, f32, f32)], globals: HashMap<String, rhai::Dynamic>, persistent: HashMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, viewport_size: (usize, usize)) -> ScriptUpdateResult {
         let scripted: Vec<(i64, String)> = world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
-        let ctx = ScriptCtx::new(ScriptState::from_world(world, 0.0, 0.0, None, extra_spawns));
+        let mut ctx_state = ScriptState::from_world(world, 0.0, 0.0, None, None, extra_spawns, globals, persistent, camera_pos, viewport_size);
+        
+        for (entity_id, _) in &scripted {
+            let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);
+            let mut entity_timers = HashMap::new();
+            for (name, _, val) in scope.iter() {
+                if name.starts_with("__timer_") {
+                    if let Ok(f) = val.as_float() {
+                        entity_timers.insert(name.to_string().replace("__timer_", ""), f);
+                    }
+                }
+            }
+            ctx_state.timers.insert(*entity_id as EntityId, entity_timers);
+        }
+
+        let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         for (entity_id, path) in &scripted {
             let Some(ast) = self.ast_cache.get(path) else { continue };
             let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);
-            if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_start", (*entity_id, ctx.clone())) {
+            let entity_ctx = ctx.with_entity(*entity_id);
+            if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_start", (*entity_id, entity_ctx)) {
                 if !e.to_string().contains("Function not found") { log.push(LogEntry::error(format!("on_start '{}': {}", path, e))); }
             }
         }
-        self.apply_ctx(ctx, world, log);
+        self.apply_ctx(ctx, world, log)
     }
 
-    pub fn run_scripts(&mut self, world: &mut World, _events: &mut EventBus, log: &mut Vec<LogEntry>, delta_time: f32, elapsed: f32, input: Option<&InputManager>, extra_spawns: &[(String, f32, f32)]) -> Option<String> {
+    pub fn run_scripts(&mut self, world: &mut World, _events: &mut EventBus, log: &mut Vec<LogEntry>, delta_time: f32, elapsed: f32, input: Option<&InputManager>, mouse: Option<&crate::mouse::MouseState>, spawns: &[(String, f32, f32)], globals: HashMap<String, rhai::Dynamic>, persistent: HashMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, viewport_size: (usize, usize)) -> ScriptUpdateResult {
         self.check_hot_reload(log);
-        let ctx = ScriptCtx::new(ScriptState::from_world(world, delta_time, elapsed, input, extra_spawns));
+        let mut ctx_state = ScriptState::from_world(world, delta_time, elapsed, input, mouse, spawns, globals, persistent, camera_pos, viewport_size);
         let scripted: Vec<(i64, String)> = world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
+
+        for (entity_id, _) in &scripted {
+            let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);
+            
+            // Decrement timers
+            let timer_keys: Vec<String> = scope.iter()
+                .filter(|(name, _, _)| name.starts_with("__timer_"))
+                .map(|(name, _, _)| name.to_string())
+                .collect();
+            for key in timer_keys {
+                if let Some(val) = scope.get_value::<f64>(&key) {
+                    scope.set_value(&key, val - delta_time as f64);
+                }
+            }
+
+            let mut entity_timers = HashMap::new();
+            for (name, _, val) in scope.iter() {
+                if name.starts_with("__timer_") {
+                    if let Ok(f) = val.as_float() {
+                        entity_timers.insert(name.to_string().replace("__timer_", ""), f);
+                    }
+                }
+            }
+            ctx_state.timers.insert(*entity_id as EntityId, entity_timers);
+        }
+
+        let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         for (entity_id, path) in scripted {
             let Some(ast) = self.ast_cache.get(&path) else { continue };
             let scope = self.scopes.entry(entity_id as EntityId).or_insert_with(Scope::new);
-            if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_update", (entity_id, ctx.clone())) {
+            let entity_ctx = ctx.with_entity(entity_id);
+            if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_update", (entity_id, entity_ctx)) {
                 if !self.logged_runtime_errors.contains(&path) {
-                    log.push(LogEntry::error(format!("Runtime '{}': {}", path, e)));
-                    self.logged_runtime_errors.insert(path.clone());
+                    let msg = e.to_string();
+                    if !msg.contains("Function not found") {
+                        log.push(LogEntry::error(format!("Runtime '{}': {}", path, e)));
+                        self.logged_runtime_errors.insert(path.clone());
+                    }
                 }
             }
         }
         self.apply_ctx(ctx, world, log)
     }
 
-    pub fn run_collisions(&mut self, world: &mut World, pairs: &[(EntityId, EntityId)], log: &mut Vec<LogEntry>, delta_time: f32, elapsed: f32, extra_spawns: &[(String, f32, f32)]) -> Option<String> {
-        if pairs.is_empty() { return None; }
+    pub fn run_collisions(&mut self, world: &mut World, pairs: &[(EntityId, EntityId)], log: &mut Vec<LogEntry>, delta_time: f32, elapsed: f32, spawns: &[(String, f32, f32)], globals: HashMap<String, rhai::Dynamic>, persistent: HashMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, viewport_size: (usize, usize)) -> ScriptUpdateResult {
         let scripted_paths: HashMap<EntityId, String> = world.scripts.iter().map(|(id, s)| (*id, s.path.clone())).collect();
         let mut calls: Vec<(i64, i64, String)> = Vec::new();
         for &(a, b) in pairs {
             if let Some(p) = scripted_paths.get(&a) { calls.push((a as i64, b as i64, p.clone())); }
             if let Some(p) = scripted_paths.get(&b) { calls.push((b as i64, a as i64, p.clone())); }
         }
-        if calls.is_empty() { return None; }
-        let ctx = ScriptCtx::new(ScriptState::from_world(world, delta_time, elapsed, None, extra_spawns));
-        for (entity_id, other_id, path) in calls {
-            let Some(ast) = self.ast_cache.get(&path) else { continue };
-            let scope = self.scopes.entry(entity_id as EntityId).or_insert_with(Scope::new);
-            if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_collide", (entity_id, other_id, ctx.clone())) {
-                let msg = e.to_string();
-                if !msg.contains("Function not found") && !self.logged_runtime_errors.contains(&path) {
-                    log.push(LogEntry::error(format!("on_collide '{}': {}", path, e)));
-                    self.logged_runtime_errors.insert(path.clone());
+
+        let mut ctx_state = ScriptState::from_world(world, delta_time, elapsed, None, None, spawns, globals, persistent, camera_pos, viewport_size);
+        for (entity_id, _, _) in &calls {
+            let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);
+            let mut entity_timers = HashMap::new();
+            for (name, _, val) in scope.iter() {
+                if name.starts_with("__timer_") {
+                    if let Ok(f) = val.as_float() {
+                        entity_timers.insert(name.to_string().replace("__timer_", ""), f);
+                    }
+                }
+            }
+            ctx_state.timers.insert(*entity_id as EntityId, entity_timers);
+        }
+
+        let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
+        if !calls.is_empty() {
+            for (entity_id, other_id, path) in calls {
+                let Some(ast) = self.ast_cache.get(&path) else { continue };
+                let scope = self.scopes.entry(entity_id as EntityId).or_insert_with(Scope::new);
+                let entity_ctx = ctx.with_entity(entity_id);
+                if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_collide", (entity_id, other_id, entity_ctx)) {
+                    let msg = e.to_string();
+                    if !msg.contains("Function not found") && !self.logged_runtime_errors.contains(&path) {
+                        log.push(LogEntry::error(format!("on_collide '{}': {}", path, e)));
+                        self.logged_runtime_errors.insert(path.clone());
+                    }
                 }
             }
         }
@@ -225,7 +404,7 @@ impl ScriptEngine {
         }
     }
 
-    fn apply_ctx(&mut self, ctx: ScriptCtx, world: &mut World, log: &mut Vec<LogEntry>) -> Option<String> {
+    fn apply_ctx(&mut self, ctx: ScriptCtx, world: &mut World, log: &mut Vec<LogEntry>) -> ScriptUpdateResult {
         let mut state = ctx.inner.lock().unwrap();
         for &(id, vx, vy) in &state.pending_velocities { if let Some(tf) = world.transforms.get_mut(&(id as EntityId)) { tf.velocity.x = vx; tf.velocity.y = vy; } }
         for &(id, x, y) in &state.pending_positions { if let Some(tf) = world.transforms.get_mut(&(id as EntityId)) { tf.position.x = x; tf.position.y = y; } }
@@ -235,6 +414,10 @@ impl ScriptEngine {
                 sp.fg = parse_color(&fg_str); sp.bg = parse_color(&bg_str);
             }
         }
+        for (id, visible) in state.pending_visibility.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.visible = visible; } }
+        for (id, z) in state.pending_z_order.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.z_order = z; } }
+        for (id, layer) in state.pending_collider_layer.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.layer = layer; } }
+
         for req in state.spawn_queue.drain(..) {
             world.next_id = req.id + 1;
             let id = req.id;
@@ -243,15 +426,52 @@ impl ScriptEngine {
             if !req.tag.is_empty() { world.add_tag(id, Tag::new(&req.tag)); }
             world.add_collider(id, Collider::trigger(1.0, 1.0));
         }
+
         self.pending_hud_draws.extend(state.pending_hud_draws.drain(..));
         self.pending_sounds.extend(state.pending_sounds.drain(..));
         if state.pending_music.is_some() { self.pending_music = state.pending_music.take(); }
         if state.stop_music { self.stop_music = true; state.stop_music = false; }
         for msg in state.pending_logs.drain(..) { log.push(LogEntry::info(msg)); }
-        let pending_level = state.pending_level.take();
+
+        // Update globals and persistent
+        let pending_globals: Vec<(String, rhai::Dynamic)> = state.pending_globals.drain().collect();
+        for (key, val) in pending_globals {
+            if val.is_unit() { state.globals.remove(&key); }
+            else { state.globals.insert(key, val); }
+        }
+        let pending_persistent: Vec<(String, rhai::Dynamic)> = state.pending_persistent.drain().collect();
+        for (key, val) in pending_persistent {
+            if val.is_unit() { state.persistent.remove(&key); }
+            else { state.persistent.insert(key, val); }
+        }
+
+        // Update timers in scopes
+        for (id, name, duration) in state.pending_timers.drain(..) {
+            if let Some(scope) = self.scopes.get_mut(&id) {
+                let key = format!("__timer_{}", name);
+                if duration < -900.0 {
+                    // Signal for removal (timer_done)
+                    // Rhai scope removal is hard, so we just set it to a very small negative value
+                    scope.set_value(key, -1.0f64);
+                } else {
+                    scope.set_value(key, duration);
+                }
+            }
+        }
+
+        let result = ScriptUpdateResult {
+            pending_level: state.pending_level.take(),
+            globals: state.globals.clone(),
+            persistent: state.persistent.clone(),
+            camera_override: state.pending_camera.take(),
+            shake_state: state.pending_shake.take(),
+            clear_hud: state.clear_hud,
+        };
+        state.clear_hud = false;
+
         let despawn_ids: Vec<i64> = state.despawn_queue.clone();
         drop(state);
         for id in despawn_ids { world.despawn(id as EntityId); self.scopes.remove(&(id as EntityId)); }
-        pending_level
+        result
     }
 }

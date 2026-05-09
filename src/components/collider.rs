@@ -44,12 +44,15 @@ pub struct Collider {
     /// If false: this is a "trigger zone." It detects overlap and fires a
     /// Collision event, but movement is not blocked.
     pub solid: bool,
+
+    /// Optional layer name for fine-grained collision filtering in scripts.
+    pub layer: String,
 }
 
 impl Collider {
     /// Create a solid collider with the given dimensions.
     pub fn new(width: f32, height: f32) -> Self {
-        Collider { width, height, solid: true }
+        Collider { width, height, solid: true, layer: String::new() }
     }
 
     /// A 1×1 solid collider — the standard size for a single-character entity.
@@ -63,7 +66,7 @@ impl Collider {
     /// Trigger colliders fire Collision events but don't block movement.
     /// Use them for: pickups, damage areas, door triggers, room boundaries.
     pub fn trigger(width: f32, height: f32) -> Self {
-        Collider { width, height, solid: false }
+        Collider { width, height, solid: false, layer: String::new() }
     }
 
     /// Compute the world-space bounding Rect for this collider given the

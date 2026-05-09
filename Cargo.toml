@@ -11,7 +11,7 @@
 
 [package]
 name    = "ember2d"
-version = "0.3.8"
+version = "0.3.9"
 edition = "2021"
 
 [dependencies]
@@ -69,3 +69,6 @@ rhai = { version = "1", features = ["no_module", "no_closure"] }
 # fading, and pausing. Pure Rust — no C dependencies, builds on all platforms.
 # "ogg" and "mp3" enable those decoder features via symphonia.
 kira = { version = "0.9", features = ["ogg", "mp3"] }
+
+# rand: random number generation. SmallRng is fast and suitable for games.
+rand = { version = "0.8", features = ["small_rng"] }

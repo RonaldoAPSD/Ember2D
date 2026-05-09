@@ -35,7 +35,7 @@ use crate::level::LevelData;
 use crate::math::Vec2;
 use crate::renderer::color::Color;
 use crate::audio::AudioEngine;
-use crate::scripting::{LogEntry, ScriptEngine};
+use crate::scripting::{LogEntry, ScriptEngine, HudDraw};
 use crate::world::{EntityId, World};
 
 // ── Path resolution ───────────────────────────────────────────────────────────
@@ -66,6 +66,13 @@ const Z_PLAYER: i32 = 3;
 const PLAYER_SPEED: f32 = 10.0;
 
 // ── PlayState ─────────────────────────────────────────────────────────────────
+
+/// State for the screen shake effect.
+#[derive(Clone, Copy)]
+pub struct ShakeState {
+    pub intensity: f32,
+    pub duration:  f32,
+}
 
 /// The play/preview mode: runs a level loaded from LevelData.
 ///
@@ -103,6 +110,22 @@ pub struct PlayState {
 
     /// Maps exit-trigger entity IDs → target level file path.
     exit_targets: HashMap<EntityId, String>,
+
+    /// Global variables accessible by all scripts in the current level.
+    /// Reset on level load.
+    pub globals: HashMap<String, rhai::Dynamic>,
+
+    /// Persistent variables that survive level transitions.
+    pub persistent: HashMap<String, rhai::Dynamic>,
+
+    /// Camera override set by scripts this frame.
+    pub camera_override: Option<Vec2>,
+
+    /// Current active camera shake.
+    pub shake_state: Option<ShakeState>,
+
+    /// Timer for camera shake duration.
+    pub shake_timer: f32,
 }
 
 impl PlayState {
@@ -110,7 +133,7 @@ impl PlayState {
     ///
     /// The actual ECS world is not populated here — that happens in on_start()
     /// when the engine calls it. This constructor just stores the data.
-    pub fn from_level(data: LevelData) -> Self {
+    pub fn from_level(data: LevelData, persistent: HashMap<String, rhai::Dynamic>) -> Self {
         PlayState {
             player_id:          0,
             score:              0,
@@ -123,6 +146,29 @@ impl PlayState {
             script_log:         Vec::new(),
             camera_entity:      None,
             exit_targets:       HashMap::new(),
+            globals:            HashMap::new(),
+            persistent,
+            camera_override:    None,
+            shake_state:        None,
+            shake_timer:        0.0,
+        }
+    }
+
+    /// Helper to process the result of a script engine run.
+    fn apply_script_result(&mut self, res: crate::scripting::ScriptUpdateResult) {
+        if let Some(level_path) = res.pending_level {
+            let full = resolve_exit_path(&level_path, &self.level.path);
+            match LevelData::load(&full) {
+                Ok(next) => { self.pending_transition = Some(Transition::ToPlay(next)); }
+                Err(e)   => { self.script_log.push(LogEntry::warn(format!("load_level failed: {}", e))); }
+            }
+        }
+        self.globals = res.globals;
+        self.persistent = res.persistent;
+        if res.camera_override.is_some() { self.camera_override = res.camera_override; }
+        if let Some(shake) = res.shake_state {
+            self.shake_state = Some(shake);
+            self.shake_timer = shake.duration;
         }
     }
 
@@ -261,17 +307,36 @@ impl GameState for PlayState {
             }
         }
 
+        let cam_pos = self.camera_entity
+            .and_then(|id| world.transforms.get(&id))
+            .map(|tf| tf.position)
+            .unwrap_or(Vec2::ZERO);
+
+        let cam_x = (cam_pos.x - 80.0 / 2.0).max(0.0).round();
+        let cam_y = (cam_pos.y - 38.0 / 2.0).max(0.0).round();
+
         // Call on_start() for all scripted entities now that the world is fully populated.
-        self.script_engine.run_on_start_all(world, &mut self.script_log, &self.level.extra_spawns);
+        let res = self.script_engine.run_on_start_all(
+            world, &mut self.script_log, &self.level.extra_spawns,
+            self.globals.clone(), self.persistent.clone(), Vec2::new(cam_x, cam_y),
+            (80, 40),
+        );
+        self.apply_script_result(res);
     }
 
     /// Read input, update player velocity, track FPS.
     fn update(&mut self, ctx: UpdateContext) {
-        let UpdateContext { world, input, events, quit, delta_time, elapsed, .. } = ctx;
+        let UpdateContext { world, input, events, mouse, delta_time, elapsed, viewport_width, viewport_height, .. } = ctx;
 
         // Rolling FPS average.
         if delta_time > 0.0 {
             self.fps = self.fps * 0.9 + (1.0 / delta_time) * 0.1;
+        }
+
+        // Camera shake timer
+        if self.shake_timer > 0.0 {
+            self.shake_timer -= delta_time;
+            if self.shake_timer <= 0.0 { self.shake_state = None; }
         }
 
         // Escape → return to editor (not quit the whole app).
@@ -308,23 +373,33 @@ impl GameState for PlayState {
         // Run all entity scripts. Scripts read the world snapshot and write
         // deferred velocity/despawn commands that are applied inside run_scripts().
         // This runs AFTER player velocity is set so scripts can overwrite it.
-        if let Some(level_path) = self.script_engine.run_scripts(world, events, &mut self.script_log, delta_time, elapsed, Some(input), &self.level.extra_spawns) {
-            let full = resolve_exit_path(&level_path, &self.level.path);
-            match LevelData::load(&full) {
-                Ok(next) => { self.pending_transition = Some(Transition::ToPlay(next)); }
-                Err(e)   => { self.script_log.push(LogEntry::warn(format!("load_level failed: {}", e))); }
-            }
+        let mut cam_pos = self.camera_entity
+            .and_then(|id| world.transforms.get(&id))
+            .map(|tf| tf.position)
+            .unwrap_or(Vec2::ZERO);
+
+        if let Some(over) = self.camera_override {
+            cam_pos = over;
         }
+
+        let game_h = (viewport_height as i32 - 2).max(1);
+        let cam_x = (cam_pos.x - viewport_width as f32 / 2.0).max(0.0).round();
+        let cam_y = (cam_pos.y - game_h as f32 / 2.0).max(0.0).round();
+
+        let res = self.script_engine.run_scripts(
+            world, events, &mut self.script_log, delta_time, elapsed, Some(input), Some(mouse),
+            &self.level.extra_spawns, self.globals.clone(), self.persistent.clone(), Vec2::new(cam_x, cam_y),
+            (viewport_width, viewport_height),
+        );
+        self.apply_script_result(res);
 
         // Drain audio requests queued by scripts.
         self.flush_audio();
-
-        let _ = quit;
     }
 
     /// Handle collision events: roll back solid hits, collect trigger items.
     fn late_update(&mut self, ctx: UpdateContext) {
-        let UpdateContext { world, events, prev_positions, delta_time, elapsed, .. } = ctx;
+        let UpdateContext { world, events, prev_positions, delta_time, elapsed, viewport_width, viewport_height, .. } = ctx;
 
         let mut to_collect: Vec<EntityId> = Vec::new();
         let mut all_pairs:  Vec<(EntityId, EntityId)> = Vec::new();
@@ -343,6 +418,7 @@ impl GameState for PlayState {
             };
 
             let solid     = world.colliders.get(&other).map(|c| c.solid).unwrap_or(false);
+            let layer     = world.colliders.get(&other).map(|c| c.layer.as_str()).unwrap_or("");
             let other_tag = world.tags.get(&other).map(|t| t.name.as_str());
 
             if solid {
@@ -350,15 +426,17 @@ impl GameState for PlayState {
             } else if matches!(other_tag, Some("item") | Some("chest")) {
                 to_collect.push(other);
             } else if let Some(path) = self.exit_targets.get(&other).cloned() {
-                let full_path = resolve_exit_path(&path, &self.level.path);
-                match LevelData::load(&full_path) {
-                    Ok(next_level) => {
-                        self.pending_transition = Some(Transition::ToPlay(next_level));
-                    }
-                    Err(e) => {
-                        self.script_log.push(LogEntry::warn(
-                            format!("Exit failed — could not load '{}': {}", full_path, e)
-                        ));
+                if layer != "locked" {
+                    let full_path = resolve_exit_path(&path, &self.level.path);
+                    match LevelData::load(&full_path) {
+                        Ok(next_level) => {
+                            self.pending_transition = Some(Transition::ToPlay(next_level));
+                        }
+                        Err(e) => {
+                            self.script_log.push(LogEntry::warn(
+                                format!("Exit failed — could not load '{}': {}", full_path, e)
+                            ));
+                        }
                     }
                 }
             }
@@ -372,17 +450,25 @@ impl GameState for PlayState {
         }
 
         // Run on_collide callbacks for scripted entities involved in collisions.
-        if let Some(level_path) = self.script_engine.run_collisions(
-            world, &all_pairs, &mut self.script_log, delta_time, elapsed, &self.level.extra_spawns,
-        ) {
-            if self.pending_transition.is_none() {
-                let full = resolve_exit_path(&level_path, &self.level.path);
-                match LevelData::load(&full) {
-                    Ok(next) => { self.pending_transition = Some(Transition::ToPlay(next)); }
-                    Err(e)   => { self.script_log.push(LogEntry::warn(format!("load_level failed: {}", e))); }
-                }
-            }
+        let mut cam_pos = self.camera_entity
+            .and_then(|id| world.transforms.get(&id))
+            .map(|tf| tf.position)
+            .unwrap_or(Vec2::ZERO);
+
+        if let Some(over) = self.camera_override {
+            cam_pos = over;
         }
+
+        let game_h = (viewport_height as i32 - 2).max(1);
+        let cam_x = (cam_pos.x - viewport_width as f32 / 2.0).max(0.0).round();
+        let cam_y = (cam_pos.y - game_h as f32 / 2.0).max(0.0).round();
+
+        let res = self.script_engine.run_collisions(
+            world, &all_pairs, &mut self.script_log, delta_time, elapsed,
+            &self.level.extra_spawns, self.globals.clone(), self.persistent.clone(), Vec2::new(cam_x, cam_y),
+            (viewport_width, viewport_height),
+        );
+        self.apply_script_result(res);
 
         self.flush_audio();
     }
@@ -397,17 +483,29 @@ impl GameState for PlayState {
             ' ', Color::Reset, Color::Reset,
         );
 
-        // ── Camera offset (entity with camera_follow=true) ────────────────────
+        // ── Camera offset (entity with camera_follow=true or script override) ──
         // Game area occupies rows 1..height-1 (top and bottom HUD bars excluded).
         let game_h = (renderer.height as i32 - 2).max(1);
-        let (cam_x, cam_y) = self.camera_entity
+        let mut cam_pos = self.camera_entity
             .and_then(|id| world.transforms.get(&id))
-            .map(|tf| {
-                let cx = (tf.position.x - renderer.width as f32 / 2.0).max(0.0).round() as i32;
-                let cy = (tf.position.y - game_h as f32 / 2.0).max(0.0).round() as i32;
-                (cx, cy)
-            })
-            .unwrap_or((0, 0));
+            .map(|tf| tf.position)
+            .unwrap_or(Vec2::ZERO);
+
+        if let Some(over) = self.camera_override {
+            cam_pos = over;
+        }
+
+        let mut cam_x = (cam_pos.x - renderer.width as f32 / 2.0).max(0.0).round() as i32;
+        let mut cam_y = (cam_pos.y - game_h as f32 / 2.0).max(0.0).round() as i32;
+
+        // Apply screen shake
+        if let Some(shake) = self.shake_state {
+            use rand::{Rng, SeedableRng};
+            let mut rng = rand::rngs::SmallRng::from_entropy();
+            let intensity = shake.intensity * (self.shake_timer / shake.duration);
+            cam_x += rng.gen_range(-intensity..=intensity).round() as i32;
+            cam_y += rng.gen_range(-intensity..=intensity).round() as i32;
+        }
 
         // ── Sprites sorted by z_order ──────────────────────────────────────────
         let mut draw_list: Vec<(i32, usize, usize, char, Color, Color)> = world
@@ -480,23 +578,21 @@ impl GameState for PlayState {
 
         // ── Script HUD draws ──────────────────────────────────────────────────
         for hud in &self.script_engine.pending_hud_draws {
-            if hud.x < renderer.width && hud.y < renderer.height {
-                renderer.draw_str(hud.x, hud.y, &hud.text, hud.fg, hud.bg);
+            match hud {
+                HudDraw::Text { x, y, text, fg, bg } => {
+                    if *x < renderer.width && *y < renderer.height {
+                        renderer.draw_str(*x, *y, text, *fg, *bg);
+                    }
+                }
+                HudDraw::Box { x, y, w, h, fg, bg } => {
+                    renderer.draw_rect_outline(*x, *y, *w, *h, *fg, *bg);
+                }
+                HudDraw::Fill { x, y, w, h, ch, fg, bg } => {
+                    renderer.draw_rect_filled(*x, *y, *w, *h, *ch, *fg, *bg);
+                }
             }
         }
         self.script_engine.pending_hud_draws.clear();
-
-        // ── Victory banner ────────────────────────────────────────────────────
-        if self.total_items > 0 && self.score >= self.total_items {
-            let msg = " ALL COLLECTED!  Press Esc to return to editor. ";
-            let col = (renderer.width / 2).saturating_sub(msg.len() / 2);
-            let row = renderer.height / 2;
-            renderer.draw_rect_filled(
-                col.saturating_sub(1), row - 1, msg.len() + 2, 3,
-                ' ', Color::Black, Color::Green,
-            );
-            renderer.draw_str(col, row, msg, Color::Black, Color::Green);
-        }
     }
 
     /// Return any pending mode transition (set when Escape is pressed).

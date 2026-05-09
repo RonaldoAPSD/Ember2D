@@ -25,6 +25,7 @@
 // run_play_app() skips the editor entirely — used when launched with a
 // .level file argument: `cargo run -- mymap.level`
 
+use std::collections::HashMap;
 use std::io;
 
 use crate::editor::EditorState;
@@ -32,6 +33,18 @@ use crate::engine::{Engine, Transition};
 use crate::level::LevelData;
 use crate::play::PlayState;
 use crate::scripting::LogEntry;
+
+/// State that lives for the entire duration of the application.
+pub struct AppState {
+    /// Variables that survive level transitions and editor ↔ play switches.
+    pub persistent: HashMap<String, rhai::Dynamic>,
+}
+
+impl AppState {
+    pub fn new() -> Self {
+        Self { persistent: HashMap::new() }
+    }
+}
 
 // ── Editor ↔ Play loop ────────────────────────────────────────────────────────
 
@@ -41,6 +54,8 @@ use crate::scripting::LogEntry;
 /// - Escape in play mode: returns to the editor (state preserved).
 /// - Escape in the editor (or closing the window): exits the app.
 pub fn run_editor_app(engine: &mut Engine, mut editor: EditorState) -> io::Result<bool> {
+    let mut app_state = AppState::new();
+
     loop {
         // ── Run the editor ─────────────────────────────────────────────────
         match engine.run_until_transition(&mut editor)? {
@@ -55,18 +70,26 @@ pub fn run_editor_app(engine: &mut Engine, mut editor: EditorState) -> io::Resul
                 let mut accumulated_log: Vec<LogEntry> = Vec::new();
                 let window_closed = loop {
                     engine.reset_world();
-                    let mut play = PlayState::from_level(level_data);
+                    let mut play = PlayState::from_level(level_data, app_state.persistent.clone());
                     match engine.run_until_transition(&mut play)? {
-                        None => break true,
+                        None => {
+                            app_state.persistent = play.persistent;
+                            break true;
+                        }
                         Some(Transition::ToEditor) => {
+                            app_state.persistent = std::mem::take(&mut play.persistent);
                             accumulated_log.extend(play.take_log());
                             break false;
                         }
                         Some(Transition::ToPlay(next_data)) => {
+                            app_state.persistent = std::mem::take(&mut play.persistent);
                             accumulated_log.extend(play.take_log());
                             level_data = next_data;
                         }
-                        _ => break false,
+                        _ => {
+                            app_state.persistent = play.persistent;
+                            break false;
+                        }
                     }
                 };
                 engine.reset_world();
@@ -93,10 +116,13 @@ pub fn run_editor_app(engine: &mut Engine, mut editor: EditorState) -> io::Resul
 /// PlayState::update() sets Transition::ToEditor on Escape; we treat that as
 /// a normal exit here since there is no editor to go back to.
 pub fn run_play_app(engine: &mut Engine, mut data: LevelData) -> io::Result<()> {
+    let mut app_state = AppState::new();
+
     loop {
-        let mut play = PlayState::from_level(data);
+        let mut play = PlayState::from_level(data, app_state.persistent.clone());
         match engine.run_until_transition(&mut play)? {
             Some(Transition::ToPlay(next)) => {
+                app_state.persistent = play.persistent;
                 engine.reset_world();
                 data = next;
             }

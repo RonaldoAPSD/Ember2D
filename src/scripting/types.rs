@@ -1,6 +1,6 @@
 // scripting/types.rs — Log types, HUD drawing, and internal scripting types.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use crate::renderer::color::Color;
 use crate::world::EntityId;
 use crate::input::{InputManager, Key};
@@ -22,14 +22,21 @@ impl LogEntry {
     pub fn info(text:  impl Into<String>) -> Self { LogEntry { level: LogLevel::Info,    text: text.into() } }
 }
 
+pub struct ScriptUpdateResult {
+    pub pending_level:   Option<String>,
+    pub globals:         HashMap<String, rhai::Dynamic>,
+    pub persistent:      HashMap<String, rhai::Dynamic>,
+    pub camera_override: Option<crate::math::Vec2>,
+    pub shake_state:     Option<super::super::play::ShakeState>,
+    pub clear_hud:       bool,
+}
+
 // ── HudDraw ───────────────────────────────────────────────────────────────────
 
-pub struct HudDraw {
-    pub x:    usize,
-    pub y:    usize,
-    pub text: String,
-    pub fg:   Color,
-    pub bg:   Color,
+pub enum HudDraw {
+    Text { x: usize, y: usize, text: String, fg: Color, bg: Color },
+    Box  { x: usize, y: usize, w: usize, h: usize, fg: Color, bg: Color },
+    Fill { x: usize, y: usize, w: usize, h: usize, ch: char, fg: Color, bg: Color },
 }
 
 // ── SpawnRequest ──────────────────────────────────────────────────────────────

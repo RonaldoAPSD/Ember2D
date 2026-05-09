@@ -105,6 +105,12 @@ pub struct UpdateContext<'a> {
 
     /// Set to `true` from game code to exit the game loop gracefully.
     pub quit: &'a mut bool,
+
+    /// Viewport width in characters.
+    pub viewport_width: usize,
+
+    /// Viewport height in characters.
+    pub viewport_height: usize,
 }
 
 /// Everything the game needs during `render()`.
@@ -254,14 +260,16 @@ impl Engine {
             let prev_positions = self.world.snapshot_positions();
 
             game.update(UpdateContext {
-                world:          &mut self.world,
-                input:          &self.input,
-                mouse:          &self.mouse,
-                events:         &mut self.events,
-                prev_positions: &prev_positions,
+                world:           &mut self.world,
+                input:           &self.input,
+                mouse:           &self.mouse,
+                events:          &mut self.events,
+                prev_positions:  &prev_positions,
                 delta_time,
                 elapsed,
-                quit:           &mut should_quit,
+                quit:            &mut should_quit,
+                viewport_width:  self.width,
+                viewport_height: self.height,
             });
 
             if should_quit { break; }
@@ -270,14 +278,16 @@ impl Engine {
             self.world.detect_collisions(&mut self.events);
 
             game.late_update(UpdateContext {
-                world:          &mut self.world,
-                input:          &self.input,
-                mouse:          &self.mouse,
-                events:         &mut self.events,
-                prev_positions: &prev_positions,
+                world:           &mut self.world,
+                input:           &self.input,
+                mouse:           &self.mouse,
+                events:          &mut self.events,
+                prev_positions:  &prev_positions,
                 delta_time,
                 elapsed,
-                quit:           &mut should_quit,
+                quit:            &mut should_quit,
+                viewport_width:  self.width,
+                viewport_height: self.height,
             });
 
             if should_quit { break; }
@@ -363,14 +373,16 @@ impl Engine {
             // Game code reads input and sets velocities.
             // Nothing has moved yet — entities are at prev_positions.
             game.update(UpdateContext {
-                world:          &mut self.world,
-                input:          &self.input,
-                mouse:          &self.mouse,
-                events:         &mut self.events,
-                prev_positions: &prev_positions,
+                world:           &mut self.world,
+                input:           &self.input,
+                mouse:           &self.mouse,
+                events:          &mut self.events,
+                prev_positions:  &prev_positions,
                 delta_time,
                 elapsed,
-                quit:           &mut should_quit,
+                quit:            &mut should_quit,
+                viewport_width:  self.width,
+                viewport_height: self.height,
             });
 
             if should_quit { break; }
@@ -386,14 +398,16 @@ impl Engine {
             // ── 8. Late update (post-physics) ──────────────────────────────
             // Game responds to collisions: roll back solid entities, collect items.
             game.late_update(UpdateContext {
-                world:          &mut self.world,
-                input:          &self.input,
-                mouse:          &self.mouse,
-                events:         &mut self.events,
-                prev_positions: &prev_positions,
+                world:           &mut self.world,
+                input:           &self.input,
+                mouse:           &self.mouse,
+                events:          &mut self.events,
+                prev_positions:  &prev_positions,
                 delta_time,
                 elapsed,
-                quit:           &mut should_quit,
+                quit:            &mut should_quit,
+                viewport_width:  self.width,
+                viewport_height: self.height,
             });
 
             if should_quit { break; }

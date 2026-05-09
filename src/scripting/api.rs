@@ -4,15 +4,25 @@ use std::sync::{Arc, Mutex};
 use rhai::{Array, Dynamic};
 use super::engine::ScriptState;
 use super::types::*;
+use rand::rngs::SmallRng;
+use rand::Rng;
 
 #[derive(Clone)]
 pub struct ScriptCtx {
     pub(super) inner: Arc<Mutex<ScriptState>>,
+    pub(super) rng:   Arc<Mutex<SmallRng>>,
+    pub(super) entity_id: i64,
 }
 
 impl ScriptCtx {
-    pub(super) fn new(state: ScriptState) -> Self {
-        ScriptCtx { inner: Arc::new(Mutex::new(state)) }
+    pub(super) fn new(state: ScriptState, rng: Arc<Mutex<SmallRng>>) -> Self {
+        ScriptCtx { inner: Arc::new(Mutex::new(state)), rng, entity_id: -1 }
+    }
+
+    pub(super) fn with_entity(&self, id: i64) -> Self {
+        let mut cloned = self.clone();
+        cloned.entity_id = id;
+        cloned
     }
 
     pub fn get_x(&mut self, id: i64) -> f64 { self.inner.lock().unwrap().positions.get(&id).map(|(x, _)| *x as f64).unwrap_or(0.0) }
@@ -60,10 +70,161 @@ impl ScriptCtx {
     }
     pub fn log(&mut self, msg: String) { self.inner.lock().unwrap().pending_logs.push(msg); }
     pub fn draw_hud(&mut self, x: i64, y: i64, text: String, fg: String, bg: String) {
-        self.inner.lock().unwrap().pending_hud_draws.push(HudDraw { x: x as usize, y: y as usize, text, fg: parse_color(&fg), bg: parse_color(&bg) });
+        self.inner.lock().unwrap().pending_hud_draws.push(HudDraw::Text { x: x as usize, y: y as usize, text, fg: parse_color(&fg), bg: parse_color(&bg) });
     }
 
     pub fn play_sound(&mut self, path: String) { self.inner.lock().unwrap().pending_sounds.push(path); }
     pub fn play_music(&mut self, path: String) { self.inner.lock().unwrap().pending_music = Some(path); }
     pub fn stop_music(&mut self) { self.inner.lock().unwrap().stop_music = true; }
+
+    // ── V0.4 Extensions ───────────────────────────────────────────────────────
+
+    // 1. Shared Global State
+    pub fn set_global(&mut self, key: String, value: Dynamic) { self.inner.lock().unwrap().pending_globals.insert(key, value); }
+    pub fn get_global(&mut self, key: String) -> Dynamic { self.inner.lock().unwrap().globals.get(&key).cloned().unwrap_or(Dynamic::UNIT) }
+    pub fn has_global(&mut self, key: String) -> bool { self.inner.lock().unwrap().globals.contains_key(&key) }
+    pub fn remove_global(&mut self, key: String) { self.inner.lock().unwrap().pending_globals.insert(key, Dynamic::UNIT); }
+
+    // 2. Randomness
+    pub fn random_int(&mut self, min: i64, max: i64) -> i64 { self.rng.lock().unwrap().gen_range(min..=max) }
+    pub fn random_float(&mut self) -> f64 { self.rng.lock().unwrap().gen() }
+    pub fn random_bool(&mut self, chance: f64) -> bool { self.rng.lock().unwrap().gen_bool(chance.clamp(0.0, 1.0)) }
+    pub fn random_choice(&mut self, arr: Array) -> Dynamic {
+        if arr.is_empty() { Dynamic::UNIT }
+        else { arr[self.rng.lock().unwrap().gen_range(0..arr.len())].clone() }
+    }
+
+    // 3. Spatial Queries
+    pub fn get_entity_at(&mut self, x: f64, y: f64) -> i64 {
+        let s = self.inner.lock().unwrap();
+        for (&id, &(w, h, _, _)) in &s.colliders {
+            if let Some(&(px, py)) = s.positions.get(&id) {
+                if x >= px as f64 && x < (px + w) as f64 && y >= py as f64 && y < (py + h) as f64 { return id; }
+            }
+        }
+        -1
+    }
+    pub fn is_solid_at(&mut self, x: f64, y: f64) -> bool {
+        let s = self.inner.lock().unwrap();
+        for (&id, &(w, h, solid, _)) in &s.colliders {
+            if !solid { continue; }
+            if let Some(&(px, py)) = s.positions.get(&id) {
+                if x >= px as f64 && x < (px + w) as f64 && y >= py as f64 && y < (py + h) as f64 { return true; }
+            }
+        }
+        false
+    }
+    pub fn find_entities_in_rect(&mut self, x: f64, y: f64, w: f64, h: f64) -> Array {
+        let s = self.inner.lock().unwrap();
+        let mut found = Vec::new();
+        let r1 = crate::math::Rect::new(x as f32, y as f32, w as f32, h as f32);
+        for (&id, &(cw, ch, _, _)) in &s.colliders {
+            if let Some(&(px, py)) = s.positions.get(&id) {
+                let r2 = crate::math::Rect::new(px, py, cw, ch);
+                if r1.intersects(r2) { found.push(Dynamic::from(id)); }
+            }
+        }
+        found.into()
+    }
+    pub fn get_distance(&mut self, id_a: i64, id_b: i64) -> f64 {
+        let s = self.inner.lock().unwrap();
+        match (s.positions.get(&id_a), s.positions.get(&id_b)) {
+            (Some(&(x1, y1)), Some(&(x2, y2))) => (((x2-x1).powi(2) + (y2-y1).powi(2)) as f64).sqrt(),
+            _ => 0.0
+        }
+    }
+    pub fn get_angle_to(&mut self, from_id: i64, to_id: i64) -> f64 {
+        let s = self.inner.lock().unwrap();
+        match (s.positions.get(&from_id), s.positions.get(&to_id)) {
+            (Some(&(x1, y1)), Some(&(x2, y2))) => ((y2-y1) as f64).atan2((x2-x1) as f64),
+            _ => 0.0
+        }
+    }
+
+    // 4. Entity Utility Queries
+    pub fn entity_exists(&mut self, id: i64) -> bool { self.inner.lock().unwrap().positions.contains_key(&id) }
+    pub fn count_by_tag(&mut self, tag: String) -> i64 { self.inner.lock().unwrap().tag_to_ids.get(&tag).map(|v| v.len()).unwrap_or(0) as i64 }
+    pub fn get_collider_w(&mut self, id: i64) -> f64 { self.inner.lock().unwrap().colliders.get(&id).map(|c| c.0 as f64).unwrap_or(0.0) }
+    pub fn get_collider_h(&mut self, id: i64) -> f64 { self.inner.lock().unwrap().colliders.get(&id).map(|c| c.1 as f64).unwrap_or(0.0) }
+    pub fn is_visible(&mut self, id: i64) -> bool { self.inner.lock().unwrap().visibility.get(&id).copied().unwrap_or(false) }
+    pub fn set_visible(&mut self, id: i64, visible: bool) { self.inner.lock().unwrap().pending_visibility.push((id, visible)); }
+    pub fn get_z_order(&mut self, id: i64) -> i64 { self.inner.lock().unwrap().z_orders.get(&id).copied().unwrap_or(0) as i64 }
+    pub fn set_z_order(&mut self, id: i64, z: i64) { self.inner.lock().unwrap().pending_z_order.push((id, z as i32)); }
+
+    // 5. Mouse Input
+    pub fn get_mouse_x(&mut self) -> f64 { self.inner.lock().unwrap().mouse_pos.0 as f64 }
+    pub fn get_mouse_y(&mut self) -> f64 { self.inner.lock().unwrap().mouse_pos.1 as f64 }
+    
+    pub fn get_mouse_world_x(&mut self) -> f64 {
+        let s = self.inner.lock().unwrap();
+        (s.mouse_pos.0 + s.camera_pos.0) as f64
+    }
+    
+    pub fn get_mouse_world_y(&mut self) -> f64 {
+        let s = self.inner.lock().unwrap();
+        // Screen row Y (1..H-1) -> World row (Y - 1 + cam_y)
+        (s.mouse_pos.1 + s.camera_pos.1 - 1.0) as f64
+    }
+
+    pub fn mouse_left_pressed(&mut self) -> bool { self.inner.lock().unwrap().mouse_pressed.0 }
+    pub fn mouse_right_pressed(&mut self) -> bool { self.inner.lock().unwrap().mouse_pressed.1 }
+    pub fn mouse_left_held(&mut self) -> bool { self.inner.lock().unwrap().mouse_held.0 }
+    pub fn mouse_right_held(&mut self) -> bool { self.inner.lock().unwrap().mouse_held.1 }
+
+    // 6. Camera Control
+    pub fn get_camera_x(&mut self) -> f64 { self.inner.lock().unwrap().camera_pos.0 as f64 }
+    pub fn get_camera_y(&mut self) -> f64 { self.inner.lock().unwrap().camera_pos.1 as f64 }
+    pub fn set_camera(&mut self, x: f64, y: f64) { self.inner.lock().unwrap().pending_camera = Some(crate::math::Vec2::new(x as f32, y as f32)); }
+    pub fn shake_camera(&mut self, intensity: f64, duration: f64) {
+        self.inner.lock().unwrap().pending_shake = Some(crate::play::ShakeState { intensity: intensity as f32, duration: duration as f32 });
+    }
+
+    // 7. Cross-Level Persistence
+    pub fn set_persistent(&mut self, key: String, value: Dynamic) { self.inner.lock().unwrap().pending_persistent.insert(key, value); }
+    pub fn get_persistent(&mut self, key: String) -> Dynamic { self.inner.lock().unwrap().persistent.get(&key).cloned().unwrap_or(Dynamic::UNIT) }
+    pub fn has_persistent(&mut self, key: String) -> bool { self.inner.lock().unwrap().persistent.contains_key(&key) }
+    pub fn clear_persistent(&mut self, key: String) { self.inner.lock().unwrap().pending_persistent.insert(key, Dynamic::UNIT); }
+    pub fn clear_all_persistent(&mut self) { self.inner.lock().unwrap().pending_persistent.clear(); }
+
+    // 8. HUD / Draw Utilities
+    pub fn draw_box(&mut self, x: i64, y: i64, w: i64, h: i64, fg: String, bg: String) {
+        self.inner.lock().unwrap().pending_hud_draws.push(HudDraw::Box { x: x as usize, y: y as usize, w: w as usize, h: h as usize, fg: parse_color(&fg), bg: parse_color(&bg) });
+    }
+    pub fn fill_rect(&mut self, x: i64, y: i64, w: i64, h: i64, ch_str: String, fg: String, bg: String) {
+        let ch = ch_str.chars().next().unwrap_or(' ');
+        self.inner.lock().unwrap().pending_hud_draws.push(HudDraw::Fill { x: x as usize, y: y as usize, w: w as usize, h: h as usize, ch, fg: parse_color(&fg), bg: parse_color(&bg) });
+    }
+    pub fn clear_hud(&mut self) { self.inner.lock().unwrap().clear_hud = true; }
+
+    pub fn get_viewport_width(&mut self) -> i64 { self.inner.lock().unwrap().viewport_size.0 as i64 }
+    pub fn get_viewport_height(&mut self) -> i64 { self.inner.lock().unwrap().viewport_size.1 as i64 }
+
+    // 9. Timers
+    pub fn start_timer(&mut self, name: String, duration: f64) {
+        if self.entity_id != -1 {
+            self.inner.lock().unwrap().pending_timers.push((self.entity_id as crate::world::EntityId, name, duration));
+        }
+    }
+    pub fn timer_done(&mut self, name: String) -> bool {
+        let mut s = self.inner.lock().unwrap();
+        if let Some(entity_timers) = s.timers.get(&(self.entity_id as crate::world::EntityId)) {
+            if let Some(&val) = entity_timers.get(&name) {
+                if val <= 0.0 && val > -500.0 {
+                    // Mark for removal/consumed by setting to a special value
+                    s.pending_timers.push((self.entity_id as crate::world::EntityId, name, -999.0)); 
+                    return true;
+                }
+            }
+        }
+        false
+    }
+    pub fn cancel_timer(&mut self, name: String) {
+        if self.entity_id != -1 {
+            self.inner.lock().unwrap().pending_timers.push((self.entity_id as crate::world::EntityId, name, -1.0f64));
+        }
+    }
+
+    // 10. Collision Layers
+    pub fn get_collider_layer(&mut self, id: i64) -> String { self.inner.lock().unwrap().colliders.get(&id).map(|c| c.3.clone()).unwrap_or_default() }
+    pub fn set_collider_layer(&mut self, id: i64, layer: String) { self.inner.lock().unwrap().pending_collider_layer.push((id, layer)); }
 }

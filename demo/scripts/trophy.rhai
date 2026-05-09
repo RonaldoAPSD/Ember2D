@@ -1,11 +1,29 @@
 fn on_start(id, ctx) {
     ctx.play_music("demo/audio/victory.ogg");
 }
+
 fn on_update(id, ctx) {
-    ctx.draw_hud(8, 5,  "  *  *  *  *  *  *  *  *  *  *  *  ", "Yellow", "Reset");
-    ctx.draw_hud(8, 6,  "           YOU  WIN!                 ", "White",  "DarkBlue");
-    ctx.draw_hud(8, 7,  "  *  *  *  *  *  *  *  *  *  *  *  ", "Yellow", "Reset");
-    ctx.draw_hud(8, 9,  "  You found all the treasure and     ", "Grey",   "Reset");
-    ctx.draw_hud(8, 10, "  escaped The Lost Dungeon.          ", "Grey",   "Reset");
-    ctx.draw_hud(8, 12, "  Press Esc to return to the editor. ", "DarkGrey", "Reset");
+    let deaths = ctx.get_persistent("deaths");
+    if deaths == () { deaths = 0; }
+
+    // Clear the script draws to prevent overlapping with tutorial/other UI
+    ctx.clear_hud();
+
+    // Full screen overlay
+    ctx.fill_rect(0, 0, 80, 40, " ", "Black", "Black");
+    ctx.fill_rect(10, 5, 60, 15, " ", "Black", "DarkBlue");
+    ctx.draw_box(10, 5, 60, 15, "Yellow", "DarkBlue");
+
+    let messages = [
+        "LEGENDARY RUN!",
+        "Dungeon Mastered!",
+        "Victory is Yours!"
+    ];
+    let msg = ctx.random_choice(messages);
+
+    ctx.draw_hud(30, 8,  msg, "Yellow", "DarkBlue");
+    ctx.draw_hud(25, 10, "You escaped The Lost Dungeon!", "White", "DarkBlue");
+    ctx.draw_hud(25, 12, "Total Deaths in this Run: " + deaths, "Red", "DarkBlue");
+    
+    ctx.draw_hud(25, 16, "Press ESC to return to Editor", "Grey", "DarkBlue");
 }
