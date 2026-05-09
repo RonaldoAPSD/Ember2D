@@ -146,6 +146,66 @@ fn gen_node_stmt(
             out += &format!("{}let __var_{} = {};\n", ind, name, resolve!(0));
             if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
         }
+        NodeKind::SetGlobal { name } => {
+            out += &format!("{}ctx.set_global(\"{}\", {});\n", ind, name, resolve!(0));
+            if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
+        }
+        NodeKind::SetPersistent { name } => {
+            out += &format!("{}ctx.set_persistent(\"{}\", {});\n", ind, name, resolve!(0));
+            if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
+        }
+        NodeKind::SetCamera => {
+            out += &format!("{}ctx.set_camera({}, {});\n", ind, resolve!(0), resolve!(1));
+            if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
+        }
+        NodeKind::ShakeCamera => {
+            out += &format!("{}ctx.shake_camera({}, {});\n", ind, resolve!(0), resolve!(1));
+            if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
+        }
+        NodeKind::StartTimer { name } => {
+            out += &format!("{}ctx.start_timer(\"{}\", {});\n", ind, name, resolve!(0));
+            if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
+        }
+        NodeKind::SetVisible => {
+            out += &format!("{}ctx.set_visible(id, {});\n", ind, resolve!(0));
+            if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
+        }
+        NodeKind::SetZOrder => {
+            out += &format!("{}ctx.set_z_order(id, {});\n", ind, resolve!(0));
+            if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
+        }
+        NodeKind::CancelTimer { name } => {
+            out += &format!("{}ctx.cancel_timer(\"{}\");\n", ind, name);
+            if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
+        }
+        NodeKind::PlayMusic { path } => {
+            out += &format!("{}ctx.play_music(\"{}\");\n", ind, path);
+            if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
+        }
+        NodeKind::StopMusic => {
+            out += &format!("{}ctx.stop_music();\n", ind);
+            if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
+        }
+        NodeKind::SetColor => {
+            out += &format!("{}ctx.set_color(id, {}, {});\n", ind, resolve!(0), resolve!(1));
+            if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
+        }
+        NodeKind::DrawBox => {
+            out += &format!("{}ctx.draw_box({}, {}, {}, {}, {}, {});\n", ind, resolve!(0), resolve!(1), resolve!(2), resolve!(3), resolve!(4), resolve!(5));
+            if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
+        }
+        NodeKind::FillRect => {
+            out += &format!("{}ctx.fill_rect({}, {}, {}, {}, {}, {}, {});\n", ind, resolve!(0), resolve!(1), resolve!(2), resolve!(3), resolve!(4), resolve!(5), resolve!(6));
+            if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
+        }
+        NodeKind::ClearHUD => {
+            out += &format!("{}ctx.clear_hud();\n", ind);
+            if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
+        }
+        NodeKind::SetColliderLayer => {
+            out += &format!("{}ctx.set_collider_layer({}, {});\n", ind, resolve!(0), resolve!(1));
+            if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
+        }
         _ => {}
     }
     out
@@ -197,6 +257,29 @@ fn codegen_expr(
         NodeKind::OnCollide { .. } => "other".into(),
         NodeKind::OnUpdate => "ctx.get_delta()".into(),
         NodeKind::Spawn => spawn_vars.get(&node.id).cloned().unwrap_or_else(|| "0".into()),
+
+        NodeKind::GetGlobal { name } => format!("ctx.get_global(\"{}\")", name),
+        NodeKind::GetPersistent { name } => format!("ctx.get_persistent(\"{}\")", name),
+        NodeKind::GetMousePos => if out_idx == 0 { "ctx.get_mouse_world_x()".into() } else { "ctx.get_mouse_world_y()".into() },
+        NodeKind::IsSolidAt => format!("ctx.is_solid_at({}, {})", resolve_in!(0), resolve_in!(1)),
+        NodeKind::GetEntityAt => format!("ctx.get_entity_at({}, {})", resolve_in!(0), resolve_in!(1)),
+        NodeKind::GetDistance => format!("ctx.get_distance({}, {})", resolve_in!(0), resolve_in!(1)),
+        NodeKind::GetAngleTo => format!("ctx.get_angle_to({}, {})", resolve_in!(0), resolve_in!(1)),
+        NodeKind::TimerDone { name } => format!("ctx.timer_done(\"{}\")", name),
+        NodeKind::RandomInt => format!("ctx.random_int({}, {})", resolve_in!(0), resolve_in!(1)),
+        NodeKind::RandomFloat => "ctx.random_float()".into(),
+        NodeKind::RandomBool => format!("ctx.random_bool({})", resolve_in!(0)),
+        NodeKind::RandomChoice => format!("ctx.random_choice({})", resolve_in!(0)),
+        NodeKind::GetElapsed => "ctx.get_elapsed()".into(),
+        NodeKind::EntityExists => format!("ctx.entity_exists({})", resolve_in!(0)),
+        NodeKind::HasTag => format!("ctx.has_tag({}, {})", resolve_in!(0), resolve_in!(1)),
+        NodeKind::GetColliderLayer => format!("ctx.get_collider_layer({})", resolve_in!(0)),
+        NodeKind::FindEntitiesInRect => format!("ctx.find_entities_in_rect({}, {}, {}, {})", resolve_in!(0), resolve_in!(1), resolve_in!(2), resolve_in!(3)),
+        NodeKind::CountByTag => format!("ctx.count_by_tag({})", resolve_in!(0)),
+        NodeKind::FindByTag => format!("ctx.find_by_tag({})", resolve_in!(0)),
+        NodeKind::FindAllByTag => format!("ctx.find_all_by_tag({})", resolve_in!(0)),
+        NodeKind::MouseLeftPressed => "ctx.mouse_left_pressed()".into(),
+        NodeKind::MouseLeftHeld => "ctx.mouse_left_held()".into(),
         _ => "0.0".into(),
     }
 }

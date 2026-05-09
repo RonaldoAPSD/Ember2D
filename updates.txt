@@ -16,3 +16,4 @@ This file is the updates made since the last time I used Claude Code.
 14. Updated scroll wheel from scolling horizontally and verticlly to instead be a zoom in and out. Added reset zoom button.
 15. Updated the help menu to be up to date.
 16. Implemented Full Scripting API that should have enough added to the ScriptingCTX API to be able to make full ASCII games with the engine. 
+17. Updated visual scripting to be up to date with Scripting API.

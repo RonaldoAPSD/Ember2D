@@ -200,7 +200,7 @@ impl TilePalette {
 
     /// Return a reference to the currently selected tile definition.
     pub fn current(&self) -> &TileDefinition {
-        &self.tiles[self.selected]
+        self.tiles.get(self.selected).unwrap_or(&self.tiles[0])
     }
 
     /// Number of tile entries in the palette.

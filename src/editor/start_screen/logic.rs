@@ -82,13 +82,15 @@ impl StartScreen {
                 if input.just_pressed(Key::Up) && self.fb_cursor > 0 { self.fb_cursor -= 1; }
                 if input.just_pressed(Key::Down) && self.fb_cursor + 1 < self.fb_entries.len() { self.fb_cursor += 1; }
                 let offset = if self.fb_cursor >= 11 { self.fb_cursor - 11 + 1 } else { 0 };
-                if mouse.in_bounds { for vis_i in 0..11 { if folder_item_hit(sw, mx, my, vis_i) { self.fb_cursor = offset + vis_i; } } }
+                if mouse.in_bounds { for vis_i in 0..11 { if folder_item_hit(sw, mx, my, vis_i) && offset + vis_i < self.fb_entries.len() { self.fb_cursor = offset + vis_i; } } }
                 let confirm = input.just_pressed(Key::Enter) || (click && !self.fb_entries.is_empty() && folder_item_hit(sw, mx, my, self.fb_cursor.saturating_sub(offset)));
                 if confirm && !self.fb_entries.is_empty() {
-                    match self.fb_entries[self.fb_cursor].as_str() {
-                        "\x00SELECT" => { self.folder_buf = self.fb_path.join(self.auto_folder()).to_string_lossy().into_owned(); self.template_sel = 0; self.screen = Screen::NewTemplate; }
-                        "\x00PARENT" => { if let Some(parent) = self.fb_path.parent() { self.fb_path = parent.to_path_buf(); self.fb_cursor = 0; self.refresh_fb_entries(); } }
-                        dir_name => { self.fb_path = self.fb_path.join(dir_name); self.fb_cursor = 0; self.refresh_fb_entries(); }
+                    if let Some(entry) = self.fb_entries.get(self.fb_cursor) {
+                        match entry.as_str() {
+                            "\x00SELECT" => { self.folder_buf = self.fb_path.join(self.auto_folder()).to_string_lossy().into_owned(); self.template_sel = 0; self.screen = Screen::NewTemplate; }
+                            "\x00PARENT" => { if let Some(parent) = self.fb_path.parent() { self.fb_path = parent.to_path_buf(); self.fb_cursor = 0; self.refresh_fb_entries(); } }
+                            dir_name => { self.fb_path = self.fb_path.join(dir_name); self.fb_cursor = 0; self.refresh_fb_entries(); }
+                        }
                     }
                 }
             }

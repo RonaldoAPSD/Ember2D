@@ -64,6 +64,7 @@ pub enum ToolbarAction {
     SetSpawn,
     AddNamedSpawn,
     NewLevel,
+    OpenDocs,
 }
 
 // ── Dynamic layout ────────────────────────────────────────────────────────────

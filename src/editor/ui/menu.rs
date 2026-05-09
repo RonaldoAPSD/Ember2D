@@ -69,6 +69,8 @@ pub fn menu_entries(kind: MenuKind) -> Vec<MenuEntry> {
             Item { label: "Console",   shortcut: "F1  ", action: ToggleConsole   },
             Sep,
             Item { label: "Shortcuts", shortcut: "?   ", action: ToggleHelp      },
+            Sep,
+            Item { label: "API Docs",  shortcut: "    ", action: OpenDocs        },
         ],
         MenuKind::Tools => vec![
             Item { label: "Paint",  shortcut: "    ", action: SetTool(Paint)  },

@@ -35,7 +35,18 @@
       "PowerShell(cd c:\\\\dev\\\\ember2d; $lines = Get-Content src\\\\editor\\\\mod.rs; $newLines = @\\($lines[0..160]\\) + @\\($lines[983..\\($lines.Count-1\\)]\\); $newLines | Set-Content src\\\\editor\\\\mod.rs -Encoding utf8; Write-Host \"Done. New line count: $\\($newLines.Count\\)\")",
       "PowerShell(cd c:\\\\dev\\\\ember2d; @\\('src\\\\editor\\\\mod.rs', 'src\\\\editor\\\\impl_input.rs', 'src\\\\editor\\\\impl_render.rs'\\) | ForEach-Object { \"$_`: $\\(\\(Get-Content $_\\).Count\\) lines\" })",
       "PowerShell(Get-ChildItem -Path \"c:\\\\dev\\\\ember2d\" -Recurse -Directory | Select-Object -First 30 | ForEach-Object { $_.FullName })",
-      "PowerShell(Get-ChildItem -Path \"c:\\\\dev\\\\ember2d\" -Recurse -Directory | Select-Object -First 20 | ForEach-Object { $_.FullName })"
+      "PowerShell(Get-ChildItem -Path \"c:\\\\dev\\\\ember2d\" -Recurse -Directory | Select-Object -First 20 | ForEach-Object { $_.FullName })",
+      "Bash(Get-ChildItem -Force)",
+      "Bash(Select-Object -Property Mode, Name)",
+      "Bash(Get-ChildItem -Recurse c:\\\\dev\\\\ember2d\\\\src -Filter *.rs)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Get-ChildItem -Path \"c:\\\\dev\\\\ember2d\" -Recurse -Name)",
+      "Bash(xargs wc -l)",
+      "Bash(cargo check *)",
+      "Bash(xargs grep -l \"get_spawn_point\")",
+      "Bash(cargo outdated *)",
+      "Bash(cargo update *)",
+      "Bash(cargo build *)"
     ]
   }
 }

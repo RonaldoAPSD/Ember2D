@@ -67,6 +67,15 @@ pub fn apply_param_edit(kind: &mut node_graph::NodeKind, buf: &str) {
         NodeKind::GetVar      { name }   => *name = buf.to_string(),
         NodeKind::SetVar      { name }   => *name = buf.to_string(),
         NodeKind::Sequence { outputs }   => *outputs = buf.parse().unwrap_or(3).clamp(2, 8),
+        
+        NodeKind::GetGlobal { name } => *name = buf.to_string(),
+        NodeKind::SetGlobal { name } => *name = buf.to_string(),
+        NodeKind::GetPersistent { name } => *name = buf.to_string(),
+        NodeKind::SetPersistent { name } => *name = buf.to_string(),
+        NodeKind::StartTimer { name } => *name = buf.to_string(),
+        NodeKind::TimerDone { name } => *name = buf.to_string(),
+        NodeKind::CancelTimer { name } => *name = buf.to_string(),
+        NodeKind::PlayMusic { path } => *path = buf.to_string(),
         _ => {}
     }
 }
@@ -84,6 +93,15 @@ pub fn param_default_for(kind: &node_graph::NodeKind) -> String {
         NodeKind::GetVar      { name }   => name.clone(),
         NodeKind::SetVar      { name }   => name.clone(),
         NodeKind::Sequence { outputs }   => format!("{}", outputs),
+
+        NodeKind::GetGlobal { name } => name.clone(),
+        NodeKind::SetGlobal { name } => name.clone(),
+        NodeKind::GetPersistent { name } => name.clone(),
+        NodeKind::SetPersistent { name } => name.clone(),
+        NodeKind::StartTimer { name } => name.clone(),
+        NodeKind::TimerDone { name } => name.clone(),
+        NodeKind::CancelTimer { name } => name.clone(),
+        NodeKind::PlayMusic { path } => path.clone(),
         _ => String::new(),
     }
 }

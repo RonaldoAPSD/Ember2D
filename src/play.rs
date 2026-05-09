@@ -497,9 +497,7 @@ impl GameState for PlayState {
 
         let mut cam_x = (cam_pos.x - renderer.width as f32 / 2.0).max(0.0).round() as i32;
         let mut cam_y = (cam_pos.y - game_h as f32 / 2.0).max(0.0).round() as i32;
-
-        // Apply screen shake
-        if let Some(shake) = self.shake_state {
+        if let Some(shake) = self.shake_state.filter(|s| s.duration > 0.0) {
             use rand::{Rng, SeedableRng};
             let mut rng = rand::rngs::SmallRng::from_entropy();
             let intensity = shake.intensity * (self.shake_timer / shake.duration);

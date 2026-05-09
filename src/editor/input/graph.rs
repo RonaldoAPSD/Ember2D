@@ -48,12 +48,20 @@ impl EditorState {
         // ── Palette open ──────────────────────────────────────────────────────
         if let Some((px, py)) = self.graph_palette_open {
             let entries = palette_entries();
+            let visible_h = (self.layout.screen_h.saturating_sub(py + 1)).min(18);
             let selectable: Vec<usize> = entries.iter().enumerate()
                 .filter(|(_, e)| !e.0.is_empty())
                 .map(|(i, _)| i)
                 .collect();
 
             if input.just_pressed(Key::Escape) || rclick { self.graph_palette_open = None; return; }
+
+            // Scroll wheel for palette
+            if mouse.wheel_y != 0.0 {
+                let delta = -(mouse.wheel_y as i32);
+                self.graph_palette_scroll = (self.graph_palette_scroll as i32 + delta)
+                    .clamp(0, (entries.len() as i32 - visible_h as i32).max(0)) as usize;
+            }
 
             let mut clicked_entry = false;
             let mut clicked_outside = false;
@@ -89,6 +97,14 @@ impl EditorState {
                     self.graph_palette_cursor = selectable[0];
                 }
             }
+
+            // Ensure cursor is in view
+            if self.graph_palette_cursor < self.graph_palette_scroll {
+                self.graph_palette_scroll = self.graph_palette_cursor;
+            } else if self.graph_palette_cursor >= self.graph_palette_scroll + visible_h {
+                self.graph_palette_scroll = self.graph_palette_cursor - visible_h + 1;
+            }
+
             if input.just_pressed(Key::Enter) || clicked_entry {
                 let key = entries.get(self.graph_palette_cursor).map(|e| e.0).unwrap_or("");
                 if let Some(kind) = palette_make(key) {
@@ -226,8 +242,7 @@ impl EditorState {
                             } else {
                                 self.graph_editing_param = Some((
                                     nid,
-                                    param_default_for(&tile.graph.as_ref().unwrap()
-                                        .get(nid).unwrap().kind),
+                                    param_default_for(&node.kind),
                                 ));
                             }
                         }

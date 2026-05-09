@@ -118,19 +118,19 @@ pub fn draw_palette(renderer: &mut Renderer, scroll: usize, cursor: usize, px: u
     let entries = palette_entries();
     let visible_h = (screen_h.saturating_sub(py + 1)).min(18);
     let w = 22usize;
-    let hdr = format!("{:─<width$}", "─ Add Node ", width = w);
+    let hdr = format!("{:=<width$}", "= Add Node ", width = w);
     renderer.draw_str(px, py, &hdr, Color::White, Color::DarkBlue);
     for (i, entry) in entries.iter().skip(scroll).take(visible_h).enumerate() {
         let row = py + 1 + i;
         if row >= screen_h { break; }
         let real_idx = scroll + i;
         let (fg, bg) = if real_idx == cursor { (Color::Black, Color::Cyan) } else if entry.0.is_empty() { (Color::DarkGrey, Color::Black) } else { (Color::White, Color::Black) };
-        let label = if entry.0.is_empty() { format!(" {:─<width$}", entry.1, width = w.saturating_sub(2)) } else { format!("  {:<width$}", entry.1, width = w.saturating_sub(2)) };
+        let label = if entry.0.is_empty() { format!(" [{:-<width$}]", entry.1, width = w.saturating_sub(4)) } else { format!("  {:<width$}", entry.1, width = w.saturating_sub(2)) };
         let line: String = label.chars().take(w).collect();
         renderer.draw_str(px, row, &line, fg, bg);
     }
     let end_row = py + 1 + visible_h;
-    if end_row < screen_h && scroll + visible_h < entries.len() { renderer.draw_str(px, end_row, "  ▼ more", Color::DarkGrey, Color::Black); }
+    if end_row < screen_h && scroll + visible_h < entries.len() { renderer.draw_str(px, end_row, "  V more", Color::DarkGrey, Color::Black); }
 }
 
 pub fn palette_entries() -> Vec<(&'static str, &'static str)> {
@@ -138,8 +138,14 @@ pub fn palette_entries() -> Vec<(&'static str, &'static str)> {
         ("", "Events"), ("OnStart", "On Start"), ("OnUpdate", "On Update"), ("OnKeyHeld", "Key Held"), ("OnKeyPress", "Key Press"), ("OnCollide", "On Collide"),
         ("", "Flow"), ("Branch", "Branch"), ("Sequence", "Sequence"),
         ("", "Actions"), ("SetVelocity", "Set Velocity"), ("SetPosition", "Set Position"), ("Despawn", "Despawn"), ("Spawn", "Spawn"), ("LoadLevel", "Load Level"), ("PlaySound", "Play Sound"), ("Log", "Log"), ("SetGlyph", "Set Glyph"), ("DrawHUD", "Draw HUD"),
+        ("SetCamera", "Set Camera"), ("ShakeCamera", "Shake Camera"), ("StartTimer", "Start Timer"), ("CancelTimer", "Cancel Timer"), ("SetVisible", "Set Visible"), ("SetZOrder", "Set Z-Order"),
+        ("PlayMusic", "Play Music"), ("StopMusic", "Stop Music"), ("SetColor", "Set Color"), ("DrawBox", "Draw Box"), ("FillRect", "Fill Rect"), ("ClearHUD", "Clear HUD"), ("SetColliderLayer", "Set Layer"),
         ("", "Values"), ("FloatLit", "Float Literal"), ("StringLit", "String Literal"), ("CompareFloat","Compare Float"), ("MathOp", "Math Op"), ("GetPosition", "Get Position"), ("GetVelocity", "Get Velocity"), ("GetTag", "Get Tag"), ("GetDelta", "Get Delta"),
+        ("GetMousePos", "Mouse Pos"), ("IsSolidAt", "Is Solid At"), ("GetEntityAt", "Get Entity At"), ("GetDistance", "Get Distance"), ("GetAngleTo", "Get Angle To"), ("TimerDone", "Timer Done"),
+        ("RandomInt", "Random Int"), ("RandomFloat", "Random Float"), ("RandomBool", "Random Bool"), ("RandomChoice", "Random Choice"), ("GetElapsed", "Get Elapsed"), ("EntityExists", "Entity Exists"), ("HasTag", "Has Tag"), ("GetColliderLayer", "Get Layer"),
+        ("FindEntitiesInRect", "In Rect"), ("CountByTag", "Count Tagged"), ("FindByTag", "Find Tagged"), ("FindAllByTag", "Find All Tag"), ("MouseLeftPressed", "Mouse L-Press"), ("MouseLeftHeld", "Mouse L-Held"),
         ("", "Variables"), ("GetVar", "Get Variable"), ("SetVar", "Set Variable"),
+        ("GetGlobal", "Get Global"), ("SetGlobal", "Set Global"), ("GetPersistent", "Get Persist"), ("SetPersistent", "Set Persist"),
     ]
 }
 
@@ -151,6 +157,19 @@ pub fn palette_make(key: &str) -> Option<NodeKind> {
         "FloatLit" => NodeKind::FloatLit { value: 0.0 }, "StringLit" => NodeKind::StringLit { value: String::new() }, "CompareFloat" => NodeKind::CompareFloat { op: CmpOp::Gt }, "MathOp" => NodeKind::MathOp { op: MathOp::Add },
         "GetPosition" => NodeKind::GetPosition, "GetVelocity" => NodeKind::GetVelocity, "GetTag" => NodeKind::GetTag, "GetDelta" => NodeKind::GetDelta,
         "GetVar" => NodeKind::GetVar { name: "x".into() }, "SetVar" => NodeKind::SetVar { name: "x".into() },
+
+        "GetGlobal" => NodeKind::GetGlobal { name: "score".into() }, "SetGlobal" => NodeKind::SetGlobal { name: "score".into() },
+        "GetPersistent" => NodeKind::GetPersistent { name: "gold".into() }, "SetPersistent" => NodeKind::SetPersistent { name: "gold".into() },
+        "GetMousePos" => NodeKind::GetMousePos, "IsSolidAt" => NodeKind::IsSolidAt, "GetEntityAt" => NodeKind::GetEntityAt, "GetDistance" => NodeKind::GetDistance, "GetAngleTo" => NodeKind::GetAngleTo,
+        "SetCamera" => NodeKind::SetCamera, "ShakeCamera" => NodeKind::ShakeCamera,
+        "StartTimer" => NodeKind::StartTimer { name: "cd".into() }, "TimerDone" => NodeKind::TimerDone { name: "cd".into() }, "CancelTimer" => NodeKind::CancelTimer { name: "cd".into() },
+        "SetVisible" => NodeKind::SetVisible, "SetZOrder" => NodeKind::SetZOrder,
+
+        "PlayMusic" => NodeKind::PlayMusic { path: String::new() }, "StopMusic" => NodeKind::StopMusic, "SetColor" => NodeKind::SetColor, "DrawBox" => NodeKind::DrawBox, "FillRect" => NodeKind::FillRect, "ClearHUD" => NodeKind::ClearHUD, "SetColliderLayer" => NodeKind::SetColliderLayer,
+        "RandomInt" => NodeKind::RandomInt, "RandomFloat" => NodeKind::RandomFloat, "RandomBool" => NodeKind::RandomBool, "RandomChoice" => NodeKind::RandomChoice,
+        "GetElapsed" => NodeKind::GetElapsed, "EntityExists" => NodeKind::EntityExists, "HasTag" => NodeKind::HasTag, "GetColliderLayer" => NodeKind::GetColliderLayer,
+        "FindEntitiesInRect" => NodeKind::FindEntitiesInRect, "CountByTag" => NodeKind::CountByTag, "FindByTag" => NodeKind::FindByTag, "FindAllByTag" => NodeKind::FindAllByTag,
+        "MouseLeftPressed" => NodeKind::MouseLeftPressed, "MouseLeftHeld" => NodeKind::MouseLeftHeld,
         _ => return None,
     })
 }

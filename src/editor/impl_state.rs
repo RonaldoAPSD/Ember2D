@@ -283,6 +283,22 @@ impl EditorState {
                 data.path = self.save_path.clone();
                 self.pending_transition = Some(Transition::ToPlay(data));
             }
+            ToolbarAction::OpenDocs => {
+                #[cfg(target_os = "windows")]
+                {
+                    let _ = std::process::Command::new("cmd").args(&["/C", "start", "index.html"]).spawn();
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = std::process::Command::new("open").arg("index.html").spawn();
+                }
+                #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+                {
+                    let _ = std::process::Command::new("xdg-open").arg("index.html").spawn();
+                }
+                self.save_message = Some("Opening documentation...".to_string());
+                self.save_message_timer = 0;
+            }
             _ => {}
         }
     }
