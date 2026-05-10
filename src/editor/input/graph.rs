@@ -30,14 +30,14 @@ impl EditorState {
                 let buf_clone = buf.clone();
                 let nid_copy = nid;
                 self.graph_editing_param = None;
-                if let Some(tile) = self.grid.get(gx, gy).cloned() {
+                if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {
                     let mut new_tile = tile.clone();
                     if let Some(graph) = &mut new_tile.graph {
                         if let Some(node) = graph.get_mut(nid_copy) {
                             apply_param_edit(&mut node.kind, &buf_clone);
                         }
                     }
-                    self.grid.place(gx, gy, new_tile);
+                    self.grid.place(gx, gy, self.active_layer, new_tile);
                     self.unsaved = true;
                 }
             }
@@ -110,12 +110,12 @@ impl EditorState {
                 if let Some(kind) = palette_make(key) {
                     let graph_x = (px as i32) - self.graph_view_ox;
                     let graph_y = (py as i32) - self.graph_view_oy;
-                    if let Some(tile) = self.grid.get(gx, gy).cloned() {
+                    if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {
                         let mut new_tile = tile.clone();
                         if let Some(graph) = &mut new_tile.graph {
                             graph.add_node(kind, graph_x, graph_y);
                         }
-                        self.grid.place(gx, gy, new_tile);
+                        self.grid.place(gx, gy, self.active_layer, new_tile);
                         self.unsaved = true;
                     }
                 }
@@ -124,11 +124,41 @@ impl EditorState {
             return;
         }
 
-        // ── Escape / global keys ──────────────────────────────────────────────
+        // ── Keyboard shortcuts ────────────────────────────────────────────────
+        let ctrl = input.is_held(Key::LeftCtrl) || input.is_held(Key::RightCtrl);
+
         if input.just_pressed(Key::Escape) {
             if self.graph_connecting.is_some() { self.graph_connecting = None; return; }
             self.graph_mode = None;
             return;
+        }
+
+        // Copy node
+        if ctrl && input.just_pressed(Key::C) {
+            if let Some(nid) = self.graph_selected_node {
+                if let Some(tile) = self.grid.get(gx, gy, self.active_layer) {
+                    if let Some(graph) = &tile.graph {
+                        if let Some(node) = graph.get(nid) {
+                            self.graph_clipboard = Some(node.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Paste node
+        if ctrl && input.just_pressed(Key::V) {
+            if let Some(proto) = self.graph_clipboard.clone() {
+                if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {
+                    let mut new_tile = tile.clone();
+                    if let Some(graph) = &mut new_tile.graph {
+                        let nid = graph.add_node(proto.kind, col - self.graph_view_ox, row - self.graph_view_oy);
+                        self.graph_selected_node = Some(nid);
+                    }
+                    self.grid.place(gx, gy, self.active_layer, new_tile);
+                    self.unsaved = true;
+                }
+            }
         }
 
         // Pan with arrow keys
@@ -140,10 +170,10 @@ impl EditorState {
 
         // Auto-layout
         if input.just_pressed(Key::F) {
-            if let Some(tile) = self.grid.get(gx, gy).cloned() {
+            if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {
                 let mut new_tile = tile.clone();
                 if let Some(graph) = &mut new_tile.graph { graph.auto_layout(); }
-                self.grid.place(gx, gy, new_tile);
+                self.grid.place(gx, gy, self.active_layer, new_tile);
                 self.unsaved = true;
             }
         }
@@ -151,10 +181,10 @@ impl EditorState {
         // Delete selected node
         if input.just_pressed(Key::Delete) || input.just_pressed(Key::Backspace) {
             if let Some(sel) = self.graph_selected_node {
-                if let Some(tile) = self.grid.get(gx, gy).cloned() {
+                if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {
                     let mut new_tile = tile.clone();
                     if let Some(graph) = &mut new_tile.graph { graph.remove_node(sel); }
-                    self.grid.place(gx, gy, new_tile);
+                    self.grid.place(gx, gy, self.active_layer, new_tile);
                     self.unsaved = true;
                     self.graph_selected_node = None;
                 }
@@ -167,7 +197,7 @@ impl EditorState {
         // ── Mouse drag in progress ────────────────────────────────────────────
         if mouse.left_held() {
             if let Some((nid, ox, oy)) = self.graph_dragging_node {
-                if let Some(tile) = self.grid.get(gx, gy).cloned() {
+                if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {
                     let mut new_tile = tile.clone();
                     if let Some(graph) = &mut new_tile.graph {
                         if let Some(node) = graph.get_mut(nid) {
@@ -175,7 +205,7 @@ impl EditorState {
                             node.y = row - self.graph_view_oy - oy;
                         }
                     }
-                    self.grid.place(gx, gy, new_tile);
+                    self.grid.place(gx, gy, self.active_layer, new_tile);
                 }
             }
         }
@@ -197,11 +227,11 @@ impl EditorState {
 
         // ── Left click ────────────────────────────────────────────────────────
         if click && mouse.cell_y > 1 {
-            let graph_snap = self.grid.get(gx, gy).and_then(|t| t.graph.as_ref()).is_some();
+            let graph_snap = self.grid.get(gx, gy, self.active_layer).and_then(|t| t.graph.as_ref()).is_some();
             if !graph_snap { return; }
 
             // Check port first
-            let hit_port = self.grid.get(gx, gy).and_then(|t| t.graph.as_ref())
+            let hit_port = self.grid.get(gx, gy, self.active_layer).and_then(|t| t.graph.as_ref())
                 .and_then(|g| port_at(g, col, row, self.graph_view_ox, self.graph_view_oy));
 
             if let Some((nid, dir_idx, dir, kind)) = hit_port {
@@ -209,12 +239,12 @@ impl EditorState {
                     self.graph_connecting = Some((nid, dir_idx));
                 } else if dir == PortDir::In {
                     if let Some((from_id, from_di)) = self.graph_connecting.take() {
-                        if let Some(tile) = self.grid.get(gx, gy).cloned() {
+                        if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {
                             let mut new_tile = tile.clone();
                             if let Some(graph) = &mut new_tile.graph {
                                 graph.add_edge(from_id, from_di, nid, dir_idx);
                             }
-                            self.grid.place(gx, gy, new_tile);
+                            self.grid.place(gx, gy, self.active_layer, new_tile);
                             self.unsaved = true;
                         }
                     }
@@ -225,13 +255,13 @@ impl EditorState {
             }
 
             // Check node
-            let hit_node = self.grid.get(gx, gy).and_then(|t| t.graph.as_ref())
+            let hit_node = self.grid.get(gx, gy, self.active_layer).and_then(|t| t.graph.as_ref())
                 .and_then(|g| node_at(g, col, row, self.graph_view_ox, self.graph_view_oy));
 
             if let Some(nid) = hit_node {
                 self.graph_selected_node = Some(nid);
                 self.graph_connecting = None;
-                if let Some(tile) = self.grid.get(gx, gy) {
+                if let Some(tile) = self.grid.get(gx, gy, self.active_layer) {
                     if let Some(graph) = &tile.graph {
                         if let Some(node) = graph.get(nid) {
                             let nx = node.x + self.graph_view_ox;

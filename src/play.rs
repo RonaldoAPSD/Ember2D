@@ -60,7 +60,7 @@ fn resolve_exit_path(next: &str, current_level_path: &str) -> String {
 const Z_FLOOR:  i32 = 0;
 const Z_ITEM:   i32 = 1;
 const Z_WALL:   i32 = 2;
-const Z_PLAYER: i32 = 3;
+const Z_PLAYER: i32 = 15; // In the middle of layer 1 (Main)
 
 /// Player movement speed in cells per second.
 const PLAYER_SPEED: f32 = 10.0;
@@ -218,7 +218,7 @@ impl GameState for PlayState {
             let id = world.spawn();
             world.add_transform(id, Transform::new(tile.x as f32, tile.y as f32));
 
-            let z = Self::z_for_tag(&tile.tag);
+            let z = Self::z_for_tag(&tile.tag) + (tile.layer as i32 * 10);
             world.add_sprite(id, Sprite::new(tile.glyph, tile.fg, tile.bg, z));
 
             if tile.solid {

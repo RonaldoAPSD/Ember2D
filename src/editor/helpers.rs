@@ -44,11 +44,11 @@ pub fn apply_basic_room(grid: &mut LevelGrid) {
         for gx in 0..w {
             let on_edge = gx == 0 || gx == w - 1 || gy == 0 || gy == h - 1;
             let tile = if on_edge {
-                TileRecord::new(gx, gy, '#', Color::Grey, Color::Reset, true, false, "wall")
+                TileRecord::new(gx, gy, 1, '#', Color::Grey, Color::Reset, true, false, "wall")
             } else {
-                TileRecord::new(gx, gy, '.', Color::DarkGrey, Color::Reset, false, false, "floor")
+                TileRecord::new(gx, gy, 1, '.', Color::DarkGrey, Color::Reset, false, false, "floor")
             };
-            grid.place(gx, gy, tile);
+            grid.place(gx, gy, 1, tile);
         }
     }
     grid.spawn_point = (w as f32 / 2.0, h as f32 / 2.0);
@@ -103,5 +103,27 @@ pub fn param_default_for(kind: &node_graph::NodeKind) -> String {
         NodeKind::CancelTimer { name } => name.clone(),
         NodeKind::PlayMusic { path } => path.clone(),
         _ => String::new(),
+    }
+}
+
+pub fn next_color(c: Color) -> Color {
+    match c {
+        Color::Black       => Color::White,
+        Color::White       => Color::Red,
+        Color::Red         => Color::Green,
+        Color::Green       => Color::Yellow,
+        Color::Yellow      => Color::Blue,
+        Color::Blue        => Color::Cyan,
+        Color::Cyan        => Color::Magenta,
+        Color::Magenta     => Color::DarkGrey,
+        Color::DarkGrey    => Color::Grey,
+        Color::Grey        => Color::DarkRed,
+        Color::DarkRed     => Color::DarkGreen,
+        Color::DarkGreen   => Color::DarkBlue,
+        Color::DarkBlue    => Color::DarkYellow,
+        Color::DarkYellow  => Color::DarkCyan,
+        Color::DarkCyan    => Color::DarkMagenta,
+        Color::DarkMagenta => Color::Reset,
+        Color::Reset       => Color::Black,
     }
 }

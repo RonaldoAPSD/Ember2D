@@ -139,7 +139,8 @@ impl EditorState {
             && mouse.cell_x >= l.canvas_x
             && mouse.cell_x < l.canvas_x + l.canvas_w
             && mouse.cell_y >= l.canvas_y
-            && mouse.cell_y < l.canvas_y + l.canvas_h;
+            && mouse.cell_y < l.canvas_y + l.canvas_h
+            && !self.panels.is_point_on_panel(mouse.cell_x, mouse.cell_y);
 
         if on_canvas {
             self.inspected_pos = self.mouse_to_grid(mouse.cell_x, mouse.cell_y);
@@ -172,7 +173,7 @@ impl EditorState {
         }
 
         // Mouse wheel — zoom canvas (ctrl+wheel for faster zoom).
-        if mouse.wheel_y != 0.0 {
+        if on_canvas && mouse.wheel_y != 0.0 {
             let ctrl = input.is_held(Key::LeftCtrl) || input.is_held(Key::RightCtrl);
             
             // 1. Capture grid position under mouse before zoom
@@ -231,7 +232,8 @@ impl EditorState {
                         }
                     } else if mouse.right_held() && self.erase_size == 1 {
                         if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
-                            if let Some(removed) = self.grid.erase(gx, gy) {
+                            let lyr = self.active_layer;
+                            if let Some(removed) = self.grid.erase(gx, gy, lyr) {
                                 self.undo.push(Command::EraseTile { before: removed });
                                 self.unsaved = true;
                             }
@@ -300,11 +302,13 @@ impl EditorState {
         if alt && mouse.left_held() && !self.ignore_drag {
             if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
                 if !self.grid.in_bounds(gx, gy) { return; }
+                let lyr = self.active_layer;
                 if (gx * 1234 + gy * 5678 + self.undo.len() as i32) % 2 == 0 {
-                    let new_tile = self.palette.current().to_tile_record(gx, gy);
-                    let existing = self.grid.get(gx, gy).cloned();
+                    let mut new_tile = self.palette.current().to_tile_record(gx, gy);
+                    new_tile.layer = lyr;
+                    let existing = self.grid.get(gx, gy, lyr).cloned();
                     self.undo.push(Command::PlaceTile { before: existing, after: new_tile.clone() });
-                    self.grid.place(gx, gy, new_tile);
+                    self.grid.place(gx, gy, lyr, new_tile);
                     self.unsaved = true;
                 }
             }
@@ -315,15 +319,17 @@ impl EditorState {
         if mouse.left_held() && !self.ignore_drag {
             if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
                 if !self.grid.in_bounds(gx, gy) { return; }
-                let new_tile = self.palette.current().to_tile_record(gx, gy);
-                let existing = self.grid.get(gx, gy).cloned();
+                let lyr = self.active_layer;
+                let mut new_tile = self.palette.current().to_tile_record(gx, gy);
+                new_tile.layer = lyr;
+                let existing = self.grid.get(gx, gy, lyr).cloned();
                 let same = existing.as_ref().map(|t| {
                     t.glyph == new_tile.glyph && t.solid == new_tile.solid
                         && t.trigger == new_tile.trigger && t.tag == new_tile.tag
                 }).unwrap_or(false);
                 if !same {
                     self.undo.push(Command::PlaceTile { before: existing, after: new_tile.clone() });
-                    self.grid.place(gx, gy, new_tile);
+                    self.grid.place(gx, gy, lyr, new_tile);
                     self.unsaved = true;
                 }
             }
@@ -336,7 +342,8 @@ impl EditorState {
             }
         } else if mouse.right_held() && self.erase_size == 1 {
             if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
-                if let Some(removed) = self.grid.erase(gx, gy) {
+                let lyr = self.active_layer;
+                if let Some(removed) = self.grid.erase(gx, gy, lyr) {
                     self.undo.push(Command::EraseTile { before: removed });
                     self.unsaved = true;
                 }

@@ -24,12 +24,17 @@ impl EditorState {
             }
         }
 
-        // ── Palette keys 1–9 ─────────────────────────────────────────────────
-        let number_keys = [
-            (Key::Key1,1),(Key::Key2,2),(Key::Key3,3),(Key::Key4,4),(Key::Key5,5),
-            (Key::Key6,6),(Key::Key7,7),(Key::Key8,8),(Key::Key9,9),
+        // ── Layer switching (1, 2, 3) ──────────────────────────────────────────
+        if input.just_pressed(Key::Key1) { self.active_layer = 0; self.ignore_drag = true; self.save_message = Some("LAYER: Background".to_string()); self.save_message_timer = 0; }
+        if input.just_pressed(Key::Key2) { self.active_layer = 1; self.ignore_drag = true; self.save_message = Some("LAYER: Main".to_string());       self.save_message_timer = 0; }
+        if input.just_pressed(Key::Key3) { self.active_layer = 2; self.ignore_drag = true; self.save_message = Some("LAYER: Foreground".to_string()); self.save_message_timer = 0; }
+
+        // ── Palette keys 4–0 ─────────────────────────────────────────────────
+        let palette_keys = [
+            (Key::Key4,1),(Key::Key5,2),(Key::Key6,3),(Key::Key7,4),
+            (Key::Key8,5),(Key::Key9,6),(Key::Key0,7),
         ];
-        for (key, num) in &number_keys {
+        for (key, num) in &palette_keys {
             if input.just_pressed(*key) { self.palette.select_by_key(*num); }
         }
 
@@ -75,8 +80,10 @@ impl EditorState {
             self.save();
         }
 
-        if input.just_pressed(Key::Tab) { self.show_grid = !self.show_grid; }
-        if input.just_pressed(Key::H)   { self.panels.toggle(PanelId::Hierarchy); }
+        if input.just_pressed(Key::G) { self.show_physics = !self.show_physics; }
+        if input.just_pressed(Key::B) { self.panels.toggle(PanelId::Palette); }
+        if input.just_pressed(Key::H) { self.panels.toggle(PanelId::Hierarchy); }
+
         if input.just_pressed(Key::B)   { self.panels.toggle(PanelId::Palette); }
         if input.just_pressed(Key::G)   { self.show_physics = !self.show_physics; }
 
@@ -151,7 +158,7 @@ impl EditorState {
         // T — script attachment.
         if input.just_pressed(Key::T) {
             if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
-                if let Some(tile) = self.grid.get(gx, gy) {
+                if let Some(tile) = self.grid.get(gx, gy, self.active_layer) {
                     let existing = tile.script.clone().unwrap_or_default();
                     self.text_input = Some(TextInput { buffer: existing, purpose: TextInputPurpose::ScriptPath { gx, gy } });
                     return;
@@ -162,7 +169,7 @@ impl EditorState {
         // D — set exit destination (next_level path) on tile under cursor.
         if input.just_pressed(Key::D) {
             if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
-                if let Some(tile) = self.grid.get(gx, gy) {
+                if let Some(tile) = self.grid.get(gx, gy, self.active_layer) {
                     let existing = tile.next_level.clone().unwrap_or_default();
                     self.text_input = Some(TextInput { buffer: existing, purpose: TextInputPurpose::TileNextLevel { gx, gy } });
                     return;
@@ -173,7 +180,7 @@ impl EditorState {
         // I — edit tile tag.
         if input.just_pressed(Key::I) {
             if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
-                if let Some(tile) = self.grid.get(gx, gy) {
+                if let Some(tile) = self.grid.get(gx, gy, self.active_layer) {
                     self.text_input = Some(TextInput { buffer: tile.tag.clone(), purpose: TextInputPurpose::TileTag { gx, gy } });
                     return;
                 }
@@ -183,22 +190,24 @@ impl EditorState {
         // ; — toggle solid, ' — toggle trigger on tile under cursor.
         if input.just_pressed(Key::Semicolon) {
             if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
-                if let Some(tile) = self.grid.get(gx, gy).cloned() {
+                let lyr = self.active_layer;
+                if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
                     let mut new_tile = tile.clone();
                     new_tile.solid = !new_tile.solid;
-                    self.undo.push(Command::Batch { cells: vec![(gx, gy, Some(tile), Some(new_tile.clone()))] });
-                    self.grid.place(gx, gy, new_tile);
+                    self.undo.push(Command::Batch { cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))] });
+                    self.grid.place(gx, gy, lyr, new_tile);
                     self.unsaved = true;
                 }
             }
         }
         if input.just_pressed(Key::Apostrophe) {
             if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
-                if let Some(tile) = self.grid.get(gx, gy).cloned() {
+                let lyr = self.active_layer;
+                if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
                     let mut new_tile = tile.clone();
                     new_tile.trigger = !new_tile.trigger;
-                    self.undo.push(Command::Batch { cells: vec![(gx, gy, Some(tile), Some(new_tile.clone()))] });
-                    self.grid.place(gx, gy, new_tile);
+                    self.undo.push(Command::Batch { cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))] });
+                    self.grid.place(gx, gy, lyr, new_tile);
                     self.unsaved = true;
                 }
             }

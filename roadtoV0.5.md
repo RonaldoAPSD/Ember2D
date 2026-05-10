@@ -1,16 +1,23 @@
 # Ember2D Roadmap: v0.4.1 to v0.5.0
 
-## v0.4.1: The Documentation & API Update
+## DONE v0.4.1: The Documentation & API Update
 *Focus: Finalizing the core API and making the engine accessible to users.*
 *   **Full Scripting API Implementation:** Ensure all core engine features are exposed to Rhai.
 *   **"Your First Game" Tutorial:** A step-by-step guide for new developers.
 *   **API Reference Site:** Comprehensive local documentation in `index.html`.
 
-## v0.4.2: The Editor Polish Update
+## DONE v0.4.2: The Editor Polish Update
 *Focus: Robust tools and quality-of-life for the developer.*
 *   **Undo / Redo System:** Essential for both the level painter and the node graph.
 *   **Node Graph UX:** Wire routing/snapping, box-selection for moving multiple nodes, and copy/paste functionality.
 *   **Visual Tile Layers:** Dedicated Editor layers (Background, Foreground, Logic/Triggers) to keep complex levels organized.
+
+## DONE v0.4.2.5: The Palette Overhaul
+*Focus: Dynamic asset management.*
+*   **Persistent Custom Palettes:** Palettes are now saved to `project.palette.ron` for each project.
+*   **In-Editor Creation:** `[+ New Item]` button to expand the palette on the fly.
+*   **Integrated Palette Editor:** The Inspector handles palette definition editing (name, glyph, fg/bg color cycling) when no grid tile is selected.
+*   **UI Polish:** Added mouse-wheel scrolling to the palette panel.
 
 ## v0.4.3: The Visual Polish Update
 *Focus: Making the games look dynamic and alive without writing complex scripts.*

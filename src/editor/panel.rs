@@ -109,7 +109,7 @@ pub struct PanelManager {
 
 pub const HIER_W: usize = 14;
 pub const INSP_W: usize = 30;
-pub const PAL_W:  usize = 14;
+pub const PAL_W:  usize = 20;
 pub const CON_H:  usize = 9;
 
 const DOCK_THRESHOLD: i32 = 3;
@@ -138,7 +138,7 @@ impl PanelManager {
         panels[1].dock    = DockSide::Right;
         panels[1].visible = true;  // Inspector
 
-        panels[2].visible = true;  // Palette (floating)
+        panels[2].visible = false; // Palette (floating, hidden by default)
 
         panels[3].dock    = DockSide::Bottom;  // Console (hidden by default)
 

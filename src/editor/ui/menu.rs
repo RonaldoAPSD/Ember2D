@@ -12,11 +12,12 @@ pub enum MenuEntry {
 
 fn menu_label_defs() -> &'static [(usize, &'static str, MenuKind)] {
     &[
-        (1,  "File",  MenuKind::File),
-        (7,  "Edit",  MenuKind::Edit),
-        (13, "Level", MenuKind::Level),
-        (20, "View",  MenuKind::View),
-        (26, "Tools", MenuKind::Tools),
+        (1,  "File",   MenuKind::File),
+        (7,  "Edit",   MenuKind::Edit),
+        (13, "Level",  MenuKind::Level),
+        (20, "View",   MenuKind::View),
+        (26, "Tools",  MenuKind::Tools),
+        (33, "Layers", MenuKind::Layers),
     ]
 }
 
@@ -79,6 +80,11 @@ pub fn menu_entries(kind: MenuKind) -> Vec<MenuEntry> {
             Item { label: "Line",   shortcut: "L   ", action: SetTool(Line)   },
             Item { label: "Fill",   shortcut: "F   ", action: SetTool(Fill)   },
         ],
+        MenuKind::Layers => vec![
+            Item { label: "Background", shortcut: "1   ", action: SetLayer(0) },
+            Item { label: "Main",       shortcut: "2   ", action: SetLayer(1) },
+            Item { label: "Foreground", shortcut: "3   ", action: SetLayer(2) },
+        ],
     }
 }
 
@@ -111,6 +117,7 @@ fn menu_checkmark(action: &ToolbarAction, ms: &MenuState) -> char {
         ToolbarAction::ToggleConsole   => if ms.show_console    { 'x' } else { ' ' },
         ToolbarAction::ToggleStats     => if ms.show_stats      { 'x' } else { ' ' },
         ToolbarAction::ToggleHierarchy => if ms.show_hierarchy  { 'x' } else { ' ' },
+        ToolbarAction::SetLayer(l)     => if *l == ms.active_layer { 'x' } else { ' ' },
         _ => ' ',
     }
 }

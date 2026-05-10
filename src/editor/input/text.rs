@@ -29,31 +29,45 @@ impl EditorState {
                         if !ti.buffer.is_empty() { self.save_path = ti.buffer; self.save(); }
                     }
                     TextInputPurpose::ScriptPath { gx, gy } => {
-                        if let Some(tile) = self.grid.get(gx, gy).cloned() {
+                        let lyr = self.active_layer;
+                        if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
                             let mut new_tile = tile.clone();
                             new_tile.script = if ti.buffer.is_empty() { None } else { Some(ti.buffer) };
-                            self.undo.push(Command::Batch { cells: vec![(gx, gy, Some(tile), Some(new_tile.clone()))] });
-                            self.grid.place(gx, gy, new_tile);
+                            self.undo.push(Command::Batch { cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))] });
+                            self.grid.place(gx, gy, lyr, new_tile);
                             self.unsaved = true;
                         }
                     }
                     TextInputPurpose::TileNextLevel { gx, gy } => {
-                        if let Some(tile) = self.grid.get(gx, gy).cloned() {
+                        let lyr = self.active_layer;
+                        if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
                             let mut new_tile = tile.clone();
                             new_tile.next_level = if ti.buffer.is_empty() { None } else { Some(ti.buffer) };
-                            self.undo.push(Command::Batch { cells: vec![(gx, gy, Some(tile), Some(new_tile.clone()))] });
-                            self.grid.place(gx, gy, new_tile);
+                            self.undo.push(Command::Batch { cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))] });
+                            self.grid.place(gx, gy, lyr, new_tile);
                             self.unsaved = true;
                         }
                     }
                     TextInputPurpose::TileTag { gx, gy } => {
-                        if let Some(tile) = self.grid.get(gx, gy).cloned() {
-                            let mut new_tile = tile.clone();
-                            new_tile.tag = ti.buffer;
-                            self.undo.push(Command::Batch { cells: vec![(gx, gy, Some(tile), Some(new_tile.clone()))] });
-                            self.grid.place(gx, gy, new_tile);
+                        if gx == -1 {
+                            let sel = self.palette.selected;
+                            self.palette.tiles[sel].tag = ti.buffer;
                             self.unsaved = true;
+                        } else {
+                            let lyr = self.active_layer;
+                            if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
+                                let mut new_tile = tile.clone();
+                                new_tile.tag = ti.buffer;
+                                self.undo.push(Command::Batch { cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))] });
+                                self.grid.place(gx, gy, lyr, new_tile);
+                                self.unsaved = true;
+                            }
                         }
+                    }
+                    TextInputPurpose::PaletteName => {
+                        let sel = self.palette.selected;
+                        self.palette.tiles[sel].name = ti.buffer;
+                        self.unsaved = true;
                     }
                     TextInputPurpose::NamedSpawn => {
                         if !ti.buffer.is_empty() {
@@ -72,6 +86,23 @@ impl EditorState {
                         };
                         match parsed {
                             Some((w, h)) if w >= 4 && h >= 3 => {
+                                let old_w = self.grid.width;
+                                let old_h = self.grid.height;
+                                // Capture all tiles that might be lost
+                                let mut lost_tiles = Vec::new();
+                                for (&(gx, gy, _lyr), t) in &self.grid.tiles {
+                                    if gx < 0 || gy < 0 || gx as usize >= w || gy as usize >= h {
+                                        lost_tiles.push(t.clone());
+                                    }
+                                }
+                                self.undo.push(Command::ResizeLevel {
+                                    before_w: old_w,
+                                    before_h: old_h,
+                                    before_tiles: lost_tiles,
+                                    after_w: w,
+                                    after_h: h,
+                                });
+
                                 self.grid.resize(w, h);
                                 self.clamp_scroll();
                                 self.unsaved = true;
@@ -89,27 +120,46 @@ impl EditorState {
                         }
                     }
                     TextInputPurpose::PlayerTag => {
-                        self.grid.player.tag = ti.buffer;
+                        let before = self.grid.player.clone();
+                        let mut after = before.clone();
+                        after.tag = ti.buffer;
+                        self.undo.push(Command::UpdatePlayer { before, after: after.clone() });
+                        self.grid.player = after;
                         self.unsaved = true;
                     }
                     TextInputPurpose::PlayerScript => {
-                        self.grid.player.script = if ti.buffer.is_empty() { None } else { Some(ti.buffer) };
+                        let before = self.grid.player.clone();
+                        let mut after = before.clone();
+                        after.script = if ti.buffer.is_empty() { None } else { Some(ti.buffer) };
+                        self.undo.push(Command::UpdatePlayer { before, after: after.clone() });
+                        self.grid.player = after;
                         self.unsaved = true;
                     }
                     TextInputPurpose::TileGlyph { gx, gy } => {
                         if let Some(ch) = ti.buffer.chars().next() {
-                            if let Some(tile) = self.grid.get(gx, gy).cloned() {
-                                let mut new_tile = tile.clone();
-                                new_tile.glyph = ch;
-                                self.undo.push(Command::Batch { cells: vec![(gx, gy, Some(tile), Some(new_tile.clone()))] });
-                                self.grid.place(gx, gy, new_tile);
+                            if gx == -1 {
+                                let sel = self.palette.selected;
+                                self.palette.tiles[sel].glyph = ch;
                                 self.unsaved = true;
+                            } else {
+                                let lyr = self.active_layer;
+                                if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
+                                    let mut new_tile = tile.clone();
+                                    new_tile.glyph = ch;
+                                    self.undo.push(Command::Batch { cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))] });
+                                    self.grid.place(gx, gy, lyr, new_tile);
+                                    self.unsaved = true;
+                                }
                             }
                         }
                     }
                     TextInputPurpose::PlayerGlyph => {
                         if let Some(ch) = ti.buffer.chars().next() {
-                            self.grid.player.glyph = ch;
+                            let before = self.grid.player.clone();
+                            let mut after = before.clone();
+                            after.glyph = ch;
+                            self.undo.push(Command::UpdatePlayer { before, after: after.clone() });
+                            self.grid.player = after;
                             self.unsaved = true;
                         }
                     }

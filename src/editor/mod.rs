@@ -49,6 +49,7 @@ pub enum TextInputPurpose {
     PlayerScript,
     PlayerGlyph,
     NewLevelName,
+    PaletteName,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +68,9 @@ pub struct EditorState {
     pub(super) save_path: String,
     pub(super) unsaved:   bool,
     pub(super) show_grid: bool,
+    pub(super) active_layer: u8,
+    pub(super) palette_scroll: usize,
+    pub(super) palette_color_picker: Option<bool>,
 
     pub(super) save_message:       Option<String>,
     pub(super) save_message_timer: u32,
@@ -138,6 +142,7 @@ pub struct EditorState {
     pub(super) graph_palette_scroll: usize,
     pub(super) graph_palette_cursor: usize,
     pub(super) graph_editing_param: Option<(node_graph::NodeId, String)>,
+    pub(super) graph_clipboard:     Option<node_graph::Node>,
 
     pub(super) layout: Layout,
     pub(super) zoom:   f32,
@@ -152,6 +157,9 @@ impl EditorState {
             save_path: if save_path.is_empty() { "level.level".to_string() } else { save_path.to_string() },
             unsaved:      false,
             show_grid:    false,
+            active_layer: 1,
+            palette_scroll: 0,
+            palette_color_picker: None,
             save_message:       None,
             save_message_timer: 0,
             pending_transition: None,
@@ -198,6 +206,7 @@ impl EditorState {
             graph_palette_scroll: 0,
             graph_palette_cursor: 0,
             graph_editing_param: None,
+            graph_clipboard:     None,
             layout:       Layout::new(80, 24),
             zoom:         1.0,
         }
@@ -211,6 +220,15 @@ impl EditorState {
         Ok(editor)
     }
 
+    pub(super) fn load_palette(&mut self) {
+        if let Some(ref folder) = self.project_folder {
+            let path = format!("{}/project.palette.ron", folder);
+            if let Ok(pal) = TilePalette::load(&path) {
+                self.palette = pal;
+            }
+        }
+    }
+
     pub fn new_from_result(result: StartResult) -> Result<Self, String> {
         use crate::project::ProjectData;
         match result.template {
@@ -218,6 +236,7 @@ impl EditorState {
                 let mut editor = EditorState::load(&result.level_path)?;
                 editor.project_folder = Some(result.project_folder);
                 editor.project_name   = Some(result.project_name);
+                editor.load_palette();
                 Ok(editor)
             }
             Some(template) => {
@@ -231,6 +250,7 @@ impl EditorState {
                 editor.grid.name    = result.project_name.clone();
                 editor.project_folder = Some(result.project_folder);
                 editor.project_name   = Some(result.project_name);
+                editor.load_palette();
 
                 if template == StartTemplate::BasicRoom {
                     apply_basic_room(&mut editor.grid);

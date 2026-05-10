@@ -22,6 +22,16 @@ impl EditorState {
                 self.save_message_timer = 0;
             }
         }
+        self.save_palette();
+    }
+
+    pub(super) fn save_palette(&mut self) {
+        if let Some(ref folder) = self.project_folder {
+            let path = format!("{}/project.palette.ron", folder);
+            if let Err(e) = self.palette.save(&path) {
+                eprintln!("Failed to save palette: {}", e);
+            }
+        }
     }
 
     pub(super) fn mouse_to_grid(&self, cell_x: usize, cell_y: usize) -> Option<(i32, i32)> {
@@ -49,15 +59,27 @@ impl EditorState {
 
     pub(super) fn apply_command(&mut self, cmd: &Command) {
         match cmd {
-            Command::PlaceTile { after, .. } => { self.grid.place(after.x, after.y, after.clone()); }
-            Command::EraseTile { before }    => { self.grid.erase(before.x, before.y); }
+            Command::PlaceTile { after, .. } => { self.grid.place(after.x, after.y, after.layer, after.clone()); }
+            Command::EraseTile { before }    => { self.grid.erase(before.x, before.y, before.layer); }
             Command::Batch { cells } => {
-                for (x, y, _before, after) in cells {
+                for &(x, y, layer, _, ref after) in cells {
                     match after {
-                        Some(t) => { self.grid.place(*x, *y, t.clone()); }
-                        None    => { self.grid.erase(*x, *y); }
+                        Some(t) => { self.grid.place(x, y, layer, t.clone()); }
+                        None    => { self.grid.erase(x, y, layer); }
                     }
                 }
+            }
+            Command::ResizeLevel { after_w, after_h, .. } => {
+                self.grid.resize(*after_w, *after_h);
+            }
+            Command::MoveSpawn { after, .. } => {
+                self.grid.spawn_point = *after;
+            }
+            Command::UpdatePlayer { after, .. } => {
+                self.grid.player = after.clone();
+            }
+            Command::UpdateExtraSpawns { after, .. } => {
+                self.grid.extra_spawns = after.clone();
             }
         }
     }
@@ -65,17 +87,33 @@ impl EditorState {
     pub(super) fn reverse_command(&mut self, cmd: &Command) {
         match cmd {
             Command::PlaceTile { before, after } => {
-                self.grid.erase(after.x, after.y);
-                if let Some(prev) = before { self.grid.place(prev.x, prev.y, prev.clone()); }
+                self.grid.erase(after.x, after.y, after.layer);
+                if let Some(prev) = before { self.grid.place(prev.x, prev.y, prev.layer, prev.clone()); }
             }
-            Command::EraseTile { before } => { self.grid.place(before.x, before.y, before.clone()); }
+            Command::EraseTile { before } => { self.grid.place(before.x, before.y, before.layer, before.clone()); }
             Command::Batch { cells } => {
-                for (x, y, before, _after) in cells {
+                for &(x, y, layer, ref before, _) in cells {
                     match before {
-                        Some(t) => { self.grid.place(*x, *y, t.clone()); }
-                        None    => { self.grid.erase(*x, *y); }
+                        Some(t) => { self.grid.place(x, y, layer, t.clone()); }
+                        None    => { self.grid.erase(x, y, layer); }
                     }
                 }
+            }
+            Command::ResizeLevel { before_w, before_h, before_tiles, .. } => {
+                self.grid.resize(*before_w, *before_h);
+                // Restoration of lost tiles. resize() clears outside bounds, so we put them back.
+                for t in before_tiles {
+                    self.grid.place(t.x, t.y, t.layer, t.clone());
+                }
+            }
+            Command::MoveSpawn { before, .. } => {
+                self.grid.spawn_point = *before;
+            }
+            Command::UpdatePlayer { before, .. } => {
+                self.grid.player = before.clone();
+            }
+            Command::UpdateExtraSpawns { before, .. } => {
+                self.grid.extra_spawns = before.clone();
             }
         }
     }
@@ -86,13 +124,14 @@ impl EditorState {
         let x1 = anchor.0.max(current.0);
         let y1 = anchor.1.max(current.1);
         let mut cells = Vec::new();
+        let lyr = self.active_layer;
         for gy in y0..=y1 {
             for gx in x0..=x1 {
                 if !self.grid.in_bounds(gx, gy) { continue; }
                 let new_tile = self.palette.current().to_tile_record(gx, gy);
-                let before   = self.grid.get(gx, gy).cloned();
-                self.grid.place(gx, gy, new_tile.clone());
-                cells.push((gx, gy, before, Some(new_tile)));
+                let before   = self.grid.get(gx, gy, lyr).cloned();
+                self.grid.place(gx, gy, lyr, new_tile.clone());
+                cells.push((gx, gy, lyr, before, Some(new_tile)));
             }
         }
         if !cells.is_empty() { self.undo.push(Command::Batch { cells }); self.unsaved = true; }
@@ -100,18 +139,20 @@ impl EditorState {
 
     pub(super) fn stamp_line(&mut self, anchor: (i32, i32), end: (i32, i32)) {
         let mut cells = Vec::new();
+        let lyr = self.active_layer;
         for (gx, gy) in bresenham(anchor, end) {
             if !self.grid.in_bounds(gx, gy) { continue; }
             let new_tile = self.palette.current().to_tile_record(gx, gy);
-            let before   = self.grid.get(gx, gy).cloned();
-            self.grid.place(gx, gy, new_tile.clone());
-            cells.push((gx, gy, before, Some(new_tile)));
+            let before   = self.grid.get(gx, gy, lyr).cloned();
+            self.grid.place(gx, gy, lyr, new_tile.clone());
+            cells.push((gx, gy, lyr, before, Some(new_tile)));
         }
         if !cells.is_empty() { self.undo.push(Command::Batch { cells }); self.unsaved = true; }
     }
 
     pub(super) fn flood_fill(&mut self, sx: i32, sy: i32) {
-        let target_tile = self.grid.get(sx, sy).cloned();
+        let lyr = self.active_layer;
+        let target_tile = self.grid.get(sx, sy, lyr).cloned();
         let new_def     = self.palette.current();
         if let Some(t) = &target_tile {
             if t.glyph == new_def.glyph && t.solid == new_def.solid && t.tag == new_def.tag { return; }
@@ -123,7 +164,7 @@ impl EditorState {
         visited.insert((sx, sy));
         while let Some((gx, gy)) = queue.pop_front() {
             if !self.grid.in_bounds(gx, gy) { continue; }
-            let cell = self.grid.get(gx, gy).cloned();
+            let cell = self.grid.get(gx, gy, lyr).cloned();
             let matches = match (&cell, &target_tile) {
                 (None, None)       => true,
                 (Some(a), Some(b)) => a.glyph == b.glyph && a.solid == b.solid && a.tag == b.tag,
@@ -131,8 +172,8 @@ impl EditorState {
             };
             if !matches { continue; }
             let new_tile = new_def.to_tile_record(gx, gy);
-            self.grid.place(gx, gy, new_tile.clone());
-            cells.push((gx, gy, cell, Some(new_tile)));
+            self.grid.place(gx, gy, lyr, new_tile.clone());
+            cells.push((gx, gy, lyr, cell, Some(new_tile)));
             for (nx, ny) in [(gx-1,gy),(gx+1,gy),(gx,gy-1),(gx,gy+1)] {
                 if !visited.contains(&(nx, ny)) { visited.insert((nx, ny)); queue.push_back((nx, ny)); }
             }
@@ -143,17 +184,18 @@ impl EditorState {
     pub(super) fn erase_brush(&mut self, gx: i32, gy: i32) {
         let half = (self.erase_size as i32) / 2;
         let mut cells = Vec::new();
+        let lyr = self.active_layer;
         for dy in -half..=half {
             for dx in -half..=half {
                 let (ex, ey) = (gx + dx, gy + dy);
-                if let Some(removed) = self.grid.erase(ex, ey) {
-                    cells.push((ex, ey, Some(removed), None));
+                if let Some(removed) = self.grid.erase(ex, ey, lyr) {
+                    cells.push((ex, ey, lyr, Some(removed), None));
                 }
             }
         }
         if !cells.is_empty() {
             if self.erase_size == 1 {
-                let (_x, _y, before, _) = cells.remove(0);
+                let (_x, _y, _l, before, _) = cells.remove(0);
                 self.undo.push(Command::EraseTile { before: before.unwrap() });
             } else {
                 self.undo.push(Command::Batch { cells });
@@ -166,6 +208,7 @@ impl EditorState {
         let max_dx = self.clipboard.iter().map(|(dx,_,_)| *dx).max().unwrap_or(0);
         let max_dy = self.clipboard.iter().map(|(_,dy,_)| *dy).max().unwrap_or(0);
         let mut cells = Vec::new();
+        let lyr = self.active_layer;
         let clipboard = std::mem::take(&mut self.clipboard);
         for (dx, dy, ref tile) in &clipboard {
             let (tdx, tdy) = transform_offset(*dx, *dy, max_dx, max_dy,
@@ -176,9 +219,10 @@ impl EditorState {
             let mut new_tile = tile.clone();
             new_tile.x = gx;
             new_tile.y = gy;
-            let before = self.grid.get(gx, gy).cloned();
-            self.grid.place(gx, gy, new_tile.clone());
-            cells.push((gx, gy, before, Some(new_tile)));
+            new_tile.layer = lyr;
+            let before = self.grid.get(gx, gy, lyr).cloned();
+            self.grid.place(gx, gy, lyr, new_tile.clone());
+            cells.push((gx, gy, lyr, before, Some(new_tile)));
         }
         self.clipboard = clipboard;
         if !cells.is_empty() { self.undo.push(Command::Batch { cells }); self.unsaved = true; }
@@ -193,9 +237,10 @@ impl EditorState {
         self.paste_flip_x = false;
         self.paste_flip_y = false;
         self.paste_rotate = 0;
+        let lyr = self.active_layer;
         for gy in y0..=y1 {
             for gx in x0..=x1 {
-                if let Some(tile) = self.grid.get(gx, gy).cloned() {
+                if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
                     self.clipboard.push((gx - x0, gy - y0, tile));
                 }
             }
@@ -209,10 +254,11 @@ impl EditorState {
         let x1 = anchor.0.max(current.0);
         let y1 = anchor.1.max(current.1);
         let mut cells = Vec::new();
+        let lyr = self.active_layer;
         for gy in y0..=y1 {
             for gx in x0..=x1 {
-                if let Some(removed) = self.grid.erase(gx, gy) {
-                    cells.push((gx, gy, Some(removed), None));
+                if let Some(removed) = self.grid.erase(gx, gy, lyr) {
+                    cells.push((gx, gy, lyr, Some(removed), None));
                 }
             }
         }
@@ -231,6 +277,7 @@ impl EditorState {
         let pr = &self.grid.player;
         crate::level::TileRecord {
             x: sp.0 as i32, y: sp.1 as i32,
+            layer: 1,
             glyph: pr.glyph, fg: pr.fg, bg: pr.bg,
             solid: pr.solid, trigger: pr.trigger,
             tag: pr.tag.clone(), script: pr.script.clone(),
@@ -297,6 +344,12 @@ impl EditorState {
                     let _ = std::process::Command::new("xdg-open").arg("index.html").spawn();
                 }
                 self.save_message = Some("Opening documentation...".to_string());
+                self.save_message_timer = 0;
+            }
+            ToolbarAction::SetLayer(l) => {
+                self.active_layer = l;
+                let name = match l { 0 => "Background", 1 => "Main", 2 => "Foreground", _ => "Unknown" };
+                self.save_message = Some(format!("LAYER: {}", name));
                 self.save_message_timer = 0;
             }
             _ => {}

@@ -24,7 +24,7 @@ pub enum ToolKind {
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub enum MenuKind { File, Edit, Level, View, Tools }
+pub enum MenuKind { File, Edit, Level, View, Tools, Layers }
 
 pub struct MenuState {
     pub can_undo:       bool,
@@ -38,6 +38,7 @@ pub struct MenuState {
     pub show_stats:     bool,
     pub show_physics:   bool,
     pub active_tool:    ToolKind,
+    pub active_layer:   u8,
 }
 
 #[derive(Debug, Clone)]
@@ -65,6 +66,7 @@ pub enum ToolbarAction {
     AddNamedSpawn,
     NewLevel,
     OpenDocs,
+    SetLayer(u8),
 }
 
 // ── Dynamic layout ────────────────────────────────────────────────────────────
@@ -104,11 +106,14 @@ impl Layout {
 
 pub const HIER_W: usize = 14;
 
-pub const INSP_GLYPH_OFF:   usize = 2;
+pub const INSP_NAME_OFF:    usize = 2;
+pub const INSP_GLYPH_OFF:   usize = 3;
 pub const INSP_TAG_OFF:     usize = 5;
-pub const INSP_SOLID_OFF:   usize = 7;
-pub const INSP_TRIG_OFF:    usize = 8;
-pub const INSP_CAM_OFF:     usize = 9;
-pub const INSP_SCRIPT_OFF:  usize = 12;
-pub const INSP_EXIT_OFF:    usize = 13;
-pub const INSP_GRAPH_BTN:   usize = 16;
+pub const INSP_FG_OFF:      usize = 6;
+pub const INSP_BG_OFF:      usize = 7;
+pub const INSP_SOLID_OFF:   usize = 9;
+pub const INSP_TRIG_OFF:    usize = 10;
+pub const INSP_CAM_OFF:     usize = 11;
+pub const INSP_SCRIPT_OFF:  usize = 13;
+pub const INSP_EXIT_OFF:    usize = 14;
+pub const INSP_GRAPH_BTN:   usize = 17;

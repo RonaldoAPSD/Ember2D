@@ -27,3 +27,5 @@ Ember2D is a 2D game engine and editor built with Rust, focusing on a character-
 - **UI/Editor Changes**: Be mindful of the docking system and panel management in `src/editor/`.
 - **Performance**: The renderer blits a raw `u32` buffer; keep operations within the frame budget.
 - **Error Handling**: Use `Result` and `eprintln!` for warnings; prioritize stability in the editor.
+- **Mandatory Verification**: You MUST ALWAYS verify your changes by running the project's build and type-checking commands (e.g., `cargo check`) to ensure there are zero errors or warnings. Never assume success.
+- **Proactive Context Gathering**: ALWAYS use search tools (`grep_search`, `glob`) to thoroughly investigate the surrounding context, execution order, and call hierarchies before making changes. Do not assume the scope or impact of a modification without empirical verification.

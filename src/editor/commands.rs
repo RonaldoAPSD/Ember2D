@@ -13,7 +13,7 @@
 // The caller in mod.rs is responsible for applying/reversing the command's
 // effect on the grid after popping.
 
-use crate::level::TileRecord;
+use crate::level::{TileRecord, PlayerRecord};
 
 // ── Command ───────────────────────────────────────────────────────────────────
 
@@ -48,7 +48,34 @@ pub enum Command {
     /// Undo: for each cell, restore `before` (place or erase).
     /// Redo: for each cell, apply `after` (place or erase).
     Batch {
-        cells: Vec<(i32, i32, Option<TileRecord>, Option<TileRecord>)>,
+        cells: Vec<(i32, i32, u8, Option<TileRecord>, Option<TileRecord>)>,
+    },
+
+    /// Undo/redo level resizing.
+    ResizeLevel {
+        before_w: usize,
+        before_h: usize,
+        before_tiles: Vec<TileRecord>,
+        after_w:  usize,
+        after_h:  usize,
+    },
+
+    /// Move the primary player spawn point.
+    MoveSpawn {
+        before: (f32, f32),
+        after:  (f32, f32),
+    },
+
+    /// Update player entity metadata (tag, glyph, script, etc).
+    UpdatePlayer {
+        before: PlayerRecord,
+        after:  PlayerRecord,
+    },
+
+    /// Update the list of named entity spawns.
+    UpdateExtraSpawns {
+        before: Vec<(String, f32, f32)>,
+        after:  Vec<(String, f32, f32)>,
     },
 }
 

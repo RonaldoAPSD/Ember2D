@@ -84,6 +84,10 @@ pub struct TileRecord {
     /// Empty string means no tag.
     pub tag: String,
 
+    /// The draw layer (0=Background, 1=Main, 2=Foreground).
+    #[serde(default = "default_layer")]
+    pub layer: u8,
+
     /// Optional path to a .rhai script file run every frame for this entity.
     ///
     /// `#[serde(default)]` means existing .level files that don't have this
@@ -105,6 +109,7 @@ pub struct TileRecord {
     pub graph: Option<crate::editor::node_graph::NodeGraph>,
 }
 
+fn default_layer() -> u8 { 1 }
 fn is_false(b: &bool) -> bool { !*b }
 
 // ── PlayerRecord ──────────────────────────────────────────────────────────────
@@ -156,12 +161,13 @@ impl TileRecord {
     /// Construct a TileRecord with all fields explicit.
     pub fn new(
         x: i32, y: i32,
+        layer: u8,
         glyph: char,
         fg: Color, bg: Color,
         solid: bool, trigger: bool,
         tag: impl Into<String>,
     ) -> Self {
-        TileRecord { x, y, glyph, fg, bg, solid, trigger, tag: tag.into(), script: None, camera_follow: false, next_level: None, graph: None }
+        TileRecord { x, y, layer, glyph, fg, bg, solid, trigger, tag: tag.into(), script: None, camera_follow: false, next_level: None, graph: None }
     }
 }
 

@@ -69,19 +69,45 @@ pub fn draw_node(renderer: &mut Renderer, node: &Node, selected: bool, view_ox: 
 }
 
 pub fn draw_wire(renderer: &mut Renderer, ox: i32, oy: i32, ix: i32, iy: i32, edge_idx: usize, color: Color, screen_w: usize, screen_h: usize) {
-    let ch_col = ox + 2 + (edge_idx as i32 % 4);
-    let x0 = ox + 1; let x1 = ch_col;
+    // Determine routing column (midpoint + small offset per wire to avoid overlapping)
+    let mid_x = (ox + ix) / 2;
+    let offset = (edge_idx as i32 % 5) - 2;
+    let lo = (ox + 1).min(ix - 1);
+    let hi = (ox + 1).max(ix - 1);
+    let routing_x = (mid_x + offset).clamp(lo, hi);
+
+    // 1. Horizontal from start to routing_x
     if oy >= 0 && (oy as usize) < screen_h {
-        for x in x0.min(x1)..=x0.max(x1) { if x >= 0 && (x as usize) < screen_w { renderer.draw_char(x as usize, oy as usize, '-', color, Color::Black); } }
+        let x0 = ox + 1;
+        let x1 = routing_x;
+        for x in x0.min(x1)..=x0.max(x1) {
+            if x >= 0 && (x as usize) < screen_w {
+                renderer.draw_char(x as usize, oy as usize, '-', color, Color::Black);
+            }
+        }
     }
-    let y0 = oy.min(iy); let y1 = oy.max(iy);
-    for y in y0..=y1 { if y >= 0 && (y as usize) < screen_h && ch_col >= 0 && (ch_col as usize) < screen_w {
-        let ch = if y == y0 || y == y1 { '+' } else { '|' };
-        renderer.draw_char(ch_col as usize, y as usize, ch, color, Color::Black);
-    } }
-    let x0 = ch_col; let x1 = ix - 1;
+
+    // 2. Vertical at routing_x
+    if routing_x >= 0 && (routing_x as usize) < screen_w {
+        let y0 = oy.min(iy);
+        let y1 = oy.max(iy);
+        for y in y0..=y1 {
+            if y >= 0 && (y as usize) < screen_h {
+                let ch = if y == oy || y == iy { '+' } else { '|' };
+                renderer.draw_char(routing_x as usize, y as usize, ch, color, Color::Black);
+            }
+        }
+    }
+
+    // 3. Horizontal from routing_x to end
     if iy >= 0 && (iy as usize) < screen_h {
-        for x in x0.min(x1)..=x0.max(x1) { if x >= 0 && (x as usize) < screen_w { renderer.draw_char(x as usize, iy as usize, '-', color, Color::Black); } }
+        let x0 = routing_x;
+        let x1 = ix - 1;
+        for x in x0.min(x1)..=x0.max(x1) {
+            if x >= 0 && (x as usize) < screen_w {
+                renderer.draw_char(x as usize, iy as usize, '-', color, Color::Black);
+            }
+        }
     }
 }
 
@@ -108,7 +134,21 @@ pub fn draw_graph(renderer: &mut Renderer, graph: &NodeGraph, selected_node: Opt
     }
     if let Some((from_id, from_port_di)) = connecting {
         if let Some((_, _, out_pos)) = port_positions.iter().find(|(id, _, _)| *id == from_id) {
-            if let Some(&(ox, oy)) = out_pos.get(from_port_di) { draw_wire(renderer, ox, oy, mouse_col as i32, mouse_row as i32, 0, Color::Yellow, screen_w, screen_h); }
+            if let Some(&(ox, oy)) = out_pos.get(from_port_di) {
+                // Snap to valid input port
+                let mut target_x = mouse_col as i32;
+                let mut target_y = mouse_row as i32;
+                if let Some((nid, di, dir, _)) = port_at(graph, target_x, target_y, view_ox, view_oy) {
+                    if dir == PortDir::In {
+                        if let Some((_, in_positions, _)) = port_positions.iter().find(|(id, _, _)| *id == nid) {
+                            if let Some(&(sx, sy)) = in_positions.get(di) {
+                                target_x = sx; target_y = sy;
+                            }
+                        }
+                    }
+                }
+                draw_wire(renderer, ox, oy, target_x, target_y, 0, Color::Yellow, screen_w, screen_h);
+            }
         }
     }
     for node in &graph.nodes { let sel = selected_node == Some(node.id); draw_node(renderer, node, sel, view_ox, view_oy, screen_w, screen_h); }

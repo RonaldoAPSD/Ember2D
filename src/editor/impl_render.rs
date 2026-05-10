@@ -18,7 +18,7 @@ impl EditorState {
         let sh = renderer.height;
 
         // Resolve graph reference
-        let graph = match self.grid.get(gx, gy).and_then(|t| t.graph.as_ref()) {
+        let graph = match self.grid.get(gx, gy, self.active_layer).and_then(|t| t.graph.as_ref()) {
             Some(g) => g.clone(),
             None => {
                 renderer.draw_str(0, 0, "No graph", Color::Red, Color::Black);
@@ -36,7 +36,7 @@ impl EditorState {
         );
 
         // Title bar (row 0)
-        let tag = self.grid.get(gx, gy).map(|t| t.tag.clone()).unwrap_or_default();
+        let tag = self.grid.get(gx, gy, self.active_layer).map(|t| t.tag.clone()).unwrap_or_default();
         let title = format!(
             " GRAPH — {} ({},{})   Esc=back  F=layout  RClick=add  Del=remove",
             if tag.is_empty() { "(tile)" } else { &tag }, gx, gy
@@ -96,7 +96,7 @@ impl EditorState {
         ui::draw_void(renderer, &self.grid, self.scroll, self.zoom, &layout);
         ui::draw_level_boundary(renderer, &self.grid, self.scroll, self.zoom, &layout);
         if self.show_grid { ui::draw_grid_overlay(renderer, &self.grid, self.scroll, self.zoom, &layout); }
-        ui::draw_grid(renderer, &self.grid, self.scroll, self.zoom, &layout);
+        ui::draw_grid(renderer, &self.grid, self.active_layer, self.scroll, self.zoom, &layout);
         ui::draw_spawn_marker(renderer, self.grid.spawn_point, self.scroll, self.zoom, &layout);
         ui::draw_extra_spawns(renderer, &self.grid.extra_spawns, self.scroll, self.zoom, &layout);
 
@@ -124,7 +124,7 @@ impl EditorState {
 
         // Physics overlay — tints solid/trigger tiles.
         if self.show_physics {
-            ui::draw_physics_overlay(renderer, &self.grid, self.scroll, self.zoom, &layout);
+            ui::draw_physics_overlay(renderer, &self.grid, self.active_layer, self.scroll, self.zoom, &layout);
         }
 
         // Erase brush preview — only when right button held and brush > 1 cell.
@@ -151,22 +151,27 @@ impl EditorState {
             } else {
                 None
             };
-        let (insp_tile, insp_pos, insp_mode_tag): (Option<&crate::level::TileRecord>, Option<(i32,i32)>, &str) =
+        let (insp_tile, insp_pal, insp_pos, insp_mode_tag): (Option<&crate::level::TileRecord>, Option<&crate::editor::palette::TileDefinition>, Option<(i32,i32)>, &str) =
             match self.hierarchy_sel {
                 Some(HierarchySelection::Player) => {
                     let pos = Some((self.grid.spawn_point.0 as i32, self.grid.spawn_point.1 as i32));
-                    (player_tile.as_ref(), pos, "PLAYER")
+                    (player_tile.as_ref(), None, pos, "PLAYER")
                 }
                 Some(HierarchySelection::Spawn(i)) => {
                     let pos = self.grid.extra_spawns.get(i)
                         .map(|(_, x, y)| (*x as i32, *y as i32));
-                    (None, pos, "SPAWN")
+                    (None, None, pos, "SPAWN")
                 }
                 None => {
                     let pos = if self.select_mode { self.selected_pos } else { self.inspected_pos };
-                    let tile = pos.and_then(|(gx, gy)| self.grid.get(gx, gy));
-                    let tag  = if self.select_mode { "[SEL]" } else { "[EDT]" };
-                    (tile, pos, tag)
+                    if let Some((gx, gy)) = pos {
+                        let tile = self.grid.get(gx, gy, self.active_layer);
+                        let tag  = if self.select_mode { "[SEL]" } else { "[EDT]" };
+                        (tile, None, pos, tag)
+                    } else {
+                        // Palette Edit Mode
+                        (None, Some(self.palette.current()), None, "PALETTE")
+                    }
                 }
             };
 
@@ -190,10 +195,10 @@ impl EditorState {
                     ui::draw_hierarchy(renderer, &self.grid, self.hierarchy_sel, px, pcy, pw, pch);
                 }
                 PanelId::Palette   => {
-                    ui::draw_palette_panel(renderer, &self.palette, mode_label, px, pcy, pw, pch);
+                    ui::draw_palette_panel(renderer, &self.palette, mode_label, self.palette_scroll, px, pcy, pw, pch);
                 }
                 PanelId::Inspector => {
-                    ui::draw_inspector(renderer, insp_tile, insp_pos, insp_mode_tag,
+                    ui::draw_inspector(renderer, insp_tile, insp_pal, self.palette_color_picker, insp_pos, insp_mode_tag,
                                        px, pcy, pw, pch);
                 }
                 PanelId::Console   => {
@@ -219,6 +224,7 @@ impl EditorState {
                 show_stats:     self.panels.visible(PanelId::Stats),
                 show_physics:   self.show_physics,
                 active_tool:    self.active_tool,
+                active_layer:   self.active_layer,
             };
 
             ui::draw_menu_dropdown(renderer, menu, mouse.cell_x, mouse.cell_y, &menu_state, &layout);
@@ -237,7 +243,7 @@ impl EditorState {
         );
 
         // ── Status / text input ───────────────────────────────────────────────
-        let tile_under = grid_cursor.and_then(|(gx, gy)| self.grid.get(gx, gy));
+        let tile_under = grid_cursor.and_then(|(gx, gy)| self.grid.get(gx, gy, self.active_layer));
 
         let mode_hint = if self.select_mode {
             "SELECT mode: click canvas to inspect tile  Q=exit select".to_string()
@@ -270,13 +276,15 @@ impl EditorState {
                 TextInputPurpose::PlayerScript      => "Player script",
                 TextInputPurpose::PlayerGlyph       => "Player glyph",
                 TextInputPurpose::NewLevelName      => "New level name",
-            };
-            ui::draw_text_input(renderer, prompt, &ti.buffer);
+                TextInputPurpose::PaletteName       => "Palette item name",
+                };
+                ui::draw_text_input(renderer, prompt, &ti.buffer);
+
         } else {
             ui::draw_status_bar(
                 renderer, mouse, &self.palette, self.show_grid,
                 &self.save_path, tile_under, &mode_hint,
-                self.scroll, self.erase_size, &layout,
+                self.scroll, self.active_layer, self.erase_size, &layout,
             );
         }
     }

@@ -16,9 +16,31 @@ pub fn draw_scaled_tile(renderer: &mut Renderer, gx: i32, gy: i32, glyph: char, 
     renderer.draw_char_scaled_pixels(px, py, glyph, fg, bg, zoom);
 }
 
-pub fn draw_grid(renderer: &mut Renderer, grid: &LevelGrid, scroll: (i32, i32), zoom: f32, layout: &Layout) {
-    for ((gx, gy), tile) in grid.iter() {
-        draw_scaled_tile(renderer, *gx, *gy, tile.glyph, tile.fg, tile.bg, scroll, zoom, layout);
+pub fn draw_grid(renderer: &mut Renderer, grid: &LevelGrid, active_layer: u8, scroll: (i32, i32), zoom: f32, layout: &Layout) {
+    for l in 0..3 {
+        for (&(gx, gy, lyr), tile) in &grid.tiles {
+            if lyr != l { continue; }
+            let (mut fg, mut bg) = (tile.fg, tile.bg);
+            if lyr != active_layer {
+                fg = dim_color(fg);
+                if bg != Color::Reset { bg = dim_color(bg); }
+            }
+            draw_scaled_tile(renderer, gx, gy, tile.glyph, fg, bg, scroll, zoom, layout);
+        }
+    }
+}
+
+fn dim_color(c: Color) -> Color {
+    match c {
+        Color::White   => Color::Grey,
+        Color::Grey    => Color::DarkGrey,
+        Color::Red     => Color::DarkRed,
+        Color::Green   => Color::DarkGreen,
+        Color::Blue    => Color::DarkBlue,
+        Color::Yellow  => Color::DarkYellow,
+        Color::Cyan    => Color::DarkCyan,
+        Color::Magenta => Color::DarkMagenta,
+        _              => Color::DarkGrey,
     }
 }
 
@@ -32,7 +54,7 @@ pub fn draw_grid_overlay(renderer: &mut Renderer, grid: &LevelGrid, scroll: (i32
             let on_col = gx % 5 == 0;
             let on_row = gy % 5 == 0;
             if !on_col && !on_row { continue; }
-            if grid.get(gx, gy).is_some() { continue; }
+            if (0..3).any(|l| grid.get(gx, gy, l).is_some()) { continue; }
             let ch = if on_col && on_row { '+' } else { '.' };
             draw_scaled_tile(renderer, gx, gy, ch, Color::DarkGrey, Color::Reset, scroll, zoom, layout);
         }
@@ -175,14 +197,21 @@ pub fn transform_offset(dx: i32, dy: i32, max_dx: i32, max_dy: i32, flip_x: bool
     }
 }
 
-pub fn draw_physics_overlay(renderer: &mut Renderer, grid: &LevelGrid, scroll: (i32, i32), zoom: f32, layout: &Layout) {
-    for ((gx, gy), tile) in grid.iter() {
-        let is_exit = tile.next_level.is_some();
-        if !tile.solid && !tile.trigger && !is_exit { continue; }
-        let (fg, bg) = if is_exit { (Color::White, Color::Cyan) }
-                       else if tile.solid { (Color::White, Color::DarkRed) }
-                       else { (Color::Black, Color::DarkYellow) };
-        draw_scaled_tile(renderer, *gx, *gy, tile.glyph, fg, bg, scroll, zoom, layout);
+pub fn draw_physics_overlay(renderer: &mut Renderer, grid: &LevelGrid, active_layer: u8, scroll: (i32, i32), zoom: f32, layout: &Layout) {
+    for l in 0..3 {
+        for (&(gx, gy, lyr), tile) in &grid.tiles {
+            if lyr != l { continue; }
+            let is_exit = tile.next_level.is_some();
+            if !tile.solid && !tile.trigger && !is_exit { continue; }
+            let (mut fg, mut bg) = if is_exit { (Color::White, Color::Cyan) }
+                           else if tile.solid { (Color::White, Color::DarkRed) }
+                           else { (Color::Black, Color::DarkYellow) };
+            if lyr != active_layer {
+                fg = dim_color(fg);
+                bg = dim_color(bg);
+            }
+            draw_scaled_tile(renderer, gx, gy, tile.glyph, fg, bg, scroll, zoom, layout);
+        }
     }
 }
 

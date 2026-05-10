@@ -48,7 +48,7 @@ pub struct LevelGrid {
     ///
     /// Only cells with a tile exist as entries — empty cells are simply absent.
     /// This means a brand-new empty level has `tiles.len() == 0`.
-    pub tiles:  HashMap<(i32, i32), TileRecord>,
+    pub tiles:  HashMap<(i32, i32, u8), TileRecord>,
 
     /// The position (column, row) where the player entity spawns when playing.
     /// Displayed as the green '@' marker on the canvas.
@@ -90,28 +90,29 @@ impl LevelGrid {
     // These are the core editor actions: click to place, right-click to erase,
     // hover to inspect. Each is O(1) — no scanning of the tile list.
 
-    /// Place a tile at (x, y), replacing any tile already there.
+    /// Place a tile at (x, y, layer), replacing any tile already there.
     ///
     /// Returns the old tile if one existed (used by the undo system to record
     /// what was there before the edit so it can be restored on undo).
-    pub fn place(&mut self, x: i32, y: i32, tile: TileRecord) -> Option<TileRecord> {
-        self.tiles.insert((x, y), tile)
+    pub fn place(&mut self, x: i32, y: i32, layer: u8, mut tile: TileRecord) -> Option<TileRecord> {
+        tile.layer = layer;
+        self.tiles.insert((x, y, layer), tile)
     }
 
-    /// Remove the tile at (x, y) if one exists.
+    /// Remove the tile at (x, y, layer) if one exists.
     ///
     /// Returns the removed tile (so the undo system can restore it).
     /// Does nothing if the cell was already empty.
-    pub fn erase(&mut self, x: i32, y: i32) -> Option<TileRecord> {
-        self.tiles.remove(&(x, y))
+    pub fn erase(&mut self, x: i32, y: i32, layer: u8) -> Option<TileRecord> {
+        self.tiles.remove(&(x, y, layer))
     }
 
-    /// Return a reference to the tile at (x, y), or None if the cell is empty.
+    /// Return a reference to the tile at (x, y, layer), or None if the cell is empty.
     ///
     /// The `Option<&TileRecord>` return type forces the caller to handle the
     /// "no tile here" case — there's no null pointer to forget to check.
-    pub fn get(&self, x: i32, y: i32) -> Option<&TileRecord> {
-        self.tiles.get(&(x, y))
+    pub fn get(&self, x: i32, y: i32, layer: u8) -> Option<&TileRecord> {
+        self.tiles.get(&(x, y, layer))
     }
 
     /// Return true if (x, y) is within the level canvas boundaries.
@@ -122,11 +123,11 @@ impl LevelGrid {
         x >= 0 && y >= 0 && (x as usize) < self.width && (y as usize) < self.height
     }
 
-    /// Iterate over all placed tiles as ((column, row), TileRecord) pairs.
+    /// Iterate over all placed tiles as ((column, row, layer), TileRecord) pairs.
     ///
     /// The iteration order is undefined (HashMap doesn't guarantee order).
     /// The editor's render function sorts by z_order after collecting.
-    pub fn iter(&self) -> impl Iterator<Item = (&(i32, i32), &TileRecord)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&(i32, i32, u8), &TileRecord)> {
         self.tiles.iter()
     }
 
@@ -135,16 +136,6 @@ impl LevelGrid {
     /// Does NOT change width, height, spawn_point, or name — only the tile data.
     pub fn clear_all(&mut self) {
         self.tiles.clear();
-    }
-
-    /// Change the script attachment on an existing tile without touching anything else.
-    ///
-    /// Called from the inspector when the user edits the script path field.
-    /// If no tile exists at (x, y), this does nothing.
-    pub fn update_tile_script(&mut self, x: i32, y: i32, script: Option<String>) {
-        if let Some(tile) = self.tiles.get_mut(&(x, y)) {
-            tile.script = script;
-        }
     }
 
     /// Resize the level canvas to new_w × new_h.
@@ -158,7 +149,7 @@ impl LevelGrid {
 
         // Remove tiles outside the new canvas. `retain` keeps entries where
         // the closure returns true, removes all others.
-        self.tiles.retain(|&(x, y), _| {
+        self.tiles.retain(|&(x, y, _), _| {
             x >= 0 && y >= 0 && (x as usize) < new_w && (y as usize) < new_h
         });
 
@@ -208,7 +199,7 @@ impl LevelGrid {
         grid.player       = data.player.clone();
 
         for tile in &data.tiles {
-            grid.tiles.insert((tile.x, tile.y), tile.clone());
+            grid.tiles.insert((tile.x, tile.y, tile.layer), tile.clone());
         }
 
         grid

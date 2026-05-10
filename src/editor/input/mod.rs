@@ -1,6 +1,7 @@
 // editor/input/mod.rs — Input orchestration for EditorState.
 
 use crate::engine::UpdateContext;
+use crate::editor::commands::Command;
 use super::EditorState;
 
 mod canvas;
@@ -45,7 +46,10 @@ impl EditorState {
             }
             if mouse.left_just_pressed() {
                 if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
-                    self.grid.spawn_point = (gx as f32, gy as f32);
+                    let before = self.grid.spawn_point;
+                    let after  = (gx as f32, gy as f32);
+                    self.undo.push(Command::MoveSpawn { before, after });
+                    self.grid.spawn_point = after;
                     self.unsaved = true;
                     self.placing_spawn = false;
                     self.ignore_drag = true;
@@ -64,7 +68,11 @@ impl EditorState {
             }
             if mouse.left_just_pressed() {
                 if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
-                    self.grid.extra_spawns.push((buf, gx as f32, gy as f32));
+                    let before = self.grid.extra_spawns.clone();
+                    let mut after = before.clone();
+                    after.push((buf, gx as f32, gy as f32));
+                    self.undo.push(Command::UpdateExtraSpawns { before, after: after.clone() });
+                    self.grid.extra_spawns = after;
                     self.unsaved = true;
                     self.placing_named_spawn = None;
                     self.ignore_drag = true;

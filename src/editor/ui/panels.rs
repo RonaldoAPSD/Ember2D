@@ -19,21 +19,55 @@ pub fn draw_title_bar(renderer: &mut Renderer, level_name: &str, unsaved: bool, 
     renderer.draw_str(col, 0, &info, Color::Yellow, Color::DarkBlue);
 }
 
-pub fn draw_palette_panel(renderer: &mut Renderer, palette: &TilePalette, mode: Option<&str>, px: usize, cy: usize, pw: usize, ch: usize) {
+pub fn draw_palette_panel(renderer: &mut Renderer, palette: &TilePalette, mode: Option<&str>, scroll: usize, px: usize, cy: usize, pw: usize, ch: usize) {
     renderer.draw_rect_filled(px, cy, pw, ch, ' ', Color::White, Color::DarkGrey);
     if let Some(m) = mode {
         let header = format!(" {:^width$} ", m, width = pw.saturating_sub(2));
         renderer.draw_str(px, cy, &header, Color::Black, Color::Cyan);
     }
-    for (i, tile) in palette.tiles.iter().enumerate() {
-        let row = cy + 1 + i;
-        if row >= cy + ch { break; }
-        let label = format!(" {}:{} {:<6}", i + 1, tile.glyph, tile.name);
-        if i == palette.selected {
-            renderer.draw_str(px, row, &label, Color::Black, Color::Cyan);
-        } else {
-            renderer.draw_str(px, row, &label, tile.fg, Color::DarkGrey);
+    
+    let visible_rows = ch.saturating_sub(2);
+    for (i, tile) in palette.tiles.iter().enumerate().skip(scroll).take(visible_rows) {
+        let row = cy + 1 + (i - scroll);
+        let is_selected = i == palette.selected;
+        let row_bg = if is_selected { Color::DarkBlue } else { Color::DarkGrey };
+        
+        // 1. Draw row background
+        renderer.draw_rect_filled(px, row, pw, 1, ' ', Color::White, row_bg);
+
+        // 2. Draw glyph in a "container" [ # ]
+        let glyph_col = px;
+        renderer.draw_str(glyph_col, row, "[   ]", if is_selected { Color::Cyan } else { Color::White }, row_bg);
+        renderer.draw_char(glyph_col + 2, row, tile.glyph, tile.fg, tile.bg);
+
+        // 3. Draw name (well-spaced)
+        let name_col = glyph_col + 5;
+        let max_name_len = pw.saturating_sub(9); // Leave room for glyph and shortcut
+        let name_disp: String = tile.name.chars().take(max_name_len).collect();
+        renderer.draw_str(name_col, row, &name_disp, if is_selected { Color::White } else { Color::Grey }, row_bg);
+
+        // 4. Draw shortcut number (4-9, then 0)
+        let shortcut = match i {
+            0..=5 => Some(format!("{}", i + 4)),
+            6     => Some("0".to_string()),
+            _     => None,
+        };
+        if let Some(num) = shortcut {
+            let num_col = px + pw - 2;
+            renderer.draw_str(num_col, row, &num, Color::Yellow, row_bg);
         }
+    }
+
+    // Draw [+ New] button at bottom
+    let btn_row = cy + ch - 1;
+    renderer.draw_str(px, btn_row, " [ + New Item ] ", Color::White, Color::DarkCyan);
+    
+    // Scroll indicators
+    if scroll > 0 {
+        renderer.draw_char(px + pw - 1, cy + 1, '^', Color::Cyan, Color::DarkGrey);
+    }
+    if scroll + visible_rows < palette.tiles.len() {
+        renderer.draw_char(px + pw - 1, cy + visible_rows, 'v', Color::Cyan, Color::DarkGrey);
     }
 }
 
@@ -45,7 +79,7 @@ pub fn draw_stats_panel(renderer: &mut Renderer, grid: &LevelGrid, palette: &Til
     for (i, def) in palette.tiles.iter().enumerate() {
         let row = cy + 1 + i;
         if row >= cy + ch - 2 { break; }
-        let count = counts.get(def.tag).copied().unwrap_or(0);
+        let count = counts.get(&def.tag).copied().unwrap_or(0);
         let label = format!(" {}: {:>4}", def.name, count);
         renderer.draw_str(px, row, &label, def.fg, Color::DarkGrey);
     }
@@ -55,24 +89,29 @@ pub fn draw_stats_panel(renderer: &mut Renderer, grid: &LevelGrid, palette: &Til
     }
 }
 
-pub fn draw_status_bar(renderer: &mut Renderer, mouse: &crate::mouse::MouseState, _palette: &TilePalette, grid_overlay: bool, save_path: &str, tile_under: Option<&TileRecord>, mode_hint: &str, scroll: (i32, i32), erase_size: usize, layout: &Layout) {
+pub fn draw_status_bar(renderer: &mut Renderer, mouse: &crate::mouse::MouseState, _palette: &TilePalette, grid_overlay: bool, save_path: &str, tile_under: Option<&TileRecord>, mode_hint: &str, scroll: (i32, i32), active_layer: u8, erase_size: usize, layout: &Layout) {
     let status_row = renderer.height - 1;
     renderer.draw_rect_filled(0, status_row, renderer.width, 1, ' ', Color::White, Color::DarkGrey);
     let cx = mouse.cell_x.saturating_sub(layout.canvas_x) as i32 + scroll.0;
     let cy = mouse.cell_y.saturating_sub(layout.canvas_y) as i32 + scroll.1;
     let pos_str = format!(" ({:3},{:3})", cx, cy);
     renderer.draw_str(0, status_row, &pos_str, Color::Cyan, Color::DarkGrey);
+    
+    let lyr_name = match active_layer { 0 => "Background", 1 => "Main", 2 => "Foreground", _ => "Unknown" };
+    let lyr_str = format!("[LAYER: {}]", lyr_name);
+    renderer.draw_str(10, status_row, &lyr_str, Color::White, Color::DarkGrey);
+
     if !mode_hint.is_empty() {
-        renderer.draw_str(9, status_row, &format!("| {}", mode_hint), Color::White, Color::DarkGrey);
+        renderer.draw_str(30, status_row, &format!("| {}", mode_hint), Color::White, Color::DarkGrey);
     } else if let Some(tile) = tile_under {
         let script_mark = if tile.script.is_some() { "[S]" } else { "   " };
         let props = format!("| [{}] s:{} t:{} {} T=script", tile.tag, tile.solid as u8, tile.trigger as u8, script_mark);
-        renderer.draw_str(9, status_row, &props, Color::Yellow, Color::DarkGrey);
+        renderer.draw_str(30, status_row, &props, Color::Yellow, Color::DarkGrey);
     } else {
         let grid_hint = if grid_overlay { "Tab:off" } else { "Tab:grd" };
         let erase_hint = format!("E:{}px", erase_size);
         let hints = format!("| {} S:save U:undo R:redo {}", erase_hint, grid_hint);
-        renderer.draw_str(9, status_row, &hints, Color::White, Color::DarkGrey);
+        renderer.draw_str(30, status_row, &hints, Color::White, Color::DarkGrey);
     }
     if !save_path.is_empty() {
         let path_display = if save_path.len() > 14 { format!("..{}", &save_path[save_path.len() - 12..]) } else { save_path.to_string() };
@@ -136,30 +175,72 @@ pub fn draw_console(renderer: &mut Renderer, log: &[LogEntry], px: usize, cy: us
     }
 }
 
-pub fn draw_inspector(renderer: &mut Renderer, tile: Option<&TileRecord>, pos: Option<(i32, i32)>, mode_tag: &str, ix: usize, cy: usize, iw: usize, ch: usize) {
+pub fn draw_inspector(renderer: &mut Renderer, tile: Option<&TileRecord>, pal_item: Option<&crate::editor::palette::TileDefinition>, palette_color_picker: Option<bool>, pos: Option<(i32, i32)>, mode_tag: &str, ix: usize, cy: usize, iw: usize, ch: usize) {
     renderer.draw_rect_filled(ix, cy, iw, ch, ' ', Color::White, Color::DarkGrey);
     let mode_line = format!(" {:<width$}", mode_tag, width = iw.saturating_sub(1));
     renderer.draw_str(ix, cy, &mode_line, Color::Black, Color::Cyan);
+
+    let sep: String = std::iter::once(' ').chain(std::iter::repeat('-').take(iw.saturating_sub(1))).collect();
+
+    if let Some(pal) = pal_item {
+        // ── Palette Edit Mode ────────────────────────────────────────────────
+        renderer.draw_str(ix, cy + 1, " EDITING PALETTE", Color::Yellow, Color::DarkGrey);
+        let name_line = format!(" Name: {:<width$}", pal.name, width = iw.saturating_sub(7));
+        renderer.draw_str(ix, cy + INSP_NAME_OFF, &name_line, Color::White, Color::DarkBlue);
+        
+        let glyph_str = format!(" Glyph: '{}' ", pal.glyph);
+        renderer.draw_str(ix, cy + INSP_GLYPH_OFF, &glyph_str, pal.fg, Color::DarkBlue);
+        
+        renderer.draw_str(ix, cy + 4, &sep, Color::DarkGrey, Color::DarkGrey);
+        
+        // FG Color with block
+        let fg_row = cy + INSP_FG_OFF;
+        renderer.draw_str(ix, fg_row, " FG: [ ] ", Color::White, Color::DarkBlue);
+        renderer.draw_char(ix + 6, fg_row, '■', pal.fg, Color::DarkBlue);
+        renderer.draw_str(ix + 9, fg_row, &format!("{:?}", pal.fg), Color::Grey, Color::DarkBlue);
+
+        // BG Color with block
+        let bg_row = cy + INSP_BG_OFF;
+        renderer.draw_str(ix, bg_row, " BG: [ ] ", Color::White, Color::DarkBlue);
+        renderer.draw_char(ix + 6, bg_row, '■', pal.bg, Color::DarkBlue);
+        renderer.draw_str(ix + 9, bg_row, &format!("{:?}", pal.bg), Color::Grey, Color::DarkBlue);
+
+        if let Some(is_fg) = palette_color_picker {
+            draw_color_picker(renderer, ix + 1, if is_fg { fg_row + 1 } else { bg_row + 1 }, iw - 2);
+        }
+
+        renderer.draw_str(ix, cy + 8, &sep, Color::DarkGrey, Color::DarkGrey);
+        renderer.draw_str(ix, cy + INSP_SOLID_OFF, &format!(" [{}] Solid", if pal.solid { 'x' } else { ' ' }), Color::White, Color::DarkBlue);
+        renderer.draw_str(ix, cy + INSP_TRIG_OFF, &format!(" [{}] Trigger", if pal.trigger { 'x' } else { ' ' }), Color::White, Color::DarkBlue);
+        
+        renderer.draw_str(ix, cy + 11, &sep, Color::DarkGrey, Color::DarkGrey);
+        renderer.draw_str(ix, cy + 12, " Tag:", Color::DarkGrey, Color::DarkGrey);
+        let tag_line = format!("  {:<width$}", if pal.tag.is_empty() { "(none)" } else { &pal.tag }, width = iw.saturating_sub(3));
+        renderer.draw_str(ix, cy + 13, &tag_line, Color::White, Color::DarkBlue);
+        return;
+    }
+
     let Some(tile) = tile else {
         let hint = if pos.is_some() { "(empty cell)" } else { "hover a tile" };
         renderer.draw_str(ix + 1, cy + 2, hint, Color::DarkGrey, Color::DarkGrey);
         return;
     };
-    let sep: String = std::iter::once(' ').chain(std::iter::repeat('-').take(iw.saturating_sub(1))).collect();
+    
+    // ── Tile Edit Mode ───────────────────────────────────────────────────
     if let Some((gx, gy)) = pos { renderer.draw_str(ix, cy + 1, &format!(" ({},{})", gx, gy), Color::Cyan, Color::DarkGrey); }
     let glyph_str = format!("  '{}' {:<width$}", tile.glyph, "glyph", width = iw.saturating_sub(6));
     renderer.draw_str(ix, cy + INSP_GLYPH_OFF, &glyph_str, tile.fg, Color::DarkBlue);
-    renderer.draw_str(ix, cy + 3, &sep, Color::DarkGrey, Color::DarkGrey);
-    renderer.draw_str(ix, cy + 4, " Tag:", Color::DarkGrey, Color::DarkGrey);
+    renderer.draw_str(ix, cy + 4, &sep, Color::DarkGrey, Color::DarkGrey);
+    renderer.draw_str(ix, cy + 5, " Tag:", Color::DarkGrey, Color::DarkGrey);
     let tag_disp = if tile.tag.is_empty() { "(none)" } else { &tile.tag };
     let tag_line = format!("  {:<width$}", tag_disp, width = iw.saturating_sub(3));
-    renderer.draw_str(ix, cy + INSP_TAG_OFF, &tag_line, Color::White, Color::DarkBlue);
-    renderer.draw_str(ix, cy + 6, &sep, Color::DarkGrey, Color::DarkGrey);
+    renderer.draw_str(ix, cy + INSP_TAG_OFF + 1, &tag_line, Color::White, Color::DarkBlue);
+    renderer.draw_str(ix, cy + 7, &sep, Color::DarkGrey, Color::DarkGrey);
     renderer.draw_str(ix, cy + INSP_SOLID_OFF, &format!(" [{}] Solid", if tile.solid { 'x' } else { ' ' }), Color::White, Color::DarkBlue);
     renderer.draw_str(ix, cy + INSP_TRIG_OFF, &format!(" [{}] Trigger", if tile.trigger { 'x' } else { ' ' }), Color::White, Color::DarkBlue);
     renderer.draw_str(ix, cy + INSP_CAM_OFF, &format!(" [{}] Camera follow", if tile.camera_follow { 'x' } else { ' ' }), Color::White, Color::DarkBlue);
-    renderer.draw_str(ix, cy + 10, &sep, Color::DarkGrey, Color::DarkGrey);
-    renderer.draw_str(ix, cy + 11, " Script:", Color::DarkGrey, Color::DarkGrey);
+    renderer.draw_str(ix, cy + 12, &sep, Color::DarkGrey, Color::DarkGrey);
+    renderer.draw_str(ix, cy + 13, " Script:", Color::DarkGrey, Color::DarkGrey);
     let (script_disp, script_fg) = match &tile.script {
         Some(path) => {
             let short = path.rfind('/').or_else(|| path.rfind('\\')).map(|i| &path[i+1..]).unwrap_or(path.as_str());
@@ -173,8 +254,8 @@ pub fn draw_inspector(renderer: &mut Renderer, tile: Option<&TileRecord>, pos: O
         None    => (format!("  {:<width$}", "(no exit)", width = iw.saturating_sub(3)), Color::DarkGrey),
     };
     renderer.draw_str(ix, cy + INSP_EXIT_OFF, &exit_disp, exit_fg, Color::DarkBlue);
-    renderer.draw_str(ix, cy + 14, &sep, Color::DarkGrey, Color::DarkGrey);
-    if cy + 15 < cy + ch { renderer.draw_str(ix, cy + 15, " Scripting:", Color::DarkGrey, Color::DarkGrey); }
+    renderer.draw_str(ix, cy + 16, &sep, Color::DarkGrey, Color::DarkGrey);
+    if cy + 17 < cy + ch { renderer.draw_str(ix, cy + 17, " Scripting:", Color::DarkGrey, Color::DarkGrey); }
     if cy + INSP_GRAPH_BTN < cy + ch {
         if tile.graph.is_some() {
             let n = tile.graph.as_ref().map(|g| g.nodes.len()).unwrap_or(0);
@@ -182,10 +263,10 @@ pub fn draw_inspector(renderer: &mut Renderer, tile: Option<&TileRecord>, pos: O
             let btn = format!("  [Edit Graph]");
             let btn: String = format!("{:<width$}", btn, width = iw).chars().take(iw).collect();
             renderer.draw_str(ix, cy + INSP_GRAPH_BTN, &btn, Color::Black, Color::Cyan);
-            if cy + 17 < cy + ch {
+            if cy + 19 < cy + ch {
                 let info = format!("  {} nodes  {} edges", n, e);
                 let info: String = info.chars().take(iw).collect();
-                renderer.draw_str(ix, cy + 17, &info, Color::DarkGrey, Color::DarkGrey);
+                renderer.draw_str(ix, cy + 19, &info, Color::DarkGrey, Color::DarkGrey);
             }
         } else {
             let btn = format!("  [New Graph]");
@@ -217,6 +298,19 @@ pub fn draw_hierarchy(renderer: &mut Renderer, grid: &LevelGrid, hier_sel: Optio
     }
 }
 
+pub fn draw_color_picker(renderer: &mut Renderer, x: usize, y: usize, w: usize) {
+    let colors = [
+        Color::Black, Color::White, Color::Red, Color::Green, Color::Yellow, Color::Blue, Color::Cyan, Color::Magenta,
+        Color::DarkGrey, Color::Grey, Color::DarkRed, Color::DarkGreen, Color::DarkBlue, Color::DarkYellow, Color::DarkCyan, Color::DarkMagenta,
+    ];
+    renderer.draw_rect_filled(x, y, w, 3, ' ', Color::White, Color::Black);
+    for (i, &col) in colors.iter().enumerate() {
+        let cx = x + 1 + (i % 8) * 2;
+        let cy = y + 1 + (i / 8);
+        renderer.draw_char(cx, cy, '■', col, Color::Black);
+    }
+}
+
 pub fn draw_help_overlay(renderer: &mut Renderer, layout: &Layout) {
     let cx = layout.canvas_x; let cw = layout.canvas_w; let cy = layout.canvas_y; let ch = layout.canvas_h;
     renderer.draw_rect_filled(cx, cy, cw, ch, ' ', Color::White, Color::Black);
@@ -228,12 +322,13 @@ pub fn draw_help_overlay(renderer: &mut Renderer, layout: &Layout) {
     let c1 = cx + 1; let c2 = c1 + col_w + 1; let c3 = c2 + col_w + 1;
     let row = |n: usize| cy + 4 + n;
     renderer.draw_str(c1, row(0), "TOOLS", Color::Yellow, Color::Black);
-    renderer.draw_str(c1, row(1), " 1-9  Palette", Color::White, Color::Black);
-    renderer.draw_str(c1, row(2), " L    Line tool", Color::White, Color::Black);
-    renderer.draw_str(c1, row(3), " F    Flood fill", Color::White, Color::Black);
-    renderer.draw_str(c1, row(4), " E    Eraser size", Color::White, Color::Black);
-    renderer.draw_str(c1, row(5), " Q    Select mode", Color::White, Color::Black);
-    renderer.draw_str(c1, row(6), " ;/'  Solid/Trigger", Color::White, Color::Black);
+    renderer.draw_str(c1, row(1), " 1-3  Layers", Color::White, Color::Black);
+    renderer.draw_str(c1, row(2), " 4-0  Palette", Color::White, Color::Black);
+    renderer.draw_str(c1, row(3), " L    Line tool", Color::White, Color::Black);
+    renderer.draw_str(c1, row(4), " F    Flood fill", Color::White, Color::Black);
+    renderer.draw_str(c1, row(5), " E    Eraser size", Color::White, Color::Black);
+    renderer.draw_str(c1, row(6), " Q    Select mode", Color::White, Color::Black);
+    renderer.draw_str(c1, row(7), " ;/'  Solid/Trigger", Color::White, Color::Black);
     renderer.draw_str(c1, row(9), "CANVAS", Color::Yellow, Color::Black);
     renderer.draw_str(c1, row(10), " Wheel     Zoom", Color::White, Color::Black);
     renderer.draw_str(c1, row(11), " Ctrl+Whl  Fast Zoom", Color::White, Color::Black);
