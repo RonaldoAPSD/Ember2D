@@ -19,17 +19,17 @@
 *   **Integrated Palette Editor:** The Inspector handles palette definition editing (name, glyph, fg/bg color cycling) when no grid tile is selected.
 *   **UI Polish:** Added mouse-wheel scrolling to the palette panel.
 
-## v0.4.3: The Workspace UI Overhaul
+## DONE v0.4.3: The Workspace UI Overhaul
 *Focus: Professional window-based aesthetics and interactive resizing.*
 *   **Panel Borders:** Full ASCII box borders around all workspace panels.
 *   **Interactive Resizing:** Draggable handles in the bottom-right corner of every panel.
 *   **Standardized Layout:** Unified content area calculations for more reliable panel spacing.
 *   **Modal Color Picker:** A dedicated 16-color grid modal for precise asset customization.
 
-## v0.4.3.5: The Visual Polish Update
+## DONE v0.4.3.5: The Visual Polish Update
 *Focus: Making the games look dynamic and alive without writing complex scripts.*
 *   **Sprite/Glyph Animation:** Engine support for cycling characters (e.g., `|`, `/`, `-`, `\`) over time.
-*   **Particle API:** `ctx.emit_particles(x, y)` for short-lived ASCII effects (dust, hits, magic).
+*   **Particle API:** `ctx.emit_particles(x, y, glyph, color)` for short-lived ASCII effects (dust, hits, magic).
 *   **Advanced Camera:** Camera boundaries (stop panning at map edges) and smooth lerping/following.
 
 ## v0.4.4: The Project Wizard & UI Update
@@ -66,9 +66,8 @@
 *   **Bug Squashing & Profiling:** Dedicated performance profiling and fixing edge cases introduced during the v0.4.x cycle.
 *   **API Finalization:** Ensuring all Scripting API methods are consistent and fully documented.
 
-## v0.5.0: The Roguelike Toolkit
-*Focus: A massive feature drop specifically aimed at turn-based and grid-based dungeon crawlers.*
-*   **Turn-Based Engine Mode:** Full implementation of the tactical turn-based loop selected in the Project Wizard.
-*   **Grid Movement Helpers:** Built-in engine support for snapping and animating movement on the grid.
-*   **Field of View (FOV):** Automatically hides entities/tiles not in the player's line of sight and manages an "explored" fog of war.
-*   **Procedural Generation Helpers:** Rhai functions to auto-generate BSP rooms or cellular automata caves.
+## v0.5.0: The Scripting & Workspace Update
+*Focus: Professional in-engine development tools transforming the editor into a complete workspace.*
+*   **In-Engine Script Editor:** A dedicated multi-line text editor panel built directly into the engine, allowing you to create, edit, and save `.rhai` scripts without leaving the workspace.
+*   **Project File Manager:** A new browser panel to manage all assets within a project folder. Easily switch between editing `.level` files and `.rhai` scripts, and handle file operations (create, rename, delete) natively.
+*   **Panel System Expansion:** Expanding the existing docking/floating window system to accommodate these new large-format panels and manage workflow focus.
