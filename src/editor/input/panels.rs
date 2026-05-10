@@ -7,7 +7,8 @@ use super::super::{TextInput, TextInputPurpose};
 use super::super::ui::{self, ToolbarAction, HierarchySelection,
                        INSP_GLYPH_OFF, INSP_TAG_OFF,
                        INSP_SOLID_OFF, INSP_TRIG_OFF, INSP_CAM_OFF,
-                       INSP_SCRIPT_OFF, INSP_EXIT_OFF, INSP_GRAPH_BTN};
+                       INSP_SCRIPT_OFF, INSP_EXIT_OFF, INSP_GRAPH_BTN,
+                       INSP_LAYER_OFF, INSP_MASK_OFF};
 use super::super::commands::Command;
 use super::super::node_graph;
 
@@ -240,6 +241,8 @@ impl EditorState {
                 let cam_row    = cy + INSP_CAM_OFF;
                 let script_row = cy + INSP_SCRIPT_OFF;
                 let exit_row   = cy + INSP_EXIT_OFF;
+                let layer_row  = cy + INSP_LAYER_OFF;
+                let mask_row   = cy + INSP_MASK_OFF;
                 
                 if self.hierarchy_sel == Some(HierarchySelection::Player) {
                     match mouse.cell_y {
@@ -259,6 +262,18 @@ impl EditorState {
                             self.text_input = Some(TextInput {
                                 buffer: self.grid.player.script.clone().unwrap_or_default(),
                                 purpose: TextInputPurpose::PlayerScript,
+                            });
+                        }
+                        r if r == layer_row => {
+                            self.text_input = Some(TextInput {
+                                buffer: self.grid.player.collider_layer.clone(),
+                                purpose: TextInputPurpose::PlayerColliderLayer,
+                            });
+                        }
+                        r if r == mask_row => {
+                            self.text_input = Some(TextInput {
+                                buffer: self.grid.player.collider_mask.join(","),
+                                purpose: TextInputPurpose::PlayerColliderMask,
                             });
                         }
                         r if r == solid_row => {
@@ -321,6 +336,14 @@ impl EditorState {
                                 r if r == exit_row => {
                                     let path = self.grid.get(gx, gy, self.active_layer).and_then(|t| t.next_level.clone()).unwrap_or_default();
                                     self.text_input = Some(TextInput { buffer: path, purpose: TextInputPurpose::TileNextLevel { gx, gy } });
+                                }
+                                r if r == layer_row => {
+                                    let layer = self.grid.get(gx, gy, self.active_layer).map(|t| t.collider_layer.clone()).unwrap_or_default();
+                                    self.text_input = Some(TextInput { buffer: layer, purpose: TextInputPurpose::TileColliderLayer { gx, gy } });
+                                }
+                                r if r == mask_row => {
+                                    let mask = self.grid.get(gx, gy, self.active_layer).map(|t| t.collider_mask.join(",")).unwrap_or_default();
+                                    self.text_input = Some(TextInput { buffer: mask, purpose: TextInputPurpose::TileColliderMask { gx, gy } });
                                 }
                                 r if r == solid_row => {
                                     if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {

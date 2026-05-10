@@ -280,6 +280,19 @@ pub fn draw_inspector(renderer: &mut Renderer, tile: Option<&TileRecord>, pos: O
             renderer.draw_str(ix, cy + INSP_GRAPH_BTN, &btn, Color::Black, Color::DarkGreen);
         }
     }
+    if cy + 20 < cy + ch { renderer.draw_str(ix, cy + 20, &sep, Color::DarkGrey, Color::DarkGrey); }
+    if cy + INSP_LAYER_OFF < cy + ch {
+        renderer.draw_str(ix, cy + INSP_LAYER_OFF, " Layer:", Color::DarkGrey, Color::DarkGrey);
+        let layer_disp = if tile.collider_layer.is_empty() { "(any)" } else { &tile.collider_layer };
+        let layer_line = format!("  {:<width$}", layer_disp, width = iw.saturating_sub(3));
+        renderer.draw_str(ix, cy + INSP_LAYER_OFF, &layer_line, Color::Cyan, Color::DarkBlue);
+    }
+    if cy + INSP_MASK_OFF < cy + ch {
+        renderer.draw_str(ix, cy + INSP_MASK_OFF, " Mask:", Color::DarkGrey, Color::DarkGrey);
+        let mask_str = if tile.collider_mask.is_empty() { "(all layers)".to_string() } else { tile.collider_mask.join(",") };
+        let mask_line = format!("  {:<width$}", mask_str, width = iw.saturating_sub(3));
+        renderer.draw_str(ix, cy + INSP_MASK_OFF, &mask_line, Color::Cyan, Color::DarkBlue);
+    }
 }
 
 pub fn draw_palette_editor_modal(renderer: &mut Renderer, pal: &crate::editor::palette::TileDefinition, focus: Option<&crate::editor::PaletteField>, layout: &Layout) {

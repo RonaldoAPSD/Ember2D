@@ -51,6 +51,10 @@ pub enum TextInputPurpose {
     NewLevelName,
     PaletteName,
     NewFolderName,
+    TileColliderLayer { gx: i32, gy: i32 },
+    TileColliderMask  { gx: i32, gy: i32 },
+    PlayerColliderLayer,
+    PlayerColliderMask,
 }
 
 #[derive(Debug, Clone)]

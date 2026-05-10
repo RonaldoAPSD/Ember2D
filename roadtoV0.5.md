@@ -40,13 +40,14 @@
 *   **Project Configuration:** Saving these choices into `project.ron` to govern engine behavior.
 *   **UI Components:** Built-in drawing tools for menus, panels, and selectable lists.
 
-## v0.4.5: The Logic & AI Update
+## DONE v0.4.5: The Logic & AI Update
 *Focus: Deepening the gameplay possibilities.*
-*   **Pathfinding API:** Built-in A* pathfinding (`ctx.get_path(start, target)`) exposed to Rhai.
-*   **Raycasting:** `ctx.raycast()` to easily check line-of-sight for enemy vision.
-*   **Collision Masks:** Define exactly what collides with what (e.g., "Arrows hit enemies but pass through items").
+*   **Pathfinding API:** Built-in A* pathfinding (`ctx.get_path(start, target)`) exposed to Rhai. Returns coordinates for smarter entity movement.
+*   **Raycasting:** `ctx.raycast(x1, y1, x2, y2, mask)` to check line-of-sight for enemy vision or projectile paths.
+*   **Collision Masks:** Defined exactly what collides with what. Colliders now have `layer` and `mask` for fine-grained interaction.
+*   **Persistence:** Level files now store collision settings for tiles and the player.
 
-## v0.4.6: The Audio & Export Update
+## NEXT v0.4.6: The Audio & Export Update
 *Focus: Immersion and getting the game to players.*
 *   **Spatial Audio:** Sounds get quieter the further away the entity is from the camera.
 *   **Export Tools:** A simple CLI command or editor button to bundle the project into a distributable standalone folder.

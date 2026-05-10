@@ -1,0 +1,36 @@
+(
+    name: "AI Test Lab",
+    width: 40,
+    height: 15,
+    spawn_point: (2.0, 2.0),
+    tiles: [
+        // Obstacle wall in the middle (for raycast/pathfinding test)
+        TileRecord(x: 10, y: 4, glyph: '#', fg: Grey, bg: Reset, solid: true, trigger: false, tag: "wall", collider_layer: "wall"),
+        TileRecord(x: 10, y: 5, glyph: '#', fg: Grey, bg: Reset, solid: true, trigger: false, tag: "wall", collider_layer: "wall"),
+        TileRecord(x: 10, y: 6, glyph: '#', fg: Grey, bg: Reset, solid: true, trigger: false, tag: "wall", collider_layer: "wall"),
+        TileRecord(x: 10, y: 7, glyph: '#', fg: Grey, bg: Reset, solid: true, trigger: false, tag: "wall", collider_layer: "wall"),
+        TileRecord(x: 10, y: 8, glyph: '#', fg: Grey, bg: Reset, solid: true, trigger: false, tag: "wall", collider_layer: "wall"),
+
+        // AI test entity (A) - checks LOS and path to player (@)
+        TileRecord(x: 20, y: 6, glyph: 'A', fg: Cyan, bg: Reset, solid: false, trigger: true, tag: "ai", script: Some("demo/scripts/ai_test.rhai")),
+
+        // Collision Mask Test
+        // Wall (W) - layer "wall"
+        TileRecord(x: 5, y: 10, glyph: '#', fg: Grey, bg: Reset, solid: true, trigger: false, tag: "wall", collider_layer: "wall"),
+        // Enemy (E) - layer "enemy"
+        TileRecord(x: 1, y: 10, glyph: 'E', fg: Red, bg: Reset, solid: true, trigger: false, tag: "enemy", collider_layer: "enemy"),
+        // Projectile (*) - mask ["enemy"]
+        TileRecord(x: 8, y: 10, glyph: '*', fg: Yellow, bg: Reset, solid: false, trigger: true, tag: "bolt", collider_mask: ["enemy"], script: Some("demo/scripts/projectile_test.rhai")),
+    ],
+    player: (
+        glyph: '@',
+        fg: Green,
+        bg: Reset,
+        solid: true,
+        trigger: false,
+        tag: "player",
+        camera_follow: true,
+        collider_layer: "player",
+        collider_mask: [],
+    ),
+)

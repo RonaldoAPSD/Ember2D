@@ -281,6 +281,8 @@ impl EditorState {
             glyph: pr.glyph, fg: pr.fg, bg: pr.bg,
             solid: pr.solid, trigger: pr.trigger,
             tag: pr.tag.clone(), script: pr.script.clone(),
+            collider_layer: pr.collider_layer.clone(),
+            collider_mask: pr.collider_mask.clone(),
             camera_follow: pr.camera_follow,
             next_level: None,
             graph: None,

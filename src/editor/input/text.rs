@@ -194,6 +194,42 @@ impl EditorState {
                         }
                     }
                     TextInputPurpose::NewFolderName => {}
+                    TextInputPurpose::TileColliderLayer { gx, gy } => {
+                        let lyr = self.active_layer;
+                        if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
+                            let mut new_tile = tile.clone();
+                            new_tile.collider_layer = ti.buffer;
+                            self.undo.push(Command::Batch { cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))] });
+                            self.grid.place(gx, gy, lyr, new_tile);
+                            self.unsaved = true;
+                        }
+                    }
+                    TextInputPurpose::TileColliderMask { gx, gy } => {
+                        let lyr = self.active_layer;
+                        if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
+                            let mut new_tile = tile.clone();
+                            new_tile.collider_mask = ti.buffer.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                            self.undo.push(Command::Batch { cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))] });
+                            self.grid.place(gx, gy, lyr, new_tile);
+                            self.unsaved = true;
+                        }
+                    }
+                    TextInputPurpose::PlayerColliderLayer => {
+                        let before = self.grid.player.clone();
+                        let mut after = before.clone();
+                        after.collider_layer = ti.buffer;
+                        self.undo.push(Command::UpdatePlayer { before, after: after.clone() });
+                        self.grid.player = after;
+                        self.unsaved = true;
+                    }
+                    TextInputPurpose::PlayerColliderMask => {
+                        let before = self.grid.player.clone();
+                        let mut after = before.clone();
+                        after.collider_mask = ti.buffer.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                        self.undo.push(Command::UpdatePlayer { before, after: after.clone() });
+                        self.grid.player = after;
+                        self.unsaved = true;
+                    }
                 }
                 return;
             }

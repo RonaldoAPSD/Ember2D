@@ -95,6 +95,14 @@ pub struct TileRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub script: Option<String>,
 
+    /// Optional collision layer name.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub collider_layer: String,
+
+    /// Optional collision mask: layers this tile should interact with.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub collider_mask: Vec<String>,
+
     /// If true, the play-mode camera centers on this entity's position.
     /// Only one entity should have this set at a time; the first one wins.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -134,6 +142,10 @@ pub struct PlayerRecord {
     pub camera_follow: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub script: Option<String>,
+    #[serde(default)]
+    pub collider_layer: String,
+    #[serde(default)]
+    pub collider_mask: Vec<String>,
 }
 
 fn default_player_glyph() -> char { '@' }
@@ -145,14 +157,16 @@ fn bool_true()            -> bool { true }
 impl Default for PlayerRecord {
     fn default() -> Self {
         PlayerRecord {
-            glyph:         '@',
-            fg:            Color::Green,
-            bg:            Color::Reset,
-            solid:         false,
-            trigger:       false,
-            tag:           "player".to_string(),
-            camera_follow: true,
-            script:        None,
+            glyph:          '@',
+            fg:             Color::Green,
+            bg:             Color::Reset,
+            solid:          false,
+            trigger:        false,
+            tag:            "player".to_string(),
+            camera_follow:  true,
+            script:         None,
+            collider_layer: String::new(),
+            collider_mask:  Vec::new(),
         }
     }
 }
@@ -167,7 +181,16 @@ impl TileRecord {
         solid: bool, trigger: bool,
         tag: impl Into<String>,
     ) -> Self {
-        TileRecord { x, y, layer, glyph, fg, bg, solid, trigger, tag: tag.into(), script: None, camera_follow: false, next_level: None, graph: None }
+        TileRecord { 
+            x, y, layer, glyph, fg, bg, solid, trigger, 
+            tag: tag.into(), 
+            script: None, 
+            collider_layer: String::new(),
+            collider_mask: Vec::new(),
+            camera_follow: false, 
+            next_level: None, 
+            graph: None 
+        }
     }
 }
 

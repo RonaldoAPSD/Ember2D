@@ -18,7 +18,7 @@ use super::api::ScriptCtx;
 pub(super) struct ScriptState {
     pub(super) positions:        HashMap<i64, (f32, f32)>,
     pub(super) velocities:       HashMap<i64, (f32, f32)>,
-    pub(super) colliders:        HashMap<i64, (f32, f32, bool, String)>, // w, h, solid, layer
+    pub(super) colliders:        HashMap<i64, (f32, f32, bool, String, Vec<String>)>, // w, h, solid, layer, mask
     pub(super) tags:             HashMap<i64, String>,
     pub(super) tag_to_id:        HashMap<String, i64>,
     pub(super) tag_to_ids:       HashMap<String, Vec<i64>>,
@@ -64,6 +64,7 @@ pub(super) struct ScriptState {
     pub(super) pending_visibility: Vec<(i64, bool)>,
     pub(super) pending_z_order:    Vec<(i64, i32)>,
     pub(super) pending_collider_layer: Vec<(i64, String)>,
+    pub(super) pending_collider_mask:  Vec<(i64, Vec<String>)>,
     pub(super) pending_timers:     Vec<(EntityId, String, f64)>,
     pub(super) timers:             HashMap<EntityId, HashMap<String, f64>>,
 }
@@ -97,7 +98,7 @@ impl ScriptState {
         }
 
         for (id, col) in &world.colliders {
-            colliders.insert(*id as i64, (col.width, col.height, col.solid, col.layer.clone()));
+            colliders.insert(*id as i64, (col.width, col.height, col.solid, col.layer.clone(), col.mask.clone()));
         }
 
         for (id, tag) in &world.tags {
@@ -138,6 +139,7 @@ impl ScriptState {
             pending_camera: None, pending_shake: None,
             pending_visibility: Vec::new(), pending_z_order: Vec::new(),
             pending_collider_layer: Vec::new(),
+            pending_collider_mask: Vec::new(),
             pending_timers: Vec::new(),
             timers: HashMap::new(),
         }
@@ -236,6 +238,10 @@ impl ScriptEngine {
         engine.register_fn("clear_hud",       ScriptCtx::clear_hud);
         engine.register_fn("get_collider_layer", ScriptCtx::get_collider_layer);
         engine.register_fn("set_collider_layer", ScriptCtx::set_collider_layer);
+        engine.register_fn("get_collider_mask", ScriptCtx::get_collider_mask);
+        engine.register_fn("set_collider_mask", ScriptCtx::set_collider_mask);
+        engine.register_fn("raycast",         ScriptCtx::raycast);
+        engine.register_fn("get_path",        ScriptCtx::get_path);
         engine.register_fn("get_viewport_width", ScriptCtx::get_viewport_width);
         engine.register_fn("get_viewport_height", ScriptCtx::get_viewport_height);
 
@@ -425,6 +431,7 @@ impl ScriptEngine {
         for (id, visible) in state.pending_visibility.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.visible = visible; } }
         for (id, z) in state.pending_z_order.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.z_order = z; } }
         for (id, layer) in state.pending_collider_layer.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.layer = layer; } }
+        for (id, mask) in state.pending_collider_mask.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.mask = mask; } }
         for (id, frames, rate) in state.pending_animations.drain(..) {
             if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) {
                 sp.frames = frames;

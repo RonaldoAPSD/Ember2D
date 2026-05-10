@@ -24,9 +24,15 @@ impl PlayState {
             world.add_sprite(id, Sprite::new(tile.glyph, tile.fg, tile.bg, z));
 
             if tile.solid {
-                world.add_collider(id, Collider::unit());
+                let mut col = Collider::unit();
+                col.layer = tile.collider_layer.clone();
+                col.mask = tile.collider_mask.clone();
+                world.add_collider(id, col);
             } else if tile.trigger {
-                world.add_collider(id, Collider::trigger(1.0, 1.0));
+                let mut col = Collider::trigger(1.0, 1.0);
+                col.layer = tile.collider_layer.clone();
+                col.mask = tile.collider_mask.clone();
+                world.add_collider(id, col);
                 if tile.tag == "item" || tile.tag == "chest" { item_count += 1; }
             }
 
@@ -81,7 +87,10 @@ impl PlayState {
         world.add_sprite(player, Sprite::new(pr.glyph, pr.fg, pr.bg, Z_PLAYER));
         // Slightly smaller than 1×1 so the player has a 0.125-unit tolerance on each
         // side when squeezing through 1-cell corridors (walls are still 1×1).
-        world.add_collider(player, Collider::new(0.75, 0.75));
+        let mut p_col = Collider::new(0.75, 0.75);
+        p_col.layer = pr.collider_layer.clone();
+        p_col.mask = pr.collider_mask.clone();
+        world.add_collider(player, p_col);
         world.add_tag(player, Tag::new(&pr.tag));
 
         if let Some(ref script_path) = pr.script.clone() {

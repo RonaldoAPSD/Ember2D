@@ -117,3 +117,5 @@ pub const INSP_CAM_OFF:     usize = 11;
 pub const INSP_SCRIPT_OFF:  usize = 13;
 pub const INSP_EXIT_OFF:    usize = 14;
 pub const INSP_GRAPH_BTN:   usize = 17;
+pub const INSP_LAYER_OFF:   usize = 21;
+pub const INSP_MASK_OFF:    usize = 23;

@@ -47,12 +47,16 @@ pub struct Collider {
 
     /// Optional layer name for fine-grained collision filtering in scripts.
     pub layer: String,
+
+    /// Optional collision mask: a list of layer names this collider should
+    /// interact with. If empty, it interacts with ALL layers (default).
+    pub mask: Vec<String>,
 }
 
 impl Collider {
     /// Create a solid collider with the given dimensions.
     pub fn new(width: f32, height: f32) -> Self {
-        Collider { width, height, solid: true, layer: String::new() }
+        Collider { width, height, solid: true, layer: String::new(), mask: Vec::new() }
     }
 
     /// A 1×1 solid collider — the standard size for a single-character entity.
@@ -66,7 +70,7 @@ impl Collider {
     /// Trigger colliders fire Collision events but don't block movement.
     /// Use them for: pickups, damage areas, door triggers, room boundaries.
     pub fn trigger(width: f32, height: f32) -> Self {
-        Collider { width, height, solid: false, layer: String::new() }
+        Collider { width, height, solid: false, layer: String::new(), mask: Vec::new() }
     }
 
     /// Compute the world-space bounding Rect for this collider given the

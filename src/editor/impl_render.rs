@@ -286,6 +286,10 @@ impl EditorState {
                 TextInputPurpose::NewLevelName      => "New level name",
                 TextInputPurpose::PaletteName       => "Palette item name",
                 TextInputPurpose::NewFolderName     => "New folder name",
+                TextInputPurpose::TileColliderLayer { .. } => "Collider layer",
+                TextInputPurpose::TileColliderMask  { .. } => "Mask (comma-separated, empty=all)",
+                TextInputPurpose::PlayerColliderLayer      => "Player layer",
+                TextInputPurpose::PlayerColliderMask       => "Player mask (comma-separated)",
             };
             ui::draw_text_input(renderer, prompt, &ti.buffer, &layout);
         }

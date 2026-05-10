@@ -229,16 +229,16 @@ impl World {
     /// The results are emitted directly into the EventBus so the game's
     /// late_update() can respond to them.
     pub fn detect_collisions(&self, events: &mut EventBus) {
-        // Build a list of (EntityId, world-space Rect) for every collidable entity.
+        // Build a list of (EntityId, world-space Rect, layer, mask) for every collidable entity.
         // We collect into a Vec so we can iterate pairs with indices below.
-        let collidables: Vec<(EntityId, Rect)> = self
+        let collidables: Vec<(EntityId, Rect, String, Vec<String>)> = self
             .transforms
             .iter()
             .filter_map(|(id, tf)| {
                 // Only include entities that ALSO have a Collider.
                 self.colliders
                     .get(id)
-                    .map(|col| (*id, col.world_rect(tf.position.x, tf.position.y)))
+                    .map(|col| (*id, col.world_rect(tf.position.x, tf.position.y), col.layer.clone(), col.mask.clone()))
             })
             .collect();
 
@@ -246,13 +246,19 @@ impl World {
         // This avoids checking (A,B) and (B,A) separately, and avoids (A,A).
         for i in 0..collidables.len() {
             for j in (i + 1)..collidables.len() {
-                let (id_a, rect_a) = collidables[i];
-                let (id_b, rect_b) = collidables[j];
+                let (id_a, rect_a, layer_a, mask_a) = &collidables[i];
+                let (id_b, rect_b, layer_b, mask_b) = &collidables[j];
 
-                if rect_a.intersects(rect_b) {
+                // Collision Filtering:
+                // Both colliders must "allow" the collision based on their masks.
+                // An empty mask means "interact with everything."
+                let a_allows_b = mask_a.is_empty() || mask_a.contains(layer_b);
+                let b_allows_a = mask_b.is_empty() || mask_b.contains(layer_a);
+
+                if a_allows_b && b_allows_a && rect_a.intersects(*rect_b) {
                     events.emit(GameEvent::Collision {
-                        entity_a: id_a,
-                        entity_b: id_b,
+                        entity_a: *id_a,
+                        entity_b: *id_b,
                     });
                 }
             }
