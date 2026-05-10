@@ -45,7 +45,9 @@ pub(super) struct ScriptState {
     pub(super) pending_positions:  Vec<(i64, f32, f32)>,
     pub(super) pending_glyphs:     Vec<(i64, char)>,
     pub(super) pending_colors:     Vec<(i64, String, String)>,
+    pub(super) pending_animations: Vec<(i64, Vec<char>, f32)>,
     pub(super) pending_hud_draws:  Vec<HudDraw>,
+    pub(super) pending_particles:  Vec<ParticleRequest>,
     pub(super) clear_hud:          bool,
     pub(super) despawn_queue:      Vec<i64>,
     pub(super) spawn_queue:        Vec<SpawnRequest>,
@@ -127,7 +129,9 @@ impl ScriptState {
             viewport_size,
             pending_velocities: Vec::new(), pending_positions: Vec::new(),
             pending_glyphs: Vec::new(), pending_colors: Vec::new(),
-            pending_hud_draws: Vec::new(), clear_hud: false, despawn_queue: Vec::new(),
+            pending_animations: Vec::new(),
+            pending_hud_draws: Vec::new(), pending_particles: Vec::new(),
+            clear_hud: false, despawn_queue: Vec::new(),
             spawn_queue: Vec::new(), pending_level: None, pending_logs: Vec::new(),
             pending_sounds: Vec::new(), pending_music: None, stop_music: false,
             pending_globals: HashMap::new(), pending_persistent: HashMap::new(),
@@ -175,6 +179,7 @@ impl ScriptEngine {
         engine.register_fn("set_position",    ScriptCtx::set_position);
         engine.register_fn("set_glyph",       ScriptCtx::set_glyph);
         engine.register_fn("set_color",       ScriptCtx::set_color);
+        engine.register_fn("set_animation",   ScriptCtx::set_animation);
         engine.register_fn("despawn",         ScriptCtx::despawn);
         engine.register_fn("spawn",           ScriptCtx::spawn);
         engine.register_fn("load_level",      ScriptCtx::load_level);
@@ -183,6 +188,7 @@ impl ScriptEngine {
         engine.register_fn("play_sound",      ScriptCtx::play_sound);
         engine.register_fn("play_music",      ScriptCtx::play_music);
         engine.register_fn("stop_music",      ScriptCtx::stop_music);
+        engine.register_fn("emit_particles",  ScriptCtx::emit_particles);
 
         // V0.4 Extensions
         engine.register_fn("set_global",      ScriptCtx::set_global);
@@ -417,6 +423,13 @@ impl ScriptEngine {
         for (id, visible) in state.pending_visibility.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.visible = visible; } }
         for (id, z) in state.pending_z_order.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.z_order = z; } }
         for (id, layer) in state.pending_collider_layer.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.layer = layer; } }
+        for (id, frames, rate) in state.pending_animations.drain(..) {
+            if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) {
+                sp.frames = frames;
+                sp.frame_rate = rate;
+                sp.frame_timer = 0.0;
+            }
+        }
 
         for req in state.spawn_queue.drain(..) {
             world.next_id = req.id + 1;
@@ -466,6 +479,7 @@ impl ScriptEngine {
             camera_override: state.pending_camera.take(),
             shake_state: state.pending_shake.take(),
             clear_hud: state.clear_hud,
+            particles: state.pending_particles.drain(..).collect(),
         };
         state.clear_hud = false;
 

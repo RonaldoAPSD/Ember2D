@@ -24,10 +24,11 @@
 // frame and returns it to run_editor_app() in src/app.rs, which loops back
 // to running the editor.
 
+mod spawn;
+
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::components::{Collider, Script, Sprite, Tag, Transform};
 use crate::engine::{GameState, RenderContext, Transition, UpdateContext};
 use crate::event::{EventBus, GameEvent};
 use crate::input::Key;
@@ -64,6 +65,19 @@ const Z_PLAYER: i32 = 15; // In the middle of layer 1 (Main)
 
 /// Player movement speed in cells per second.
 const PLAYER_SPEED: f32 = 10.0;
+
+// ── Particles ────────────────────────────────────────────────────────────────
+
+#[derive(Clone)]
+pub struct Particle {
+    pub x: f32,
+    pub y: f32,
+    pub vx: f32,
+    pub vy: f32,
+    pub glyph: char,
+    pub fg: Color,
+    pub life: f32,
+}
 
 // ── PlayState ─────────────────────────────────────────────────────────────────
 
@@ -131,6 +145,12 @@ pub struct PlayState {
     /// Used by on_start() for the initial camera calculation before the first update().
     viewport_w: usize,
     viewport_h: usize,
+
+    /// Smoothed camera position in world space.
+    pub camera_pos: Vec2,
+
+    /// Active particles (short-lived, non-solid effects).
+    pub particles: Vec<Particle>,
 }
 
 impl PlayState {
@@ -158,6 +178,8 @@ impl PlayState {
             shake_timer:        0.0,
             viewport_w:         80,
             viewport_h:         40,
+            camera_pos:         Vec2::ZERO,
+            particles:          Vec::new(),
         }
     }
 
@@ -176,6 +198,20 @@ impl PlayState {
         if let Some(shake) = res.shake_state {
             self.shake_state = Some(shake);
             self.shake_timer = shake.duration;
+        }
+
+        // Emit requested particles
+        if !res.particles.is_empty() {
+            use rand::{Rng, SeedableRng};
+            let mut rng = rand::rngs::SmallRng::from_entropy();
+            for req in res.particles {
+                let vx = rng.gen_range(-5.0..5.0);
+                let vy = rng.gen_range(-5.0..5.0);
+                let life = rng.gen_range(0.2..0.8);
+                self.particles.push(Particle {
+                    x: req.x, y: req.y, vx, vy, glyph: req.glyph, fg: req.fg, life,
+                });
+            }
         }
     }
 
@@ -214,122 +250,8 @@ impl PlayState {
 
 impl GameState for PlayState {
     /// Populate the ECS World with entities built from the stored LevelData.
-    fn on_start(&mut self, world: &mut World, _events: &mut EventBus) {
-        let mut item_count   = 0u32;
-        let mut scripts_ok   = 0u32;
-        let mut scripts_fail = 0u32;
-
-        for tile in &self.level.tiles {
-            if tile.tag == "spawn" { continue; }
-
-            let id = world.spawn();
-            world.add_transform(id, Transform::new(tile.x as f32, tile.y as f32));
-
-            let z = Self::z_for_tag(&tile.tag) + (tile.layer as i32 * 10);
-            world.add_sprite(id, Sprite::new(tile.glyph, tile.fg, tile.bg, z));
-
-            if tile.solid {
-                world.add_collider(id, Collider::unit());
-            } else if tile.trigger {
-                world.add_collider(id, Collider::trigger(1.0, 1.0));
-                if tile.tag == "item" || tile.tag == "chest" { item_count += 1; }
-            }
-
-            if !tile.tag.is_empty() { world.add_tag(id, Tag::new(&tile.tag)); }
-
-            // Priority 1: node graph; 2: .rhai file
-            let mut source = String::new();
-            if let Some(ref graph) = tile.graph {
-                source = crate::editor::node_graph::generate_graph(graph);
-            }
-            if !source.is_empty() {
-                if let Some(ref path) = tile.script {
-                    let full = resolve_exit_path(path, &self.level.path);
-                    if let Ok(file_src) = std::fs::read_to_string(&full) {
-                        source.push('\n');
-                        source.push_str(&file_src);
-                    }
-                }
-                let key = format!("__script_{}", id);
-                if self.script_engine.compile_str(&key, &source, &mut self.script_log) {
-                    scripts_ok += 1;
-                } else {
-                    scripts_fail += 1;
-                }
-                world.add_script(id, Script::new(&key));
-            } else if let Some(script_path) = &tile.script {
-                world.add_script(id, Script::new(script_path));
-                if self.script_engine.compile(script_path, &mut self.script_log) {
-                    scripts_ok += 1;
-                } else {
-                    scripts_fail += 1;
-                }
-            }
-
-            if tile.camera_follow && self.camera_entity.is_none() {
-                self.camera_entity = Some(id);
-            }
-
-            if let Some(ref path) = tile.next_level {
-                self.exit_targets.insert(id, path.clone());
-            }
-        }
-
-        self.total_items = item_count;
-
-        // Spawn the player at the level's stored spawn point.
-        let (sx, sy) = self.level.spawn_point;
-        let player = world.spawn();
-        world.add_transform(player, Transform::new(sx, sy));
-
-        let pr = &self.level.player;
-        world.add_sprite(player, Sprite::new(pr.glyph, pr.fg, pr.bg, Z_PLAYER));
-        // Slightly smaller than 1×1 so the player has a 0.125-unit tolerance on each
-        // side when squeezing through 1-cell corridors (walls are still 1×1).
-        world.add_collider(player, Collider::new(0.75, 0.75));
-        world.add_tag(player, Tag::new(&pr.tag));
-
-        if let Some(ref script_path) = pr.script.clone() {
-            world.add_script(player, Script::new(script_path));
-            if self.script_engine.compile(script_path, &mut self.script_log) {
-                scripts_ok += 1;
-            } else {
-                scripts_fail += 1;
-            }
-        }
-
-        if pr.camera_follow && self.camera_entity.is_none() {
-            self.camera_entity = Some(player);
-        }
-
-        self.player_id = player;
-
-        // Summarise compilation results in the console log.
-        if scripts_ok + scripts_fail > 0 {
-            let msg = format!("{} script(s) compiled, {} failed", scripts_ok, scripts_fail);
-            if scripts_fail > 0 {
-                self.script_log.push(LogEntry::warn(msg));
-            } else {
-                self.script_log.push(LogEntry::info(msg));
-            }
-        }
-
-        let cam_pos = self.camera_entity
-            .and_then(|id| world.transforms.get(&id))
-            .map(|tf| tf.position)
-            .unwrap_or(Vec2::ZERO);
-
-        let game_h = (self.viewport_h as i32 - 2).max(1);
-        let cam_x = (cam_pos.x - self.viewport_w as f32 / 2.0).max(0.0).round();
-        let cam_y = (cam_pos.y - game_h as f32 / 2.0).max(0.0).round();
-
-        // Call on_start() for all scripted entities now that the world is fully populated.
-        let res = self.script_engine.run_on_start_all(
-            world, &mut self.script_log, &self.level.extra_spawns,
-            self.globals.clone(), self.persistent.clone(), Vec2::new(cam_x, cam_y),
-            (80, 40),
-        );
-        self.apply_script_result(res);
+    fn on_start(&mut self, world: &mut World, events: &mut EventBus) {
+        self.do_on_start(world, events);
     }
 
     /// Read input, update player velocity, track FPS.
@@ -381,28 +303,62 @@ impl GameState for PlayState {
             }
         }
 
-        // Run all entity scripts. Scripts read the world snapshot and write
-        // deferred velocity/despawn commands that are applied inside run_scripts().
-        // This runs AFTER player velocity is set so scripts can overwrite it.
-        let mut cam_pos = self.camera_entity
+        // Update sprite animations
+        for sprite in world.sprites.values_mut() {
+            if !sprite.frames.is_empty() {
+                sprite.frame_timer += delta_time;
+            }
+        }
+
+        // ── Camera Update ─────────────────────────────────────────────────────
+        let mut target_cam = self.camera_entity
             .and_then(|id| world.transforms.get(&id))
             .map(|tf| tf.position)
             .unwrap_or(Vec2::ZERO);
 
         if let Some(over) = self.camera_override {
-            cam_pos = over;
+            target_cam = over;
         }
 
-        let game_h = (viewport_height as i32 - 2).max(1);
-        let cam_x = (cam_pos.x - viewport_width as f32 / 2.0).max(0.0).round();
-        let cam_y = (cam_pos.y - game_h as f32 / 2.0).max(0.0).round();
+        // Apply map boundaries
+        let game_h = (viewport_height as i32 - 2).max(1) as f32;
+        let half_w = viewport_width as f32 / 2.0;
+        let half_h = game_h / 2.0;
 
+        let min_x = half_w;
+        let max_x = (self.level.width as f32 - half_w).max(min_x);
+        let min_y = half_h;
+        let max_y = (self.level.height as f32 - half_h).max(min_y);
+
+        target_cam.x = target_cam.x.clamp(min_x, max_x);
+        target_cam.y = target_cam.y.clamp(min_y, max_y);
+
+        // Smooth lerp (or snap if it's the first frame)
+        if self.camera_pos == Vec2::ZERO {
+            self.camera_pos = target_cam;
+        } else {
+            let lerp_speed = 5.0;
+            self.camera_pos = self.camera_pos + (target_cam - self.camera_pos) * (1.0 - (-lerp_speed * delta_time).exp());
+        }
+
+        let cam_x = (self.camera_pos.x - viewport_width as f32 / 2.0).round();
+        let cam_y = (self.camera_pos.y - game_h / 2.0).round();
+
+        // Run all entity scripts.
         let res = self.script_engine.run_scripts(
             world, events, &mut self.script_log, delta_time, elapsed, Some(input), Some(mouse),
             &self.level.extra_spawns, self.globals.clone(), self.persistent.clone(), Vec2::new(cam_x, cam_y),
             (viewport_width, viewport_height),
         );
         self.apply_script_result(res);
+
+        // Update particles
+        self.particles.retain_mut(|p| {
+            p.x += p.vx * delta_time;
+            p.y += p.vy * delta_time;
+            p.life -= delta_time;
+            p.life > 0.0
+        });
 
         // Drain audio requests queued by scripts.
         self.flush_audio();
@@ -461,18 +417,9 @@ impl GameState for PlayState {
         }
 
         // Run on_collide callbacks for scripted entities involved in collisions.
-        let mut cam_pos = self.camera_entity
-            .and_then(|id| world.transforms.get(&id))
-            .map(|tf| tf.position)
-            .unwrap_or(Vec2::ZERO);
-
-        if let Some(over) = self.camera_override {
-            cam_pos = over;
-        }
-
-        let game_h = (viewport_height as i32 - 2).max(1);
-        let cam_x = (cam_pos.x - viewport_width as f32 / 2.0).max(0.0).round();
-        let cam_y = (cam_pos.y - game_h as f32 / 2.0).max(0.0).round();
+        let game_h = (viewport_height as i32 - 2).max(1) as f32;
+        let cam_x = (self.camera_pos.x - viewport_width as f32 / 2.0).round();
+        let cam_y = (self.camera_pos.y - game_h / 2.0).round();
 
         let res = self.script_engine.run_collisions(
             world, &all_pairs, &mut self.script_log, delta_time, elapsed,
@@ -486,7 +433,7 @@ impl GameState for PlayState {
 
     /// Draw the game world with HUD.
     fn render(&mut self, ctx: RenderContext) {
-        let RenderContext { world, renderer, elapsed, .. } = ctx;
+        let RenderContext { world, renderer, .. } = ctx;
 
         // ── Background ─────────────────────────────────────────────────────────
         renderer.draw_rect_filled(
@@ -494,20 +441,11 @@ impl GameState for PlayState {
             ' ', Color::Reset, Color::Reset,
         );
 
-        // ── Camera offset (entity with camera_follow=true or script override) ──
-        // Game area occupies rows 1..height-1 (top and bottom HUD bars excluded).
+        // ── Camera setup ───────────────────────────────────────────────────────
         let game_h = (renderer.height as i32 - 2).max(1);
-        let mut cam_pos = self.camera_entity
-            .and_then(|id| world.transforms.get(&id))
-            .map(|tf| tf.position)
-            .unwrap_or(Vec2::ZERO);
+        let mut cam_x = (self.camera_pos.x - renderer.width as f32 / 2.0).round() as i32;
+        let mut cam_y = (self.camera_pos.y - game_h as f32 / 2.0).round() as i32;
 
-        if let Some(over) = self.camera_override {
-            cam_pos = over;
-        }
-
-        let mut cam_x = (cam_pos.x - renderer.width as f32 / 2.0).max(0.0).round() as i32;
-        let mut cam_y = (cam_pos.y - game_h as f32 / 2.0).max(0.0).round() as i32;
         if let Some(shake) = self.shake_state.filter(|s| s.duration > 0.0) {
             use rand::{Rng, SeedableRng};
             let mut rng = rand::rngs::SmallRng::from_entropy();
@@ -529,7 +467,13 @@ impl GameState for PlayState {
                         && (col as usize) < renderer.width
                         && (row as usize) < renderer.height - 1
                     {
-                        Some((sp.z_order, col as usize, row as usize, sp.glyph, sp.fg, sp.bg))
+                        let glyph = if sp.frames.is_empty() {
+                            sp.glyph
+                        } else {
+                            let frame_idx = (sp.frame_timer / sp.frame_rate) as usize % sp.frames.len();
+                            sp.frames[frame_idx]
+                        };
+                        Some((sp.z_order, col as usize, row as usize, glyph, sp.fg, sp.bg))
                     } else {
                         None
                     }
@@ -543,20 +487,15 @@ impl GameState for PlayState {
             renderer.draw_char(col, row, glyph, fg, bg);
         }
 
-        // ── Collectible pulse animation ────────────────────────────────────────
-        if (elapsed * 3.0) as u32 % 2 == 0 {
-            for (id, tf) in &world.transforms {
-                let tag = world.tags.get(id).map(|t| t.name.as_str());
-                if matches!(tag, Some("item") | Some("chest")) {
-                    let col = tf.position.x.round() as i32 - cam_x;
-                    let row = tf.position.y.round() as i32 - cam_y + 1; // +1 for top HUD bar
-                    if col >= 0 && row >= 1
-                        && (col as usize) < renderer.width
-                        && (row as usize) < renderer.height - 1
-                    {
-                        renderer.draw_char(col as usize, row as usize, '$', Color::White, Color::Reset);
-                    }
-                }
+        // ── Particles ──────────────────────────────────────────────────────────
+        for p in &self.particles {
+            let col = p.x.round() as i32 - cam_x;
+            let row = p.y.round() as i32 - cam_y + 1;
+            if col >= 0 && row >= 1
+                && (col as usize) < renderer.width
+                && (row as usize) < renderer.height - 1
+            {
+                renderer.draw_char(col as usize, row as usize, p.glyph, p.fg, Color::Reset);
             }
         }
 

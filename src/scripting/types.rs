@@ -29,6 +29,7 @@ pub struct ScriptUpdateResult {
     pub camera_override: Option<crate::math::Vec2>,
     pub shake_state:     Option<super::super::play::ShakeState>,
     pub clear_hud:       bool,
+    pub particles:       Vec<ParticleRequest>,
 }
 
 // ── HudDraw ───────────────────────────────────────────────────────────────────
@@ -47,6 +48,15 @@ pub(super) struct SpawnRequest {
     pub x:     f32,
     pub y:     f32,
     pub tag:   String,
+}
+
+// ── ParticleRequest ───────────────────────────────────────────────────────────
+
+pub struct ParticleRequest {
+    pub x:     f32,
+    pub y:     f32,
+    pub glyph: char,
+    pub fg:    Color,
 }
 
 // ── Color name → Color enum ───────────────────────────────────────────────────

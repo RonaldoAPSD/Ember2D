@@ -53,6 +53,10 @@ impl ScriptCtx {
         if let Some(ch) = glyph_str.chars().next() { self.inner.lock().unwrap().pending_glyphs.push((id, ch)); }
     }
     pub fn set_color(&mut self, id: i64, fg: String, bg: String) { self.inner.lock().unwrap().pending_colors.push((id, fg, bg)); }
+    pub fn set_animation(&mut self, id: i64, frames_str: String, rate: f64) {
+        let frames: Vec<char> = frames_str.chars().collect();
+        self.inner.lock().unwrap().pending_animations.push((id, frames, rate as f32));
+    }
 
     pub fn despawn(&mut self, id: i64) { self.inner.lock().unwrap().despawn_queue.push(id); }
     pub fn spawn(&mut self, glyph_str: String, x: f64, y: f64, tag: String) -> i64 {
@@ -76,6 +80,12 @@ impl ScriptCtx {
     pub fn play_sound(&mut self, path: String) { self.inner.lock().unwrap().pending_sounds.push(path); }
     pub fn play_music(&mut self, path: String) { self.inner.lock().unwrap().pending_music = Some(path); }
     pub fn stop_music(&mut self) { self.inner.lock().unwrap().stop_music = true; }
+
+    pub fn emit_particles(&mut self, x: f64, y: f64, glyph_str: String, fg: String) {
+        let glyph = glyph_str.chars().next().unwrap_or('*');
+        let fg_col = parse_color(&fg);
+        self.inner.lock().unwrap().pending_particles.push(ParticleRequest { x: x as f32, y: y as f32, glyph, fg: fg_col });
+    }
 
     // ── V0.4 Extensions ───────────────────────────────────────────────────────
 
