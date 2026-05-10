@@ -50,6 +50,7 @@ pub enum TextInputPurpose {
     PlayerGlyph,
     NewLevelName,
     PaletteName,
+    NewFolderName,
 }
 
 #[derive(Debug, Clone)]
@@ -251,7 +252,7 @@ impl EditorState {
             Some(template) => {
                 std::fs::create_dir_all(&result.project_folder)
                     .map_err(|e| format!("Cannot create '{}': {}", result.project_folder, e))?;
-                ProjectData::new(&result.project_name)
+                ProjectData::new(&result.project_name, result.visual_style, result.gameplay_loop)
                     .save(&result.project_folder)
                     .map_err(|e| format!("Cannot write project.ron: {}", e))?;
 

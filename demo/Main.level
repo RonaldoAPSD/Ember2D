@@ -1,0 +1,16 @@
+(
+    name: "Main",
+    width: 68,
+    height: 22,
+    spawn_point: (1.0, 1.0),
+    tiles: [],
+    player: (
+        glyph: '@',
+        fg: Green,
+        bg: Reset,
+        solid: false,
+        trigger: false,
+        tag: "player",
+        camera_follow: true,
+    ),
+)

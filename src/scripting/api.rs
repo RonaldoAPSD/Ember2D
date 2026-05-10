@@ -77,6 +77,21 @@ impl ScriptCtx {
         self.inner.lock().unwrap().pending_hud_draws.push(HudDraw::Text { x: x as usize, y: y as usize, text, fg: parse_color(&fg), bg: parse_color(&bg) });
     }
 
+    pub fn draw_menu(&mut self, x: i64, y: i64, w: i64, options: Array, selected: i64, fg: String, bg: String, sel_fg: String, sel_bg: String) {
+        let opts: Vec<String> = options.into_iter().map(|d| d.to_string()).collect();
+        self.inner.lock().unwrap().pending_hud_draws.push(HudDraw::Menu { 
+            x: x as usize, y: y as usize, w: w as usize, options: opts, selected: selected as usize, 
+            fg: parse_color(&fg), bg: parse_color(&bg), sel_fg: parse_color(&sel_fg), sel_bg: parse_color(&sel_bg) 
+        });
+    }
+
+    pub fn draw_panel(&mut self, x: i64, y: i64, w: i64, h: i64, title: String, fg: String, bg: String) {
+        self.inner.lock().unwrap().pending_hud_draws.push(HudDraw::Panel { 
+            x: x as usize, y: y as usize, w: w as usize, h: h as usize, title, 
+            fg: parse_color(&fg), bg: parse_color(&bg) 
+        });
+    }
+
     pub fn play_sound(&mut self, path: String) { self.inner.lock().unwrap().pending_sounds.push(path); }
     pub fn play_music(&mut self, path: String) { self.inner.lock().unwrap().pending_music = Some(path); }
     pub fn stop_music(&mut self) { self.inner.lock().unwrap().stop_music = true; }

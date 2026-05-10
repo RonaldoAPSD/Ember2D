@@ -20,11 +20,11 @@ const TCARD_W:   usize = 28;
 const TCARD_GAP: usize = 4;
 const TCARD_H:   usize = 8;
 
-const BROW_W: usize = 60;
-const BROW_H: usize = 16;
+pub(super) const FB_W:       usize = 66;
+pub(super) const FB_H:       usize = 18;
 
-const FB_W:       usize = 66;
-const FB_H:       usize = 18;
+pub(super) const BROW_W: usize = 60;
+pub(super) const BROW_H: usize = 16;
 
 pub(super) fn draw_header(renderer: &mut Renderer, sw: usize) {
     renderer.draw_rect_filled(0, 0, sw, 2, ' ', Color::White, Color::DarkBlue);
@@ -48,7 +48,7 @@ pub(super) fn draw_main_menu(renderer: &mut Renderer, sw: usize, sh: usize, elap
     renderer.draw_rect_outline(box_x, box_y, box_w, 5, pulse, Color::Black);
     renderer.draw_str(box_x + (box_w.saturating_sub(18)) / 2, box_y + 1, "* E M B E R  2 D *", Color::Yellow, Color::Black);
     renderer.draw_str(box_x + (box_w.saturating_sub(22)) / 2, box_y + 2, "L E V E L   E D I T O R", Color::White, Color::Black);
-    renderer.draw_str(box_x + (box_w.saturating_sub(6)) / 2, box_y + 3, "v0.3.9", Color::DarkGrey, Color::Black);
+    renderer.draw_str(box_x + (box_w.saturating_sub(6)) / 2, box_y + 3, &format!("v{}", env!("CARGO_PKG_VERSION")), Color::DarkGrey, Color::Black);
 
     let menu_x = (sw.saturating_sub(MENU_W)) / 2;
     let menu_y = 10;
@@ -94,9 +94,46 @@ pub(super) fn draw_template_step(renderer: &mut Renderer, sw: usize, sh: usize, 
 
     renderer.draw_rect_outline(tbox_x, tbox_y, TBOX_W, TBOX_H, Color::Cyan, Color::Black);
     renderer.draw_rect_filled(tbox_x + 1, tbox_y + 1, TBOX_W.saturating_sub(2), TBOX_H.saturating_sub(2), ' ', Color::White, Color::Black);
-    renderer.draw_str(tbox_x + 1, tbox_y, " NEW PROJECT - Step 3/3: Starting Template ", Color::Black, Color::Cyan);
+    renderer.draw_str(tbox_x + 1, tbox_y, " NEW PROJECT - Step 5/5: Starting Template ", Color::Black, Color::Cyan);
     renderer.draw_str(tbox_x + 3, tbox_y + 2, "Choose how to start your first level:", Color::White, Color::Black);
     for (i, &(name, desc)) in TEMPLATE_LABELS.iter().enumerate() {
+        let cx = tcard_x0 + i * (TCARD_W + TCARD_GAP);
+        let cy = tcard_y;
+        let is_sel = i == selected;
+        let (border_c, hdr_bg) = if is_sel { (Color::Cyan, Color::Cyan) } else { (Color::DarkGrey, Color::DarkGrey) };
+        renderer.draw_rect_outline(cx, cy, TCARD_W, TCARD_H, border_c, Color::Black);
+        renderer.draw_rect_filled(cx + 1, cy + 1, TCARD_W.saturating_sub(2), 1, ' ', Color::Black, hdr_bg);
+        renderer.draw_str(cx + 1, cy + 1, &format!(" {} {}", if is_sel { "[*]" } else { "[ ]" }, name), Color::Black, hdr_bg);
+        let text_fg = if is_sel { Color::White } else { Color::Grey };
+        let max_w = TCARD_W.saturating_sub(4);
+        let mut lines = Vec::new(); let mut cur = String::new();
+        for word in desc.split_whitespace() { if cur.is_empty() { cur = word.to_string(); } else if cur.len() + 1 + word.len() <= max_w { cur.push(' '); cur.push_str(word); } else { lines.push(cur.clone()); cur = word.to_string(); } }
+        if !cur.is_empty() { lines.push(cur); }
+        for (li, line) in lines.iter().take(4).enumerate() { renderer.draw_str(cx + 2, cy + 3 + li, line, text_fg, Color::Black); }
+        if is_sel { renderer.draw_str(cx + 2, cy + TCARD_H.saturating_sub(2), "  click or Enter  ", Color::Black, Color::DarkGreen); }
+    }
+    draw_hint_bar(renderer, sw, sh, "Left/Right or hover: choose  |  Click or Enter: confirm  |  Esc: back");
+}
+
+pub(super) fn draw_style_step(renderer: &mut Renderer, sw: usize, sh: usize, selected: usize) {
+    draw_card_wizard(renderer, sw, sh, 2, 5, "Visual Style", "Choose the visual aesthetic of your game:", STYLE_LABELS, selected);
+}
+
+pub(super) fn draw_loop_step(renderer: &mut Renderer, sw: usize, sh: usize, selected: usize) {
+    draw_card_wizard(renderer, sw, sh, 3, 5, "Gameplay Loop", "Choose how your game world updates:", LOOP_LABELS, selected);
+}
+
+fn draw_card_wizard(renderer: &mut Renderer, sw: usize, sh: usize, step: usize, total: usize, step_name: &str, prompt: &str, labels: &[(&str, &str)], selected: usize) {
+    let tbox_x = (sw.saturating_sub(TBOX_W)) / 2;
+    let tbox_y = 4;
+    let tcard_x0 = tbox_x + (TBOX_W.saturating_sub(TCARD_W * 2 + TCARD_GAP)) / 2;
+    let tcard_y  = tbox_y + 4;
+
+    renderer.draw_rect_outline(tbox_x, tbox_y, TBOX_W, TBOX_H, Color::Cyan, Color::Black);
+    renderer.draw_rect_filled(tbox_x + 1, tbox_y + 1, TBOX_W.saturating_sub(2), TBOX_H.saturating_sub(2), ' ', Color::White, Color::Black);
+    renderer.draw_str(tbox_x + 1, tbox_y, &format!(" NEW PROJECT - Step {}/{}: {} ", step, total, step_name), Color::Black, Color::Cyan);
+    renderer.draw_str(tbox_x + 3, tbox_y + 2, prompt, Color::White, Color::Black);
+    for (i, &(name, desc)) in labels.iter().enumerate() {
         let cx = tcard_x0 + i * (TCARD_W + TCARD_GAP);
         let cy = tcard_y;
         let is_sel = i == selected;
@@ -123,7 +160,7 @@ pub(super) fn draw_folder_browser(renderer: &mut Renderer, sw: usize, sh: usize,
 
     renderer.draw_rect_outline(fb_x, fb_y, FB_W, FB_H, Color::Cyan, Color::Black);
     renderer.draw_rect_filled(fb_x + 1, fb_y + 1, FB_W.saturating_sub(2), FB_H.saturating_sub(2), ' ', Color::White, Color::Black);
-    renderer.draw_str(fb_x + 1, fb_y, " NEW PROJECT - Step 2/3: Choose Location ", Color::Black, Color::Cyan);
+    renderer.draw_str(fb_x + 1, fb_y, " NEW PROJECT - Step 4/5: Choose Location ", Color::Black, Color::Cyan);
     let path_str = fb_path.to_string_lossy(); let avail = FB_W.saturating_sub(14);
     let path_disp = if path_str.len() > avail { format!("...{}", &path_str[path_str.len().saturating_sub(avail - 3)..]) } else { path_str.to_string() };
     renderer.draw_str(fb_x + 2, fb_y + 1, "Location:", Color::DarkGrey, Color::Black);
@@ -140,8 +177,10 @@ pub(super) fn draw_folder_browser(renderer: &mut Renderer, sw: usize, sh: usize,
         let list_i = offset + vis_i; if list_i >= fb_entries.len() { break; }
         let row = fb_list_y + vis_i; let is_sel = list_i == fb_cursor;
         let (label, text_fg, text_bg, sel_fg, sel_bg) = match fb_entries[list_i].as_str() {
-            "\x00SELECT" => ("[ Confirm: create project here ]", Color::DarkGreen, Color::Black, Color::Black, Color::DarkGreen),
-            "\x00PARENT" => ("[..] Go up to parent folder", Color::Yellow, Color::Black, Color::Yellow, Color::DarkBlue),
+            "\x00SELECT"     => ("[ Confirm: create project here ]", Color::DarkGreen, Color::Black, Color::Black, Color::DarkGreen),
+            "\x00OS_BROWSER"  => ("[..] Open OS File Browser", Color::Cyan, Color::Black, Color::Black, Color::Cyan),
+            "\x00NEW_FOLDER"  => ("[+] Create New Folder", Color::Yellow, Color::Black, Color::Black, Color::Yellow),
+            "\x00PARENT"      => ("[..] Go up to parent folder", Color::Yellow, Color::Black, Color::Yellow, Color::DarkBlue),
             name => (name, Color::White, Color::Black, Color::White, Color::DarkBlue),
         };
         let padded = format!("{:<width$}", label, width = item_w.saturating_sub(2));
@@ -153,30 +192,55 @@ pub(super) fn draw_folder_browser(renderer: &mut Renderer, sw: usize, sh: usize,
     draw_hint_bar(renderer, sw, sh, "Up/Down: navigate  |  Enter/click folder: open  |  Enter on Confirm: select  |  Esc: back");
 }
 
-pub(super) fn draw_browser(renderer: &mut Renderer, sw: usize, sh: usize, title: &str, items: &[String], cursor: usize, empty_msg: &str, empty_hint: &str, hint: &str, use_name_for: bool) {
+pub(super) fn draw_browser(renderer: &mut Renderer, sw: usize, sh: usize, title: &str, items: &[String], cursor: usize, empty_msg: &str, empty_hint: &str, hint: &str, use_name_for: bool, fb_path: &std::path::PathBuf) {
     let brow_x = (sw.saturating_sub(BROW_W)) / 2;
     let brow_y = 4;
-    let brow_list_y = brow_y + 2;
-    let brow_max_vis = BROW_H.saturating_sub(4);
+    let brow_list_y = brow_y + 4;
+    let brow_max_vis = BROW_H.saturating_sub(5);
 
     renderer.draw_rect_outline(brow_x, brow_y, BROW_W, BROW_H, Color::Cyan, Color::Black);
     renderer.draw_rect_filled(brow_x + 1, brow_y + 1, BROW_W.saturating_sub(2), BROW_H.saturating_sub(2), ' ', Color::White, Color::Black);
     renderer.draw_str(brow_x + 1, brow_y, title, Color::Black, Color::Cyan);
+
+    let path_str = fb_path.to_string_lossy(); let avail = BROW_W.saturating_sub(14);
+    let path_disp = if path_str.len() > avail { format!("...{}", &path_str[path_str.len().saturating_sub(avail - 3)..]) } else { path_str.to_string() };
+    renderer.draw_str(brow_x + 2, brow_y + 1, "Location:", Color::DarkGrey, Color::Black);
+    renderer.draw_str(brow_x + 12, brow_y + 1, &path_disp, Color::Cyan, Color::Black);
+    renderer.draw_str(brow_x + 2, brow_y + 2, &format!("{:-<width$}", "", width = BROW_W.saturating_sub(4)), Color::DarkGrey, Color::Black);
+
     if items.is_empty() {
-        renderer.draw_str(brow_x + 3, brow_y + 4, empty_msg, Color::DarkGrey, Color::Black);
-        if !empty_hint.is_empty() { renderer.draw_str(brow_x + 3, brow_y + 6, empty_hint, Color::DarkGrey, Color::Black); }
+        renderer.draw_str(brow_x + 3, brow_y + 6, empty_msg, Color::DarkGrey, Color::Black);
+        if !empty_hint.is_empty() { renderer.draw_str(brow_x + 3, brow_y + 8, empty_hint, Color::DarkGrey, Color::Black); }
     } else {
         let offset = if cursor >= brow_max_vis { cursor - brow_max_vis + 1 } else { 0 };
         let item_w = BROW_W.saturating_sub(4);
         for (vis_i, list_i) in (0..brow_max_vis).zip(offset..) {
             if list_i >= items.len() { break; }
             let row = brow_list_y + vis_i; let raw = &items[list_i];
-            let display = if use_name_for { let name = ProjectData::name_for(raw); format!("  {:width$}", name, width = item_w.saturating_sub(2)) }
-            else { let fname = raw.rfind('/').or_else(|| raw.rfind('\\')).map(|i| &raw[i+1..]).unwrap_or(raw.as_str()); format!("  {:width$}", fname, width = item_w.saturating_sub(2)) };
-            if list_i == cursor { renderer.draw_str(brow_x + 1, row, " >", Color::Cyan, Color::DarkBlue); renderer.draw_str(brow_x + 3, row, &display[2..], Color::White, Color::DarkBlue); }
-            else { renderer.draw_str(brow_x + 1, row, &display, Color::White, Color::Black); }
+            
+            let (label, fg, bg, sfg, sbg) = match raw.as_str() {
+                "\x00OS_BROWSER" => ("[..] Open OS File Browser".to_string(), Color::Cyan, Color::Black, Color::Black, Color::Cyan),
+                "\x00PARENT"     => ("[..] Go up to parent folder".to_string(), Color::Yellow, Color::Black, Color::Yellow, Color::DarkBlue),
+                name => {
+                    let has_ron = fb_path.join(name).join("project.ron").exists();
+                    let disp = if has_ron && use_name_for { 
+                        format!("* {}", ProjectData::name_for(&fb_path.join(name).to_string_lossy())) 
+                    } else { 
+                        // Extract filename only for display
+                        std::path::Path::new(name)
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| name.to_string())
+                    };
+                    (disp, Color::White, Color::Black, Color::White, Color::DarkBlue)
+                }
+            };
+
+            let padded = format!("{:<width$}", label, width = item_w.saturating_sub(2));
+            if list_i == cursor { renderer.draw_str(brow_x + 1, row, " >", sfg, sbg); renderer.draw_str(brow_x + 3, row, &padded, sfg, sbg); }
+            else { renderer.draw_str(brow_x + 1, row, "  ", fg, bg); renderer.draw_str(brow_x + 3, row, &padded, fg, bg); }
         }
-        if items.len() > brow_max_vis { let pct = (cursor * (BROW_H.saturating_sub(6))) / items.len().max(1); renderer.draw_char(brow_x + BROW_W - 1, brow_y + 2 + pct, '#', Color::DarkGrey, Color::Black); }
+        if items.len() > brow_max_vis { let pct = (cursor * (BROW_H.saturating_sub(8))) / items.len().max(1); renderer.draw_char(brow_x + BROW_W - 1, brow_y + 4 + pct, '#', Color::DarkGrey, Color::Black); }
     }
     draw_hint_bar(renderer, sw, sh, hint);
 }
@@ -199,7 +263,7 @@ pub(super) fn folder_item_hit(sw: usize, mx: usize, my: usize, vis_i: usize) -> 
 pub(super) fn browser_item_hit(sw: usize, mx: usize, my: usize, vis_i: usize) -> bool {
     let brow_x = (sw.saturating_sub(BROW_W)) / 2;
     let brow_y = 4;
-    let brow_list_y = brow_y + 2;
+    let brow_list_y = brow_y + 4;
     hit_test(mx, my, brow_x, brow_list_y + vis_i, BROW_W, 1)
 }
 

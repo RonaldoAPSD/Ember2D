@@ -538,6 +538,17 @@ impl GameState for PlayState {
                 HudDraw::Fill { x, y, w, h, ch, fg, bg } => {
                     renderer.draw_rect_filled(*x, *y, *w, *h, *ch, *fg, *bg);
                 }
+                HudDraw::Menu { x, y, w, options, selected, fg, bg, sel_fg, sel_bg } => {
+                    crate::ui::Menu::new(*x, *y, *w, options.clone(), *selected)
+                        .with_colors(*fg, *bg, *sel_fg, *sel_bg)
+                        .draw(renderer);
+                }
+                HudDraw::Panel { x, y, w, h, title, fg, bg } => {
+                    crate::ui::Panel::new(*x, *y, *w, *h)
+                        .with_title(title)
+                        .with_colors(*fg, *bg)
+                        .draw(renderer);
+                }
             }
         }
         self.script_engine.pending_hud_draws.clear();

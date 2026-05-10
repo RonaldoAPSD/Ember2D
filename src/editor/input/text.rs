@@ -193,6 +193,7 @@ impl EditorState {
                             }
                         }
                     }
+                    TextInputPurpose::NewFolderName => {}
                 }
                 return;
             }

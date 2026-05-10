@@ -4,7 +4,7 @@
 
 Ember2D is a 2D ASCII game engine and editor built in Rust. It uses a character-cell aesthetic rendered into a raw pixel buffer via `minifb`, with `font8x8` for glyph rendering, `rhai` for game scripting, and `kira` for audio.
 
-**Current version:** 0.4.1
+**Current version:** 0.4.4
 **Target:** v0.5.0 (see roadtoV0.5.md for phased plan)
 
 ## Build & Run

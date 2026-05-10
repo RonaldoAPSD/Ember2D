@@ -3,6 +3,7 @@
 use crate::engine::{GameState, RenderContext, UpdateContext, Transition};
 use crate::event::EventBus;
 use crate::world::World;
+use crate::project::{VisualStyle, GameplayLoop};
 
 mod drawing;
 mod logic;
@@ -19,10 +20,12 @@ pub struct StartResult {
     pub project_name:   String,
     pub level_path:     String,
     pub template:       Option<StartTemplate>,
+    pub visual_style:   VisualStyle,
+    pub gameplay_loop:  GameplayLoop,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Screen { MainMenu, NewName, FolderBrowser, NewTemplate, OpenProject, LevelPicker }
+pub enum Screen { MainMenu, NewName, FolderBrowser, NewStyle, NewLoop, NewTemplate, OpenProject, LevelPicker, NewFolder }
 
 mod mod_types {
     
@@ -35,6 +38,14 @@ mod mod_types {
         ("Empty Canvas", "Blank grid — place everything yourself"),
         ("Basic Room",   "Floor, walls, and a player spawn pre-built"),
     ];
+    pub const STYLE_LABELS: &[(&str, &str)] = &[
+        ("Classic ASCII", "The iconic character-cell grid aesthetic"),
+        ("2D Sprites",    "Future-ready high resolution pixel art (coming soon)"),
+    ];
+    pub const LOOP_LABELS: &[(&str, &str)] = &[
+        ("Real-Time",     "Standard updates every frame (action/platformer)"),
+        ("Turn-Based",    "World only advances when you act (roguelike)"),
+    ];
 }
 
 pub struct StartScreen {
@@ -43,8 +54,8 @@ pub struct StartScreen {
     name_buf:     String,
     folder_buf:   String,
     template_sel: usize,
-    project_list:   Vec<String>,
-    project_cursor: usize,
+    style_sel:    usize,
+    loop_sel:     usize,
     sel_project:      String,
     sel_project_name: String,
     level_list:       Vec<String>,
@@ -62,8 +73,9 @@ pub struct StartScreen {
 impl StartScreen {
     pub fn new() -> Self {
         StartScreen {
-            screen: Screen::MainMenu, menu_cursor: 0, name_buf: String::new(), folder_buf: String::new(), template_sel: 0,
-            project_list: Vec::new(), project_cursor: 0, sel_project: String::new(), sel_project_name: String::new(),
+            screen: Screen::MainMenu, menu_cursor: 0, name_buf: String::new(), folder_buf: String::new(), 
+            template_sel: 0, style_sel: 0, loop_sel: 0,
+            sel_project: String::new(), sel_project_name: String::new(),
             level_list: Vec::new(), level_cursor: 0, fb_path: std::path::PathBuf::new(), fb_entries: Vec::new(), fb_cursor: 0,
             result: None,
             last_sw: 80,
@@ -93,11 +105,14 @@ impl GameState for StartScreen {
         draw_header(renderer, sw);
         match self.screen {
             Screen::MainMenu => draw_main_menu(renderer, sw, sh, ctx.elapsed, self.menu_cursor),
-            Screen::NewName => draw_text_step(renderer, sw, sh, 1, 3, "Project Name", "Enter a name for your new project:", "This becomes the folder name and appears in the editor title bar.", "Enter: next  |  Esc: back", &self.name_buf),
+            Screen::NewName => draw_text_step(renderer, sw, sh, 1, 5, "Project Name", "Enter a name for your new project:", "This becomes the folder name and appears in the editor title bar.", "Enter: next  |  Esc: back", &self.name_buf),
+            Screen::NewStyle => draw_style_step(renderer, sw, sh, self.style_sel),
+            Screen::NewLoop => draw_loop_step(renderer, sw, sh, self.loop_sel),
             Screen::FolderBrowser => draw_folder_browser(renderer, sw, sh, &self.fb_path, &self.fb_entries, self.fb_cursor, &self.auto_folder()),
+            Screen::NewFolder => draw_text_step(renderer, sw, sh, 4, 5, "New Folder", "Enter a name for the new folder:", "A new directory will be created inside the current location.", "Enter: create  |  Esc: cancel", &self.folder_buf),
             Screen::NewTemplate => draw_template_step(renderer, sw, sh, self.template_sel),
-            Screen::OpenProject => draw_browser(renderer, sw, sh, " OPEN PROJECT ", &self.project_list, self.project_cursor, "No Ember2D projects found in the current directory.", "Tip: cd into your projects folder, or create a New Project first.", "Up/Down: navigate  |  Enter: open  |  Esc: back", true),
-            Screen::LevelPicker => draw_browser(renderer, sw, sh, &format!(" LEVELS IN: {} ", self.sel_project_name), &self.level_list, self.level_cursor, "No levels found in this project.", "", "Up/Down: navigate  |  Enter: open  |  Esc: back", false),
+            Screen::OpenProject => draw_browser(renderer, sw, sh, " OPEN PROJECT ", &self.fb_entries, self.fb_cursor, "No projects or folders found.", "Tip: Use [..] to go up or the OS Browser to find your project.", "Up/Down: navigate  |  Enter: open  |  Esc: back", true, &self.fb_path),
+            Screen::LevelPicker => draw_browser(renderer, sw, sh, &format!(" LEVELS IN: {} ", self.sel_project_name), &self.level_list, self.level_cursor, "No levels found in this project.", "", "Up/Down: navigate  |  Enter: open  |  Esc: back", false, &self.fb_path),
         }
     }
     fn take_transition(&mut self) -> Option<Transition> { None }

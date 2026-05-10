@@ -37,6 +37,7 @@ pub mod play;
 pub mod project;
 pub mod renderer;
 pub mod scripting;
+pub mod ui;
 pub mod world;
 
 /// The ember2d prelude: import everything a game needs in one shot.

@@ -32,7 +32,7 @@
 *   **Particle API:** `ctx.emit_particles(x, y, glyph, color)` for short-lived ASCII effects (dust, hits, magic).
 *   **Advanced Camera:** Camera boundaries (stop panning at map edges) and smooth lerping/following.
 
-## v0.4.4: The Project Wizard & UI Update
+## DONE v0.4.4: The Project Wizard & UI Update
 *Focus: Setting the foundation for multiple engine modes and UI rendering.*
 *   **Project Wizard Overhaul:** A step-by-step setup when creating a new project.
     *   **Visual Style:** Choose between Classic ASCII or 2D Sprites.

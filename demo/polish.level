@@ -34,5 +34,8 @@
         (x: 10, y: 12, glyph: '.', fg: DarkGrey, bg: Reset, solid: false, trigger: false, tag: "floor", layer: 0),
         (x: 10, y: 13, glyph: '.', fg: DarkGrey, bg: Reset, solid: false, trigger: false, tag: "floor", layer: 0),
         (x: 10, y: 14, glyph: '.', fg: DarkGrey, bg: Reset, solid: false, trigger: false, tag: "floor", layer: 0),
+        
+        // UI Demo object
+        (x: 12, y: 12, glyph: 'U', fg: White, bg: Reset, solid: false, trigger: false, tag: "ui_demo", layer: 1, script: Some("demo/scripts/ui_test.rhai")),
     ]
 )

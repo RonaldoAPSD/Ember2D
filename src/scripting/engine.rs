@@ -185,6 +185,8 @@ impl ScriptEngine {
         engine.register_fn("load_level",      ScriptCtx::load_level);
         engine.register_fn("log",             ScriptCtx::log);
         engine.register_fn("draw_hud",        ScriptCtx::draw_hud);
+        engine.register_fn("draw_menu",       ScriptCtx::draw_menu);
+        engine.register_fn("draw_panel",      ScriptCtx::draw_panel);
         engine.register_fn("play_sound",      ScriptCtx::play_sound);
         engine.register_fn("play_music",      ScriptCtx::play_music);
         engine.register_fn("stop_music",      ScriptCtx::stop_music);

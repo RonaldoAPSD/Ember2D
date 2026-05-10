@@ -38,6 +38,8 @@ pub enum HudDraw {
     Text { x: usize, y: usize, text: String, fg: Color, bg: Color },
     Box  { x: usize, y: usize, w: usize, h: usize, fg: Color, bg: Color },
     Fill { x: usize, y: usize, w: usize, h: usize, ch: char, fg: Color, bg: Color },
+    Menu { x: usize, y: usize, w: usize, options: Vec<String>, selected: usize, fg: Color, bg: Color, sel_fg: Color, sel_bg: Color },
+    Panel { x: usize, y: usize, w: usize, h: usize, title: String, fg: Color, bg: Color },
 }
 
 // ── SpawnRequest ──────────────────────────────────────────────────────────────

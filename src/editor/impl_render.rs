@@ -285,6 +285,7 @@ impl EditorState {
                 TextInputPurpose::PlayerGlyph       => "Player glyph",
                 TextInputPurpose::NewLevelName      => "New level name",
                 TextInputPurpose::PaletteName       => "Palette item name",
+                TextInputPurpose::NewFolderName     => "New folder name",
             };
             ui::draw_text_input(renderer, prompt, &ti.buffer, &layout);
         }
