@@ -47,10 +47,14 @@
 *   **Collision Masks:** Defined exactly what collides with what. Colliders now have `layer` and `mask` for fine-grained interaction.
 *   **Persistence:** Level files now store collision settings for tiles and the player.
 
-## NEXT v0.4.6: The Audio & Export Update
-*Focus: Immersion and getting the game to players.*
-*   **Spatial Audio:** Sounds get quieter the further away the entity is from the camera.
-*   **Export Tools:** A simple CLI command or editor button to bundle the project into a distributable standalone folder.
+## DONE v0.4.6: The Audio & Export Update
+*Focus: Distribution and atmosphere.*
+*   **Spatial Audio:** New `ctx.play_sound_at(path, x, y)` API. The engine automatically attenuates volume based on distance to the camera (linear falloff, 20-unit radius).
+*   **Standalone Export Tool:** Integrated `File -> Export Game...` tool in the editor.
+    *   Automatically bundles assets (`audio/`, `scripts/`), levels, and `project.ron`.
+    *   Copies and renames the engine executable to the project name.
+    *   Creates a `.standalone` marker for zero-config distribution.
+*   **Direct Boot:** The engine now detects standalone mode and launches directly into the game, bypassing all editor UI.
 
 ## v0.4.7: The Render Abstraction Update
 *Focus: Engine architecture prep for non-ASCII rendering.*

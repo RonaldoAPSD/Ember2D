@@ -93,6 +93,9 @@ impl ScriptCtx {
     }
 
     pub fn play_sound(&mut self, path: String) { self.inner.lock().unwrap().pending_sounds.push(path); }
+    pub fn play_sound_at(&mut self, path: String, x: f64, y: f64) {
+        self.inner.lock().unwrap().pending_spatial_sounds.push((path, x as f32, y as f32));
+    }
     pub fn play_music(&mut self, path: String) { self.inner.lock().unwrap().pending_music = Some(path); }
     pub fn stop_music(&mut self) { self.inner.lock().unwrap().stop_music = true; }
 

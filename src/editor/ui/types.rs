@@ -58,6 +58,7 @@ pub enum ToolbarAction {
     Open,
     Save,
     SaveAs,
+    Export,
     Play,
     CloseProject,
     RenameLevel,

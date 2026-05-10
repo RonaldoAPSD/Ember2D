@@ -70,13 +70,51 @@ fn main() {
     //   - a *.level filename without "--editor" → direct play
     let args: Vec<String> = std::env::args().collect();
     let has_level_file = args.iter().skip(1).any(|a| a.ends_with(".level") && !a.starts_with('-'));
-    let editor_mode = args.iter().any(|a| a == "--editor") || (!has_level_file && args.len() == 1);
+    let mut editor_mode = args.iter().any(|a| a == "--editor") || (!has_level_file && args.len() == 1);
+
+    // ── Standalone Mode Detection ─────────────────────────────────────────────
+    let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
+    let is_standalone = exe_dir.as_ref().map(|d| d.join(".standalone").exists()).unwrap_or(false);
+
+    let mut standalone_level = String::new();
+    if is_standalone {
+        editor_mode = false;
+        if let Some(ref d) = exe_dir {
+            // Anchor cwd to the exe directory so all relative asset paths resolve correctly.
+            let _ = std::env::set_current_dir(d);
+
+            // Try to load start level from project.ron
+            let proj_path = d.join("project.ron");
+            if let Ok(content) = std::fs::read_to_string(proj_path) {
+                if let Ok(proj) = ron::de::from_str::<ProjectData>(&content) {
+                    standalone_level = proj.start_level.unwrap_or_default();
+                }
+            }
+            // Fallback: find any .level, sorted so the pick is deterministic
+            if standalone_level.is_empty() {
+                if let Ok(entries) = std::fs::read_dir(d) {
+                    let mut levels: Vec<_> = entries
+                        .flatten()
+                        .filter(|e| e.path().extension().map_or(false, |x| x == "level"))
+                        .collect();
+                    levels.sort_by_key(|e| e.file_name());
+                    if let Some(entry) = levels.first() {
+                        standalone_level = entry.file_name().to_string_lossy().into_owned();
+                    }
+                }
+            }
+        }
+    }
 
     // Find a .level file arg that isn't the editor flag itself.
-    let level_file: Option<&str> = args.iter()
+    let mut level_file: Option<String> = args.iter()
         .skip(1)
         .find(|a| a.ends_with(".level") && !a.starts_with('-'))
-        .map(String::as_str);
+        .cloned();
+    
+    if is_standalone && !standalone_level.is_empty() {
+        level_file = Some(standalone_level);
+    }
 
     let (screen_w, screen_h) = screen_cells();
 
@@ -132,7 +170,7 @@ fn main() {
             }
         }
 
-    } else if let Some(path) = level_file {
+    } else if let Some(ref path) = level_file {
         // ── Direct play: load a .level file and run it ───────────────────────
 
         let data = LevelData::load(path).unwrap_or_else(|e| {

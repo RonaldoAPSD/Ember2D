@@ -32,11 +32,14 @@ impl AudioEngine {
         AudioEngine { manager, music_handle: None }
     }
 
-    /// Play a sound file once (fire-and-forget). Silently ignored on error.
-    pub fn play_sound(&mut self, path: &str) {
+    /// Play a sound file once with a specific volume (0.0 to 1.0+). Silently ignored on error.
+    pub fn play_sound(&mut self, path: &str, volume: f64) {
         let Some(ref mut mgr) = self.manager else { return };
         match StaticSoundData::from_file(path) {
-            Ok(data) => { let _ = mgr.play(data); }
+            Ok(mut data) => { 
+                data.settings.volume = kira::tween::Value::Fixed(kira::Volume::Amplitude(volume));
+                let _ = mgr.play(data); 
+            }
             Err(e)   => eprintln!("[audio] play_sound '{}': {}", path, e),
         }
     }

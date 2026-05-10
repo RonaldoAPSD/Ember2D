@@ -233,9 +233,28 @@ impl PlayState {
 
     /// Apply audio requests queued by scripts this frame.
     fn flush_audio(&mut self) {
+        // 1. Regular fire-and-forget sounds (full volume)
         for path in self.script_engine.pending_sounds.drain(..) {
-            self.audio.play_sound(&path);
+            self.audio.play_sound(&path, 1.0);
         }
+
+        // 2. Spatial sounds (attenuated by distance to camera)
+        let cam_pos = self.camera_pos;
+        let max_dist = 20.0f32;
+
+        for (path, x, y) in self.script_engine.pending_spatial_sounds.drain(..) {
+            let dx = x - cam_pos.x;
+            let dy = y - cam_pos.y;
+            let dist = (dx*dx + dy*dy).sqrt();
+            
+            // Linear falloff: 1.0 at 0 dist, 0.0 at max_dist
+            let volume = (1.0 - (dist / max_dist)).clamp(0.0, 1.0);
+            
+            if volume > 0.01 {
+                self.audio.play_sound(&path, volume as f64);
+            }
+        }
+
         if self.script_engine.stop_music {
             self.audio.stop_music();
             self.script_engine.stop_music = false;

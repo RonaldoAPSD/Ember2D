@@ -54,6 +54,7 @@ pub(super) struct ScriptState {
     pub(super) pending_level:      Option<String>,
     pub(super) pending_logs:       Vec<String>,
     pub(super) pending_sounds:     Vec<String>,
+    pub(super) pending_spatial_sounds: Vec<(String, f32, f32)>, // path, x, y
     pub(super) pending_music:      Option<String>,
     pub(super) stop_music:         bool,
 
@@ -134,7 +135,7 @@ impl ScriptState {
             pending_hud_draws: Vec::new(), pending_particles: Vec::new(),
             clear_hud: false, despawn_queue: Vec::new(),
             spawn_queue: Vec::new(), pending_level: None, pending_logs: Vec::new(),
-            pending_sounds: Vec::new(), pending_music: None, stop_music: false,
+            pending_sounds: Vec::new(), pending_spatial_sounds: Vec::new(), pending_music: None, stop_music: false,
             pending_globals: HashMap::new(), pending_persistent: HashMap::new(),
             pending_camera: None, pending_shake: None,
             pending_visibility: Vec::new(), pending_z_order: Vec::new(),
@@ -155,6 +156,7 @@ pub struct ScriptEngine {
     rng:       Arc<Mutex<rand::rngs::SmallRng>>,
     pub pending_hud_draws: Vec<HudDraw>,
     pub pending_sounds:    Vec<String>,
+    pub pending_spatial_sounds: Vec<(String, f32, f32)>,
     pub pending_music:     Option<String>,
     pub stop_music:        bool,
 }
@@ -190,6 +192,7 @@ impl ScriptEngine {
         engine.register_fn("draw_menu",       ScriptCtx::draw_menu);
         engine.register_fn("draw_panel",      ScriptCtx::draw_panel);
         engine.register_fn("play_sound",      ScriptCtx::play_sound);
+        engine.register_fn("play_sound_at",   ScriptCtx::play_sound_at);
         engine.register_fn("play_music",      ScriptCtx::play_music);
         engine.register_fn("stop_music",      ScriptCtx::stop_music);
         engine.register_fn("emit_particles",  ScriptCtx::emit_particles);
@@ -255,6 +258,7 @@ impl ScriptEngine {
             mod_times: HashMap::new(), logged_runtime_errors: HashSet::new(),
             rng: Arc::new(Mutex::new(rand::rngs::SmallRng::from_entropy())),
             pending_hud_draws: Vec::new(), pending_sounds: Vec::new(),
+            pending_spatial_sounds: Vec::new(),
             pending_music: None, stop_music: false,
         }
     }
@@ -451,6 +455,8 @@ impl ScriptEngine {
 
         self.pending_hud_draws.extend(state.pending_hud_draws.drain(..));
         self.pending_sounds.extend(state.pending_sounds.drain(..));
+        self.pending_spatial_sounds.extend(state.pending_spatial_sounds.drain(..));
+
         if state.pending_music.is_some() { self.pending_music = state.pending_music.take(); }
         if state.stop_music { self.stop_music = true; state.stop_music = false; }
         for msg in state.pending_logs.drain(..) { log.push(LogEntry::info(msg)); }
