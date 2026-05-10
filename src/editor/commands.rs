@@ -13,6 +13,7 @@
 // The caller in mod.rs is responsible for applying/reversing the command's
 // effect on the grid after popping.
 
+use std::collections::VecDeque;
 use crate::level::{TileRecord, PlayerRecord};
 
 // ── Command ───────────────────────────────────────────────────────────────────
@@ -87,14 +88,14 @@ const MAX_UNDO: usize = 200;
 /// Bounded undo/redo command stacks for the level editor.
 pub struct UndoStack {
     /// Chronological undo history. Most recent command is at the back.
-    undo: Vec<Command>,
+    undo: VecDeque<Command>,
     /// Commands that have been undone and can be re-applied. Most recent at back.
-    redo: Vec<Command>,
+    redo: VecDeque<Command>,
 }
 
 impl UndoStack {
     pub fn new() -> Self {
-        UndoStack { undo: Vec::new(), redo: Vec::new() }
+        UndoStack { undo: VecDeque::new(), redo: VecDeque::new() }
     }
 
     /// Push a new user action onto the undo stack.
@@ -104,9 +105,9 @@ impl UndoStack {
     pub fn push(&mut self, cmd: Command) {
         self.redo.clear();
         if self.undo.len() >= MAX_UNDO {
-            self.undo.remove(0);
+            self.undo.pop_front();
         }
-        self.undo.push(cmd);
+        self.undo.push_back(cmd);
     }
 
     /// Pop the most recent undo command and move it to the redo stack.
@@ -114,8 +115,8 @@ impl UndoStack {
     /// Returns the command so the caller can reverse its effect on the grid.
     /// Returns None if there is nothing to undo.
     pub fn pop_undo(&mut self) -> Option<Command> {
-        let cmd = self.undo.pop()?;
-        self.redo.push(cmd.clone());
+        let cmd = self.undo.pop_back()?;
+        self.redo.push_back(cmd.clone());
         Some(cmd)
     }
 
@@ -124,11 +125,11 @@ impl UndoStack {
     /// Returns the command so the caller can re-apply its effect on the grid.
     /// Returns None if there is nothing to redo.
     pub fn pop_redo(&mut self) -> Option<Command> {
-        let cmd = self.redo.pop()?;
+        let cmd = self.redo.pop_back()?;
         if self.undo.len() >= MAX_UNDO {
-            self.undo.remove(0);
+            self.undo.pop_front();
         }
-        self.undo.push(cmd.clone());
+        self.undo.push_back(cmd.clone());
         Some(cmd)
     }
 

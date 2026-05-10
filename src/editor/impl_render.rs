@@ -151,27 +151,22 @@ impl EditorState {
             } else {
                 None
             };
-        let (insp_tile, insp_pal, insp_pos, insp_mode_tag): (Option<&crate::level::TileRecord>, Option<&crate::editor::palette::TileDefinition>, Option<(i32,i32)>, &str) =
+        let (insp_tile, insp_pos, insp_mode_tag): (Option<&crate::level::TileRecord>, Option<(i32,i32)>, &str) =
             match self.hierarchy_sel {
                 Some(HierarchySelection::Player) => {
                     let pos = Some((self.grid.spawn_point.0 as i32, self.grid.spawn_point.1 as i32));
-                    (player_tile.as_ref(), None, pos, "PLAYER")
+                    (player_tile.as_ref(), pos, "PLAYER")
                 }
                 Some(HierarchySelection::Spawn(i)) => {
                     let pos = self.grid.extra_spawns.get(i)
                         .map(|(_, x, y)| (*x as i32, *y as i32));
-                    (None, None, pos, "SPAWN")
+                    (None, pos, "SPAWN")
                 }
                 None => {
                     let pos = if self.select_mode { self.selected_pos } else { self.inspected_pos };
-                    if let Some((gx, gy)) = pos {
-                        let tile = self.grid.get(gx, gy, self.active_layer);
-                        let tag  = if self.select_mode { "[SEL]" } else { "[EDT]" };
-                        (tile, None, pos, tag)
-                    } else {
-                        // Palette Edit Mode
-                        (None, Some(self.palette.current()), None, "PALETTE")
-                    }
+                    let tile = pos.and_then(|(gx, gy)| self.grid.get(gx, gy, self.active_layer));
+                    let tag  = if self.select_mode { "[SEL]" } else { "[EDT]" };
+                    (tile, pos, tag)
                 }
             };
 
@@ -185,28 +180,35 @@ impl EditorState {
         // ── All panels (back-to-front by z-order) ────────────────────────────
         for pid in self.panels.in_draw_order() {
             let panel = self.panels.get(pid);
-            let px = panel.x.max(0) as usize;
             let pcy = panel.content_y();
-            let pw = panel.w;
+            let pcx = panel.content_x();
             let pch = panel.content_h();
+            let pcw = panel.content_w();
             draw_panel_chrome(renderer, panel);
             match pid {
                 PanelId::Hierarchy => {
-                    ui::draw_hierarchy(renderer, &self.grid, self.hierarchy_sel, px, pcy, pw, pch);
+                    ui::draw_hierarchy(renderer, &self.grid, self.hierarchy_sel, pcx, pcy, pcw, pch);
                 }
                 PanelId::Palette   => {
-                    ui::draw_palette_panel(renderer, &self.palette, mode_label, self.palette_scroll, px, pcy, pw, pch);
+                    ui::draw_palette_panel(renderer, &self.palette, mode_label, self.palette_scroll, pcx, pcy, pcw, pch);
                 }
                 PanelId::Inspector => {
-                    ui::draw_inspector(renderer, insp_tile, insp_pal, self.palette_color_picker, insp_pos, insp_mode_tag,
-                                       px, pcy, pw, pch);
+                    ui::draw_inspector(renderer, insp_tile, insp_pos, insp_mode_tag,
+                                       pcx, pcy, pcw, pch);
                 }
                 PanelId::Console   => {
-                    ui::draw_console(renderer, &self.console_log, px, pcy, pw, pch);
+                    ui::draw_console(renderer, &self.console_log, pcx, pcy, pcw, pch);
                 }
                 PanelId::Stats     => {
-                    ui::draw_stats_panel(renderer, &self.grid, &self.palette, px, pcy, pw, pch);
+                    ui::draw_stats_panel(renderer, &self.grid, &self.palette, pcx, pcy, pcw, pch);
                 }
+            }
+        }
+
+        // ── Modal Overlays ───────────────────────────────────────────────────
+        if self.palette_editor_open {
+            if let Some(pal) = self.palette.tiles.get(self.palette_editing_idx) {
+                ui::draw_palette_editor_modal(renderer, pal, self.palette_editor_focus.as_ref(), &self.layout);
             }
         }
 
@@ -261,6 +263,12 @@ impl EditorState {
             String::new()
         };
 
+        ui::draw_status_bar(
+            renderer, mouse, &self.palette, self.show_grid,
+            &self.save_path, tile_under, &mode_hint,
+            self.scroll, self.active_layer, self.erase_size, &layout,
+        );
+
         if let Some(ref ti) = self.text_input {
             let resize_hint = format!("New size WxH (current {}x{})", self.grid.width, self.grid.height);
             let prompt = match &ti.purpose {
@@ -277,15 +285,8 @@ impl EditorState {
                 TextInputPurpose::PlayerGlyph       => "Player glyph",
                 TextInputPurpose::NewLevelName      => "New level name",
                 TextInputPurpose::PaletteName       => "Palette item name",
-                };
-                ui::draw_text_input(renderer, prompt, &ti.buffer);
-
-        } else {
-            ui::draw_status_bar(
-                renderer, mouse, &self.palette, self.show_grid,
-                &self.save_path, tile_under, &mode_hint,
-                self.scroll, self.active_layer, self.erase_size, &layout,
-            );
+            };
+            ui::draw_text_input(renderer, prompt, &ti.buffer, &layout);
         }
     }
 }

@@ -126,6 +126,11 @@ pub struct PlayState {
 
     /// Timer for camera shake duration.
     pub shake_timer: f32,
+
+    /// Viewport dimensions in character cells, updated each frame from UpdateContext.
+    /// Used by on_start() for the initial camera calculation before the first update().
+    viewport_w: usize,
+    viewport_h: usize,
 }
 
 impl PlayState {
@@ -151,6 +156,8 @@ impl PlayState {
             camera_override:    None,
             shake_state:        None,
             shake_timer:        0.0,
+            viewport_w:         80,
+            viewport_h:         40,
         }
     }
 
@@ -312,8 +319,9 @@ impl GameState for PlayState {
             .map(|tf| tf.position)
             .unwrap_or(Vec2::ZERO);
 
-        let cam_x = (cam_pos.x - 80.0 / 2.0).max(0.0).round();
-        let cam_y = (cam_pos.y - 38.0 / 2.0).max(0.0).round();
+        let game_h = (self.viewport_h as i32 - 2).max(1);
+        let cam_x = (cam_pos.x - self.viewport_w as f32 / 2.0).max(0.0).round();
+        let cam_y = (cam_pos.y - game_h as f32 / 2.0).max(0.0).round();
 
         // Call on_start() for all scripted entities now that the world is fully populated.
         let res = self.script_engine.run_on_start_all(
@@ -327,6 +335,9 @@ impl GameState for PlayState {
     /// Read input, update player velocity, track FPS.
     fn update(&mut self, ctx: UpdateContext) {
         let UpdateContext { world, input, events, mouse, delta_time, elapsed, viewport_width, viewport_height, .. } = ctx;
+
+        self.viewport_w = viewport_width;
+        self.viewport_h = viewport_height;
 
         // Rolling FPS average.
         if delta_time > 0.0 {

@@ -52,11 +52,17 @@ impl Panel {
         }
     }
 
-    /// First content row (title bar is at panel.y).
+    /// Leftmost content column (accounts for left border).
+    pub fn content_x(&self) -> usize { (self.x + 1).max(0) as usize }
+
+    /// First content row (accounts for top border/title bar).
     pub fn content_y(&self) -> usize { (self.y + 1).max(0) as usize }
 
-    /// Height of content area.
-    pub fn content_h(&self) -> usize { self.h.saturating_sub(1) }
+    /// Width of content area (accounts for both side borders).
+    pub fn content_w(&self) -> usize { self.w.saturating_sub(2) }
+
+    /// Height of content area (accounts for top and bottom borders).
+    pub fn content_h(&self) -> usize { self.h.saturating_sub(2) }
 
     pub fn contains(&self, col: usize, row: usize) -> bool {
         let px = self.x.max(0) as usize;
@@ -72,29 +78,18 @@ impl Panel {
     pub fn on_close_btn(&self, col: usize, row: usize) -> bool {
         if self.w < 5 { return false; }
         let px = self.x.max(0) as usize;
-        let close_start = px + self.w - 4;
-        row == self.y.max(0) as usize && col >= close_start && col < close_start + 3
+        let close_start = px + self.w - 3; // Adjusted for border
+        row == self.y.max(0) as usize && col >= close_start && col < px + self.w - 1
     }
 
-    /// True if (col, row) hits the resize handle for this panel.
-    /// Floating: [~] indicator at bottom-right corner (last row, last 2 cols).
-    /// Left-docked: right edge column, any row.
-    /// Right-docked: left edge column, any row.
-    /// Bottom-docked: [~] at bottom-right (avoids conflict with title bar drag).
+    /// Hits the resize handle at the bottom-right corner of the border.
     pub fn on_resize_handle(&self, col: usize, row: usize) -> bool {
         if !self.contains(col, row) { return false; }
         let px = self.x.max(0) as usize;
         let py = self.y.max(0) as usize;
-        match self.dock {
-            DockSide::Left => col == px + self.w - 1,
-            DockSide::Right => col == px,
-            DockSide::Bottom | DockSide::None => {
-                // Bottom-right corner: last row, last 2 cols
-                let bottom = py + self.h - 1;
-                let right  = px + self.w - 1;
-                row == bottom && col >= right.saturating_sub(1)
-            }
-        }
+        let bottom = py + self.h - 1;
+        let right  = px + self.w - 1;
+        row == bottom && col == right
     }
 }
 
@@ -109,7 +104,7 @@ pub struct PanelManager {
 
 pub const HIER_W: usize = 14;
 pub const INSP_W: usize = 30;
-pub const PAL_W:  usize = 20;
+pub const PAL_W:  usize = 24;
 pub const CON_H:  usize = 9;
 
 const DOCK_THRESHOLD: i32 = 3;
@@ -415,11 +410,13 @@ pub fn draw_panel_chrome(renderer: &mut Renderer, panel: &Panel) {
     let y = panel.y.max(0) as usize;
     let w = panel.w;
     let h = panel.h;
-    if w == 0 || h == 0 { return; }
+    if w < 2 || h < 2 { return; }
 
-    // Title bar
+    // 1. Fill panel interior
+    renderer.draw_rect_filled(x, y, w, h, ' ', Color::White, Color::DarkGrey);
+
+    // 2. Title Bar (Top border area)
     renderer.draw_rect_filled(x, y, w, 1, ' ', Color::White, Color::DarkBlue);
-
     let dock_indicator = match panel.dock {
         DockSide::Left   => "< ",
         DockSide::Right  => "> ",
@@ -427,29 +424,31 @@ pub fn draw_panel_chrome(renderer: &mut Renderer, panel: &Panel) {
         DockSide::None   => "= ",
     };
     let title = format!("{}{} ", dock_indicator, panel.title);
-    let clipped: String = title.chars().take(w.saturating_sub(4)).collect();
-    renderer.draw_str(x, y, &clipped, Color::White, Color::DarkBlue);
+    let clipped: String = title.chars().take(w.saturating_sub(6)).collect();
+    renderer.draw_str(x + 1, y, &clipped, Color::White, Color::DarkBlue);
 
-    // Close button
-    if w >= 4 {
+    if w >= 5 {
         renderer.draw_str(x + w - 4, y, "[X]", Color::White, Color::DarkBlue);
     }
 
-    // Resize handle [~] at bottom-right corner
-    if h >= 2 && w >= 2 {
-        let ry = y + h - 1;
-        let rx = x + w - 1;
-        // For docked panels, show the resize cursor on the inner edge indicator
-        match panel.dock {
-            DockSide::Left => {
-                renderer.draw_char(rx, y + h / 2, '|', Color::White, Color::DarkGrey);
-            }
-            DockSide::Right => {
-                renderer.draw_char(x, y + h / 2, '|', Color::White, Color::DarkGrey);
-            }
-            _ => {
-                renderer.draw_char(rx, ry, '~', Color::White, Color::DarkGrey);
-            }
-        }
+    // 3. Side and Bottom Borders (blended)
+    let border_fg = Color::Grey;
+    let border_bg = Color::DarkGrey;
+    
+    // Left & Right
+    for row in (y + 1)..(y + h - 1) {
+        renderer.draw_char(x, row, '|', border_fg, border_bg);
+        renderer.draw_char(x + w - 1, row, '|', border_fg, border_bg);
     }
+    // Bottom
+    let bot_str: String = std::iter::repeat('-').take(w).collect();
+    renderer.draw_str(x, y + h - 1, &bot_str, border_fg, border_bg);
+
+    // 4. Corners
+    renderer.draw_char(x, y, '+', Color::White, Color::DarkBlue);
+    renderer.draw_char(x + w - 1, y, '+', Color::White, Color::DarkBlue);
+    renderer.draw_char(x, y + h - 1, '+', border_fg, border_bg);
+
+    // 5. Resize handle [+] at bottom-right corner
+    renderer.draw_char(x + w - 1, y + h - 1, '+', Color::Cyan, border_bg);
 }

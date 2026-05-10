@@ -19,74 +19,81 @@ pub fn draw_title_bar(renderer: &mut Renderer, level_name: &str, unsaved: bool, 
     renderer.draw_str(col, 0, &info, Color::Yellow, Color::DarkBlue);
 }
 
-pub fn draw_palette_panel(renderer: &mut Renderer, palette: &TilePalette, mode: Option<&str>, scroll: usize, px: usize, cy: usize, pw: usize, ch: usize) {
-    renderer.draw_rect_filled(px, cy, pw, ch, ' ', Color::White, Color::DarkGrey);
+pub fn draw_palette_panel(renderer: &mut Renderer, palette: &TilePalette, mode: Option<&str>, scroll: usize, cx: usize, cy: usize, cw: usize, ch: usize) {
     if let Some(m) = mode {
-        let header = format!(" {:^width$} ", m, width = pw.saturating_sub(2));
-        renderer.draw_str(px, cy, &header, Color::Black, Color::Cyan);
+        let header = format!(" {:^width$} ", m, width = cw);
+        renderer.draw_str(cx, cy, &header, Color::Black, Color::Cyan);
     }
     
-    let visible_rows = ch.saturating_sub(2);
-    for (i, tile) in palette.tiles.iter().enumerate().skip(scroll).take(visible_rows) {
-        let row = cy + 1 + (i - scroll);
-        let is_selected = i == palette.selected;
-        let row_bg = if is_selected { Color::DarkBlue } else { Color::DarkGrey };
-        
-        // 1. Draw row background
-        renderer.draw_rect_filled(px, row, pw, 1, ' ', Color::White, row_bg);
+    // 1. Search Bar
+    let search_row = cy + 1;
+    let search_label = format!(" S: [{:<width$}]", if palette.search.is_empty() { "Search..." } else { &palette.search }, width = cw.saturating_sub(6));
+    renderer.draw_str(cx, search_row, &search_label, if palette.search.is_empty() { Color::DarkGrey } else { Color::White }, Color::Black);
 
-        // 2. Draw glyph in a "container" [ # ]
-        let glyph_col = px;
-        renderer.draw_str(glyph_col, row, "[   ]", if is_selected { Color::Cyan } else { Color::White }, row_bg);
-        renderer.draw_char(glyph_col + 2, row, tile.glyph, tile.fg, tile.bg);
+    use crate::editor::palette::PaletteRow;
+    let layout = palette.build_layout();
+    let visible_rows = ch.saturating_sub(3); // Room for header, search, and buttons
+    let list_start = cy + 2;
 
-        // 3. Draw name (well-spaced)
-        let name_col = glyph_col + 5;
-        let max_name_len = pw.saturating_sub(9); // Leave room for glyph and shortcut
-        let name_disp: String = tile.name.chars().take(max_name_len).collect();
-        renderer.draw_str(name_col, row, &name_disp, if is_selected { Color::White } else { Color::Grey }, row_bg);
+    for (i, row_item) in layout.iter().enumerate().skip(scroll).take(visible_rows) {
+        let row = list_start + (i - scroll);
+        if row >= cy + ch - 1 { break; }
 
-        // 4. Draw shortcut number (4-9, then 0)
-        let shortcut = match i {
-            0..=5 => Some(format!("{}", i + 4)),
-            6     => Some("0".to_string()),
-            _     => None,
-        };
-        if let Some(num) = shortcut {
-            let num_col = px + pw - 2;
-            renderer.draw_str(num_col, row, &num, Color::Yellow, row_bg);
+        match row_item {
+            PaletteRow::Header(name) => {
+                let is_collapsed = palette.collapsed.contains(name);
+                let icon = if is_collapsed { "[+]" } else { "[-]" };
+                let label = format!("{} {}", icon, name);
+                let clipped: String = format!("{:<width$}", label, width = cw).chars().take(cw).collect();
+                renderer.draw_str(cx, row, &clipped, Color::Yellow, Color::DarkGrey);
+            }
+            PaletteRow::Item(idx) => {
+                let tile = &palette.tiles[*idx];
+                let is_selected = *idx == palette.selected;
+                let row_bg = if is_selected { Color::DarkBlue } else { Color::DarkGrey };
+                
+                // Row background
+                renderer.draw_rect_filled(cx, row, cw, 1, ' ', Color::White, row_bg);
+
+                // Indented glyph container [ # ]
+                let gx = cx + 2;
+                renderer.draw_str(gx, row, "[   ]", if is_selected { Color::Cyan } else { Color::White }, row_bg);
+                renderer.draw_char(gx + 2, row, tile.glyph, tile.fg, tile.bg);
+
+                // Indented name
+                let name_col = gx + 5;
+                let max_name_len = cw.saturating_sub(gx - cx + 7);
+                let name_disp: String = tile.name.chars().take(max_name_len).collect();
+                renderer.draw_str(name_col, row, &name_disp, if is_selected { Color::White } else { Color::Grey }, row_bg);
+
+                // Shortcut mapping (4-9, 0)
+                let shortcut = match *idx { 0..=5 => Some(format!("{}", *idx + 4)), 6 => Some("0".to_string()), _ => None };
+                if let Some(num) = shortcut {
+                    renderer.draw_str(cx + cw - 1, row, &num, Color::Yellow, row_bg);
+                }
+            }
         }
     }
 
-    // Draw [+ New] button at bottom
+    // [+ New] and [ Edit ] buttons at the bottom row
     let btn_row = cy + ch - 1;
-    renderer.draw_str(px, btn_row, " [ + New Item ] ", Color::White, Color::DarkCyan);
-    
-    // Scroll indicators
-    if scroll > 0 {
-        renderer.draw_char(px + pw - 1, cy + 1, '^', Color::Cyan, Color::DarkGrey);
-    }
-    if scroll + visible_rows < palette.tiles.len() {
-        renderer.draw_char(px + pw - 1, cy + visible_rows, 'v', Color::Cyan, Color::DarkGrey);
-    }
+    renderer.draw_str(cx, btn_row, " [ + New ] ", Color::White, Color::DarkCyan);
+    renderer.draw_str(cx + cw - 10, btn_row, " [ Edit ] ", Color::White, Color::DarkBlue);
 }
 
-pub fn draw_stats_panel(renderer: &mut Renderer, grid: &LevelGrid, palette: &TilePalette, px: usize, cy: usize, pw: usize, ch: usize) {
-    renderer.draw_rect_filled(px, cy, pw, ch, ' ', Color::White, Color::DarkGrey);
+pub fn draw_stats_panel(renderer: &mut Renderer, grid: &LevelGrid, palette: &TilePalette, cx: usize, cy: usize, cw: usize, ch: usize) {
     let mut counts: HashMap<String, usize> = HashMap::new();
     for (_, tile) in grid.iter() { *counts.entry(tile.tag.clone()).or_insert(0) += 1; }
     let total = grid.tiles.len();
     for (i, def) in palette.tiles.iter().enumerate() {
-        let row = cy + 1 + i;
-        if row >= cy + ch - 2 { break; }
+        let row = cy + i;
+        if row >= cy + ch - 1 { break; }
         let count = counts.get(&def.tag).copied().unwrap_or(0);
         let label = format!(" {}: {:>4}", def.name, count);
-        renderer.draw_str(px, row, &label, def.fg, Color::DarkGrey);
+        let clipped: String = label.chars().take(cw).collect();
+        renderer.draw_str(cx, row, &clipped, def.fg, Color::DarkGrey);
     }
-    let total_row = cy + ch - 2;
-    if total_row >= cy && total_row < cy + ch {
-        renderer.draw_str(px, total_row, &format!(" Total:{:>4}", total), Color::White, Color::DarkGrey);
-    }
+    renderer.draw_str(cx, cy + ch - 1, &format!(" Total:{:>4}", total), Color::White, Color::DarkGrey);
 }
 
 pub fn draw_status_bar(renderer: &mut Renderer, mouse: &crate::mouse::MouseState, _palette: &TilePalette, grid_overlay: bool, save_path: &str, tile_under: Option<&TileRecord>, mode_hint: &str, scroll: (i32, i32), active_layer: u8, erase_size: usize, layout: &Layout) {
@@ -120,11 +127,51 @@ pub fn draw_status_bar(renderer: &mut Renderer, mouse: &crate::mouse::MouseState
     }
 }
 
-pub fn draw_text_input(renderer: &mut Renderer, prompt: &str, buffer: &str) {
-    let status_row = renderer.height - 1;
-    renderer.draw_rect_filled(0, status_row, renderer.width, 1, ' ', Color::White, Color::DarkGrey);
-    let full = format!(" {}: {}█", prompt, buffer);
-    renderer.draw_str(0, status_row, &full, Color::Black, Color::Cyan);
+pub fn draw_text_input(renderer: &mut Renderer, prompt: &str, buffer: &str, layout: &Layout) {
+    let mw = 40usize;
+    let mh = 7usize;
+    let mx = (layout.screen_w.saturating_sub(mw)) / 2;
+    let my = (layout.screen_h.saturating_sub(mh)) / 2;
+
+    // 1. Fill background and Draw Borders
+    renderer.draw_rect_filled(mx, my, mw, mh, ' ', Color::White, Color::DarkGrey);
+    
+    // Top Title Bar
+    renderer.draw_rect_filled(mx, my, mw, 1, ' ', Color::White, Color::DarkBlue);
+    let title = format!(" {} ", prompt.to_uppercase());
+    let clipped: String = title.chars().take(mw.saturating_sub(2)).collect();
+    renderer.draw_str(mx + 1, my, &clipped, Color::White, Color::DarkBlue);
+
+    // Blended Side/Bottom borders
+    let bfg = Color::Grey;
+    let bbg = Color::DarkGrey;
+    for row in (my + 1)..(my + mh - 1) {
+        renderer.draw_char(mx, row, '|', bfg, bbg);
+        renderer.draw_char(mx + mw - 1, row, '|', bfg, bbg);
+    }
+    let bot_line: String = std::iter::repeat('-').take(mw).collect();
+    renderer.draw_str(mx, my + mh - 1, &bot_line, bfg, bbg);
+    renderer.draw_char(mx, my, '+', Color::White, Color::DarkBlue);
+    renderer.draw_char(mx + mw - 1, my, '+', Color::White, Color::DarkBlue);
+    renderer.draw_char(mx, my + mh - 1, '+', bfg, bbg);
+    renderer.draw_char(mx + mw - 1, my + mh - 1, '+', bfg, bbg);
+
+    // 2. Input Field
+    let input_y = my + 2;
+    let label = format!("> {}█", buffer);
+    let max_buf = mw.saturating_sub(6);
+    let clipped_buf: String = if label.len() > max_buf {
+        format!("..{}", &label[label.len() - (max_buf - 2)..])
+    } else {
+        label
+    };
+    let input_x = mx + (mw.saturating_sub(clipped_buf.len())) / 2;
+    renderer.draw_str(input_x, input_y, &clipped_buf, Color::Black, Color::Cyan);
+
+    // 3. Helper Text
+    let hint = "[Enter] Confirm   [Esc] Cancel";
+    let hint_x = mx + (mw.saturating_sub(hint.len())) / 2;
+    renderer.draw_str(hint_x, my + mh - 3, hint, Color::DarkGrey, Color::DarkGrey);
 }
 
 pub fn draw_file_browser(renderer: &mut Renderer, files: &[String], cursor: usize, layout: &Layout) {
@@ -148,77 +195,36 @@ pub fn draw_file_browser(renderer: &mut Renderer, files: &[String], cursor: usiz
     }
 }
 
-pub fn draw_console(renderer: &mut Renderer, log: &[LogEntry], px: usize, cy: usize, pw: usize, ch: usize) {
-    renderer.draw_rect_filled(px, cy, pw, ch, ' ', Color::White, Color::Black);
-    let header = " F1:close  F3:clear";
-    renderer.draw_str(px, cy, header, Color::Black, Color::DarkGrey);
+pub fn draw_console(renderer: &mut Renderer, log: &[LogEntry], cx: usize, cy: usize, cw: usize, ch: usize) {
     let err_count = log.iter().filter(|e| e.level == LogLevel::Error).count();
     if err_count > 0 {
         let badge = format!(" {} ERR ", err_count);
-        let col = (px + pw).saturating_sub(badge.len());
-        renderer.draw_str(col, cy, &badge, Color::White, Color::Red);
+        let col = (cx + cw).saturating_sub(badge.len());
+        renderer.draw_str(col, cy - 1, &badge, Color::White, Color::Red);
     }
-    let visible = ch.saturating_sub(1);
+    let visible = ch;
     let start   = log.len().saturating_sub(visible);
     for (i, entry) in log.iter().skip(start).enumerate() {
-        let row = cy + 1 + i;
+        let row = cy + i;
         if row >= cy + ch { break; }
         let (prefix, pfg, tbg) = match entry.level {
             LogLevel::Error   => ("[ERR]", Color::Red,       Color::Black),
             LogLevel::Warning => ("[WRN]", Color::Yellow,    Color::Black),
             LogLevel::Info    => ("[OK] ", Color::DarkGreen, Color::Black),
         };
-        let max_text = pw.saturating_sub(7);
+        let max_text = cw.saturating_sub(7);
         let text = if entry.text.len() > max_text { &entry.text[..max_text] } else { &entry.text };
-        renderer.draw_str(px,     row, prefix, pfg,         tbg);
-        renderer.draw_str(px + 6, row, text,   Color::White, tbg);
+        renderer.draw_str(cx,     row, prefix, pfg,         tbg);
+        renderer.draw_str(cx + 6, row, text,   Color::White, tbg);
     }
 }
 
-pub fn draw_inspector(renderer: &mut Renderer, tile: Option<&TileRecord>, pal_item: Option<&crate::editor::palette::TileDefinition>, palette_color_picker: Option<bool>, pos: Option<(i32, i32)>, mode_tag: &str, ix: usize, cy: usize, iw: usize, ch: usize) {
+pub fn draw_inspector(renderer: &mut Renderer, tile: Option<&TileRecord>, pos: Option<(i32, i32)>, mode_tag: &str, ix: usize, cy: usize, iw: usize, ch: usize) {
     renderer.draw_rect_filled(ix, cy, iw, ch, ' ', Color::White, Color::DarkGrey);
     let mode_line = format!(" {:<width$}", mode_tag, width = iw.saturating_sub(1));
     renderer.draw_str(ix, cy, &mode_line, Color::Black, Color::Cyan);
 
     let sep: String = std::iter::once(' ').chain(std::iter::repeat('-').take(iw.saturating_sub(1))).collect();
-
-    if let Some(pal) = pal_item {
-        // ── Palette Edit Mode ────────────────────────────────────────────────
-        renderer.draw_str(ix, cy + 1, " EDITING PALETTE", Color::Yellow, Color::DarkGrey);
-        let name_line = format!(" Name: {:<width$}", pal.name, width = iw.saturating_sub(7));
-        renderer.draw_str(ix, cy + INSP_NAME_OFF, &name_line, Color::White, Color::DarkBlue);
-        
-        let glyph_str = format!(" Glyph: '{}' ", pal.glyph);
-        renderer.draw_str(ix, cy + INSP_GLYPH_OFF, &glyph_str, pal.fg, Color::DarkBlue);
-        
-        renderer.draw_str(ix, cy + 4, &sep, Color::DarkGrey, Color::DarkGrey);
-        
-        // FG Color with block
-        let fg_row = cy + INSP_FG_OFF;
-        renderer.draw_str(ix, fg_row, " FG: [ ] ", Color::White, Color::DarkBlue);
-        renderer.draw_char(ix + 6, fg_row, '■', pal.fg, Color::DarkBlue);
-        renderer.draw_str(ix + 9, fg_row, &format!("{:?}", pal.fg), Color::Grey, Color::DarkBlue);
-
-        // BG Color with block
-        let bg_row = cy + INSP_BG_OFF;
-        renderer.draw_str(ix, bg_row, " BG: [ ] ", Color::White, Color::DarkBlue);
-        renderer.draw_char(ix + 6, bg_row, '■', pal.bg, Color::DarkBlue);
-        renderer.draw_str(ix + 9, bg_row, &format!("{:?}", pal.bg), Color::Grey, Color::DarkBlue);
-
-        if let Some(is_fg) = palette_color_picker {
-            draw_color_picker(renderer, ix + 1, if is_fg { fg_row + 1 } else { bg_row + 1 }, iw - 2);
-        }
-
-        renderer.draw_str(ix, cy + 8, &sep, Color::DarkGrey, Color::DarkGrey);
-        renderer.draw_str(ix, cy + INSP_SOLID_OFF, &format!(" [{}] Solid", if pal.solid { 'x' } else { ' ' }), Color::White, Color::DarkBlue);
-        renderer.draw_str(ix, cy + INSP_TRIG_OFF, &format!(" [{}] Trigger", if pal.trigger { 'x' } else { ' ' }), Color::White, Color::DarkBlue);
-        
-        renderer.draw_str(ix, cy + 11, &sep, Color::DarkGrey, Color::DarkGrey);
-        renderer.draw_str(ix, cy + 12, " Tag:", Color::DarkGrey, Color::DarkGrey);
-        let tag_line = format!("  {:<width$}", if pal.tag.is_empty() { "(none)" } else { &pal.tag }, width = iw.saturating_sub(3));
-        renderer.draw_str(ix, cy + 13, &tag_line, Color::White, Color::DarkBlue);
-        return;
-    }
 
     let Some(tile) = tile else {
         let hint = if pos.is_some() { "(empty cell)" } else { "hover a tile" };
@@ -274,6 +280,87 @@ pub fn draw_inspector(renderer: &mut Renderer, tile: Option<&TileRecord>, pal_it
             renderer.draw_str(ix, cy + INSP_GRAPH_BTN, &btn, Color::Black, Color::DarkGreen);
         }
     }
+}
+
+pub fn draw_palette_editor_modal(renderer: &mut Renderer, pal: &crate::editor::palette::TileDefinition, focus: Option<&crate::editor::PaletteField>, layout: &Layout) {
+    let mw = 36usize;
+    let mh = 18usize;
+    let mx = (layout.screen_w.saturating_sub(mw)) / 2;
+    let my = (layout.screen_h.saturating_sub(mh)) / 2;
+
+    // Window borders
+    renderer.draw_rect_filled(mx, my, mw, mh, ' ', Color::White, Color::DarkGrey);
+    let border_str: String = std::iter::repeat('-').take(mw).collect();
+    renderer.draw_str(mx, my, &border_str, Color::Grey, Color::DarkGrey);
+    renderer.draw_str(mx, my + mh - 1, &border_str, Color::Grey, Color::DarkGrey);
+    for row in (my + 1)..(my + mh - 1) {
+        renderer.draw_char(mx, row, '|', Color::Grey, Color::DarkGrey);
+        renderer.draw_char(mx + mw - 1, row, '|', Color::Grey, Color::DarkGrey);
+    }
+    renderer.draw_char(mx, my, '+', Color::White, Color::DarkBlue);
+    renderer.draw_char(mx + mw - 1, my, '+', Color::White, Color::DarkBlue);
+    renderer.draw_char(mx, my + mh - 1, '+', Color::Grey, Color::DarkGrey);
+    renderer.draw_char(mx + mw - 1, my + mh - 1, '+', Color::Grey, Color::DarkGrey);
+
+    // Title
+    let title = format!(" EDITING: {} ", pal.name);
+    let title_bg = Color::DarkBlue;
+    renderer.draw_rect_filled(mx + 1, my, mw - 2, 1, ' ', Color::White, title_bg);
+    renderer.draw_str(mx + 2, my, &title, Color::White, title_bg);
+    renderer.draw_str(mx + mw - 4, my, "[X]", Color::White, title_bg);
+
+    // Fields
+    let cx = mx + 2;
+    let focus_fg = Color::Cyan;
+    
+    // Name
+    let is_name_focused = matches!(focus, Some(crate::editor::PaletteField::Name));
+    let name_val = if is_name_focused { format!("{}█", pal.name) } else { pal.name.clone() };
+    renderer.draw_str(cx, my + 2, "Name: ", Color::White, Color::DarkGrey);
+    renderer.draw_str(cx + 7, my + 2, &format!("[{:<20}]", name_val), if is_name_focused { focus_fg } else { Color::White }, Color::Black);
+
+    // Glyph
+    let is_glyph_focused = matches!(focus, Some(crate::editor::PaletteField::Glyph));
+    let glyph_val = if is_glyph_focused { '█' } else { pal.glyph };
+    renderer.draw_str(cx, my + 3, "Glyph:", Color::White, Color::DarkGrey);
+    renderer.draw_str(cx + 7, my + 3, &format!("['{}']", glyph_val), if is_glyph_focused { focus_fg } else { Color::White }, Color::Black);
+    renderer.draw_char(cx + 9, my + 3, pal.glyph, pal.fg, pal.bg);
+    
+    // Toggles
+    renderer.draw_str(cx, my + 4, &format!("Solid: [{}]   Trigger: [{}]", if pal.solid {'x'} else {' '}, if pal.trigger {'x'} else {' '}), Color::White, Color::DarkGrey);
+    
+    // Tag
+    let is_tag_focused = matches!(focus, Some(crate::editor::PaletteField::Tag));
+    let tag_val = if is_tag_focused { format!("{}█", pal.tag) } else { pal.tag.clone() };
+    renderer.draw_str(cx, my + 5, "Tag:  ", Color::White, Color::DarkGrey);
+    renderer.draw_str(cx + 7, my + 5, &format!("[{:<20}]", tag_val), if is_tag_focused { focus_fg } else { Color::White }, Color::Black);
+
+    // Color Grids
+    let colors = [
+        Color::Black, Color::White, Color::Red, Color::Green, Color::Yellow, Color::Blue, Color::Cyan, Color::Magenta,
+        Color::DarkGrey, Color::Grey, Color::DarkRed, Color::DarkGreen, Color::DarkBlue, Color::DarkYellow, Color::DarkCyan, Color::DarkMagenta,
+    ];
+
+    renderer.draw_str(cx, my + 7, "Foreground Color:", Color::Yellow, Color::DarkGrey);
+    for (i, &col) in colors.iter().enumerate() {
+        let gx = cx + (i % 8) * 3;
+        let gy = my + 8 + (i / 8);
+        let ch = if pal.fg == col { '*' } else { '#' };
+        renderer.draw_str(gx, gy, &format!("[{}]", ch), col, Color::Black);
+    }
+
+    renderer.draw_str(cx, my + 11, "Background Color:", Color::Yellow, Color::DarkGrey);
+    for (i, &col) in colors.iter().enumerate() {
+        let gx = cx + (i % 8) * 3;
+        let gy = my + 12 + (i / 8);
+        let ch = if pal.bg == col { '*' } else { '#' };
+        renderer.draw_str(gx, gy, &format!("[{}]", ch), col, Color::Black);
+    }
+
+    // Buttons at the bottom
+    let btn_y = my + mh - 2;
+    renderer.draw_str(mx + 2, btn_y, " [ Save & Close ] ", Color::Black, Color::Cyan);
+    renderer.draw_str(mx + 22, btn_y, " [ Delete ] ", Color::White, Color::DarkRed);
 }
 
 pub fn draw_hierarchy(renderer: &mut Renderer, grid: &LevelGrid, hier_sel: Option<HierarchySelection>, hx: usize, hy: usize, hw: usize, hh: usize) {

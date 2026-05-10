@@ -25,6 +25,7 @@
 //   │ 5: ~ Water     │
 //   └────────────────┘
 
+use std::collections::{HashMap, HashSet};
 use serde::{Serialize, Deserialize};
 use crate::renderer::color::Color;
 use crate::level::TileRecord;
@@ -89,9 +90,66 @@ pub struct TilePalette {
 
     /// Index into `tiles` for the currently selected entry.
     pub selected: usize,
+
+    /// Set of uppercase category names that are currently hidden.
+    #[serde(default)]
+    pub collapsed: HashSet<String>,
+
+    /// Current filter string for the palette.
+    #[serde(skip)]
+    pub search: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum PaletteRow {
+    Header(String),
+    Item(usize), // Index into `tiles`
 }
 
 impl TilePalette {
+    /// Generate a visual layout of headers and items grouped by tag.
+    pub fn build_layout(&self) -> Vec<PaletteRow> {
+        let mut grouped: HashMap<String, Vec<usize>> = HashMap::new();
+        let query = self.search.to_uppercase();
+
+        for (i, tile) in self.tiles.iter().enumerate() {
+            // Apply search filter
+            if !query.is_empty() {
+                let name = tile.name.to_uppercase();
+                let tag  = tile.tag.to_uppercase();
+                if !name.contains(&query) && !tag.contains(&query) {
+                    continue;
+                }
+            }
+
+            let cat = if tile.tag.is_empty() { String::new() } else { tile.tag.to_uppercase() };
+            grouped.entry(cat).or_default().push(i);
+        }
+
+        let mut sorted_keys: Vec<_> = grouped.keys().cloned().collect();
+        sorted_keys.sort_by(|a, b| {
+            if a.is_empty() { std::cmp::Ordering::Less }
+            else if b.is_empty() { std::cmp::Ordering::Greater }
+            else { a.cmp(b) }
+        });
+
+        let mut layout = Vec::new();
+        for key in sorted_keys {
+            if !key.is_empty() {
+                layout.push(PaletteRow::Header(key.clone()));
+            }
+            
+            if key.is_empty() || !self.collapsed.contains(&key) {
+                if let Some(indices) = grouped.get(&key) {
+                    for &idx in indices {
+                        layout.push(PaletteRow::Item(idx));
+                    }
+                }
+            }
+        }
+        layout
+    }
+
     /// Build the default palette with the standard tile types.
     pub fn default_palette() -> Self {
         TilePalette {
@@ -103,7 +161,7 @@ impl TilePalette {
                     bg:      Color::Reset,
                     solid:   true,
                     trigger: false,
-                    tag:     "wall".into(),
+                    tag:     "".into(),
                 },
                 TileDefinition {
                     name:    "Floor".into(),
@@ -112,7 +170,7 @@ impl TilePalette {
                     bg:      Color::Reset,
                     solid:   false,
                     trigger: false,
-                    tag:     "floor".into(),
+                    tag:     "".into(),
                 },
                 TileDefinition {
                     name:    "Item".into(),
@@ -121,7 +179,7 @@ impl TilePalette {
                     bg:      Color::Reset,
                     solid:   false,
                     trigger: true,
-                    tag:     "item".into(),
+                    tag:     "".into(),
                 },
                 TileDefinition {
                     name:    "Spawn".into(),
@@ -130,7 +188,7 @@ impl TilePalette {
                     bg:      Color::Reset,
                     solid:   false,
                     trigger: false,
-                    tag:     "spawn".into(),
+                    tag:     "".into(),
                 },
                 TileDefinition {
                     name:    "Water".into(),
@@ -139,7 +197,7 @@ impl TilePalette {
                     bg:      Color::DarkBlue,
                     solid:   false,
                     trigger: true,
-                    tag:     "water".into(),
+                    tag:     "".into(),
                 },
                 TileDefinition {
                     name:    "Door".into(),
@@ -148,7 +206,7 @@ impl TilePalette {
                     bg:      Color::Reset,
                     solid:   true,
                     trigger: false,
-                    tag:     "door".into(),
+                    tag:     "".into(),
                 },
                 TileDefinition {
                     name:    "Chest".into(),
@@ -157,7 +215,7 @@ impl TilePalette {
                     bg:      Color::Reset,
                     solid:   false,
                     trigger: true,
-                    tag:     "chest".into(),
+                    tag:     "".into(),
                 },
                 TileDefinition {
                     name:    "Pillar".into(),
@@ -166,7 +224,7 @@ impl TilePalette {
                     bg:      Color::Reset,
                     solid:   true,
                     trigger: false,
-                    tag:     "pillar".into(),
+                    tag:     "".into(),
                 },
                 TileDefinition {
                     name:    "Danger".into(),
@@ -175,10 +233,12 @@ impl TilePalette {
                     bg:      Color::Reset,
                     solid:   false,
                     trigger: true,
-                    tag:     "danger".into(),
+                    tag:     "".into(),
                 },
             ],
             selected: 0,
+            collapsed: HashSet::new(),
+            search: String::new(),
         }
     }
 

@@ -58,6 +58,9 @@ pub struct TextInput {
     pub purpose: TextInputPurpose,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PaletteField { Name, Glyph, Tag }
+
 // ── EditorState ───────────────────────────────────────────────────────────────
 
 pub struct EditorState {
@@ -70,7 +73,10 @@ pub struct EditorState {
     pub(super) show_grid: bool,
     pub(super) active_layer: u8,
     pub(super) palette_scroll: usize,
-    pub(super) palette_color_picker: Option<bool>,
+    pub(super) palette_editor_open: bool,
+    pub(super) palette_editing_idx: usize,
+    pub(super) palette_editor_focus: Option<PaletteField>,
+    pub(super) palette_search_focused: bool,
 
     pub(super) save_message:       Option<String>,
     pub(super) save_message_timer: u32,
@@ -159,7 +165,10 @@ impl EditorState {
             show_grid:    false,
             active_layer: 1,
             palette_scroll: 0,
-            palette_color_picker: None,
+            palette_editor_open: false,
+            palette_editing_idx: 0,
+            palette_editor_focus: None,
+            palette_search_focused: false,
             save_message:       None,
             save_message_timer: 0,
             pending_transition: None,

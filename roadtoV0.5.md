@@ -19,7 +19,14 @@
 *   **Integrated Palette Editor:** The Inspector handles palette definition editing (name, glyph, fg/bg color cycling) when no grid tile is selected.
 *   **UI Polish:** Added mouse-wheel scrolling to the palette panel.
 
-## v0.4.3: The Visual Polish Update
+## v0.4.3: The Workspace UI Overhaul
+*Focus: Professional window-based aesthetics and interactive resizing.*
+*   **Panel Borders:** Full ASCII box borders around all workspace panels.
+*   **Interactive Resizing:** Draggable handles in the bottom-right corner of every panel.
+*   **Standardized Layout:** Unified content area calculations for more reliable panel spacing.
+*   **Modal Color Picker:** A dedicated 16-color grid modal for precise asset customization.
+
+## v0.4.3.5: The Visual Polish Update
 *Focus: Making the games look dynamic and alive without writing complex scripts.*
 *   **Sprite/Glyph Animation:** Engine support for cycling characters (e.g., `|`, `/`, `-`, `\`) over time.
 *   **Particle API:** `ctx.emit_particles(x, y)` for short-lived ASCII effects (dust, hits, magic).
