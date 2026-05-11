@@ -21,7 +21,11 @@ impl PlayState {
             world.add_transform(id, Transform::new(tile.x as f32, tile.y as f32));
 
             let z = Self::z_for_tag(&tile.tag) + (tile.layer as i32 * 10);
-            world.add_sprite(id, Sprite::new(tile.glyph, tile.fg, tile.bg, z));
+            let mut sprite = Sprite::new(tile.glyph, tile.fg, tile.bg, z);
+            if let Some(ref path) = tile.texture {
+                sprite.texture = Some(path.clone());
+            }
+            world.add_sprite(id, sprite);
 
             if tile.solid {
                 let mut col = Collider::unit();
@@ -84,7 +88,11 @@ impl PlayState {
         world.add_transform(player, Transform::new(sx, sy));
 
         let pr = &self.level.player;
-        world.add_sprite(player, Sprite::new(pr.glyph, pr.fg, pr.bg, Z_PLAYER));
+        let mut p_sprite = Sprite::new(pr.glyph, pr.fg, pr.bg, Z_PLAYER);
+        if let Some(ref path) = pr.texture {
+            p_sprite.texture = Some(path.clone());
+        }
+        world.add_sprite(player, p_sprite);
         // Slightly smaller than 1×1 so the player has a 0.125-unit tolerance on each
         // side when squeezing through 1-cell corridors (walls are still 1×1).
         let mut p_col = Collider::new(0.75, 0.75);
@@ -129,7 +137,7 @@ impl PlayState {
         let res = self.script_engine.run_on_start_all(
             world, &mut self.script_log, &self.level.extra_spawns,
             self.globals.clone(), self.persistent.clone(), Vec2::new(cam_x, cam_y),
-            (80, 40),
+            (self.viewport_w, self.viewport_h),
         );
         self.apply_script_result(res);
     }

@@ -23,6 +23,7 @@
 //   WASD or Arrow keys — move the player (@)
 //   Escape             — quit
 
+use std::path::Path;
 use ember2d::prelude::*;
 use ember2d::editor::start_screen::StartScreen;
 use ember2d::renderer::SCALE;
@@ -135,27 +136,49 @@ fn main() {
 
         let mut current_level_path = level_path.to_string();
         loop {
-            let editor = if current_level_path.is_empty() {
-                // Show the start screen so the user can name/configure the project.
-                let mut start = StartScreen::new();
-                if let Err(e) = engine.run(&mut start) {
-                    eprintln!("Start screen error: {}", e);
-                    std::process::exit(1);
-                }
-                engine.reset_world();
-                match start.result {
-                    None => break,  // user quit from the start screen
-                    Some(result) => EditorState::new_from_result(result).unwrap_or_else(|e| {
+        let editor = if current_level_path.is_empty() {
+            // Show the start screen so the user can name/configure the project.
+            let mut start = StartScreen::new();
+            if let Err(e) = engine.run(&mut start) {
+                eprintln!("Start screen error: {}", e);
+                std::process::exit(1);
+            }
+            engine.reset_world();
+            match start.result {
+                None => break,  // user quit from the start screen
+                Some(result) => {
+                    let style = result.visual_style;
+                    let state = EditorState::new_from_result(result).unwrap_or_else(|e| {
                         eprintln!("Warning: {}", e);
                         EditorState::new("")
-                    }),
+                    });
+                    
+                    if style == VisualStyle::Sprites2D {
+                        engine.renderer.set_backend(Box::new(SpriteBackend::new(engine.width, engine.height)));
+                    } else {
+                        engine.renderer.set_backend(Box::new(AsciiBackend::new(engine.width, engine.height)));
+                    }
+                    state
                 }
-            } else {
-                EditorState::load(&current_level_path).unwrap_or_else(|e| {
-                    eprintln!("Warning: {}", e);
-                    EditorState::new(&current_level_path)
-                })
-            };
+            }
+        } else {
+            let editor = EditorState::load(&current_level_path).unwrap_or_else(|e| {
+                eprintln!("Warning: {}", e);
+                EditorState::new(&current_level_path)
+            });
+
+            // If we're loading a level in a project, sync the backend to the project's style.
+            if let Some(ref folder) = editor.project_folder {
+                if let Ok(proj) = ProjectData::load(folder) {
+                    if proj.visual_style == VisualStyle::Sprites2D {
+                        engine.renderer.set_backend(Box::new(SpriteBackend::new(engine.width, engine.height)));
+                    } else {
+                        engine.renderer.set_backend(Box::new(AsciiBackend::new(engine.width, engine.height)));
+                    }
+                }
+            }
+            editor
+        };
 
             match run_editor_app(&mut engine, editor) {
                 Ok(true) => {
@@ -180,6 +203,14 @@ fn main() {
 
         let mut engine = Engine::new(screen_w, screen_h, &format!("Ember2D — {}", path))
             .expect("Failed to open window.");
+
+        // Check project style for standalone/direct play
+        let project_dir = Path::new(path).parent().unwrap_or(Path::new("."));
+        if let Ok(proj) = ProjectData::load(&project_dir.to_string_lossy()) {
+            if proj.visual_style == VisualStyle::Sprites2D {
+                engine.renderer.set_backend(Box::new(SpriteBackend::new(engine.width, engine.height)));
+            }
+        }
 
         if let Err(e) = run_play_app(&mut engine, data) {
             eprintln!("Play error: {}", e);

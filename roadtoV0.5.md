@@ -56,10 +56,12 @@
     *   Creates a `.standalone` marker for zero-config distribution.
 *   **Direct Boot:** The engine now detects standalone mode and launches directly into the game, bypassing all editor UI.
 
-## v0.4.7: The Render Abstraction Update
+## DONE v0.4.7: The Render Abstraction Update
 *Focus: Engine architecture prep for non-ASCII rendering.*
-*   **Render Traits:** Abstracting the custom pixel-buffer renderer to prepare for the "2D Sprites" mode chosen in the project wizard.
-*   **Asset Management:** Support for loading actual image textures (PNGs) into memory.
+*   **Render Backend Trait:** Created the `RenderBackend` trait and moved character rasterization into `AsciiBackend`.
+*   **Asset Manager:** Implemented `Texture` loading (PNG support) and `AssetManager` for caching textures in memory.
+*   **2D Sprite Support:** Updated the `Sprite` component and `PlayState` to support drawing textures instead of just characters.
+*   **Backend Switching:** The engine now automatically selects between `AsciiBackend` and `SpriteBackend` based on project settings.
 
 ## v0.4.8: The Simulation Core Update
 *Focus: Engine architecture prep for the Turn-Based loop.*

@@ -115,8 +115,8 @@ pub struct EditorState {
     pub(super) file_cursor:  usize,
 
     // ── Project context ───────────────────────────────────────────────────────
-    pub(super) project_folder: Option<String>,
-    pub(super) project_name:   Option<String>,
+    pub project_folder: Option<String>,
+    pub project_name:   Option<String>,
 
     // ── Console / inspector log ───────────────────────────────────────────────
     pub(super) console_log: Vec<LogEntry>,

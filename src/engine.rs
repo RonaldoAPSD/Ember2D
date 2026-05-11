@@ -39,7 +39,7 @@ use crate::input::InputManager;
 use crate::level::LevelData;
 use crate::math::Vec2;
 use crate::mouse::MouseState;
-use crate::renderer::Renderer;
+use crate::renderer::{Renderer, AssetManager};
 use crate::world::{EntityId, World};
 
 // ── Mode transition ───────────────────────────────────────────────────────────
@@ -121,6 +121,9 @@ pub struct RenderContext<'a> {
     /// Call `renderer.draw_char(...)`, `draw_str(...)`, etc. to fill the frame.
     pub renderer: &'a mut Renderer,
 
+    /// Access to loaded textures.
+    pub assets: &'a mut AssetManager,
+
     /// Current mouse position and button state (read-only during render).
     pub mouse: &'a MouseState,
 
@@ -184,7 +187,8 @@ pub trait GameState {
 
 /// The main engine: owns all core systems and runs the game loop.
 pub struct Engine {
-    renderer: Renderer,
+    pub renderer: Renderer,
+    assets:   AssetManager,
     world:    World,
     input:    InputManager,
     mouse:    MouseState,
@@ -206,6 +210,7 @@ impl Engine {
         let renderer = Renderer::new(width, height, title)?;
         Ok(Engine {
             renderer,
+            assets: AssetManager::new(),
             world:  World::new(),
             input:  InputManager::new(),
             mouse:  MouseState::new(),
@@ -296,6 +301,7 @@ impl Engine {
             game.render(RenderContext {
                 world:    &self.world,
                 renderer: &mut self.renderer,
+                assets:   &mut self.assets,
                 mouse:    &self.mouse,
                 delta_time,
                 elapsed,
@@ -420,6 +426,7 @@ impl Engine {
             game.render(RenderContext {
                 world:    &self.world,
                 renderer: &mut self.renderer,
+                assets:   &mut self.assets,
                 mouse:    &self.mouse,
                 delta_time,
                 elapsed,

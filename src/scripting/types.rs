@@ -75,7 +75,10 @@ pub fn parse_color(name: &str) -> Color {
         "DarkGrey"|"DarkGray" => Color::DarkGrey,
         "DarkGreen"           => Color::DarkGreen,
         "Grey"|"Gray"         => Color::Grey,
-        _                     => Color::Reset,
+        _ => {
+            eprintln!("[script] unknown color '{}', defaulting to Reset", name.trim());
+            Color::Reset
+        }
     }
 }
 

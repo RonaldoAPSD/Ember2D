@@ -53,7 +53,7 @@ pub mod prelude {
 
     // ── Renderer ──────────────────────────────────────────────────────────
     // The terminal renderer and its color palette.
-    pub use crate::renderer::{Color, Renderer};
+    pub use crate::renderer::{Color, Renderer, Texture, RenderBackend, AsciiBackend, SpriteBackend, AssetManager};
 
     // ── Components ────────────────────────────────────────────────────────
     // The four core components every entity can have.
@@ -87,7 +87,7 @@ pub mod prelude {
     // ── Editor ────────────────────────────────────────────────────────────
     pub use crate::editor::EditorState;
     pub use crate::editor::start_screen::{StartScreen, StartResult, StartTemplate};
-    pub use crate::project::ProjectData;
+    pub use crate::project::{ProjectData, VisualStyle, GameplayLoop};
 
     // ── Play mode ─────────────────────────────────────────────────────────
     // Runs a level loaded from a LevelData.

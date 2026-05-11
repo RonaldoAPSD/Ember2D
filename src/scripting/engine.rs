@@ -3,7 +3,8 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::time::SystemTime;
-use std::sync::{Arc, Mutex};
+use std::rc::Rc;
+use std::cell::RefCell;
 use rhai::{Engine, Scope, AST};
 
 use crate::world::{EntityId, World};
@@ -153,7 +154,7 @@ pub struct ScriptEngine {
     scopes:    HashMap<EntityId, Scope<'static>>,
     mod_times: HashMap<String, SystemTime>,
     logged_runtime_errors: HashSet<String>,
-    rng:       Arc<Mutex<rand::rngs::SmallRng>>,
+    rng:       Rc<RefCell<rand::rngs::SmallRng>>,
     pub pending_hud_draws: Vec<HudDraw>,
     pub pending_sounds:    Vec<String>,
     pub pending_spatial_sounds: Vec<(String, f32, f32)>,
@@ -256,7 +257,7 @@ impl ScriptEngine {
         ScriptEngine {
             engine, ast_cache: HashMap::new(), scopes: HashMap::new(),
             mod_times: HashMap::new(), logged_runtime_errors: HashSet::new(),
-            rng: Arc::new(Mutex::new(rand::rngs::SmallRng::from_entropy())),
+            rng: Rc::new(RefCell::new(rand::rngs::SmallRng::from_entropy())),
             pending_hud_draws: Vec::new(), pending_sounds: Vec::new(),
             pending_spatial_sounds: Vec::new(),
             pending_music: None, stop_music: false,
@@ -423,7 +424,7 @@ impl ScriptEngine {
     }
 
     fn apply_ctx(&mut self, ctx: ScriptCtx, world: &mut World, log: &mut Vec<LogEntry>) -> ScriptUpdateResult {
-        let mut state = ctx.inner.lock().unwrap();
+        let mut state = ctx.inner.borrow_mut();
         for &(id, vx, vy) in &state.pending_velocities { if let Some(tf) = world.transforms.get_mut(&(id as EntityId)) { tf.velocity.x = vx; tf.velocity.y = vy; } }
         for &(id, x, y) in &state.pending_positions { if let Some(tf) = world.transforms.get_mut(&(id as EntityId)) { tf.position.x = x; tf.position.y = y; } }
         for &(id, ch) in &state.pending_glyphs { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.glyph = ch; } }

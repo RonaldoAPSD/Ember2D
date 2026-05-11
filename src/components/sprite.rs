@@ -50,6 +50,9 @@ pub struct Sprite {
 
     /// Internal timer for cycling frames.
     pub frame_timer: f32,
+
+    /// Optional path to a texture file (for Sprites2D mode).
+    pub texture: Option<String>,
 }
 
 impl Sprite {
@@ -64,7 +67,14 @@ impl Sprite {
             frames: Vec::new(),
             frame_rate: 0.1,
             frame_timer: 0.0,
+            texture: None,
         }
+    }
+
+    /// Add a texture to this sprite.
+    pub fn with_texture(mut self, path: impl Into<String>) -> Self {
+        self.texture = Some(path.into());
+        self
     }
 
     /// Shorthand: glyph + foreground color, transparent background, z_order 0.

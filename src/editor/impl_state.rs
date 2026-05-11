@@ -286,6 +286,7 @@ impl EditorState {
             camera_follow: pr.camera_follow,
             next_level: None,
             graph: None,
+            texture: pr.texture.clone(),
         }
     }
 

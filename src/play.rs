@@ -452,7 +452,7 @@ impl GameState for PlayState {
 
     /// Draw the game world with HUD.
     fn render(&mut self, ctx: RenderContext) {
-        let RenderContext { world, renderer, .. } = ctx;
+        let RenderContext { world, renderer, assets, .. } = ctx;
 
         // ── Background ─────────────────────────────────────────────────────────
         renderer.draw_rect_filled(
@@ -474,7 +474,7 @@ impl GameState for PlayState {
         }
 
         // ── Sprites sorted by z_order ──────────────────────────────────────────
-        let mut draw_list: Vec<(i32, usize, usize, char, Color, Color)> = world
+        let mut draw_list: Vec<(i32, i32, i32, char, Color, Color, Option<&str>)> = world
             .transforms
             .iter()
             .filter_map(|(id, tf)| {
@@ -482,28 +482,32 @@ impl GameState for PlayState {
                     if !sp.visible { return None; }
                     let col = tf.position.x.round() as i32 - cam_x;
                     let row = tf.position.y.round() as i32 - cam_y + 1; // +1 for top HUD bar
-                    if col >= 0 && row >= 1
-                        && (col as usize) < renderer.width
-                        && (row as usize) < renderer.height - 1
-                    {
-                        let glyph = if sp.frames.is_empty() {
-                            sp.glyph
-                        } else {
-                            let frame_idx = (sp.frame_timer / sp.frame_rate) as usize % sp.frames.len();
-                            sp.frames[frame_idx]
-                        };
-                        Some((sp.z_order, col as usize, row as usize, glyph, sp.fg, sp.bg))
+                    let glyph = if sp.frames.is_empty() {
+                        sp.glyph
                     } else {
-                        None
-                    }
+                        let frame_idx = (sp.frame_timer / sp.frame_rate) as usize % sp.frames.len();
+                        sp.frames[frame_idx]
+                    };
+                    Some((sp.z_order, col, row, glyph, sp.fg, sp.bg, sp.texture.as_deref()))
                 })
             })
             .collect();
 
         draw_list.sort_unstable_by_key(|(z, ..)| *z);
 
-        for (_, col, row, glyph, fg, bg) in draw_list {
-            renderer.draw_char(col, row, glyph, fg, bg);
+        for (_, col, row, glyph, fg, bg, texture_path) in draw_list {
+            if let Some(path) = texture_path {
+                if let Ok(tex) = assets.load_texture(path) {
+                    renderer.draw_texture(col * 8, row * 16, tex, 2.0);
+                    continue;
+                }
+            }
+            if col >= 0 && row >= 0
+                && (col as usize) < renderer.width
+                && (row as usize) < renderer.height - 1
+            {
+                renderer.draw_char(col as usize, row as usize, glyph, fg, bg);
+            }
         }
 
         // ── Particles ──────────────────────────────────────────────────────────

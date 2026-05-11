@@ -115,6 +115,10 @@ pub struct TileRecord {
     /// Blueprint-style node graph. Takes priority over `rules` at play time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub graph: Option<crate::editor::node_graph::NodeGraph>,
+
+    /// Optional path to a texture file (for Sprites2D mode).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub texture: Option<String>,
 }
 
 fn default_layer() -> u8 { 1 }
@@ -146,6 +150,8 @@ pub struct PlayerRecord {
     pub collider_layer: String,
     #[serde(default)]
     pub collider_mask: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub texture: Option<String>,
 }
 
 fn default_player_glyph() -> char { '@' }
@@ -167,6 +173,7 @@ impl Default for PlayerRecord {
             script:         None,
             collider_layer: String::new(),
             collider_mask:  Vec::new(),
+            texture:        None,
         }
     }
 }
@@ -189,7 +196,8 @@ impl TileRecord {
             collider_mask: Vec::new(),
             camera_follow: false, 
             next_level: None, 
-            graph: None 
+            graph: None,
+            texture: None
         }
     }
 }
