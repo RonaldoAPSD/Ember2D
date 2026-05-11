@@ -7,7 +7,7 @@ pub mod texture;
 pub mod assets;
 
 use std::io;
-use minifb::{Window, WindowOptions, Scale};
+use minifb::{Window, WindowOptions, Scale, ScaleMode};
 
 pub use color::{Color, DEFAULT_FG, DEFAULT_BG};
 pub use texture::Texture;
@@ -41,6 +41,7 @@ impl Renderer {
             WindowOptions {
                 scale:  Scale::X2,
                 resize: true,
+                scale_mode: ScaleMode::Stretch,
                 ..Default::default()
             },
         )
@@ -78,6 +79,21 @@ impl Renderer {
     }
     pub fn is_mouse_button_down(&self, button: minifb::MouseButton) -> bool { self.window.get_mouse_down(button) }
     pub fn get_scroll_wheel(&self) -> (f32, f32) { self.window.get_scroll_wheel().unwrap_or((0.0, 0.0)) }
+
+    #[cfg(target_os = "windows")]
+    pub fn maximize(&self) {
+        use std::ffi::c_void;
+        extern "system" {
+            fn ShowWindow(hWnd: *mut c_void, nCmdShow: i32) -> i32;
+            fn SetWindowPos(hWnd: *mut c_void, hWndInsertAfter: *mut c_void, x: i32, y: i32, cx: i32, cy: i32, uFlags: u32) -> i32;
+        }
+        let handle = self.window.get_window_handle();
+        unsafe {
+            ShowWindow(handle, 3); // SW_MAXIMIZE = 3
+            // Trigger a frame change to ensure the window correctly occupies the screen without artifacts.
+            SetWindowPos(handle, std::ptr::null_mut(), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0020 | 0x0040); 
+        }
+    }
 
     pub fn clear(&mut self) {
         self.backend.clear(&mut self.pixel_buffer);
@@ -145,8 +161,12 @@ impl Renderer {
 
     pub fn try_handle_resize(&mut self) -> bool {
         let (screen_w, screen_h) = self.window.get_size();
-        let new_w = (screen_w / SCALE / CELL_W).max(20);
-        let new_h = (screen_h / SCALE / CELL_H).max(6);
+        
+        // We ROUND UP the number of cells to ensure the buffer slightly overflows the window.
+        // This causes minifb to stretch DOWN (downscale), which looks much smoother for text/ASCII.
+        let new_w = ((screen_w + (SCALE * CELL_W - 1)) / SCALE / CELL_W).max(20);
+        let new_h = ((screen_h + (SCALE * CELL_H - 1)) / SCALE / CELL_H).max(6);
+        
         if new_w == self.width && new_h == self.height { return false; }
         
         self.width = new_w;

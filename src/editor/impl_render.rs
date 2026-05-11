@@ -70,11 +70,42 @@ impl EditorState {
     }
 }
 
+impl EditorState {
+    pub(super) fn render_script_mode(&mut self, renderer: &mut crate::renderer::Renderer) {
+        let sw = renderer.width;
+        let sh = renderer.height;
+
+        // Title bar
+        let title = match &self.script_path {
+            Some(p) => format!(" SCRIPT EDITOR — {}{}   Esc=back  Ctrl+S=save", p, if self.script_unsaved { "*" } else { "" }),
+            None    => " SCRIPT EDITOR — (no file) ".to_string(),
+        };
+        let title: String = format!("{:<width$}", title, width = sw).chars().take(sw).collect();
+        renderer.draw_str(0, 0, &title, Color::Black, Color::Cyan);
+
+        // Editor area
+        ui::draw_script_editor(renderer, self.script_path.as_deref(), &self.script_buffer,
+                               self.script_cursor, self.script_scroll, self.script_unsaved,
+                               0, 1, sw, sh - 2);
+
+        // Status bar
+        let status = format!(" Line: {:<4} Col: {:<4} ", self.script_cursor.1 + 1, self.script_cursor.0 + 1);
+        let status: String = format!("{:<width$}", status, width = sw).chars().take(sw).collect();
+        renderer.draw_str(0, sh - 1, &status, Color::White, Color::DarkBlue);
+    }
+}
+
 // ── Main render ───────────────────────────────────────────────────────────────
 
 impl EditorState {
     pub(super) fn handle_render(&mut self, ctx: RenderContext) {
         let RenderContext { renderer, mouse, .. } = ctx;
+
+        // Script editor mode
+        if self.script_mode {
+            self.render_script_mode(renderer);
+            return;
+        }
 
         // Graph editor mode renders its own full screen.
         if let Some((gx, gy)) = self.graph_mode {
@@ -134,10 +165,6 @@ impl EditorState {
             }
         }
 
-
-        if self.browsing {
-            ui::draw_file_browser(renderer, &self.file_list, self.file_cursor, &layout);
-        }
 
         // Help screen overlay.
         if self.show_help {
@@ -202,6 +229,15 @@ impl EditorState {
                 PanelId::Stats     => {
                     ui::draw_stats_panel(renderer, &self.grid, &self.palette, pcx, pcy, pcw, pch);
                 }
+                PanelId::ScriptEditor => {
+                    ui::draw_script_editor(renderer, self.script_path.as_deref(), &self.script_buffer,
+                                           self.script_cursor, self.script_scroll, self.script_unsaved,
+                                           pcx, pcy, pcw, pch);
+                }
+                PanelId::FileBrowser => {
+                    ui::draw_file_browser_panel(renderer, &self.file_browser_files, self.file_browser_cursor,
+                                                self.file_browser_scroll, &self.current_folder, pcx, pcy, pcw, pch);
+                }
             }
         }
 
@@ -224,6 +260,8 @@ impl EditorState {
                 show_inspector: self.panels.visible(PanelId::Inspector),
                 show_console:   self.panels.visible(PanelId::Console),
                 show_stats:     self.panels.visible(PanelId::Stats),
+                show_script_editor: self.panels.visible(PanelId::ScriptEditor),
+                show_file_browser:  self.panels.visible(PanelId::FileBrowser),
                 show_physics:   self.show_physics,
                 active_tool:    self.active_tool,
                 active_layer:   self.active_layer,
@@ -285,13 +323,17 @@ impl EditorState {
                 TextInputPurpose::PlayerGlyph       => "Player glyph",
                 TextInputPurpose::NewLevelName      => "New level name",
                 TextInputPurpose::PaletteName       => "Palette item name",
-                TextInputPurpose::NewFolderName     => "New folder name",
                 TextInputPurpose::TileColliderLayer { .. } => "Collider layer",
                 TextInputPurpose::TileColliderMask  { .. } => "Mask (comma-separated, empty=all)",
                 TextInputPurpose::PlayerColliderLayer      => "Player layer",
                 TextInputPurpose::PlayerColliderMask       => "Player mask (comma-separated)",
+                TextInputPurpose::NewScriptName            => "New script name (e.g. ai.rhai)",
             };
             ui::draw_text_input(renderer, prompt, &ti.buffer, &layout);
+        }
+
+        if let Some(ref m) = self.modal {
+            ui::draw_confirm_modal(renderer, &m.title, &m.message, &layout);
         }
     }
 }

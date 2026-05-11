@@ -48,7 +48,6 @@ fn screen_cells() -> (usize, usize) {
     let rows = (sh / cell_h).max(24);
     (cols, rows)
 }
-
 #[cfg(not(target_os = "windows"))]
 fn screen_cells() -> (usize, usize) { (80, 24) }
 

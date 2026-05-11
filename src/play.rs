@@ -48,6 +48,13 @@ fn resolve_exit_path(next: &str, current_level_path: &str) -> String {
     if Path::new(next).is_absolute() || current_level_path.is_empty() {
         return next.to_string();
     }
+    
+    // If the path already works from the current working directory, use it as-is.
+    // This handles paths that are already relative to the project root (e.g. "demo/scripts/...")
+    if Path::new(next).exists() {
+        return next.to_string();
+    }
+
     match Path::new(current_level_path).parent() {
         Some(dir) if dir != Path::new("") => {
             dir.join(next).to_string_lossy().into_owned()

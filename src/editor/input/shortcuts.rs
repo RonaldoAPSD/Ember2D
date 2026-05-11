@@ -257,9 +257,9 @@ impl EditorState {
         }
 
         // O — open file browser.
+        // Redirect 'O' to toggle Content Browser
         if input.just_pressed(Key::O) {
-            self.refresh_file_list();
-            self.browsing = true;
+            self.dispatch_toolbar_action(crate::editor::ui::ToolbarAction::ToggleFileBrowser);
             return;
         }
 

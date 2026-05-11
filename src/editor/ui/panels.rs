@@ -174,27 +174,6 @@ pub fn draw_text_input(renderer: &mut Renderer, prompt: &str, buffer: &str, layo
     renderer.draw_str(hint_x, my + mh - 3, hint, Color::DarkGrey, Color::DarkGrey);
 }
 
-pub fn draw_file_browser(renderer: &mut Renderer, files: &[String], cursor: usize, layout: &Layout) {
-    renderer.draw_rect_filled(layout.canvas_x, layout.canvas_y, layout.canvas_w, layout.canvas_h, ' ', Color::DarkGrey, Color::Black);
-    let title = " OPEN LEVEL — ↑↓: navigate  Enter: open  Esc: cancel ";
-    renderer.draw_str(layout.canvas_x + 1, layout.canvas_y + 1, title, Color::White, Color::Black);
-    let list_start = layout.canvas_y + 3;
-    let max_visible = layout.canvas_h.saturating_sub(4);
-    let list_offset = if cursor >= max_visible { cursor - max_visible + 1 } else { 0 };
-    if files.is_empty() {
-        renderer.draw_str(layout.canvas_x + 3, list_start, "No .level files found in current directory.", Color::DarkGrey, Color::Black);
-        return;
-    }
-    for (i, file) in files.iter().enumerate().skip(list_offset).take(max_visible) {
-        let row = list_start + (i - list_offset);
-        if row >= layout.canvas_y + layout.canvas_h { break; }
-        let display = file.rfind('/').or_else(|| file.rfind('\\')).map(|p| &file[p + 1..]).unwrap_or(file.as_str());
-        let label = format!("  {}  ", display);
-        if i == cursor { renderer.draw_str(layout.canvas_x + 1, row, &label, Color::Black, Color::Cyan); }
-        else { renderer.draw_str(layout.canvas_x + 1, row, &label, Color::White, Color::Black); }
-    }
-}
-
 pub fn draw_console(renderer: &mut Renderer, log: &[LogEntry], cx: usize, cy: usize, cw: usize, ch: usize) {
     let err_count = log.iter().filter(|e| e.level == LogLevel::Error).count();
     if err_count > 0 {
@@ -409,6 +388,80 @@ pub fn draw_color_picker(renderer: &mut Renderer, x: usize, y: usize, w: usize) 
         let cy = y + 1 + (i / 8);
         renderer.draw_char(cx, cy, '■', col, Color::Black);
     }
+}
+
+pub fn draw_file_browser_panel(renderer: &mut Renderer, files: &[String], cursor: usize, scroll: usize, current_folder: &str, cx: usize, cy: usize, cw: usize, ch: usize) {
+    renderer.draw_rect_filled(cx, cy, cw, ch, ' ', Color::White, Color::DarkGrey);
+    
+    // Breadcrumbs / Current Path
+    let path_label = format!(" Content > {}", current_folder.replace("./", "").replace("/", " > "));
+    let header = format!(" {:<width$}", path_label, width = cw.saturating_sub(1));
+    renderer.draw_str(cx, cy, &header, Color::Black, Color::Cyan);
+
+    let list_start = cy + 1;
+    let max_visible = ch.saturating_sub(1);
+    
+    if files.is_empty() {
+        renderer.draw_str(cx + 1, list_start, "(empty folder)", Color::Grey, Color::DarkGrey);
+        return;
+    }
+
+    for (i, raw_line) in files.iter().enumerate().skip(scroll).take(max_visible) {
+        let row = list_start + (i - scroll);
+        if row >= cy + ch { break; }
+        
+        let is_selected = i == cursor;
+        let bg = if is_selected { Color::DarkBlue } else { Color::DarkGrey };
+        
+        renderer.draw_rect_filled(cx, row, cw, 1, ' ', Color::White, bg);
+
+        if raw_line.contains("[UP]") {
+            renderer.draw_str(cx + 1, row, " .. [PARENT FOLDER] ", Color::Yellow, bg);
+            continue;
+        }
+
+        let (icon, fg, skip) = if raw_line.starts_with("/ ") {
+            ("DIR", Color::Yellow, 2)
+        } else if raw_line.starts_with("[] ") {
+            ("LVL", Color::Cyan, 3)
+        } else if raw_line.starts_with("{} ") {
+            ("SCR", Color::Green, 3)
+        } else {
+            ("---", Color::Grey, 3)
+        };
+
+        let name = if raw_line.len() > skip { &raw_line[skip..] } else { raw_line };
+        let icon_tag = format!("[{}]", icon);
+        renderer.draw_str(cx + 1, row, &icon_tag, fg, bg);
+        
+        let name_x = cx + 7;
+        let max_name_w = cw.saturating_sub(8);
+        let clipped_name: String = name.chars().take(max_name_w).collect();
+        renderer.draw_str(name_x, row, &clipped_name, if is_selected { Color::White } else { Color::White }, bg);
+    }
+}
+
+pub fn draw_confirm_modal(renderer: &mut Renderer, title: &str, message: &str, layout: &Layout) {
+    let mw = 40usize;
+    let mh = 8usize;
+    let mx = (layout.screen_w.saturating_sub(mw)) / 2;
+    let my = (layout.screen_h.saturating_sub(mh)) / 2;
+
+    renderer.draw_rect_filled(mx, my, mw, mh, ' ', Color::White, Color::DarkGrey);
+    renderer.draw_rect_filled(mx, my, mw, 1, ' ', Color::White, Color::DarkBlue);
+    renderer.draw_str(mx + 1, my, &format!(" {} ", title.to_uppercase()), Color::White, Color::DarkBlue);
+
+    // Message
+    let msg_x = mx + (mw.saturating_sub(message.len())) / 2;
+    renderer.draw_str(msg_x, my + 2, message, Color::White, Color::DarkGrey);
+
+    // Buttons
+    let btn_y = my + 5;
+    let yes_x = mx + 8;
+    let no_x  = mx + mw - 15;
+
+    renderer.draw_str(yes_x, btn_y, " [ YES ] ", Color::Black, Color::Cyan);
+    renderer.draw_str(no_x,  btn_y, " [ NO ]  ", Color::White, Color::Black);
 }
 
 pub fn draw_help_overlay(renderer: &mut Renderer, layout: &Layout) {

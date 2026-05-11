@@ -25,55 +25,6 @@ impl EditorState {
         }
         if mouse.middle_just_released() { self.pan_anchor = None; }
 
-        // ── File browser ──────────────────────────────────────────────────────
-        if self.browsing {
-            if input.just_pressed(Key::Escape) { self.browsing = false; return; }
-            
-            let mut clicked_entry = false;
-            if mouse.in_bounds {
-                let max_visible = self.layout.canvas_h.saturating_sub(4);
-                let list_start = self.layout.canvas_y + 3;
-                let list_offset = if self.file_cursor >= max_visible { self.file_cursor - max_visible + 1 } else { 0 };
-
-                if mouse.cell_x >= self.layout.canvas_x && mouse.cell_x < self.layout.canvas_x + self.layout.canvas_w {
-                    if mouse.cell_y >= list_start && mouse.cell_y < list_start + max_visible {
-                        let idx = list_offset + (mouse.cell_y - list_start);
-                        if idx < self.file_list.len() {
-                            self.file_cursor = idx;
-                            if mouse.left_just_pressed() {
-                                clicked_entry = true;
-                            }
-                        }
-                    }
-                }
-            }
-
-            if input.just_pressed(Key::Down) && self.file_cursor + 1 < self.file_list.len() {
-                self.file_cursor += 1;
-            }
-            if input.just_pressed(Key::Up) && self.file_cursor > 0 {
-                self.file_cursor -= 1;
-            }
-            if (input.just_pressed(Key::Enter) || clicked_entry) && !self.file_list.is_empty() {
-                let path    = self.file_list[self.file_cursor].clone();
-                let pf      = self.project_folder.clone();
-                let pn      = self.project_name.clone();
-                match EditorState::load(&path) {
-                    Ok(mut new_editor) => {
-                        new_editor.project_folder = pf;
-                        new_editor.project_name   = pn;
-                        *self = new_editor;
-                    }
-                    Err(e) => {
-                        self.save_message       = Some(format!("Load error: {}", e));
-                        self.save_message_timer = 0;
-                        self.browsing           = false;
-                    }
-                }
-            }
-            return;
-        }
-
         // ── Paste mode ────────────────────────────────────────────────────────
         if self.pasting && !self.ignore_drag {
             if input.just_pressed(Key::Escape) {

@@ -5,6 +5,17 @@
     spawn_point: (1.0, 1.0),
     tiles: [
         (
+            x: 9,
+            y: 8,
+            glyph: '#',
+            fg: Grey,
+            bg: Reset,
+            solid: true,
+            trigger: false,
+            tag: "",
+            layer: 1,
+        ),
+        (
             x: 33,
             y: 8,
             glyph: '#',

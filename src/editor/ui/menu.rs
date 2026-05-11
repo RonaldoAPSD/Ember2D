@@ -34,9 +34,10 @@ pub fn menu_entries(kind: MenuKind) -> Vec<MenuEntry> {
     use ToolKind::*;
     match kind {
         MenuKind::File => vec![
-            Item { label: "New Level",  shortcut: "    ", action: New    },
-            Item { label: "Open...",    shortcut: "O   ", action: Open   },
-            Item { label: "Save",       shortcut: "S   ", action: Save   },
+            Item { label: "New Level",  shortcut: "    ", action: NewLevel },
+            Item { label: "New Script", shortcut: "    ", action: NewScript },
+            Item { label: "Save",       shortcut: "S   ", action: Save      },
+
             Item { label: "Save As...", shortcut: "S+S ", action: SaveAs },
             Sep,
             Item { label: "Export Game...", shortcut: "    ", action: Export },
@@ -70,6 +71,8 @@ pub fn menu_entries(kind: MenuKind) -> Vec<MenuEntry> {
             Item { label: "Stats",     shortcut: "`   ", action: ToggleStats     },
             Item { label: "Inspector", shortcut: "F2  ", action: ToggleInspector },
             Item { label: "Console",   shortcut: "F1  ", action: ToggleConsole   },
+            Item { label: "Scripter",  shortcut: "    ", action: ToggleScriptEditor },
+            Item { label: "Files",     shortcut: "    ", action: ToggleFileBrowser },
             Sep,
             Item { label: "Shortcuts", shortcut: "?   ", action: ToggleHelp      },
             Sep,
@@ -119,6 +122,8 @@ fn menu_checkmark(action: &ToolbarAction, ms: &MenuState) -> char {
         ToolbarAction::ToggleConsole   => if ms.show_console    { 'x' } else { ' ' },
         ToolbarAction::ToggleStats     => if ms.show_stats      { 'x' } else { ' ' },
         ToolbarAction::ToggleHierarchy => if ms.show_hierarchy  { 'x' } else { ' ' },
+        ToolbarAction::ToggleScriptEditor => if ms.show_script_editor { 'x' } else { ' ' },
+        ToolbarAction::ToggleFileBrowser  => if ms.show_file_browser  { 'x' } else { ' ' },
         ToolbarAction::SetLayer(l)     => if *l == ms.active_layer { 'x' } else { ' ' },
         _ => ' ',
     }

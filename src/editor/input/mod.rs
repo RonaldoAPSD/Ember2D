@@ -9,10 +9,18 @@ mod graph;
 mod panels;
 mod shortcuts;
 mod text;
+mod script_editor;
+mod modal;
 
 impl EditorState {
     pub(super) fn handle_update(&mut self, ctx: UpdateContext) {
         let UpdateContext { input, mouse, .. } = ctx;
+
+        // ── Modal blocking ────────────────────────────────────────────────────
+        if self.modal.is_some() {
+            self.handle_modal_input(input, mouse);
+            return;
+        }
 
         // ── Modal: Palette Editor ─────────────────────────────────────────────
         if self.palette_editor_open {
@@ -157,6 +165,12 @@ impl EditorState {
                 self.save_message       = None;
                 self.save_message_timer = 0;
             }
+        }
+
+        // Script editor mode swallows all input.
+        if self.script_mode {
+            self.handle_script_mode_input(input, mouse);
+            return;
         }
 
         // ── Spawn placement modes ─────────────────────────────────────────────

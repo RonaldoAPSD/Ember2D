@@ -64,8 +64,9 @@ impl PlayState {
                 }
                 world.add_script(id, Script::new(&key));
             } else if let Some(script_path) = &tile.script {
-                world.add_script(id, Script::new(script_path));
-                if self.script_engine.compile(script_path, &mut self.script_log) {
+                let full = resolve_exit_path(script_path, &self.level.path);
+                world.add_script(id, Script::new(&full));
+                if self.script_engine.compile(&full, &mut self.script_log) {
                     scripts_ok += 1;
                 } else {
                     scripts_fail += 1;

@@ -74,8 +74,8 @@
 *   **API Finalization:** Added missing getters/setters for all entity properties (position, velocity, glyph, color, tag, collider).
 *   **Documentation:** Fully updated `index.html` with the current 0.4.9 API reference.
 
-## v0.5.0: The Scripting & Workspace Update
+## DONE v0.5.0: The Scripting & Workspace Update
 *Focus: Professional in-engine development tools transforming the editor into a complete workspace.*
-*   **In-Engine Script Editor:** A dedicated multi-line text editor panel built directly into the engine, allowing you to create, edit, and save `.rhai` scripts without leaving the workspace.
-*   **Project File Manager:** A new browser panel to manage all assets within a project folder. Easily switch between editing `.level` files and `.rhai` scripts, and handle file operations (create, rename, delete) natively.
-*   **Panel System Expansion:** Expanding the existing docking/floating window system to accommodate these new large-format panels and manage workflow focus.
+*   **In-Engine Script Editor:** A dedicated multi-line text editor panel built directly into the engine, allowing you to create, edit, and save `.rhai` scripts without leaving the workspace. Includes navigation, typing, and keyboard shortcuts (`Ctrl+S`).
+*   **Project File Manager:** A new browser panel to manage all assets within a project folder. Easily switch between editing `.level` files and `.rhai` scripts, and handle file operations (create script) natively.
+*   **Panel System Expansion:** Expanded docking/floating window system to support the new workspace panels. Added focus tracking for keyboard input routing.

@@ -23,6 +23,15 @@ impl EditorState {
         if mouse.left_just_pressed() && mouse.in_bounds {
             let col = mouse.cell_x;
             let row = mouse.cell_y;
+            
+            // Focus tracking
+            if let Some(pid) = self.panels.panel_at(col, row) {
+                self.focused_panel = Some(pid);
+                self.panels.bring_to_front(pid);
+            } else if !self.panels.is_point_on_panel(col, row) {
+                self.focused_panel = None;
+            }
+
             if let Some(pid) = self.panels.close_btn_at(col, row) {
                 self.panels.hide(pid);
                 self.ignore_drag = true;
@@ -118,6 +127,111 @@ impl EditorState {
                 return;
             }
             if input.just_pressed(Key::Escape) { self.active_menu = None; return; }
+        }
+
+        // ── File Browser Panel ───────────────────────────────────────────────
+        if self.panels.visible(PanelId::FileBrowser) && mouse.in_bounds {
+            let p = self.panels.get(PanelId::FileBrowser);
+            if p.contains(mouse.cell_x, mouse.cell_y) {
+                let cy = p.content_y();
+                let ch = p.content_h();
+                
+                // Mouse wheel scroll
+                if mouse.wheel_y != 0.0 {
+                    let delta = -(mouse.wheel_y as i32);
+                    let max_scroll = self.file_browser_files.len().saturating_sub(ch.saturating_sub(1));
+                    self.file_browser_scroll = (self.file_browser_scroll as i32 + delta).clamp(0, max_scroll as i32) as usize;
+                }
+
+                if mouse.left_just_pressed() && mouse.cell_y > cy {
+                    self.ignore_drag = true;
+                    let row_idx = self.file_browser_scroll + (mouse.cell_y - (cy + 1));
+                    if row_idx < self.file_browser_files.len() {
+                        self.file_browser_cursor = row_idx;
+                        let raw_name = self.file_browser_files[row_idx].clone();
+                        
+                        // 1. Navigation (UP)
+                        if raw_name.contains("[UP]") {
+                            if let Some(parent) = std::path::Path::new(&self.current_folder).parent() {
+                                self.current_folder = parent.to_string_lossy().to_string();
+                                if self.current_folder.is_empty() { self.current_folder = ".".to_string(); }
+                            } else {
+                                self.current_folder = ".".to_string();
+                            }
+                            self.file_browser_cursor = 0;
+                            self.file_browser_scroll = 0;
+                            self.refresh_project_files();
+                            return;
+                        }
+
+                        // 2. Directory
+                        if raw_name.starts_with("/ ") {
+                            let dir_name = raw_name[2..].trim();
+                            self.current_folder = if self.current_folder == "." {
+                                dir_name.to_string()
+                            } else {
+                                format!("{}/{}", self.current_folder, dir_name)
+                            };
+                            self.file_browser_cursor = 0;
+                            self.file_browser_scroll = 0;
+                            self.refresh_project_files();
+                            return;
+                        }
+
+                        // 3. Files
+                        let clean_name = if raw_name.len() > 3 { &raw_name[3..].trim() } else { "" };
+                        if clean_name.is_empty() { return; }
+
+                        let relative_path = if self.current_folder == "." {
+                            clean_name.to_string()
+                        } else {
+                            format!("{}/{}", self.current_folder, clean_name)
+                        };
+
+                        if clean_name.ends_with(".rhai") {
+                            self.load_script(&relative_path);
+                        } else if clean_name.ends_with(".level") {
+                            if let Some(ref folder) = self.project_folder {
+                                let path = format!("{}/{}", folder, relative_path);
+                                self.modal = Some(crate::editor::Modal {
+                                    title:   "Switch Level?".to_string(),
+                                    message: format!("Load {}?", clean_name),
+                                    purpose: crate::editor::ModalPurpose::ConfirmSwitchLevel { path },
+                                });
+                            }
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+
+        // ── Script Editor Panel ──────────────────────────────────────────────
+        if self.panels.visible(PanelId::ScriptEditor) && mouse.in_bounds {
+            let p = self.panels.get(PanelId::ScriptEditor);
+            if p.contains(mouse.cell_x, mouse.cell_y) {
+                let cy = p.content_y();
+                let ch = p.content_h();
+
+                // Mouse wheel scroll
+                if mouse.wheel_y != 0.0 {
+                    let delta = -(mouse.wheel_y as i32);
+                    let max_scroll = self.script_buffer.len().saturating_sub(ch.saturating_sub(1));
+                    self.script_scroll = (self.script_scroll as i32 + delta).clamp(0, max_scroll as i32) as usize;
+                }
+
+                if mouse.left_just_pressed() && mouse.cell_y > cy {
+                    self.ignore_drag = true;
+                    let row_idx = self.script_scroll + (mouse.cell_y - (cy + 1));
+                    if row_idx < self.script_buffer.len() {
+                        self.script_cursor.1 = row_idx;
+                        let gutter_w = 4;
+                        let col = mouse.cell_x as i32 - p.content_x() as i32 - gutter_w;
+                        self.script_cursor.0 = (col.max(0) as usize).min(self.script_buffer[row_idx].len());
+                    }
+                    return;
+                }
+            }
         }
 
         // ── Hierarchy click ───────────────────────────────────────────────────

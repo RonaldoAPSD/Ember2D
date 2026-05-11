@@ -265,11 +265,83 @@ impl EditorState {
         if !cells.is_empty() { self.undo.push(Command::Batch { cells }); self.unsaved = true; }
     }
 
-    pub(super) fn refresh_file_list(&mut self) {
-        use crate::project::ProjectData;
-        let dir = self.project_folder.as_deref().unwrap_or(".");
-        self.file_list   = ProjectData::levels_in(dir);
-        self.file_cursor = 0;
+    pub(super) fn refresh_project_files(&mut self) {
+        if let Some(ref root) = self.project_folder {
+            let mut files = Vec::new();
+            let current_path = if self.current_folder == "." {
+                std::path::PathBuf::from(root)
+            } else {
+                std::path::Path::new(root).join(&self.current_folder)
+            };
+
+            // Add ".." if not at root
+            if self.current_folder != "." {
+                files.push(".. [UP]".to_string());
+            }
+
+            if let Ok(entries) = std::fs::read_dir(&current_path) {
+                let mut dirs = Vec::new();
+                let mut other = Vec::new();
+
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+                    
+                    if path.is_dir() {
+                        dirs.push(format!("/ {} ", name));
+                    } else if name.ends_with(".level") {
+                        other.push(format!("[] {} ", name));
+                    } else if name.ends_with(".rhai") {
+                        other.push(format!("{{}} {} ", name));
+                    } else if name == "project.ron" || name.ends_with(".palette.ron") {
+                        other.push(format!(":: {} ", name));
+                    }
+                }
+                
+                dirs.sort();
+                other.sort();
+                files.extend(dirs);
+                files.extend(other);
+            }
+
+            self.file_browser_files = files;
+            // Clamp cursor
+            if self.file_browser_cursor >= self.file_browser_files.len() {
+                self.file_browser_cursor = self.file_browser_files.len().saturating_sub(1);
+            }
+        }
+    }
+
+    pub(super) fn load_script(&mut self, name: &str) {
+        if let Some(ref folder) = self.project_folder {
+            let path = format!("{}/{}", folder, name);
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                self.script_path    = Some(name.to_string());
+                self.script_buffer  = content.lines().map(|s| s.to_string()).collect();
+                if self.script_buffer.is_empty() { self.script_buffer.push(String::new()); }
+                self.script_cursor  = (0, 0);
+                self.script_scroll  = 0;
+                self.script_unsaved = false;
+                self.script_mode    = true;
+                self.focused_panel  = Some(PanelId::ScriptEditor);
+            } else {
+                self.console_log.push(LogEntry::error(format!("Failed to load script: {}", name)));
+            }
+        }
+    }
+
+    pub(super) fn save_script(&mut self) {
+        if let (Some(ref folder), Some(ref name)) = (&self.project_folder, &self.script_path) {
+            let path = format!("{}/{}", folder, name);
+            let content = self.script_buffer.join("\n");
+            if let Err(e) = std::fs::write(&path, content) {
+                self.console_log.push(LogEntry::error(format!("Failed to save script: {}", e)));
+            } else {
+                self.script_unsaved = false;
+                self.save_message = Some(format!("Saved script: {}", name));
+                self.save_message_timer = 0;
+            }
+        }
     }
 
     pub(super) fn make_player_tile_record(&self) -> crate::level::TileRecord {
@@ -321,15 +393,20 @@ impl EditorState {
             ToolbarAction::ToggleConsole   => { self.panels.toggle(PanelId::Console); }
             ToolbarAction::TogglePalette   => { self.panels.toggle(PanelId::Palette); }
             ToolbarAction::ToggleHierarchy => { self.panels.toggle(PanelId::Hierarchy); }
+            ToolbarAction::ToggleScriptEditor => { self.panels.toggle(PanelId::ScriptEditor); }
+            ToolbarAction::ToggleFileBrowser  => { self.panels.toggle(PanelId::FileBrowser); }
             ToolbarAction::TogglePhysics   => { self.show_physics = !self.show_physics; }
             ToolbarAction::ToggleStats     => { self.panels.toggle(PanelId::Stats); }
             ToolbarAction::ToggleHelp      => { self.show_help = !self.show_help; }
             ToolbarAction::Save   => { self.save(); }
             ToolbarAction::SaveAs => { self.text_input = Some(TextInput { buffer: self.save_path.clone(), purpose: TextInputPurpose::SaveAs }); }
             ToolbarAction::Export => { self.export_game(); }
-            ToolbarAction::Open => { self.refresh_file_list(); self.browsing = true; }
-            ToolbarAction::New  => { self.grid = LevelGrid::new(super::DEFAULT_LEVEL_W, super::DEFAULT_LEVEL_H); self.undo = UndoStack::new(); self.unsaved = false; self.save_message = Some("New level created".to_string()); self.save_message_timer = 0; }
+            ToolbarAction::NewLevel  => { self.grid = LevelGrid::new(super::DEFAULT_LEVEL_W, super::DEFAULT_LEVEL_H); self.undo = UndoStack::new(); self.unsaved = false; self.save_message = Some("New level created".to_string()); self.save_message_timer = 0; }
+            ToolbarAction::NewScript => {
+                self.text_input = Some(TextInput { buffer: String::new(), purpose: TextInputPurpose::NewScriptName });
+            }
             ToolbarAction::Play => {
+
                 let mut data = self.grid.to_level_data();
                 data.path = self.save_path.clone();
                 self.pending_transition = Some(Transition::ToPlay(data));

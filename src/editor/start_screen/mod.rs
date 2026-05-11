@@ -101,7 +101,7 @@ impl GameState for StartScreen {
         self.last_sw = sw;
         self.last_sh = sh;
 
-        renderer.draw_rect_filled(0, 0, sw, sh, ' ', crate::renderer::color::Color::Reset, crate::renderer::color::Color::Black);
+        renderer.draw_rect_filled(0, 0, sw, sh, ' ', crate::renderer::color::Color::Reset, crate::renderer::color::Color::Reset);
         draw_header(renderer, sw);
         match self.screen {
             Screen::MainMenu => draw_main_menu(renderer, sw, sh, ctx.elapsed, self.menu_cursor),

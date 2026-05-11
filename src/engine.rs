@@ -227,7 +227,21 @@ impl Engine {
     /// This opens the window immediately. If the display server is unavailable
     /// (e.g. running headless on a server) this returns an error.
     pub fn new(width: usize, height: usize, title: &str) -> io::Result<Self> {
-        let renderer = Renderer::new(width, height, title)?;
+        let mut renderer = Renderer::new(width, height, title)?;
+
+        #[cfg(target_os = "windows")]
+        renderer.maximize();
+
+        let mut final_width = width;
+        let mut final_height = height;
+
+        // On Windows, maximization might take effect immediately or after a short delay.
+        // We try to sync the engine dimensions right away if the renderer reports a change.
+        if renderer.try_handle_resize() {
+            final_width = renderer.width;
+            final_height = renderer.height;
+        }
+
         Ok(Engine {
             renderer,
             gameplay_loop: GameplayLoop::RealTime,
@@ -236,8 +250,8 @@ impl Engine {
             input:  InputManager::new(),
             mouse:  MouseState::new(),
             events: EventBus::new(),
-            width,
-            height,
+            width:  final_width,
+            height: final_height,
             simulation_accumulator: 0.0,
         })
     }
@@ -265,11 +279,7 @@ impl Engine {
         let mut should_quit = false;
 
         loop {
-            let now        = Instant::now();
-            let delta_time = now.duration_since(last_frame).as_secs_f32();
-            let elapsed    = now.duration_since(start_time).as_secs_f32();
-            last_frame = now;
-
+            // ── Input ───────────────────────────────────────────────────────
             let current_keys = self.renderer.current_keys();
             let window_open  = self.renderer.is_open();
             self.input.poll(current_keys, window_open);
@@ -282,6 +292,11 @@ impl Engine {
             self.mouse.poll(mouse_pos, left_down, right_down, middle_down, scroll);
 
             if self.input.quit_requested { break; }
+
+            let now = Instant::now();
+            let delta_time = now.duration_since(last_frame).as_secs_f32();
+            let elapsed    = now.duration_since(start_time).as_secs_f32();
+            last_frame = now;
 
             // ── Simulation Core ────────────────────────────────────────────
             self.simulation_accumulator += delta_time;

@@ -22,10 +22,13 @@ pub enum PanelId {
     Inspector,
     Console,
     Stats,
+    ScriptEditor,
+    FileBrowser,
 }
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 pub struct Panel {
     pub id:      PanelId,
     pub title:   &'static str,
@@ -95,6 +98,7 @@ impl Panel {
 
 // ── PanelManager ──────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 pub struct PanelManager {
     panels:   Vec<Panel>,
     next_z:   usize,
@@ -103,9 +107,11 @@ pub struct PanelManager {
 }
 
 pub const HIER_W: usize = 14;
+pub const BROW_W: usize = 20;
 pub const INSP_W: usize = 30;
 pub const PAL_W:  usize = 24;
 pub const CON_H:  usize = 9;
+pub const EDIT_H: usize = 12;
 
 const DOCK_THRESHOLD: i32 = 3;
 
@@ -119,11 +125,13 @@ impl PanelManager {
         let con_y  = screen_h as i32 - CON_H as i32 - 1;
 
         let mut panels = vec![
-            Panel::new(PanelId::Hierarchy, "Hierarchy", 0,       canvas_y, HIER_W, canvas_h as usize),
-            Panel::new(PanelId::Inspector, "Inspector", insp_x,  canvas_y, INSP_W, canvas_h as usize),
-            Panel::new(PanelId::Palette,   "Palette",   pal_x,   canvas_y, PAL_W,  canvas_h as usize),
-            Panel::new(PanelId::Console,   "Console",   0,       con_y,    screen_w, CON_H),
-            Panel::new(PanelId::Stats,     "Stats",     pal_x,   canvas_y, PAL_W,  canvas_h as usize),
+            Panel::new(PanelId::Hierarchy,    "Hierarchy",     0,       canvas_y, HIER_W, canvas_h as usize),
+            Panel::new(PanelId::Inspector,    "Inspector",     insp_x,  canvas_y, INSP_W, canvas_h as usize),
+            Panel::new(PanelId::Palette,      "Palette",       pal_x,   canvas_y, PAL_W,  canvas_h as usize),
+            Panel::new(PanelId::Console,      "Console",       0,       con_y,    screen_w, CON_H),
+            Panel::new(PanelId::Stats,        "Stats",         pal_x,   canvas_y, PAL_W,  canvas_h as usize),
+            Panel::new(PanelId::FileBrowser,  "Files",         0,       canvas_y, BROW_W, canvas_h as usize),
+            Panel::new(PanelId::ScriptEditor, "Script Editor", 0,       con_y,    screen_w, EDIT_H),
         ];
 
         // Default docking
@@ -137,9 +145,15 @@ impl PanelManager {
 
         panels[3].dock    = DockSide::Bottom;  // Console (hidden by default)
 
+        panels[5].dock    = DockSide::Left;
+        panels[5].visible = false; // FileBrowser
+
+        panels[6].dock    = DockSide::Bottom;
+        panels[6].visible = false; // ScriptEditor
+
         for (i, p) in panels.iter_mut().enumerate() { p.z = i; }
 
-        PanelManager { panels, next_z: 5, dragging: None, resizing: None }
+        PanelManager { panels, next_z: 7, dragging: None, resizing: None }
     }
 
     fn idx(&self, id: PanelId) -> usize {

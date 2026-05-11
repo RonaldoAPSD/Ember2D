@@ -64,7 +64,23 @@ impl EditorState {
                             }
                         }
                     }
-                    TextInputPurpose::PaletteName => {
+                    TextInputPurpose::NewScriptName => {
+                        if let Some(ref folder) = self.project_folder {
+                            let mut name = ti.buffer.trim().to_string();
+                            if !name.is_empty() {
+                                if !name.ends_with(".rhai") { name.push_str(".rhai"); }
+                                let path = format!("{}/{}", folder, name);
+                                if !std::path::Path::new(&path).exists() {
+                                    let _ = std::fs::write(&path, "");
+                                    self.load_script(&name);
+                                    self.refresh_project_files();
+                                } else {
+                                    self.console_log.push(crate::scripting::LogEntry::error("Script already exists!"));
+                                }
+                            }
+                        }
+                    }
+                TextInputPurpose::PaletteName => {
                         let sel = self.palette.selected;
                         self.palette.tiles[sel].name = ti.buffer;
                         self.unsaved = true;
@@ -193,7 +209,6 @@ impl EditorState {
                             }
                         }
                     }
-                    TextInputPurpose::NewFolderName => {}
                     TextInputPurpose::TileColliderLayer { gx, gy } => {
                         let lyr = self.active_layer;
                         if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {

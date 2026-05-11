@@ -49,7 +49,8 @@
       "Bash(cargo build *)",
       "Bash(grep -r \"Backspace\" c:/dev/ember2d/target/debug/.fingerprint/ 2>/dev/null | head -3; grep -r \"Backspace\" \"C:/Users/ronal/.cargo/registry/src\" --include=\"*.rs\" -l 2>/dev/null | grep minifb | head -3)",
       "Read(//c/Users/ronal/.cargo/registry/src/**)",
-      "Bash(python -c \"import subprocess; r = subprocess.run\\(['cargo', 'doc', '--no-deps', '-q'], capture_output=True, text=True\\); print\\(r.returncode\\)\")"
+      "Bash(python -c \"import subprocess; r = subprocess.run\\(['cargo', 'doc', '--no-deps', '-q'], capture_output=True, text=True\\); print\\(r.returncode\\)\")",
+      "Bash(git diff *)"
     ]
   }
 }

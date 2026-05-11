@@ -21,6 +21,7 @@ use crate::event::EventBus;
 use crate::level::TileRecord;
 use crate::scripting::LogEntry;
 use crate::world::World;
+use crate::editor::panel::PanelId;
 
 use commands::UndoStack;
 use grid::LevelGrid;
@@ -49,8 +50,8 @@ pub enum TextInputPurpose {
     PlayerScript,
     PlayerGlyph,
     NewLevelName,
+    NewScriptName,
     PaletteName,
-    NewFolderName,
     TileColliderLayer { gx: i32, gy: i32 },
     TileColliderMask  { gx: i32, gy: i32 },
     PlayerColliderLayer,
@@ -65,6 +66,17 @@ pub struct TextInput {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PaletteField { Name, Glyph, Tag }
+
+#[derive(Debug, Clone)]
+pub enum ModalPurpose {
+    ConfirmSwitchLevel { path: String },
+}
+
+pub struct Modal {
+    pub title:   String,
+    pub message: String,
+    pub purpose: ModalPurpose,
+}
 
 // ── EditorState ───────────────────────────────────────────────────────────────
 
@@ -96,8 +108,9 @@ pub struct EditorState {
     pub(super) line_anchor: Option<(i32, i32)>,
     pub(super) erase_size:  usize,
 
-    // ── Text input ────────────────────────────────────────────────────────────
+    // ── Text input / Modals ───────────────────────────────────────────────────
     pub(super) text_input: Option<TextInput>,
+    pub(super) modal:      Option<Modal>,
 
     // ── Copy / paste / cut ────────────────────────────────────────────────────
     pub(super) selecting:  bool,
@@ -110,9 +123,17 @@ pub struct EditorState {
     pub(super) paste_rotate: i32,
 
     // ── File browser ──────────────────────────────────────────────────────────
-    pub(super) browsing:     bool,
-    pub(super) file_list:    Vec<String>,
-    pub(super) file_cursor:  usize,
+    pub(super) file_browser_files:  Vec<String>,
+    pub(super) file_browser_cursor: usize,
+    pub(super) file_browser_scroll: usize,
+    pub(super) current_folder:      String,
+
+    // ── Script Editor ─────────────────────────────────────────────────────────
+    pub(super) script_path:    Option<String>,
+    pub(super) script_buffer:  Vec<String>,
+    pub(super) script_cursor:  (usize, usize), // (col, row)
+    pub(super) script_scroll:  usize,
+    pub(super) script_unsaved: bool,
 
     // ── Project context ───────────────────────────────────────────────────────
     pub project_folder: Option<String>,
@@ -138,6 +159,7 @@ pub struct EditorState {
 
     // ── UI state ──────────────────────────────────────────────────────────────
     pub(super) panels:      PanelManager,
+    pub(super) focused_panel: Option<PanelId>,
     pub(super) show_physics: bool,
     pub(super) show_help:    bool,
     pub(super) active_menu:  Option<MenuKind>,
@@ -154,6 +176,9 @@ pub struct EditorState {
     pub(super) graph_palette_cursor: usize,
     pub(super) graph_editing_param: Option<(node_graph::NodeId, String)>,
     pub(super) graph_clipboard:     Option<node_graph::Node>,
+
+    // ── Script editor mode ────────────────────────────────────────────────────
+    pub(super) script_mode: bool,
 
     pub(super) layout: Layout,
     pub(super) zoom:   f32,
@@ -182,6 +207,7 @@ impl EditorState {
             line_anchor: None,
             erase_size:  1,
             text_input:  None,
+            modal:       None,
             selecting:   false,
             cutting:     false,
             sel_anchor:  None,
@@ -190,9 +216,15 @@ impl EditorState {
             paste_flip_x: false,
             paste_flip_y: false,
             paste_rotate: 0,
-            browsing:    false,
-            file_list:   Vec::new(),
-            file_cursor: 0,
+            file_browser_files:  Vec::new(),
+            file_browser_cursor: 0,
+            file_browser_scroll: 0,
+            current_folder:      ".".to_string(),
+            script_path:    None,
+            script_buffer:  Vec::new(),
+            script_cursor:  (0, 0),
+            script_scroll:  0,
+            script_unsaved: false,
             project_folder: None,
             project_name:   None,
             console_log:       Vec::new(),
@@ -207,6 +239,7 @@ impl EditorState {
             pan_anchor:     None,
             scroll_repeat:  0,
             panels:       PanelManager::new(80, 24),
+            focused_panel: None,
             show_physics: false,
             show_help:    false,
             active_menu:  None,
@@ -221,6 +254,7 @@ impl EditorState {
             graph_palette_cursor: 0,
             graph_editing_param: None,
             graph_clipboard:     None,
+            script_mode:         false,
             layout:       Layout::new(80, 24),
             zoom:         1.0,
         }
@@ -251,6 +285,7 @@ impl EditorState {
                 editor.project_folder = Some(result.project_folder);
                 editor.project_name   = Some(result.project_name);
                 editor.load_palette();
+                editor.refresh_project_files();
                 Ok(editor)
             }
             Some(template) => {
@@ -265,6 +300,7 @@ impl EditorState {
                 editor.project_folder = Some(result.project_folder);
                 editor.project_name   = Some(result.project_name);
                 editor.load_palette();
+                editor.refresh_project_files();
 
                 if template == StartTemplate::BasicRoom {
                     apply_basic_room(&mut editor.grid);
