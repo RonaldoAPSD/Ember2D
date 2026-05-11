@@ -28,11 +28,24 @@ impl ScriptCtx {
 
     pub fn get_x(&mut self, id: i64) -> f64 { self.inner.borrow_mut().positions.get(&id).map(|(x, _)| *x as f64).unwrap_or(0.0) }
     pub fn get_y(&mut self, id: i64) -> f64 { self.inner.borrow_mut().positions.get(&id).map(|(_, y)| *y as f64).unwrap_or(0.0) }
+    pub fn get_position(&mut self, id: i64) -> Array {
+        self.inner.borrow_mut().positions.get(&id).map(|&(x, y)| vec![Dynamic::from(x as f64), Dynamic::from(y as f64)]).unwrap_or_default().into()
+    }
     pub fn get_vel_x(&mut self, id: i64) -> f64 { self.inner.borrow_mut().velocities.get(&id).map(|(x, _)| *x as f64).unwrap_or(0.0) }
     pub fn get_vel_y(&mut self, id: i64) -> f64 { self.inner.borrow_mut().velocities.get(&id).map(|(_, y)| *y as f64).unwrap_or(0.0) }
+    pub fn get_velocity(&mut self, id: i64) -> Array {
+        self.inner.borrow_mut().velocities.get(&id).map(|&(x, y)| vec![Dynamic::from(x as f64), Dynamic::from(y as f64)]).unwrap_or_default().into()
+    }
 
     pub fn get_tag(&mut self, id: i64) -> String { self.inner.borrow_mut().tags.get(&id).cloned().unwrap_or_default() }
+    pub fn set_tag(&mut self, id: i64, tag: String) { self.inner.borrow_mut().pending_tags.push((id, tag)); }
     pub fn has_tag(&mut self, id: i64, name: String) -> bool { self.inner.borrow_mut().tags.get(&id).map(|t| t == &name).unwrap_or(false) }
+    
+    pub fn get_glyph(&mut self, id: i64) -> String { self.inner.borrow_mut().glyphs.get(&id).map(|c| c.to_string()).unwrap_or_default() }
+    pub fn get_color(&mut self, id: i64) -> Array {
+        self.inner.borrow_mut().colors.get(&id).map(|(fg, bg)| vec![Dynamic::from(fg.clone()), Dynamic::from(bg.clone())]).unwrap_or_default().into()
+    }
+    pub fn get_texture(&mut self, id: i64) -> String { self.inner.borrow_mut().textures.get(&id).cloned().unwrap_or_default() }
     pub fn find_by_tag(&mut self, tag: String) -> i64 { self.inner.borrow_mut().tag_to_id.get(&tag).copied().unwrap_or(-1) }
     pub fn find_all_by_tag(&mut self, tag: String) -> Array {
         self.inner.borrow_mut().tag_to_ids.get(&tag).cloned().unwrap_or_default().into_iter().map(Dynamic::from).collect()
@@ -184,6 +197,9 @@ impl ScriptCtx {
     pub fn count_by_tag(&mut self, tag: String) -> i64 { self.inner.borrow_mut().tag_to_ids.get(&tag).map(|v| v.len()).unwrap_or(0) as i64 }
     pub fn get_collider_w(&mut self, id: i64) -> f64 { self.inner.borrow_mut().colliders.get(&id).map(|c| c.0 as f64).unwrap_or(0.0) }
     pub fn get_collider_h(&mut self, id: i64) -> f64 { self.inner.borrow_mut().colliders.get(&id).map(|c| c.1 as f64).unwrap_or(0.0) }
+    pub fn set_collider_size(&mut self, id: i64, w: f64, h: f64) { self.inner.borrow_mut().pending_collider_size.push((id, w as f32, h as f32)); }
+    pub fn is_collider_solid(&mut self, id: i64) -> bool { self.inner.borrow_mut().colliders.get(&id).map(|c| c.2).unwrap_or(false) }
+    pub fn set_collider_solid(&mut self, id: i64, solid: bool) { self.inner.borrow_mut().pending_collider_solid.push((id, solid)); }
     pub fn is_visible(&mut self, id: i64) -> bool { self.inner.borrow_mut().visibility.get(&id).copied().unwrap_or(false) }
     pub fn set_visible(&mut self, id: i64, visible: bool) { self.inner.borrow_mut().pending_visibility.push((id, visible)); }
     pub fn get_z_order(&mut self, id: i64) -> i64 { self.inner.borrow_mut().z_orders.get(&id).copied().unwrap_or(0) as i64 }

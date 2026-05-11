@@ -62,25 +62,54 @@ pub struct ParticleRequest {
     pub fg:    Color,
 }
 
-// ── Color name → Color enum ───────────────────────────────────────────────────
+// ── Color name ↔ Color enum ───────────────────────────────────────────────────
 
 pub fn parse_color(name: &str) -> Color {
     match name.trim() {
-        "Black"               => Color::Black,
-        "White"               => Color::White,
-        "Red"                 => Color::Red,
-        "Green"               => Color::Green,
-        "Yellow"              => Color::Yellow,
-        "Cyan"                => Color::Cyan,
-        "DarkBlue"            => Color::DarkBlue,
+        "Black"       => Color::Black,
+        "DarkRed"     => Color::DarkRed,
+        "DarkGreen"   => Color::DarkGreen,
+        "DarkYellow"  => Color::DarkYellow,
+        "DarkBlue"    => Color::DarkBlue,
+        "DarkMagenta" => Color::DarkMagenta,
+        "DarkCyan"    => Color::DarkCyan,
+        "Grey"|"Gray" => Color::Grey,
         "DarkGrey"|"DarkGray" => Color::DarkGrey,
-        "DarkGreen"           => Color::DarkGreen,
-        "Grey"|"Gray"         => Color::Grey,
+        "Red"         => Color::Red,
+        "Green"       => Color::Green,
+        "Yellow"      => Color::Yellow,
+        "Blue"        => Color::Blue,
+        "Magenta"     => Color::Magenta,
+        "Cyan"        => Color::Cyan,
+        "White"       => Color::White,
+        "Reset"       => Color::Reset,
         _ => {
             eprintln!("[script] unknown color '{}', defaulting to Reset", name.trim());
             Color::Reset
         }
     }
+}
+
+pub fn color_to_name(color: Color) -> String {
+    match color {
+        Color::Black       => "Black",
+        Color::DarkRed     => "DarkRed",
+        Color::DarkGreen   => "DarkGreen",
+        Color::DarkYellow  => "DarkYellow",
+        Color::DarkBlue    => "DarkBlue",
+        Color::DarkMagenta => "DarkMagenta",
+        Color::DarkCyan    => "DarkCyan",
+        Color::Grey        => "Grey",
+        Color::DarkGrey    => "DarkGrey",
+        Color::Red         => "Red",
+        Color::Green       => "Green",
+        Color::Yellow      => "Yellow",
+        Color::Blue        => "Blue",
+        Color::Magenta     => "Magenta",
+        Color::Cyan        => "Cyan",
+        Color::White       => "White",
+        Color::Reset       => "Reset",
+    }.to_string()
 }
 
 // ── Key name snapshot ─────────────────────────────────────────────────────────
@@ -98,6 +127,7 @@ pub(super) fn snapshot_keys(input: &InputManager) -> (HashSet<String>, HashSet<S
         (Key::Key4, "4"), (Key::Key5, "5"), (Key::Key6, "6"),
         (Key::Key7, "7"), (Key::Key8, "8"), (Key::Key9, "9"), (Key::Key0, "0"),
         (Key::Tab, "tab"),
+        (Key::Backspace, "backspace"),
     ];
 
     let mut held         = HashSet::new();

@@ -68,10 +68,11 @@
 *   **Decoupling Logic & Frame Rate:** Ensuring physics, timers, and input can be paused while waiting for a turn.
 *   **Script Queuing:** Refactoring how Rhai scripts execute so they can run sequentially rather than concurrently every frame.
 
-## v0.4.9: Pre-Release Polish
+## DONE v0.4.9: Pre-Release Polish
 *Focus: Stability before the major milestone.*
-*   **Bug Squashing & Profiling:** Dedicated performance profiling and fixing edge cases introduced during the v0.4.x cycle.
-*   **API Finalization:** Ensuring all Scripting API methods are consistent and fully documented.
+*   **Bug Squashing & Profiling:** Fixed Turn-Based physics integration and optimized AssetManager.
+*   **API Finalization:** Added missing getters/setters for all entity properties (position, velocity, glyph, color, tag, collider).
+*   **Documentation:** Fully updated `index.html` with the current 0.4.9 API reference.
 
 ## v0.5.0: The Scripting & Workspace Update
 *Focus: Professional in-engine development tools transforming the editor into a complete workspace.*

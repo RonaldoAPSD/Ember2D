@@ -21,6 +21,9 @@ pub(super) struct ScriptState {
     pub(super) velocities:       HashMap<i64, (f32, f32)>,
     pub(super) colliders:        HashMap<i64, (f32, f32, bool, String, Vec<String>)>, // w, h, solid, layer, mask
     pub(super) tags:             HashMap<i64, String>,
+    pub(super) glyphs:           HashMap<i64, char>,
+    pub(super) colors:           HashMap<i64, (String, String)>,
+    pub(super) textures:         HashMap<i64, String>,
     pub(super) tag_to_id:        HashMap<String, i64>,
     pub(super) tag_to_ids:       HashMap<String, Vec<i64>>,
     pub(super) visibility:       HashMap<i64, bool>,
@@ -66,6 +69,9 @@ pub(super) struct ScriptState {
     pub(super) pending_shake:      Option<crate::play::ShakeState>,
     pub(super) pending_visibility: Vec<(i64, bool)>,
     pub(super) pending_z_order:    Vec<(i64, i32)>,
+    pub(super) pending_tags:       Vec<(i64, String)>,
+    pub(super) pending_collider_size:  Vec<(i64, f32, f32)>,
+    pub(super) pending_collider_solid: Vec<(i64, bool)>,
     pub(super) pending_collider_layer: Vec<(i64, String)>,
     pub(super) pending_collider_mask:  Vec<(i64, Vec<String>)>,
     pub(super) pending_timers:     Vec<(EntityId, String, f64)>,
@@ -90,6 +96,9 @@ impl ScriptState {
         let mut velocities = HashMap::new();
         let mut colliders  = HashMap::new();
         let mut tags       = HashMap::new();
+        let mut glyphs     = HashMap::new();
+        let mut colors     = HashMap::new();
+        let mut textures   = HashMap::new();
         let mut tag_to_id  = HashMap::new();
         let mut tag_to_ids: HashMap<String, Vec<i64>> = HashMap::new();
         let mut visibility = HashMap::new();
@@ -99,6 +108,14 @@ impl ScriptState {
             let eid = *id as i64;
             positions.insert(eid,  (tf.position.x, tf.position.y));
             velocities.insert(eid, (tf.velocity.x, tf.velocity.y));
+            
+            if let Some(sp) = world.sprites.get(id) {
+                glyphs.insert(eid, sp.glyph);
+                colors.insert(eid, (crate::scripting::types::color_to_name(sp.fg), crate::scripting::types::color_to_name(sp.bg)));
+                textures.insert(eid, sp.texture.clone().unwrap_or_default());
+                visibility.insert(eid, sp.visible);
+                z_orders.insert(eid, sp.z_order);
+            }
         }
 
         for (id, col) in &world.colliders {
@@ -112,11 +129,6 @@ impl ScriptState {
             tag_to_ids.entry(tag.name.clone()).or_default().push(eid);
         }
 
-        for (id, sp) in &world.sprites {
-            visibility.insert(*id as i64, sp.visible);
-            z_orders.insert(*id as i64, sp.z_order);
-        }
-
         let (held_keys, just_pressed_keys) = input.map(snapshot_keys).unwrap_or_default();
 
         let mouse_pos = mouse.map(|m| (m.cell_x as f32, m.cell_y as f32)).unwrap_or((0.0, 0.0));
@@ -126,7 +138,7 @@ impl ScriptState {
         let extra_spawns: HashMap<String, (f32, f32)> = spawns.iter().map(|(name, x, y)| (name.clone(), (*x, *y))).collect();
 
         ScriptState {
-            positions, velocities, colliders, tags, tag_to_id, tag_to_ids, visibility, z_orders,
+            positions, velocities, colliders, tags, glyphs, colors, textures, tag_to_id, tag_to_ids, visibility, z_orders,
             delta_time, elapsed, next_spawn_id: world.next_id, held_keys, just_pressed_keys, extra_spawns,
             mouse_pos, mouse_held, mouse_pressed,
             globals, persistent,
@@ -137,13 +149,16 @@ impl ScriptState {
             pending_animations: Vec::new(),
             pending_textures:   Vec::new(),
             pending_hud_draws: Vec::new(),
- pending_particles: Vec::new(),
+            pending_particles: Vec::new(),
             clear_hud: false, despawn_queue: Vec::new(),
             spawn_queue: Vec::new(), pending_level: None, pending_logs: Vec::new(),
             pending_sounds: Vec::new(), pending_spatial_sounds: Vec::new(), pending_music: None, stop_music: false,
             pending_globals: HashMap::new(), pending_persistent: HashMap::new(),
             pending_camera: None, pending_shake: None,
             pending_visibility: Vec::new(), pending_z_order: Vec::new(),
+            pending_tags: Vec::new(),
+            pending_collider_size: Vec::new(),
+            pending_collider_solid: Vec::new(),
             pending_collider_layer: Vec::new(),
             pending_collider_mask: Vec::new(),
             pending_timers: Vec::new(),
@@ -174,10 +189,16 @@ impl ScriptEngine {
 
         engine.register_fn("get_x",           ScriptCtx::get_x);
         engine.register_fn("get_y",           ScriptCtx::get_y);
+        engine.register_fn("get_position",    ScriptCtx::get_position);
         engine.register_fn("get_vel_x",       ScriptCtx::get_vel_x);
         engine.register_fn("get_vel_y",       ScriptCtx::get_vel_y);
+        engine.register_fn("get_velocity",    ScriptCtx::get_velocity);
         engine.register_fn("get_tag",         ScriptCtx::get_tag);
+        engine.register_fn("set_tag",         ScriptCtx::set_tag);
         engine.register_fn("has_tag",         ScriptCtx::has_tag);
+        engine.register_fn("get_glyph",       ScriptCtx::get_glyph);
+        engine.register_fn("get_color",       ScriptCtx::get_color);
+        engine.register_fn("get_texture",     ScriptCtx::get_texture);
         engine.register_fn("find_by_tag",     ScriptCtx::find_by_tag);
         engine.register_fn("find_all_by_tag", ScriptCtx::find_all_by_tag);
         engine.register_fn("is_held",         ScriptCtx::is_held);
@@ -223,6 +244,9 @@ impl ScriptEngine {
         engine.register_fn("count_by_tag",    ScriptCtx::count_by_tag);
         engine.register_fn("get_collider_w",  ScriptCtx::get_collider_w);
         engine.register_fn("get_collider_h",  ScriptCtx::get_collider_h);
+        engine.register_fn("set_collider_size", ScriptCtx::set_collider_size);
+        engine.register_fn("is_collider_solid", ScriptCtx::is_collider_solid);
+        engine.register_fn("set_collider_solid", ScriptCtx::set_collider_solid);
         engine.register_fn("is_visible",      ScriptCtx::is_visible);
         engine.register_fn("set_visible",     ScriptCtx::set_visible);
         engine.register_fn("get_z_order",     ScriptCtx::get_z_order);
@@ -436,8 +460,7 @@ impl ScriptEngine {
         let trigger_turn = state.pending_turn;
         state.pending_turn = false;
 
-        for &(id, vx, vy) in &state.pending_velocities {
- if let Some(tf) = world.transforms.get_mut(&(id as EntityId)) { tf.velocity.x = vx; tf.velocity.y = vy; } }
+        for &(id, vx, vy) in &state.pending_velocities { if let Some(tf) = world.transforms.get_mut(&(id as EntityId)) { tf.velocity.x = vx; tf.velocity.y = vy; } }
         for &(id, x, y) in &state.pending_positions { if let Some(tf) = world.transforms.get_mut(&(id as EntityId)) { tf.position.x = x; tf.position.y = y; } }
         for &(id, ch) in &state.pending_glyphs { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.glyph = ch; } }
         for (id, fg_str, bg_str) in state.pending_colors.drain(..) {
@@ -447,6 +470,13 @@ impl ScriptEngine {
         }
         for (id, visible) in state.pending_visibility.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.visible = visible; } }
         for (id, z) in state.pending_z_order.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.z_order = z; } }
+        for (id, tag) in state.pending_tags.drain(..) { world.add_tag(id as EntityId, Tag::new(&tag)); }
+        for (id, w, h) in state.pending_collider_size.drain(..) {
+            if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.width = w; col.height = h; }
+        }
+        for (id, solid) in state.pending_collider_solid.drain(..) {
+            if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.solid = solid; }
+        }
         for (id, layer) in state.pending_collider_layer.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.layer = layer; } }
         for (id, mask) in state.pending_collider_mask.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.mask = mask; } }
         for (id, frames, rate) in state.pending_animations.drain(..) {
@@ -458,17 +488,10 @@ impl ScriptEngine {
         }
         for (id, tex_path) in state.pending_textures.drain(..) {
             if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) {
-                // If tex_path is Some("") or None, clear the texture.
-                // Otherwise, update it.
                 if let Some(path) = tex_path {
-                    if path.is_empty() {
-                        sp.texture = None;
-                    } else {
-                        sp.texture = Some(path);
-                    }
-                } else {
-                    sp.texture = None;
-                }
+                    if path.is_empty() { sp.texture = None; }
+                    else { sp.texture = Some(path); }
+                } else { sp.texture = None; }
             }
         }
 
@@ -489,7 +512,6 @@ impl ScriptEngine {
         if state.stop_music { self.stop_music = true; state.stop_music = false; }
         for msg in state.pending_logs.drain(..) { log.push(LogEntry::info(msg)); }
 
-        // Update globals and persistent
         let pending_globals: Vec<(String, rhai::Dynamic)> = state.pending_globals.drain().collect();
         for (key, val) in pending_globals {
             if val.is_unit() { state.globals.remove(&key); }
@@ -501,17 +523,11 @@ impl ScriptEngine {
             else { state.persistent.insert(key, val); }
         }
 
-        // Update timers in scopes
         for (id, name, duration) in state.pending_timers.drain(..) {
             if let Some(scope) = self.scopes.get_mut(&id) {
                 let key = format!("__timer_{}", name);
-                if duration < -900.0 {
-                    // Signal for removal (timer_done)
-                    // Rhai scope removal is hard, so we just set it to a very small negative value
-                    scope.set_value(key, -1.0f64);
-                } else {
-                    scope.set_value(key, duration);
-                }
+                if duration < -900.0 { scope.set_value(key, -1.0f64); }
+                else { scope.set_value(key, duration); }
             }
         }
 
@@ -532,4 +548,5 @@ impl ScriptEngine {
         for id in despawn_ids { world.despawn(id as EntityId); self.scopes.remove(&(id as EntityId)); }
         result
     }
+
 }
