@@ -1,0 +1,23 @@
+(
+    name: "Sprite Test Level",
+    width: 20,
+    height: 10,
+    spawn_point: (5.0, 5.0),
+    player: (
+        glyph: '@',
+        fg: Green,
+        bg: Reset,
+        collider_layer: "player",
+        collider_mask: ["solid"],
+        script: Some("scripts/sprite_test.rhai"),
+        texture: Some("assets/test.bmp"),
+    ),
+    tiles: [
+        (
+            x: 0, y: 0, layer: 0,
+            glyph: '.', fg: Grey, bg: Reset,
+            solid: false, trigger: false, tag: "floor",
+        ),
+    ],
+    extra_spawns: [],
+)

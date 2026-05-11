@@ -59,6 +59,15 @@ impl ScriptCtx {
         self.inner.borrow_mut().pending_animations.push((id, frames, rate as f32));
     }
 
+    pub fn set_texture(&mut self, id: i64, path: String) {
+        let p = if path.is_empty() { None } else { Some(path) };
+        self.inner.borrow_mut().pending_textures.push((id, p));
+    }
+
+    pub fn trigger_turn(&mut self) {
+        self.inner.borrow_mut().pending_turn = true;
+    }
+
     pub fn despawn(&mut self, id: i64) { self.inner.borrow_mut().despawn_queue.push(id); }
     pub fn spawn(&mut self, glyph_str: String, x: f64, y: f64, tag: String) -> i64 {
         let glyph = glyph_str.chars().next().unwrap_or('?');

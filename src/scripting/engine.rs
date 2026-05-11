@@ -47,6 +47,7 @@ pub(super) struct ScriptState {
     pub(super) pending_glyphs:     Vec<(i64, char)>,
     pub(super) pending_colors:     Vec<(i64, String, String)>,
     pub(super) pending_animations: Vec<(i64, Vec<char>, f32)>,
+    pub(super) pending_textures:   Vec<(i64, Option<String>)>,
     pub(super) pending_hud_draws:  Vec<HudDraw>,
     pub(super) pending_particles:  Vec<ParticleRequest>,
     pub(super) clear_hud:          bool,
@@ -69,6 +70,7 @@ pub(super) struct ScriptState {
     pub(super) pending_collider_mask:  Vec<(i64, Vec<String>)>,
     pub(super) pending_timers:     Vec<(EntityId, String, f64)>,
     pub(super) timers:             HashMap<EntityId, HashMap<String, f64>>,
+    pub(super) pending_turn:       bool,
 }
 
 impl ScriptState {
@@ -133,7 +135,9 @@ impl ScriptState {
             pending_velocities: Vec::new(), pending_positions: Vec::new(),
             pending_glyphs: Vec::new(), pending_colors: Vec::new(),
             pending_animations: Vec::new(),
-            pending_hud_draws: Vec::new(), pending_particles: Vec::new(),
+            pending_textures:   Vec::new(),
+            pending_hud_draws: Vec::new(),
+ pending_particles: Vec::new(),
             clear_hud: false, despawn_queue: Vec::new(),
             spawn_queue: Vec::new(), pending_level: None, pending_logs: Vec::new(),
             pending_sounds: Vec::new(), pending_spatial_sounds: Vec::new(), pending_music: None, stop_music: false,
@@ -144,6 +148,7 @@ impl ScriptState {
             pending_collider_mask: Vec::new(),
             pending_timers: Vec::new(),
             timers: HashMap::new(),
+            pending_turn: false,
         }
     }
 }
@@ -185,6 +190,8 @@ impl ScriptEngine {
         engine.register_fn("set_glyph",       ScriptCtx::set_glyph);
         engine.register_fn("set_color",       ScriptCtx::set_color);
         engine.register_fn("set_animation",   ScriptCtx::set_animation);
+        engine.register_fn("set_texture",     ScriptCtx::set_texture);
+        engine.register_fn("trigger_turn",    ScriptCtx::trigger_turn);
         engine.register_fn("despawn",         ScriptCtx::despawn);
         engine.register_fn("spawn",           ScriptCtx::spawn);
         engine.register_fn("load_level",      ScriptCtx::load_level);
@@ -354,6 +361,7 @@ impl ScriptEngine {
                 if !self.logged_runtime_errors.contains(&path) {
                     let msg = e.to_string();
                     if !msg.contains("Function not found") {
+                        eprintln!("[script error] Runtime '{}': {}", path, e);
                         log.push(LogEntry::error(format!("Runtime '{}': {}", path, e)));
                         self.logged_runtime_errors.insert(path.clone());
                     }
@@ -425,7 +433,11 @@ impl ScriptEngine {
 
     fn apply_ctx(&mut self, ctx: ScriptCtx, world: &mut World, log: &mut Vec<LogEntry>) -> ScriptUpdateResult {
         let mut state = ctx.inner.borrow_mut();
-        for &(id, vx, vy) in &state.pending_velocities { if let Some(tf) = world.transforms.get_mut(&(id as EntityId)) { tf.velocity.x = vx; tf.velocity.y = vy; } }
+        let trigger_turn = state.pending_turn;
+        state.pending_turn = false;
+
+        for &(id, vx, vy) in &state.pending_velocities {
+ if let Some(tf) = world.transforms.get_mut(&(id as EntityId)) { tf.velocity.x = vx; tf.velocity.y = vy; } }
         for &(id, x, y) in &state.pending_positions { if let Some(tf) = world.transforms.get_mut(&(id as EntityId)) { tf.position.x = x; tf.position.y = y; } }
         for &(id, ch) in &state.pending_glyphs { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.glyph = ch; } }
         for (id, fg_str, bg_str) in state.pending_colors.drain(..) {
@@ -442,6 +454,21 @@ impl ScriptEngine {
                 sp.frames = frames;
                 sp.frame_rate = rate;
                 sp.frame_timer = 0.0;
+            }
+        }
+        for (id, tex_path) in state.pending_textures.drain(..) {
+            if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) {
+                // If tex_path is Some("") or None, clear the texture.
+                // Otherwise, update it.
+                if let Some(path) = tex_path {
+                    if path.is_empty() {
+                        sp.texture = None;
+                    } else {
+                        sp.texture = Some(path);
+                    }
+                } else {
+                    sp.texture = None;
+                }
             }
         }
 
@@ -496,6 +523,7 @@ impl ScriptEngine {
             shake_state: state.pending_shake.take(),
             clear_hud: state.clear_hud,
             particles: state.pending_particles.drain(..).collect(),
+            trigger_turn,
         };
         state.clear_hud = false;
 

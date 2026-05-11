@@ -63,7 +63,7 @@
 *   **2D Sprite Support:** Updated the `Sprite` component and `PlayState` to support drawing textures instead of just characters.
 *   **Backend Switching:** The engine now automatically selects between `AsciiBackend` and `SpriteBackend` based on project settings.
 
-## v0.4.8: The Simulation Core Update
+## DONE v0.4.8: The Simulation Core Update
 *Focus: Engine architecture prep for the Turn-Based loop.*
 *   **Decoupling Logic & Frame Rate:** Ensuring physics, timers, and input can be paused while waiting for a turn.
 *   **Script Queuing:** Refactoring how Rhai scripts execute so they can run sequentially rather than concurrently every frame.

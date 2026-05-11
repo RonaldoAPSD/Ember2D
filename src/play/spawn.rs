@@ -23,7 +23,8 @@ impl PlayState {
             let z = Self::z_for_tag(&tile.tag) + (tile.layer as i32 * 10);
             let mut sprite = Sprite::new(tile.glyph, tile.fg, tile.bg, z);
             if let Some(ref path) = tile.texture {
-                sprite.texture = Some(path.clone());
+                let full = resolve_exit_path(path, &self.level.path);
+                sprite.texture = Some(full);
             }
             world.add_sprite(id, sprite);
 
@@ -90,7 +91,8 @@ impl PlayState {
         let pr = &self.level.player;
         let mut p_sprite = Sprite::new(pr.glyph, pr.fg, pr.bg, Z_PLAYER);
         if let Some(ref path) = pr.texture {
-            p_sprite.texture = Some(path.clone());
+            let full = resolve_exit_path(path, &self.level.path);
+            p_sprite.texture = Some(full);
         }
         world.add_sprite(player, p_sprite);
         // Slightly smaller than 1×1 so the player has a 0.125-unit tolerance on each
@@ -102,8 +104,9 @@ impl PlayState {
         world.add_tag(player, Tag::new(&pr.tag));
 
         if let Some(ref script_path) = pr.script.clone() {
-            world.add_script(player, Script::new(script_path));
-            if self.script_engine.compile(script_path, &mut self.script_log) {
+            let full = resolve_exit_path(script_path, &self.level.path);
+            world.add_script(player, Script::new(&full));
+            if self.script_engine.compile(&full, &mut self.script_log) {
                 scripts_ok += 1;
             } else {
                 scripts_fail += 1;
@@ -139,6 +142,7 @@ impl PlayState {
             self.globals.clone(), self.persistent.clone(), Vec2::new(cam_x, cam_y),
             (self.viewport_w, self.viewport_h),
         );
-        self.apply_script_result(res);
+        let mut dummy = false;
+        self.apply_script_result(res, &mut dummy);
     }
 }

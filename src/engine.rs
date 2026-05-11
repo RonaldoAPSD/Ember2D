@@ -41,6 +41,7 @@ use crate::math::Vec2;
 use crate::mouse::MouseState;
 use crate::renderer::{Renderer, AssetManager};
 use crate::world::{EntityId, World};
+use crate::project::GameplayLoop;
 
 // ── Mode transition ───────────────────────────────────────────────────────────
 
@@ -71,6 +72,12 @@ const TARGET_FPS: u64 = 60;
 /// How long each frame should take to hit TARGET_FPS.
 /// We sleep the remainder at the end of each frame.
 const FRAME_DURATION: Duration = Duration::from_micros(1_000_000 / TARGET_FPS);
+
+/// The fixed timestep for simulation logic (60 Hz).
+const SIM_DT: f32 = 1.0 / 60.0;
+
+/// Maximum fixed-timestep substeps per frame (spiral-of-death guard).
+const MAX_SIM_STEPS: u32 = 8;
 
 // ── Context structs ───────────────────────────────────────────────────────────
 
@@ -106,11 +113,21 @@ pub struct UpdateContext<'a> {
     /// Set to `true` from game code to exit the game loop gracefully.
     pub quit: &'a mut bool,
 
+    /// For Turn-Based games: set to true to trigger one simulation step.
+    pub turn_triggered: &'a mut bool,
+
     /// Viewport width in characters.
     pub viewport_width: usize,
 
     /// Viewport height in characters.
     pub viewport_height: usize,
+}
+
+impl<'a> UpdateContext<'a> {
+    /// For Turn-Based games: trigger one simulation step (physics, AI, etc).
+    pub fn trigger_turn(&mut self) {
+        *self.turn_triggered = true;
+    }
 }
 
 /// Everything the game needs during `render()`.
@@ -188,6 +205,7 @@ pub trait GameState {
 /// The main engine: owns all core systems and runs the game loop.
 pub struct Engine {
     pub renderer: Renderer,
+    pub gameplay_loop: GameplayLoop,
     assets:   AssetManager,
     world:    World,
     input:    InputManager,
@@ -197,6 +215,8 @@ pub struct Engine {
     pub width: usize,
     /// Viewport height in character rows.
     pub height: usize,
+
+    simulation_accumulator: f32,
 }
 
 impl Engine {
@@ -210,6 +230,7 @@ impl Engine {
         let renderer = Renderer::new(width, height, title)?;
         Ok(Engine {
             renderer,
+            gameplay_loop: GameplayLoop::RealTime,
             assets: AssetManager::new(),
             world:  World::new(),
             input:  InputManager::new(),
@@ -217,6 +238,7 @@ impl Engine {
             events: EventBus::new(),
             width,
             height,
+            simulation_accumulator: 0.0,
         })
     }
 
@@ -261,42 +283,102 @@ impl Engine {
 
             if self.input.quit_requested { break; }
 
-            self.events.clear();
-            let prev_positions = self.world.snapshot_positions();
+            // ── Simulation Core ────────────────────────────────────────────
+            self.simulation_accumulator += delta_time;
 
-            game.update(UpdateContext {
-                world:           &mut self.world,
-                input:           &self.input,
-                mouse:           &self.mouse,
-                events:          &mut self.events,
-                prev_positions:  &prev_positions,
-                delta_time,
-                elapsed,
-                quit:            &mut should_quit,
-                viewport_width:  self.width,
-                viewport_height: self.height,
-            });
+            if self.gameplay_loop == GameplayLoop::RealTime {
+                // Fixed Timestep Loop
+                let mut steps = 0u32;
+                while self.simulation_accumulator >= SIM_DT && steps < MAX_SIM_STEPS {
+                    steps += 1;
+                    self.events.clear();
+                    let prev_positions = self.world.snapshot_positions();
+                    let mut turn_triggered = false;
+
+                    game.update(UpdateContext {
+                        world:           &mut self.world,
+                        input:           &self.input,
+                        mouse:           &self.mouse,
+                        events:          &mut self.events,
+                        prev_positions:  &prev_positions,
+                        delta_time:      SIM_DT,
+                        elapsed,
+                        quit:            &mut should_quit,
+                        turn_triggered:  &mut turn_triggered,
+                        viewport_width:  self.width,
+                        viewport_height: self.height,
+                    });
+
+                    if should_quit { break; }
+
+                    self.world.integrate_physics(SIM_DT);
+                    self.world.detect_collisions(&mut self.events);
+
+                    game.late_update(UpdateContext {
+                        world:           &mut self.world,
+                        input:           &self.input,
+                        mouse:           &self.mouse,
+                        events:          &mut self.events,
+                        prev_positions:  &prev_positions,
+                        delta_time:      SIM_DT,
+                        elapsed,
+                        quit:            &mut should_quit,
+                        turn_triggered:  &mut turn_triggered,
+                        viewport_width:  self.width,
+                        viewport_height: self.height,
+                    });
+
+                    self.simulation_accumulator -= SIM_DT;
+                    if should_quit { break; }
+                }
+                if steps >= MAX_SIM_STEPS { self.simulation_accumulator = 0.0; }
+            } else {
+                // Turn-Based Mode
+                self.events.clear();
+                let prev_positions = self.world.snapshot_positions();
+                let mut turn_triggered = false;
+
+                // Every frame: poll input and allow UI/Animation updates
+                game.update(UpdateContext {
+                    world:           &mut self.world,
+                    input:           &self.input,
+                    mouse:           &self.mouse,
+                    events:          &mut self.events,
+                    prev_positions:  &prev_positions,
+                    delta_time,
+                    elapsed,
+                    quit:            &mut should_quit,
+                    turn_triggered:  &mut turn_triggered,
+                    viewport_width:  self.width,
+                    viewport_height: self.height,
+                });
+
+                if !should_quit && turn_triggered {
+                    // One simulation step (physics and collisions)
+                    // We use 1.0 as a discrete "step" for turn-based movement.
+                    self.world.integrate_physics(1.0);
+                    self.world.detect_collisions(&mut self.events);
+
+                    game.late_update(UpdateContext {
+                        world:           &mut self.world,
+                        input:           &self.input,
+                        mouse:           &self.mouse,
+                        events:          &mut self.events,
+                        prev_positions:  &prev_positions,
+                        delta_time,
+                        elapsed,
+                        quit:            &mut should_quit,
+                        turn_triggered:  &mut turn_triggered,
+                        viewport_width:  self.width,
+                        viewport_height: self.height,
+                    });
+                }
+                self.simulation_accumulator = 0.0;
+            }
 
             if should_quit { break; }
 
-            self.world.integrate_physics(delta_time);
-            self.world.detect_collisions(&mut self.events);
-
-            game.late_update(UpdateContext {
-                world:           &mut self.world,
-                input:           &self.input,
-                mouse:           &self.mouse,
-                events:          &mut self.events,
-                prev_positions:  &prev_positions,
-                delta_time,
-                elapsed,
-                quit:            &mut should_quit,
-                viewport_width:  self.width,
-                viewport_height: self.height,
-            });
-
-            if should_quit { break; }
-
+            // ── Render ─────────────────────────────────────────────────────
             self.renderer.clear();
             game.render(RenderContext {
                 world:    &self.world,
@@ -331,30 +413,25 @@ impl Engine {
     /// Start the game loop and hand control to `game`.
     ///
     /// Blocks until the game exits (window closed, or `ctx.quit = true`).
+    /// Uses a simple variable-timestep loop — no simulation accumulator.
+    /// Intended for the editor and start screen, which don't need fixed-timestep physics.
     pub fn run<G: GameState>(&mut self, game: &mut G) -> io::Result<()> {
-        // ── Initialize ─────────────────────────────────────────────────────
         game.on_start(&mut self.world, &mut self.events);
 
         let start_time = Instant::now();
         let mut last_frame = Instant::now();
         let mut should_quit = false;
 
-        // ── Main game loop ─────────────────────────────────────────────────
         loop {
-            // ── 1. Timing ──────────────────────────────────────────────────
-            let now = Instant::now();
+            let now        = Instant::now();
             let delta_time = now.duration_since(last_frame).as_secs_f32();
             let elapsed    = now.duration_since(start_time).as_secs_f32();
             last_frame = now;
 
-            // ── 2. Input ───────────────────────────────────────────────────
-            // After last frame's `update_with_buffer`, minifb has the current key state.
-            // We poll it now so `update()` sees fresh input.
             let current_keys = self.renderer.current_keys();
             let window_open  = self.renderer.is_open();
             self.input.poll(current_keys, window_open);
 
-            // Poll mouse: convert raw window-space coords to cell coords.
             let mouse_pos   = self.renderer.current_mouse_pos();
             let left_down   = self.renderer.is_mouse_button_down(minifb::MouseButton::Left);
             let right_down  = self.renderer.is_mouse_button_down(minifb::MouseButton::Right);
@@ -362,22 +439,12 @@ impl Engine {
             let scroll      = self.renderer.get_scroll_wheel();
             self.mouse.poll(mouse_pos, left_down, right_down, middle_down, scroll);
 
-            if self.input.quit_requested {
-                break;
-            }
+            if self.input.quit_requested { break; }
 
-            // ── 3. Events ──────────────────────────────────────────────────
-            // Clear last frame's events. A fresh set is built below.
             self.events.clear();
-
-            // ── 4. Snapshot positions ──────────────────────────────────────
-            // Record where each entity is BEFORE physics moves them.
-            // Passed to late_update so the game can roll back collisions.
             let prev_positions = self.world.snapshot_positions();
+            let mut turn_triggered = false;
 
-            // ── 5. Game update (pre-physics) ───────────────────────────────
-            // Game code reads input and sets velocities.
-            // Nothing has moved yet — entities are at prev_positions.
             game.update(UpdateContext {
                 world:           &mut self.world,
                 input:           &self.input,
@@ -387,22 +454,16 @@ impl Engine {
                 delta_time,
                 elapsed,
                 quit:            &mut should_quit,
+                turn_triggered:  &mut turn_triggered,
                 viewport_width:  self.width,
                 viewport_height: self.height,
             });
 
             if should_quit { break; }
 
-            // ── 6. Physics ─────────────────────────────────────────────────
-            // Apply velocity × delta_time to all transforms.
             self.world.integrate_physics(delta_time);
-
-            // ── 7. Collision detection ──────────────────────────────────────
-            // Find all overlapping pairs and emit Collision events.
             self.world.detect_collisions(&mut self.events);
 
-            // ── 8. Late update (post-physics) ──────────────────────────────
-            // Game responds to collisions: roll back solid entities, collect items.
             game.late_update(UpdateContext {
                 world:           &mut self.world,
                 input:           &self.input,
@@ -412,16 +473,13 @@ impl Engine {
                 delta_time,
                 elapsed,
                 quit:            &mut should_quit,
+                turn_triggered:  &mut turn_triggered,
                 viewport_width:  self.width,
                 viewport_height: self.height,
             });
 
             if should_quit { break; }
 
-            // ── 9. Render ──────────────────────────────────────────────────
-            // Clear the back buffer, let the game fill it, then present.
-            // `present()` also calls minifb's update_with_buffer, which refreshes
-            // key state for the NEXT frame's input poll.
             self.renderer.clear();
             game.render(RenderContext {
                 world:    &self.world,
@@ -433,15 +491,11 @@ impl Engine {
             });
             self.renderer.present()?;
 
-            // Sync engine dimensions if the window was resized.
             if self.renderer.try_handle_resize() {
                 self.width  = self.renderer.width;
                 self.height = self.renderer.height;
             }
 
-            // ── 10. Frame cap ──────────────────────────────────────────────
-            // Sleep for whatever time remains to hit exactly TARGET_FPS.
-            // If the frame ran long, we skip sleeping and start the next immediately.
             let frame_elapsed = Instant::now().duration_since(now);
             if frame_elapsed < FRAME_DURATION {
                 std::thread::sleep(FRAME_DURATION - frame_elapsed);

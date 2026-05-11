@@ -18,11 +18,23 @@ impl AssetManager {
     /// Get a reference to a cached texture, loading from disk on first access.
     pub fn load_texture(&mut self, path: &str) -> Result<&Texture, String> {
         if !self.textures.contains_key(path) {
-            let tex = Texture::load(path)?;
-            self.textures.insert(path.to_string(), tex);
+            match Texture::load(path) {
+                Ok(tex) => {
+                    self.textures.insert(path.to_string(), tex);
+                }
+                Err(e) => {
+                    eprintln!("Failed to load texture '{}': {}", path, e);
+                    // Insert a 1x1 magenta placeholder so we don't spam errors
+                    let fallback = Texture {
+                        width: 1, height: 1, pixels: vec![0xFFFF00FF] // Magenta
+                    };
+                    self.textures.insert(path.to_string(), fallback);
+                }
+            }
         }
-        Ok(self.textures.get(path).expect("just inserted"))
+        Ok(self.textures.get(path).unwrap())
     }
+
 
     /// Clear all cached assets.
     pub fn clear(&mut self) {

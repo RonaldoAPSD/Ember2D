@@ -184,7 +184,11 @@ impl PlayState {
     }
 
     /// Helper to process the result of a script engine run.
-    fn apply_script_result(&mut self, res: crate::scripting::ScriptUpdateResult) {
+    fn apply_script_result(&mut self, res: crate::scripting::ScriptUpdateResult, turn_triggered: &mut bool) {
+        if res.trigger_turn {
+            *turn_triggered = true;
+        }
+
         if let Some(level_path) = res.pending_level {
             let full = resolve_exit_path(&level_path, &self.level.path);
             match LevelData::load(&full) {
@@ -369,7 +373,7 @@ impl GameState for PlayState {
             &self.level.extra_spawns, self.globals.clone(), self.persistent.clone(), Vec2::new(cam_x, cam_y),
             (viewport_width, viewport_height),
         );
-        self.apply_script_result(res);
+        self.apply_script_result(res, ctx.turn_triggered);
 
         // Update particles
         self.particles.retain_mut(|p| {
@@ -445,7 +449,7 @@ impl GameState for PlayState {
             &self.level.extra_spawns, self.globals.clone(), self.persistent.clone(), Vec2::new(cam_x, cam_y),
             (viewport_width, viewport_height),
         );
-        self.apply_script_result(res);
+        self.apply_script_result(res, ctx.turn_triggered);
 
         self.flush_audio();
     }
@@ -498,7 +502,7 @@ impl GameState for PlayState {
         for (_, col, row, glyph, fg, bg, texture_path) in draw_list {
             if let Some(path) = texture_path {
                 if let Ok(tex) = assets.load_texture(path) {
-                    renderer.draw_texture(col * 8, row * 16, tex, 2.0);
+                    renderer.draw_texture(col * 8, row * 16, tex, 32.0);
                     continue;
                 }
             }
@@ -525,7 +529,7 @@ impl GameState for PlayState {
         // ── HUD — top bar ──────────────────────────────────────────────────────
         renderer.draw_rect_filled(0, 0, renderer.width, 1, ' ', Color::Black, Color::DarkBlue);
 
-        let title = format!(" PLAYING: {}", self.level.name);
+        let title = format!(" PLAYING: {} ({})", self.level.name, renderer.backend_name());
         renderer.draw_str(0, 0, &title, Color::White, Color::DarkBlue);
 
         let score_str = format!("  Items {}/{}", self.score, self.total_items);

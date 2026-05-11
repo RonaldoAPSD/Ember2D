@@ -1,0 +1,6 @@
+(
+    name: "2D Sprite Demo",
+    visual_style: Sprites2D,
+    gameplay_loop: RealTime,
+    start_level: Some("Main.level"),
+)

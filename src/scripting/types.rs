@@ -30,6 +30,7 @@ pub struct ScriptUpdateResult {
     pub shake_state:     Option<super::super::play::ShakeState>,
     pub clear_hud:       bool,
     pub particles:       Vec<ParticleRequest>,
+    pub trigger_turn:    bool,
 }
 
 // ── HudDraw ───────────────────────────────────────────────────────────────────

@@ -148,6 +148,7 @@ fn main() {
                 None => break,  // user quit from the start screen
                 Some(result) => {
                     let style = result.visual_style;
+                    let loop_mode = result.gameplay_loop;
                     let state = EditorState::new_from_result(result).unwrap_or_else(|e| {
                         eprintln!("Warning: {}", e);
                         EditorState::new("")
@@ -158,6 +159,7 @@ fn main() {
                     } else {
                         engine.renderer.set_backend(Box::new(AsciiBackend::new(engine.width, engine.height)));
                     }
+                    engine.gameplay_loop = loop_mode;
                     state
                 }
             }
@@ -175,6 +177,7 @@ fn main() {
                     } else {
                         engine.renderer.set_backend(Box::new(AsciiBackend::new(engine.width, engine.height)));
                     }
+                    engine.gameplay_loop = proj.gameplay_loop;
                 }
             }
             editor
@@ -210,6 +213,7 @@ fn main() {
             if proj.visual_style == VisualStyle::Sprites2D {
                 engine.renderer.set_backend(Box::new(SpriteBackend::new(engine.width, engine.height)));
             }
+            engine.gameplay_loop = proj.gameplay_loop;
         }
 
         if let Err(e) = run_play_app(&mut engine, data) {
