@@ -1,4 +1,4 @@
-// renderer/mod.rs — The pixel-buffer renderer.
+// renderer/mod.rs — The Wgpu-backed renderer.
 
 pub mod buffer;
 pub mod color;
@@ -7,11 +7,13 @@ pub mod texture;
 pub mod assets;
 
 use std::io;
-use minifb::{Window, WindowOptions, Scale, ScaleMode};
+use std::sync::Arc;
+use winit::window::{Window, WindowBuilder};
+use winit::event_loop::EventLoop;
 
 pub use color::{Color, DEFAULT_FG, DEFAULT_BG};
 pub use texture::Texture;
-pub use backend::{RenderBackend, AsciiBackend, SpriteBackend};
+pub use backend::{RenderBackend, WgpuBackend};
 pub use assets::AssetManager;
 
 const CELL_W: usize = 8;
@@ -19,48 +21,99 @@ const CELL_H: usize = 16;
 pub const SCALE: usize = 2;
 
 pub struct Renderer {
-    window: Window,
-    pixel_buffer: Vec<u32>,
+    window: Arc<Window>,
     pub width: usize,
     pub height: usize,
-    pixel_width: usize,
-    pixel_height: usize,
+    pub pixel_width: usize,
+    pub pixel_height: usize,
     
+    // WGPU core objects
+    instance: wgpu::Instance,
+    surface:  wgpu::Surface<'static>,
+    adapter:  wgpu::Adapter,
+    device:   wgpu::Device,
+    queue:    wgpu::Queue,
+    config:   wgpu::SurfaceConfiguration,
+
     backend: Box<dyn RenderBackend>,
 }
 
 impl Renderer {
-    pub fn new(width: usize, height: usize, title: &str) -> io::Result<Self> {
+    pub fn new(width: usize, height: usize, title: &str, event_loop: &EventLoop<()>) -> io::Result<Self> {
         let pixel_width  = width  * CELL_W;
         let pixel_height = height * CELL_H;
 
-        let window = Window::new(
-            title,
-            pixel_width,
-            pixel_height,
-            WindowOptions {
-                scale:  Scale::X2,
-                resize: true,
-                scale_mode: ScaleMode::Stretch,
-                ..Default::default()
-            },
-        )
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        let window = Arc::new(WindowBuilder::new()
+            .with_title(title)
+            .with_inner_size(winit::dpi::LogicalSize::new(pixel_width as f32 * SCALE as f32, pixel_height as f32 * SCALE as f32))
+            .build(event_loop)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?);
 
-        let backend = Box::new(AsciiBackend::new(width, height));
+        // ── WGPU Initialization ───────────────────────────────────────────
+        
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+
+        // wgpu 0.19+ accepts Arc<Window> as SurfaceTarget
+        let surface = instance.create_surface(Arc::clone(&window))
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+
+        let adapter = pollster::block_on(instance.request_adapter(
+            &wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            },
+        )).expect("Failed to find an appropriate adapter");
+
+        let (device, queue) = pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: None,
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+            },
+            None,
+        )).expect("Failed to create device");
+
+        let surface_caps = surface.get_capabilities(&adapter);
+        let surface_format = surface_caps.formats.iter()
+            .copied()
+            .find(|f| !f.is_srgb()) // Prefer non-SRGB for linear behavior
+            .unwrap_or(surface_caps.formats[0]);
+
+        let size = window.inner_size();
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: surface_format,
+            width: size.width,
+            height: size.height,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: surface_caps.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+        surface.configure(&device, &config);
+
+        let backend = Box::new(WgpuBackend::new(width, height, &device, &queue, surface_format));
 
         Ok(Renderer {
             window,
-            pixel_buffer: vec![Color::Black.to_rgb(DEFAULT_BG); pixel_width * pixel_height],
             width,
             height,
             pixel_width,
             pixel_height,
+            instance,
+            surface,
+            adapter,
+            device,
+            queue,
+            config,
             backend,
         })
     }
 
-    // Proxy methods to the backend
     pub fn backend_name(&self) -> &str { self.backend.name() }
     pub fn set_backend(&mut self, backend: Box<dyn RenderBackend>) {
         self.backend = backend;
@@ -68,49 +121,37 @@ impl Renderer {
         self.height = self.backend.height();
     }
 
-    pub fn is_open(&self) -> bool { self.window.is_open() }
-    pub fn current_keys(&self) -> Vec<minifb::Key> { self.window.get_keys() }
-    pub fn current_mouse_pos(&self) -> Option<(f32, f32)> {
-        self.window.get_mouse_pos(minifb::MouseMode::Pass).map(|(x, y)| {
-            let max_x = (self.pixel_width as f32 - 1.0).max(0.0);
-            let max_y = (self.pixel_height as f32 - 1.0).max(0.0);
-            (x.clamp(0.0, max_x), y.clamp(0.0, max_y))
-        })
+    /// Toggles between ASCII and 2D Sprite rendering modes (if supported by backend).
+    pub fn set_sprite_mode(&mut self, enabled: bool) {
+        self.backend.set_sprite_mode(enabled);
     }
-    pub fn is_mouse_button_down(&self, button: minifb::MouseButton) -> bool { self.window.get_mouse_down(button) }
-    pub fn get_scroll_wheel(&self) -> (f32, f32) { self.window.get_scroll_wheel().unwrap_or((0.0, 0.0)) }
+
+    /// Returns the ratio between the window's inner physical width and our internal pixel width.
+    pub fn scale_factor(&self) -> f32 {
+        self.window.inner_size().width as f32 / self.pixel_width as f32
+    }
 
     #[cfg(target_os = "windows")]
     pub fn maximize(&self) {
-        use std::ffi::c_void;
-        extern "system" {
-            fn ShowWindow(hWnd: *mut c_void, nCmdShow: i32) -> i32;
-            fn SetWindowPos(hWnd: *mut c_void, hWndInsertAfter: *mut c_void, x: i32, y: i32, cx: i32, cy: i32, uFlags: u32) -> i32;
-        }
-        let handle = self.window.get_window_handle();
-        unsafe {
-            ShowWindow(handle, 3); // SW_MAXIMIZE = 3
-            // Trigger a frame change to ensure the window correctly occupies the screen without artifacts.
-            SetWindowPos(handle, std::ptr::null_mut(), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0020 | 0x0040); 
-        }
+        self.window.set_maximized(true);
     }
 
     pub fn clear(&mut self) {
-        self.backend.clear(&mut self.pixel_buffer);
+        self.backend.clear();
     }
 
-    /// Draw a 1:1 UI character (buffered)
     pub fn draw_char(&mut self, x: usize, y: usize, ch: char, fg: Color, bg: Color) {
         self.backend.draw_char(x, y, ch, fg, bg);
     }
 
-    /// Draw a scaled character directly to pixels (immediate)
     pub fn draw_char_scaled_pixels(&mut self, px: i32, py: i32, ch: char, fg: Color, bg: Color, scale: f32) {
-        self.backend.draw_char_scaled_pixels(&mut self.pixel_buffer, self.pixel_width, self.pixel_height, px, py, ch, fg, bg, scale);
+        self.backend.draw_char_scaled_pixels(px, py, ch, fg, bg, scale);
     }
 
     pub fn draw_texture(&mut self, px: i32, py: i32, texture: &Texture, scale: f32) {
-        self.backend.draw_texture(&mut self.pixel_buffer, self.pixel_width, self.pixel_height, px, py, texture, scale);
+        // Ensure texture is on GPU before drawing
+        self.backend.upload_texture(&self.device, &self.queue, texture);
+        self.backend.draw_texture(px, py, texture, scale);
     }
 
     pub fn draw_str(&mut self, x: usize, y: usize, s: &str, fg: Color, bg: Color) {
@@ -150,32 +191,36 @@ impl Renderer {
     }
 
     pub fn present(&mut self) -> io::Result<()> {
-        self.backend.present(&mut self.pixel_buffer, self.pixel_width, self.pixel_height)?;
+        let output = self.surface.get_current_texture().map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.window
-            .update_with_buffer(&self.pixel_buffer, self.pixel_width, self.pixel_height)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        self.backend.render(&self.device, &self.queue, &view);
+
+        output.present();
 
         Ok(())
     }
 
     pub fn try_handle_resize(&mut self) -> bool {
-        let (screen_w, screen_h) = self.window.get_size();
-        
-        // We ROUND UP the number of cells to ensure the buffer slightly overflows the window.
-        // This causes minifb to stretch DOWN (downscale), which looks much smoother for text/ASCII.
-        let new_w = ((screen_w + (SCALE * CELL_W - 1)) / SCALE / CELL_W).max(20);
-        let new_h = ((screen_h + (SCALE * CELL_H - 1)) / SCALE / CELL_H).max(6);
-        
-        if new_w == self.width && new_h == self.height { return false; }
-        
-        self.width = new_w;
-        self.height = new_h;
-        self.pixel_width = new_w * CELL_W;
-        self.pixel_height = new_h * CELL_H;
-        self.pixel_buffer = vec![Color::Black.to_rgb(DEFAULT_BG); self.pixel_width * self.pixel_height];
-        
-        self.backend.resize(new_w, new_h);
-        true
+        let size = self.window.inner_size();
+        if size.width > 0 && size.height > 0 {
+            self.config.width = size.width;
+            self.config.height = size.height;
+            self.surface.configure(&self.device, &self.config);
+            
+            let new_w = ((size.width as usize + (SCALE * CELL_W - 1)) / SCALE / CELL_W).max(20);
+            let new_h = ((size.height as usize + (SCALE * CELL_H - 1)) / SCALE / CELL_H).max(6);
+            
+            if new_w == self.width && new_h == self.height { return false; }
+            
+            self.width = new_w;
+            self.height = new_h;
+            self.pixel_width = new_w * CELL_W;
+            self.pixel_height = new_h * CELL_H;
+            
+            self.backend.resize(new_w, new_h);
+            return true;
+        }
+        false
     }
 }

@@ -1,6 +1,0 @@
-This text shows the current issues with the engine after testing the engine further.
-
-[Major issues]
-
-
-[Minior issues]

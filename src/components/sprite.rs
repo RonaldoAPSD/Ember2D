@@ -22,9 +22,10 @@
 //     4 = UI / overlays
 
 use crate::renderer::Color;
+use serde::{Serialize, Deserialize};
 
 /// The visual representation of an entity in the fake terminal.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sprite {
     /// The ASCII character used to represent this entity.
     pub glyph: char,

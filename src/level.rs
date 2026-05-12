@@ -74,14 +74,17 @@ pub struct TileRecord {
 
     /// If true, the physics system treats this tile as a solid wall.
     /// Moving entities that overlap it are pushed back.
+    #[serde(default)]
     pub solid: bool,
 
     /// If true, this tile fires a Collision event when overlapped,
     /// but does NOT block movement (e.g. a collectible item or a zone).
+    #[serde(default)]
     pub trigger: bool,
 
     /// Optional semantic label used by game logic (e.g. "wall", "floor", "item").
     /// Empty string means no tag.
+    #[serde(default)]
     pub tag: String,
 
     /// The draw layer (0=Background, 1=Main, 2=Foreground).

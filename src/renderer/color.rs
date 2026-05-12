@@ -59,6 +59,14 @@ impl Color {
             Color::Reset       => default,
         }
     }
+
+    pub fn to_rgba(self, default: u32) -> [f32; 4] {
+        let rgb = self.to_rgb(default);
+        let r = ((rgb >> 16) & 0xFF) as f32 / 255.0;
+        let g = ((rgb >> 8) & 0xFF) as f32 / 255.0;
+        let b = (rgb & 0xFF) as f32 / 255.0;
+        [r, g, b, 1.0]
+    }
 }
 
 /// Default foreground (text) color: light grey.

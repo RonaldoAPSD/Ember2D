@@ -24,6 +24,8 @@ impl LogEntry {
 
 pub struct ScriptUpdateResult {
     pub pending_level:   Option<String>,
+    pub pending_save:    Option<String>,
+    pub pending_load:    Option<String>,
     pub globals:         HashMap<String, rhai::Dynamic>,
     pub persistent:      HashMap<String, rhai::Dynamic>,
     pub camera_override: Option<crate::math::Vec2>,
@@ -116,18 +118,21 @@ pub fn color_to_name(color: Color) -> String {
 
 pub(super) fn snapshot_keys(input: &InputManager) -> (HashSet<String>, HashSet<String>) {
     const KEY_MAP: &[(Key, &str)] = &[
-        (Key::W, "w"), (Key::A, "a"), (Key::S, "s"), (Key::D, "d"),
-        (Key::Q, "q"), (Key::E, "e"), (Key::R, "r"), (Key::F, "f"),
-        (Key::Z, "z"), (Key::X, "x"), (Key::C, "c"), (Key::V, "v"),
-        (Key::Up, "up"), (Key::Down, "down"), (Key::Left, "left"), (Key::Right, "right"),
-        (Key::Space, "space"), (Key::Enter, "enter"), (Key::Escape, "escape"),
-        (Key::LeftShift, "shift"), (Key::RightShift, "shift"),
-        (Key::LeftCtrl, "ctrl"),  (Key::RightCtrl, "ctrl"),
+        (Key::W, "W"), (Key::A, "A"), (Key::S, "S"), (Key::D, "D"),
+        (Key::Q, "Q"), (Key::E, "E"), (Key::R, "R"), (Key::F, "F"),
+        (Key::Z, "Z"), (Key::X, "X"), (Key::C, "C"), (Key::V, "V"),
+        (Key::Up, "Up"), (Key::Down, "Down"), (Key::Left, "Left"), (Key::Right, "Right"),
+        (Key::Space, "Space"), (Key::Enter, "Enter"), (Key::Escape, "Escape"),
+        (Key::LeftShift, "Shift"), (Key::RightShift, "Shift"),
+        (Key::LeftCtrl, "Ctrl"),  (Key::RightCtrl, "Ctrl"),
         (Key::Key1, "1"), (Key::Key2, "2"), (Key::Key3, "3"),
         (Key::Key4, "4"), (Key::Key5, "5"), (Key::Key6, "6"),
         (Key::Key7, "7"), (Key::Key8, "8"), (Key::Key9, "9"), (Key::Key0, "0"),
-        (Key::Tab, "tab"),
-        (Key::Backspace, "backspace"),
+        (Key::Tab, "Tab"),
+        (Key::Backspace, "Backspace"),
+        (Key::F1, "F1"), (Key::F2, "F2"), (Key::F3, "F3"), (Key::F4, "F4"),
+        (Key::F5, "F5"), (Key::F6, "F6"), (Key::F7, "F7"), (Key::F8, "F8"),
+        (Key::F9, "F9"), (Key::F10, "F10"), (Key::F11, "F11"), (Key::F12, "F12"),
     ];
 
     let mut held         = HashSet::new();

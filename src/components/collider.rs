@@ -28,9 +28,10 @@
 //   Use `world_rect()` to compute the actual world-space bounding box.
 
 use crate::math::Rect;
+use serde::{Serialize, Deserialize};
 
 /// Defines the bounding box used for collision detection.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Collider {
     /// Width of the hitbox in world units (characters wide).
     pub width: f32,

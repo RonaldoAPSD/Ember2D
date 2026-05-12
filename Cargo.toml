@@ -15,8 +15,20 @@ version = "0.5.0"
 edition = "2021"
 
 [dependencies]
-# minifb: opens a real OS window and gives us a raw u32 pixel buffer to draw into.
-minifb = "0.27"
+# winit: opens a real OS window and provides an event loop.
+winit = { version = "0.29" }
+
+# wgpu: cross-platform, safe, pure-rust graphics API.
+wgpu = "0.19"
+
+# bytemuck: for casting vertex data to bytes for GPU upload.
+bytemuck = { version = "1", features = ["derive"] }
+
+# glam: fast linear algebra for 2D/3D math.
+glam = "0.25"
+
+# pollster: for blocking on async WGPU calls.
+pollster = "0.3"
 
 # font8x8: an embedded 8×8-pixel bitmap font covering the ASCII range (0–127).
 font8x8 = "0.2"
@@ -49,7 +61,7 @@ ron = "0.8"
 #
 # Scripts live in .rhai files and define an `on_update(entity_id, ctx)` function
 # called every frame by the engine for entities that have a Script component.
-rhai = { version = "1", features = ["no_module", "no_closure"] }
+rhai = { version = "1", features = ["no_module", "no_closure", "serde"] }
 
 # kira: a game-focused audio library with first-class support for looping,
 # fading, and pausing. Pure Rust — no C dependencies, builds on all platforms.
@@ -59,3 +71,6 @@ kira = { version = "0.9", features = ["ogg", "mp3"] }
 # rand: random number generation. SmallRng is fast and suitable for games.
 rand = { version = "0.8", features = ["small_rng"] }
 rfd = "0.17.2"
+
+# gilrs: gamepad input support.
+gilrs = "0.10"

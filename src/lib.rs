@@ -29,6 +29,7 @@ pub mod components;
 pub mod editor;
 pub mod engine;
 pub mod event;
+pub mod gamepad;
 pub mod input;
 pub mod level;
 pub mod math;
@@ -36,6 +37,7 @@ pub mod mouse;
 pub mod play;
 pub mod project;
 pub mod renderer;
+pub mod save;
 pub mod scripting;
 pub mod ui;
 pub mod world;
@@ -53,7 +55,7 @@ pub mod prelude {
 
     // ── Renderer ──────────────────────────────────────────────────────────
     // The terminal renderer and its color palette.
-    pub use crate::renderer::{Color, Renderer, Texture, RenderBackend, AsciiBackend, SpriteBackend, AssetManager};
+    pub use crate::renderer::{Color, Renderer, Texture, RenderBackend, WgpuBackend, AssetManager};
 
     // ── Components ────────────────────────────────────────────────────────
     // The four core components every entity can have.
@@ -64,9 +66,10 @@ pub mod prelude {
     pub use crate::world::{EntityId, World};
 
     // ── Input ─────────────────────────────────────────────────────────────
-    // The input manager and Key (re-exported from minifb).
+    // The input manager and Key.
     // Game code uses Key::W, Key::Up, Key::Escape, etc.
     pub use crate::input::{InputManager, Key};
+    pub use crate::gamepad::{GamepadState, GamepadButton, GamepadAxis};
 
     // ── Events ────────────────────────────────────────────────────────────
     // The event bus and all event types.
@@ -83,10 +86,12 @@ pub mod prelude {
     // ── Level ─────────────────────────────────────────────────────────────
     // Serializable level format for saving/loading levels.
     pub use crate::level::{LevelData, TileRecord};
+    pub use crate::save::SaveState;
 
     // ── Editor ────────────────────────────────────────────────────────────
     pub use crate::editor::EditorState;
-    pub use crate::editor::start_screen::{StartScreen, StartResult, StartTemplate};
+    pub use crate::editor::start_screen::StartScreen;
+    pub use crate::project::{StartResult, StartTemplate};
     pub use crate::project::{ProjectData, VisualStyle, GameplayLoop};
 
     // ── Play mode ─────────────────────────────────────────────────────────

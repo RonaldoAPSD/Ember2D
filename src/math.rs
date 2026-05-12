@@ -24,6 +24,8 @@
 
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
+use serde::{Serialize, Deserialize};
+
 // ─────────────────────────── Vec2 ────────────────────────────────────────────
 
 /// A 2-dimensional vector with 32-bit floating-point components.
@@ -31,7 +33,7 @@ use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 /// Used for world-space positions, velocities, directions, and forces.
 /// The `Copy` derive means this type is cheap to copy — passing it to a
 /// function does not move it out of the caller (unlike heap-allocated types).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Vec2 {
     pub x: f32,
     pub y: f32,
@@ -157,7 +159,7 @@ impl Neg for Vec2 {
 ///
 /// Used for screen/grid positions where fractional values are meaningless.
 /// `Eq` and `Hash` are derived so IVec2 can be used as a HashMap key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct IVec2 {
     pub x: i32,
     pub y: i32,
@@ -206,7 +208,7 @@ impl Sub for IVec2 {
 ///     h  │           │
 ///     │  └───────────┘
 ///     ▼
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Rect {
     /// X coordinate of the left edge.
     pub x: f32,

@@ -27,11 +27,14 @@
 //       }
 //   }
 
+use serde::{Serialize, Deserialize};
+
 /// Marks an entity as having a script that runs every frame.
 ///
 /// The `path` field is a relative or absolute path to a `.rhai` script file.
 /// The ScriptEngine in `src/scripting.rs` compiles the file once on level load
 /// and calls its `on_update(entity_id, ctx)` function every game frame.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Script {
     /// Path to the `.rhai` file on disk.
     /// Relative paths are resolved from the current working directory (where

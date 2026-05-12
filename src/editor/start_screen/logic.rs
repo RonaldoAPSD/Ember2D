@@ -46,7 +46,7 @@ impl StartScreen {
         self.fb_cursor = 0;
     }
 
-    pub(super) fn open_project(&mut self, folder: &str, quit: &mut bool) {
+    pub(super) fn open_project(&mut self, folder: &str, _quit: &mut bool) {
         let name   = ProjectData::name_for(folder);
         let levels = ProjectData::levels_in(folder);
         let config = ProjectData::load(folder).unwrap_or_else(|_| ProjectData::new(name.clone(), VisualStyle::ClassicASCII, GameplayLoop::RealTime));
@@ -60,55 +60,47 @@ impl StartScreen {
             gameplay_loop: config.gameplay_loop,
         };
 
-        // Priority 1: Use start_level from config if it exists and is valid (case-insensitive).
         if let Some(ref start) = config.start_level {
-            // Check exact first
             let path = std::path::Path::new(folder).join(start);
             if path.exists() {
                 result.level_path = path.to_string_lossy().into_owned();
-                self.result = Some(result);
-                *quit = true;
+                self.pending_transition = Some(Transition::ToEditorWithResult(result));
                 return;
             }
-
-            // Case-insensitive fallback
             if let Ok(rd) = std::fs::read_dir(folder) {
                 for entry in rd.filter_map(|e| e.ok()) {
                     let name = entry.file_name().to_string_lossy().to_string();
                     if name.eq_ignore_ascii_case(start) {
                         result.level_path = entry.path().to_string_lossy().into_owned();
-                        self.result = Some(result);
-                        *quit = true;
+                        self.pending_transition = Some(Transition::ToEditorWithResult(result));
                         return;
                     }
                 }
             }
         }
 
-        // Priority 2: Standard level picking logic if no start_level or file missing.
         match levels.len() {
-            0 => { result.level_path = format!("{}/main.level", folder); result.template = Some(StartTemplate::Empty); self.result = Some(result); *quit = true; }
-            1 => { result.level_path = levels.into_iter().next().unwrap(); self.result = Some(result); *quit = true; }
+            0 => { result.level_path = format!("{}/main.level", folder); result.template = Some(StartTemplate::Empty); self.pending_transition = Some(Transition::ToEditorWithResult(result)); }
+            1 => { result.level_path = levels.into_iter().next().unwrap(); self.pending_transition = Some(Transition::ToEditorWithResult(result)); }
             _ => { self.sel_project = folder.to_string(); self.sel_project_name = name; self.level_list = levels; self.level_cursor = 0; self.screen = Screen::LevelPicker; }
         }
     }
 
-    pub(super) fn confirm_template(&mut self, quit: &mut bool) {
+    pub(super) fn confirm_template(&mut self, _quit: &mut bool) {
         let tmpl = if self.template_sel == 0 { StartTemplate::Empty } else { StartTemplate::BasicRoom };
         let folder = self.folder_buf.clone();
         let level_path = std::path::Path::new(&folder).join("main.level").to_string_lossy().into_owned();
         let visual_style = if self.style_sel == 0 { VisualStyle::ClassicASCII } else { VisualStyle::Sprites2D };
         let gameplay_loop = if self.loop_sel == 0 { GameplayLoop::RealTime } else { GameplayLoop::TurnBased };
         
-        self.result = Some(StartResult { 
+        self.pending_transition = Some(Transition::ToEditorWithResult(StartResult { 
             level_path, 
             project_folder: folder, 
             project_name: self.name_buf.clone(), 
             template: Some(tmpl),
             visual_style,
             gameplay_loop,
-        });
-        *quit = true;
+        }));
     }
 
     pub(super) fn update_logic(&mut self, input: &crate::input::InputManager, mouse: &crate::mouse::MouseState, sw: usize, _sh: usize, quit: &mut bool) {
@@ -236,15 +228,14 @@ impl StartScreen {
                 if confirm && !self.level_list.is_empty() { 
                     let path = self.level_list[self.level_cursor].clone(); 
                     let config = ProjectData::load(&self.sel_project).unwrap_or_else(|_| ProjectData::new(self.sel_project_name.clone(), VisualStyle::ClassicASCII, GameplayLoop::RealTime));
-                    self.result = Some(StartResult { 
+                    self.pending_transition = Some(Transition::ToEditorWithResult(StartResult { 
                         project_folder: self.sel_project.clone(), 
                         project_name: self.sel_project_name.clone(), 
                         level_path: path, 
                         template: None,
                         visual_style: config.visual_style,
                         gameplay_loop: config.gameplay_loop,
-                    }); 
-                    *quit = true; 
+                    })); 
                 }
             }
         }

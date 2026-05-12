@@ -27,64 +27,36 @@ use commands::UndoStack;
 use grid::LevelGrid;
 use palette::TilePalette;
 use panel::PanelManager;
-use start_screen::{StartResult, StartTemplate};
+use crate::project::{StartResult, StartTemplate};
 use ui::{Layout, ToolKind, MenuKind, HierarchySelection};
 
-// Default level size (used for initial grid). Independent from the viewport layout.
 pub const DEFAULT_LEVEL_W: usize = 68;
 pub const DEFAULT_LEVEL_H: usize = 22;
 
-// ── Text input ────────────────────────────────────────────────────────────────
-
 #[derive(Debug, Clone)]
 pub enum TextInputPurpose {
-    LevelName,
-    SaveAs,
-    ScriptPath       { gx: i32, gy: i32 },
-    TileNextLevel    { gx: i32, gy: i32 },
-    TileTag          { gx: i32, gy: i32 },
-    TileGlyph        { gx: i32, gy: i32 },
-    NamedSpawn,
-    ResizeLevel,
-    PlayerTag,
-    PlayerScript,
-    PlayerGlyph,
-    NewLevelName,
-    NewScriptName,
-    PaletteName,
-    TileColliderLayer { gx: i32, gy: i32 },
-    TileColliderMask  { gx: i32, gy: i32 },
-    PlayerColliderLayer,
-    PlayerColliderMask,
+    LevelName, SaveAs, ScriptPath { gx: i32, gy: i32 }, TileNextLevel { gx: i32, gy: i32 },
+    TileTag { gx: i32, gy: i32 }, TileGlyph { gx: i32, gy: i32 }, NamedSpawn, ResizeLevel,
+    PlayerTag, PlayerScript, PlayerGlyph, NewLevelName, NewScriptName, PaletteName,
+    TileColliderLayer { gx: i32, gy: i32 }, TileColliderMask { gx: i32, gy: i32 },
+    PlayerColliderLayer, PlayerColliderMask,
 }
 
 #[derive(Debug, Clone)]
-pub struct TextInput {
-    pub buffer:  String,
-    pub purpose: TextInputPurpose,
-}
+pub struct TextInput { pub buffer: String, pub purpose: TextInputPurpose }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PaletteField { Name, Glyph, Tag }
 
 #[derive(Debug, Clone)]
-pub enum ModalPurpose {
-    ConfirmSwitchLevel { path: String },
-}
+pub enum ModalPurpose { ConfirmSwitchLevel { path: String } }
 
-pub struct Modal {
-    pub title:   String,
-    pub message: String,
-    pub purpose: ModalPurpose,
-}
-
-// ── EditorState ───────────────────────────────────────────────────────────────
+pub struct Modal { pub title: String, pub message: String, pub purpose: ModalPurpose }
 
 pub struct EditorState {
     pub(super) grid:    LevelGrid,
     pub(super) palette: TilePalette,
     pub(super) undo:    UndoStack,
-
     pub(super) save_path: String,
     pub(super) unsaved:   bool,
     pub(super) show_grid: bool,
@@ -94,25 +66,15 @@ pub struct EditorState {
     pub(super) palette_editing_idx: usize,
     pub(super) palette_editor_focus: Option<PaletteField>,
     pub(super) palette_search_focused: bool,
-
     pub(super) save_message:       Option<String>,
     pub(super) save_message_timer: u32,
-
     pub(super) pending_transition: Option<Transition>,
-
-    // ── Scroll / canvas pan ───────────────────────────────────────────────────
     pub(super) scroll: (i32, i32),
-
-    // ── Drawing tools ─────────────────────────────────────────────────────────
     pub(super) rect_anchor: Option<(i32, i32)>,
     pub(super) line_anchor: Option<(i32, i32)>,
     pub(super) erase_size:  usize,
-
-    // ── Text input / Modals ───────────────────────────────────────────────────
     pub(super) text_input: Option<TextInput>,
     pub(super) modal:      Option<Modal>,
-
-    // ── Copy / paste / cut ────────────────────────────────────────────────────
     pub(super) selecting:  bool,
     pub(super) cutting:    bool,
     pub(super) sel_anchor: Option<(i32, i32)>,
@@ -121,30 +83,19 @@ pub struct EditorState {
     pub(super) paste_flip_x: bool,
     pub(super) paste_flip_y: bool,
     pub(super) paste_rotate: i32,
-
-    // ── File browser ──────────────────────────────────────────────────────────
     pub(super) file_browser_files:  Vec<String>,
     pub(super) file_browser_cursor: usize,
     pub(super) file_browser_scroll: usize,
     pub(super) current_folder:      String,
-
-    // ── Script Editor ─────────────────────────────────────────────────────────
     pub(super) script_path:    Option<String>,
     pub(super) script_buffer:  Vec<String>,
-    pub(super) script_cursor:  (usize, usize), // (col, row)
+    pub(super) script_cursor:  (usize, usize),
     pub(super) script_scroll:  usize,
     pub(super) script_unsaved: bool,
-
-    // ── Project context ───────────────────────────────────────────────────────
     pub project_folder: Option<String>,
     pub project_name:   Option<String>,
-
-    // ── Console / inspector log ───────────────────────────────────────────────
     pub(super) console_log: Vec<LogEntry>,
-
-    // ── Inspector ─────────────────────────────────────────────────────────────
     pub(super) inspected_pos:  Option<(i32, i32)>,
-    // ── Modes ─────────────────────────────────────────────────────────────────
     pub(super) active_tool:  ToolKind,
     pub(super) select_mode:  bool,
     pub(super) selected_pos: Option<(i32, i32)>,
@@ -152,19 +103,13 @@ pub struct EditorState {
     pub(super) placing_spawn: bool,
     pub(super) placing_named_spawn: Option<String>,
     pub(super) ignore_drag:  bool,
-
-    // ── Panning ───────────────────────────────────────────────────────────────
     pub(super) pan_anchor:   Option<(usize, usize, i32, i32)>,
     pub(super) scroll_repeat: u32,
-
-    // ── UI state ──────────────────────────────────────────────────────────────
     pub(super) panels:      PanelManager,
     pub(super) focused_panel: Option<PanelId>,
     pub(super) show_physics: bool,
     pub(super) show_help:    bool,
     pub(super) active_menu:  Option<MenuKind>,
-
-    // ── Graph editor mode ─────────────────────────────────────────────────────
     pub(super) graph_mode:          Option<(i32, i32)>,
     pub(super) graph_view_ox:       i32,
     pub(super) graph_view_oy:       i32,
@@ -176,10 +121,7 @@ pub struct EditorState {
     pub(super) graph_palette_cursor: usize,
     pub(super) graph_editing_param: Option<(node_graph::NodeId, String)>,
     pub(super) graph_clipboard:     Option<node_graph::Node>,
-
-    // ── Script editor mode ────────────────────────────────────────────────────
     pub(super) script_mode: bool,
-
     pub(super) layout: Layout,
     pub(super) zoom:   f32,
 }
@@ -271,9 +213,7 @@ impl EditorState {
     pub(super) fn load_palette(&mut self) {
         if let Some(ref folder) = self.project_folder {
             let path = format!("{}/project.palette.ron", folder);
-            if let Ok(pal) = TilePalette::load(&path) {
-                self.palette = pal;
-            }
+            if let Ok(pal) = TilePalette::load(&path) { self.palette = pal; }
         }
     }
 
@@ -289,22 +229,15 @@ impl EditorState {
                 Ok(editor)
             }
             Some(template) => {
-                std::fs::create_dir_all(&result.project_folder)
-                    .map_err(|e| format!("Cannot create '{}': {}", result.project_folder, e))?;
-                ProjectData::new(&result.project_name, result.visual_style, result.gameplay_loop)
-                    .save(&result.project_folder)
-                    .map_err(|e| format!("Cannot write project.ron: {}", e))?;
-
+                std::fs::create_dir_all(&result.project_folder).map_err(|e| format!("Cannot create '{}': {}", result.project_folder, e))?;
+                ProjectData::new(&result.project_name, result.visual_style, result.gameplay_loop).save(&result.project_folder).map_err(|e| format!("Cannot write project.ron: {}", e))?;
                 let mut editor = EditorState::new(&result.level_path);
                 editor.grid.name    = result.project_name.clone();
                 editor.project_folder = Some(result.project_folder);
                 editor.project_name   = Some(result.project_name);
                 editor.load_palette();
                 editor.refresh_project_files();
-
-                if template == StartTemplate::BasicRoom {
-                    apply_basic_room(&mut editor.grid);
-                }
+                if template == StartTemplate::BasicRoom { apply_basic_room(&mut editor.grid); }
                 editor.unsaved = true;
                 Ok(editor)
             }
@@ -313,7 +246,7 @@ impl EditorState {
 }
 
 impl GameState for EditorState {
-    fn on_start(&mut self, _world: &mut World, _events: &mut EventBus) {}
+    fn on_start(&mut self, _world: &mut World, _events: &mut EventBus, _viewport_width: usize, _viewport_height: usize) {}
     fn update(&mut self, ctx: UpdateContext) { self.handle_update(ctx); }
     fn render(&mut self, ctx: RenderContext) { self.handle_render(ctx); }
     fn take_transition(&mut self) -> Option<Transition> { self.pending_transition.take() }

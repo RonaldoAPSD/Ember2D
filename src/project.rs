@@ -73,6 +73,19 @@ fn default_visual_style() -> VisualStyle { VisualStyle::ClassicASCII }
 fn default_gameplay_loop() -> GameplayLoop { GameplayLoop::RealTime }
 fn default_start_level() -> Option<String> { Some("main.level".to_string()) }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum StartTemplate { Empty, BasicRoom }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartResult {
+    pub project_folder: String,
+    pub project_name:   String,
+    pub level_path:     String,
+    pub template:       Option<StartTemplate>,
+    pub visual_style:   VisualStyle,
+    pub gameplay_loop:  GameplayLoop,
+}
+
 impl ProjectData {
     /// Create a new ProjectData with the given settings.
     pub fn new(name: impl Into<String>, visual_style: VisualStyle, gameplay_loop: GameplayLoop) -> Self {

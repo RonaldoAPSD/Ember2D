@@ -82,7 +82,7 @@ impl ScriptCtx {
     }
 
     pub fn despawn(&mut self, id: i64) { self.inner.borrow_mut().despawn_queue.push(id); }
-    pub fn spawn(&mut self, glyph_str: String, x: f64, y: f64, tag: String) -> i64 {
+    pub fn spawn_entity(&mut self, glyph_str: String, x: f64, y: f64, tag: String) -> i64 {
         let glyph = glyph_str.chars().next().unwrap_or('?');
         let mut s = self.inner.borrow_mut();
         let id = s.next_spawn_id;
@@ -249,6 +249,9 @@ impl ScriptCtx {
         self.inner.borrow_mut().pending_hud_draws.push(HudDraw::Fill { x: x as usize, y: y as usize, w: w as usize, h: h as usize, ch, fg: parse_color(&fg), bg: parse_color(&bg) });
     }
     pub fn clear_hud(&mut self) { self.inner.borrow_mut().clear_hud = true; }
+
+    pub fn save_game(&mut self, path: String) { self.inner.borrow_mut().pending_save = Some(path); }
+    pub fn load_game(&mut self, path: String) { self.inner.borrow_mut().pending_load = Some(path); }
 
     pub fn get_viewport_width(&mut self) -> i64 { self.inner.borrow_mut().viewport_size.0 as i64 }
     pub fn get_viewport_height(&mut self) -> i64 { self.inner.borrow_mut().viewport_size.1 as i64 }
@@ -425,5 +428,53 @@ impl ScriptCtx {
     pub fn set_collider_mask(&mut self, id: i64, mask: Array) {
         let mask_vec: Vec<String> = mask.into_iter().map(|d| d.to_string()).collect();
         self.inner.borrow_mut().pending_collider_mask.push((id, mask_vec));
+    }
+
+    // ── V0.5 Hierarchy ────────────────────────────────────────────────────────
+
+    pub fn get_parent(&mut self, id: i64) -> i64 { self.inner.borrow_mut().parents.get(&id).copied().unwrap_or(-1) }
+    pub fn set_parent(&mut self, id: i64, parent_id: i64) { self.inner.borrow_mut().pending_parents.push((id, parent_id, false)); }
+    pub fn set_parent_keep_world(&mut self, id: i64, parent_id: i64) { self.inner.borrow_mut().pending_parents.push((id, parent_id, true)); }
+
+    pub fn get_world_x(&mut self, id: i64) -> f64 {
+        let mut x = 0.0;
+        let mut curr = id;
+        let s = self.inner.borrow_mut();
+        let mut depth = 0;
+        while curr != -1 && depth < 100 {
+            if let Some(&(px, _)) = s.positions.get(&curr) {
+                x += px as f64;
+                curr = s.parents.get(&curr).copied().unwrap_or(-1);
+            } else { break; }
+            depth += 1;
+        }
+        x
+    }
+
+    pub fn get_world_y(&mut self, id: i64) -> f64 {
+        let mut y = 0.0;
+        let mut curr = id;
+        let s = self.inner.borrow_mut();
+        let mut depth = 0;
+        while curr != -1 && depth < 100 {
+            if let Some(&(_, py)) = s.positions.get(&curr) {
+                y += py as f64;
+                curr = s.parents.get(&curr).copied().unwrap_or(-1);
+            } else { break; }
+            depth += 1;
+        }
+        y
+    }
+
+    pub fn gp_is_held(&mut self, gp_id: i64, btn: String) -> bool {
+        self.inner.borrow_mut().gamepad_held.contains(&(gp_id as usize, btn))
+    }
+
+    pub fn gp_just_pressed(&mut self, gp_id: i64, btn: String) -> bool {
+        self.inner.borrow_mut().gamepad_pressed.contains(&(gp_id as usize, btn))
+    }
+
+    pub fn gp_axis(&mut self, gp_id: i64, axis: String) -> f64 {
+        self.inner.borrow_mut().gamepad_axes.get(&(gp_id as usize, axis)).copied().unwrap_or(0.0) as f64
     }
 }

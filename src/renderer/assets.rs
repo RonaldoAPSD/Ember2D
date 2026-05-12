@@ -25,9 +25,7 @@ impl AssetManager {
                 Err(e) => {
                     eprintln!("Failed to load texture '{}': {}", path, e);
                     // Insert a 1x1 magenta placeholder so we don't spam errors
-                    let fallback = Texture {
-                        width: 1, height: 1, pixels: vec![0xFFFF00FF] // Magenta
-                    };
+                    let fallback = Texture::solid(0xFFFF00FF);
                     self.textures.insert(path.to_string(), fallback);
                 }
             }

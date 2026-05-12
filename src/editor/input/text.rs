@@ -8,15 +8,14 @@ use super::super::commands::Command;
 use super::super::commands::UndoStack;
 
 impl EditorState {
-    pub(super) fn handle_text_input(&mut self, input: &crate::input::InputManager) {
-        let shift = input.is_held(Key::LeftShift) || input.is_held(Key::RightShift);
-        
+    pub(super) fn handle_text_input(&mut self, input: &mut crate::input::InputManager) {
         if let Some(ref mut ti) = self.text_input {
-            for &key in TEXT_INPUT_KEYS {
-                if input.just_pressed(key) {
-                    if let Some(ch) = key_to_char(key, shift) { ti.buffer.push(ch); }
-                }
+            // Use the engine's captured text characters first (handles Shift, AltGr, Symbols correctly)
+            let captured = input.take_text();
+            for ch in captured.chars() {
+                ti.buffer.push(ch);
             }
+
             if input.just_pressed(Key::Backspace) { ti.buffer.pop(); }
 
             if input.just_pressed(Key::Enter) {
