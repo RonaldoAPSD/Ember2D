@@ -6,16 +6,17 @@ This roadmap outlines the evolution of Ember2D from V0.5.1 into the V0.6.0 "Crea
 
 ## V0.5.x: The UI & Functionality Cycle
 
-### V0.5.2: Contextual Workflow
-- [ ] **File Manager Right-Click**: Create new `.level`, `.rhai`, or folders directly from the browser.
-- [ ] **Tab Context Menus**: Right-click tabs to "Close", "Close Others", or "Float".
-- [ ] **Hierarchy Right-Click**: "Teleport Camera to", "Duplicate", or "Delete" entities.
+### V0.5.2: Contextual Workflow (COMPLETED)
+- [x] **File Manager Right-Click**: Create new `.level`, `.rhai`, or folders directly from the browser.
+- [x] **Tab Context Menus**: Right-click tabs to "Close", "Close Others", or "Float".
+- [x] **Hierarchy Right-Click**: "Teleport Camera to", "Duplicate", or "Delete" entities.
 
-### V0.5.3: Viewport & Navigation Polish
-- [ ] **Smooth Camera**: Implement eased lerping for camera movements.
-- [ ] **Pivot-based Zoom**: Refine zooming to always center on the mouse cursor.
-- [ ] **Grid Snap Toggle**: Enable/disable strict snapping for spawn placement.
-- [ ] **Minimap Overlay**: A small navigational overview for large levels.
+### V0.5.3: The Modular Workspace
+- [ ] **Viewport Panelization**: Convert the main canvas into a dockable, non-closable `Panel`.
+- [ ] **Master Fill Logic**: Viewport automatically fills remaining space in the dock layout.
+- [ ] **Smooth Camera (Lerp)**: Transition to fluid, `f32`-based camera movement and panning.
+- [ ] **Visual Canvas Rulers**: Add coordinate indices (0...5...10) along Viewport edges.
+- [ ] **Enhanced Selection**: High-contrast "bracketed" or "boxed" cursor highlight.
 
 ### V0.5.4: Inspector 2.0 (Dynamic Layout)
 - [ ] **Property Grid**: Shift from hardcoded offsets to a dynamic row-based layout.
