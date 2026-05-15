@@ -1,6 +1,50 @@
 // editor/ui/types.rs — Shared UI types and Layout struct.
 
 
+// ── DockSide ──────────────────────────────────────────────────────────────────
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DockSide { None, Left, Right, Bottom }
+
+// ── PanelId ───────────────────────────────────────────────────────────────────
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum PanelId {
+    Hierarchy,
+    Palette,
+    Inspector,
+    Console,
+    Stats,
+    ScriptEditor,
+    FileBrowser,
+}
+
+// ── Context Menu ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub enum ContextMenuAction {
+    // File Browser
+    NewLevel,
+    NewScript,
+    NewFolder,
+    DeleteFile(String),
+    // Tabs
+    CloseTab(PanelId),
+    CloseOthers(PanelId),
+    FloatPanel(PanelId),
+    // Hierarchy
+    FocusCamera(HierarchySelection),
+    DuplicateEntity(HierarchySelection),
+    DeleteEntity(HierarchySelection),
+}
+
+pub struct ContextMenu {
+    pub x: usize,
+    pub y: usize,
+    pub items: Vec<(&'static str, ContextMenuAction)>,
+    pub selected: usize,
+}
+
 // ── Hierarchy selection ───────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, PartialEq, Debug)]

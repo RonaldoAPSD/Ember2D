@@ -40,6 +40,7 @@ pub enum TextInputPurpose {
     PlayerTag, PlayerScript, PlayerGlyph, NewLevelName, NewScriptName, PaletteName,
     TileColliderLayer { gx: i32, gy: i32 }, TileColliderMask { gx: i32, gy: i32 },
     PlayerColliderLayer, PlayerColliderMask,
+    PaletteFgCustom, PaletteBgCustom,
 }
 
 #[derive(Debug, Clone)]
@@ -122,6 +123,9 @@ pub struct EditorState {
     pub(super) graph_editing_param: Option<(node_graph::NodeId, String)>,
     pub(super) graph_clipboard:     Option<node_graph::Node>,
     pub(super) script_mode: bool,
+    pub(super) color_picker_open: Option<bool>,
+    pub(super) color_picker_hsv: (f32, f32, f32),
+    pub(super) context_menu: Option<ui::ContextMenu>,
     pub(super) layout: Layout,
     pub(super) zoom:   f32,
 }
@@ -197,6 +201,9 @@ impl EditorState {
             graph_editing_param: None,
             graph_clipboard:     None,
             script_mode:         false,
+            color_picker_open:   None,
+            color_picker_hsv:    (0.0, 1.0, 1.0),
+            context_menu:        None,
             layout:       Layout::new(80, 24),
             zoom:         1.0,
         }

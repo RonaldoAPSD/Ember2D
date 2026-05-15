@@ -42,9 +42,11 @@ pub fn run_editor_app(engine: &mut Engine, editor: EditorState) -> io::Result<bo
                     
                     match engine.run()? {
                         Some(Transition::ToEditor) => {
-                            engine.pop_state(); // Pop play state
+                            while engine.state_stack_len() > 1 {
+                                engine.pop_state();
+                            }
                             engine.reset_world();
-                            break; // Back to editor
+                            break; // Back to editor loop
                         }
                         Some(Transition::ToPlay(next_data)) => {
                             engine.pop_state();
@@ -57,14 +59,18 @@ pub fn run_editor_app(engine: &mut Engine, editor: EditorState) -> io::Result<bo
                             // Loop continues and restores world at top
                         }
                         Some(Transition::ToStart) => {
-                            engine.pop_state();
+                            while engine.state_stack_len() > 1 {
+                                engine.pop_state();
+                            }
                             return Ok(true);
                         }
                         Some(Transition::Quit) => {
                             return Ok(false);
                         }
                         _ => {
-                            engine.pop_state();
+                            while engine.state_stack_len() > 1 {
+                                engine.pop_state();
+                            }
                             break;
                         }
                     }

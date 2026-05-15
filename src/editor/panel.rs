@@ -7,24 +7,7 @@
 //   the inner edge is the resize target (right edge for Left-docked, etc.).
 
 use crate::renderer::{color::Color, Renderer};
-
-// ── DockSide ──────────────────────────────────────────────────────────────────
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum DockSide { None, Left, Right, Bottom }
-
-// ── PanelId ───────────────────────────────────────────────────────────────────
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum PanelId {
-    Hierarchy,
-    Palette,
-    Inspector,
-    Console,
-    Stats,
-    ScriptEditor,
-    FileBrowser,
-}
+pub use super::ui::{DockSide, PanelId};
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
 
@@ -104,6 +87,9 @@ pub struct PanelManager {
     next_z:   usize,
     dragging: Option<PanelId>,
     resizing: Option<PanelId>,
+    pub active_left:   Option<PanelId>,
+    pub active_right:  Option<PanelId>,
+    pub active_bottom: Option<PanelId>,
 }
 
 pub const HIER_W: usize = 14;
@@ -153,7 +139,12 @@ impl PanelManager {
 
         for (i, p) in panels.iter_mut().enumerate() { p.z = i; }
 
-        PanelManager { panels, next_z: 7, dragging: None, resizing: None }
+        PanelManager {
+            panels, next_z: 7, dragging: None, resizing: None,
+            active_left:   Some(PanelId::Hierarchy),
+            active_right:  Some(PanelId::Inspector),
+            active_bottom: Some(PanelId::Console),
+        }
     }
 
     fn idx(&self, id: PanelId) -> usize {
@@ -173,7 +164,25 @@ impl PanelManager {
     pub fn show(&mut self, id: PanelId) {
         let i = self.idx(id);
         self.panels[i].visible = true;
+        let dock = self.panels[i].dock;
+        match dock {
+            DockSide::Left   => self.active_left = Some(id),
+            DockSide::Right  => self.active_right = Some(id),
+            DockSide::Bottom => self.active_bottom = Some(id),
+            DockSide::None   => {}
+        }
         self.bring_to_front(id);
+    }
+
+    pub fn set_active(&mut self, id: PanelId) {
+        let i = self.idx(id);
+        if !self.panels[i].visible { return; }
+        match self.panels[i].dock {
+            DockSide::Left   => self.active_left = Some(id),
+            DockSide::Right  => self.active_right = Some(id),
+            DockSide::Bottom => self.active_bottom = Some(id),
+            DockSide::None   => {}
+        }
     }
 
     pub fn hide(&mut self, id: PanelId) {
@@ -197,7 +206,15 @@ impl PanelManager {
     /// Panel IDs sorted lowest-z first (back-to-front draw order).
     pub fn in_draw_order(&self) -> Vec<PanelId> {
         let mut order: Vec<(usize, PanelId)> = self.panels.iter()
-            .filter(|p| p.visible)
+            .filter(|p| {
+                if !p.visible { return false; }
+                match p.dock {
+                    DockSide::Left   => self.active_left   == Some(p.id),
+                    DockSide::Right  => self.active_right  == Some(p.id),
+                    DockSide::Bottom => self.active_bottom == Some(p.id),
+                    DockSide::None   => true,
+                }
+            })
             .map(|p| (p.z, p.id))
             .collect();
         order.sort_by_key(|(z, _)| *z);
@@ -238,6 +255,53 @@ impl PanelManager {
 
     pub fn is_point_on_panel(&self, col: usize, row: usize) -> bool {
         self.panels.iter().any(|p| p.visible && p.contains(col, row))
+    }
+
+    pub fn get_docked_panels(&self, side: DockSide) -> Vec<PanelId> {
+        self.panels.iter()
+            .filter(|p| p.visible && p.dock == side)
+            .map(|p| p.id)
+            .collect()
+    }
+
+    pub fn tab_at(&self, col: usize, row: usize, _screen_w: usize, _screen_h: usize) -> Option<PanelId> {
+        // Check Left dock
+        if let Some(active_id) = self.active_left {
+            let p = self.get(active_id);
+            if row == p.y as usize && col < p.w {
+                return self.find_tab_in_row(col, p.x as usize, p.y as usize, p.w, DockSide::Left);
+            }
+        }
+        // Check Right dock
+        if let Some(active_id) = self.active_right {
+            let p = self.get(active_id);
+            if row == p.y as usize && col >= p.x as usize && col < p.x as usize + p.w {
+                return self.find_tab_in_row(col, p.x as usize, p.y as usize, p.w, DockSide::Right);
+            }
+        }
+        // Check Bottom dock
+        if let Some(active_id) = self.active_bottom {
+            let p = self.get(active_id);
+            if row == p.y as usize && col >= p.x as usize && col < p.x as usize + p.w {
+                return self.find_tab_in_row(col, p.x as usize, p.y as usize, p.w, DockSide::Bottom);
+            }
+        }
+        None
+    }
+
+    fn find_tab_in_row(&self, col: usize, x: usize, _y: usize, w: usize, side: DockSide) -> Option<PanelId> {
+        let docked = self.get_docked_panels(side);
+        let mut cursor_x = x;
+        for id in docked {
+            let title = self.get(id).title;
+            let label_len = title.len() + 2; // " " + title + " "
+            if col >= cursor_x && col < cursor_x + label_len {
+                return Some(id);
+            }
+            cursor_x += label_len + 1;
+            if cursor_x > x + w { break; }
+        }
+        None
     }
 
     // ── Drag ──────────────────────────────────────────────────────────────────
@@ -365,37 +429,66 @@ impl PanelManager {
         let canvas_bottom = screen_h.saturating_sub(1); // row above status bar
         let full_h        = canvas_bottom.saturating_sub(canvas_top);
 
-        // Compute total docked widths/heights first (for bottom panel width calc).
-        let left_w: usize  = self.panels.iter().filter(|p| p.visible && p.dock == DockSide::Left).map(|p| p.w).sum();
-        let right_w: usize = self.panels.iter().filter(|p| p.visible && p.dock == DockSide::Right).map(|p| p.w).sum();
+        // Ensure active panel markers are valid
+        self.validate_active_panels();
 
-        let mut left_cursor  = 0usize;
-        let mut right_cursor = screen_w;
-        let mut bottom_y     = canvas_bottom;
+        let left_w = self.active_left.map(|id| self.get(id).w).unwrap_or(0);
+        let right_w = self.active_right.map(|id| self.get(id).w).unwrap_or(0);
+        let bottom_h = self.active_bottom.map(|id| self.get(id).h).unwrap_or(0);
+
+        let right_x = (screen_w as i32 - right_w as i32).max(0);
+        let bottom_y = (canvas_bottom as i32 - bottom_h as i32).max(canvas_top as i32);
 
         for p in &mut self.panels {
             if !p.visible { continue; }
             match p.dock {
                 DockSide::Left => {
-                    p.x = left_cursor as i32;
+                    p.x = 0;
                     p.y = canvas_top as i32;
+                    p.w = left_w;
                     p.h = full_h;
-                    left_cursor += p.w;
                 }
                 DockSide::Right => {
-                    right_cursor = right_cursor.saturating_sub(p.w);
-                    p.x = right_cursor as i32;
+                    p.x = right_x;
                     p.y = canvas_top as i32;
+                    p.w = right_w;
                     p.h = full_h;
                 }
                 DockSide::Bottom => {
-                    bottom_y = bottom_y.saturating_sub(p.h);
                     p.x = left_w as i32;
-                    p.y = bottom_y as i32;
+                    p.y = bottom_y;
                     p.w = screen_w.saturating_sub(left_w + right_w);
+                    p.h = bottom_h;
                 }
                 DockSide::None => {}
             }
+        }
+    }
+
+    fn validate_active_panels(&mut self) {
+        // If an active panel is no longer visible or no longer docked to that side, clear it.
+        if let Some(id) = self.active_left {
+            let p = self.get(id);
+            if !p.visible || p.dock != DockSide::Left { self.active_left = None; }
+        }
+        if let Some(id) = self.active_right {
+            let p = self.get(id);
+            if !p.visible || p.dock != DockSide::Right { self.active_right = None; }
+        }
+        if let Some(id) = self.active_bottom {
+            let p = self.get(id);
+            if !p.visible || p.dock != DockSide::Bottom { self.active_bottom = None; }
+        }
+
+        // If a side has visible docked panels but no active one, pick the first.
+        if self.active_left.is_none() {
+            self.active_left = self.panels.iter().find(|p| p.visible && p.dock == DockSide::Left).map(|p| p.id);
+        }
+        if self.active_right.is_none() {
+            self.active_right = self.panels.iter().find(|p| p.visible && p.dock == DockSide::Right).map(|p| p.id);
+        }
+        if self.active_bottom.is_none() {
+            self.active_bottom = self.panels.iter().find(|p| p.visible && p.dock == DockSide::Bottom).map(|p| p.id);
         }
     }
 
@@ -403,9 +496,9 @@ impl PanelManager {
     /// Returns (canvas_x, canvas_y, canvas_w, canvas_h).
     pub fn canvas_bounds(&self, screen_w: usize, screen_h: usize) -> (usize, usize, usize, usize) {
         let canvas_top = 2usize;
-        let left_w: usize  = self.panels.iter().filter(|p| p.visible && p.dock == DockSide::Left).map(|p| p.w).sum();
-        let right_w: usize = self.panels.iter().filter(|p| p.visible && p.dock == DockSide::Right).map(|p| p.w).sum();
-        let bottom_h: usize = self.panels.iter().filter(|p| p.visible && p.dock == DockSide::Bottom).map(|p| p.h).sum();
+        let left_w = self.active_left.map(|id| self.get(id).w).unwrap_or(0);
+        let right_w = self.active_right.map(|id| self.get(id).w).unwrap_or(0);
+        let bottom_h = self.active_bottom.map(|id| self.get(id).h).unwrap_or(0);
 
         let canvas_x = left_w;
         let canvas_w = screen_w.saturating_sub(left_w + right_w).max(20);

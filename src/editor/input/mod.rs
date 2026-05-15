@@ -11,6 +11,7 @@ mod shortcuts;
 mod text;
 mod script_editor;
 mod modal;
+mod context_menu;
 
 impl EditorState {
     pub(super) fn handle_update(&mut self, ctx: UpdateContext) {
@@ -19,6 +20,71 @@ impl EditorState {
         // ── Modal blocking ────────────────────────────────────────────────────
         if self.modal.is_some() {
             self.handle_modal_input(input, mouse);
+            return;
+        }
+
+        // ── Context Menu blocking ─────────────────────────────────────────────
+        if self.context_menu.is_some() {
+            self.handle_context_menu_input(input, mouse);
+            return;
+        }
+
+        // ── Modal: Color Picker ───────────────────────────────────────────────
+        if let Some(is_fg) = self.color_picker_open {
+            if input.just_pressed(crate::input::Key::Escape) { self.color_picker_open = None; return; }
+
+            if mouse.left_held() && mouse.in_bounds {
+                let mw = 44usize;
+                let mh = 16usize;
+                let mx = (self.layout.screen_w.saturating_sub(mw)) / 2;
+                let my = (self.layout.screen_h.saturating_sub(mh)) / 2;
+                let cx = mx + 2;
+
+                // 1. Hue Bar interaction
+                let hbar_w = 36;
+                let hbar_x = cx + 5;
+                if mouse.cell_y == my + 2 && mouse.cell_x >= hbar_x && mouse.cell_x < hbar_x + hbar_w {
+                    let pct = (mouse.cell_x - hbar_x) as f32 / (hbar_w - 1) as f32;
+                    self.color_picker_hsv.0 = pct * 360.0;
+                }
+
+                // 2. SV Map interaction
+                let map_w = 20;
+                let map_h = 8;
+                let map_x = cx + 5;
+                let map_y = my + 5;
+                if mouse.cell_x >= map_x && mouse.cell_x < map_x + map_w && mouse.cell_y >= map_y && mouse.cell_y < map_y + map_h {
+                    self.color_picker_hsv.1 = (mouse.cell_x - map_x) as f32 / (map_w - 1) as f32;
+                    self.color_picker_hsv.2 = 1.0 - (mouse.cell_y - map_y) as f32 / (map_h - 1) as f32;
+                }
+
+                if mouse.left_just_pressed() {
+                    // Title [X]
+                    if mouse.cell_y == my && mouse.cell_x >= mx + mw - 4 && mouse.cell_x < mx + mw - 1 {
+                        self.color_picker_open = None;
+                        return;
+                    }
+
+                    // Apply Button
+                    let btn_y = my + mh - 2;
+                    if mouse.cell_y == btn_y && mouse.cell_x >= mx + 2 && mouse.cell_x < mx + 13 {
+                        let final_col = crate::renderer::color::Color::from_hsv(
+                            self.color_picker_hsv.0, self.color_picker_hsv.1, self.color_picker_hsv.2
+                        );
+                        let sel = self.palette.selected;
+                        if is_fg { self.palette.tiles[sel].fg = final_col; }
+                        else { self.palette.tiles[sel].bg = final_col; }
+                        self.unsaved = true;
+                        self.color_picker_open = None;
+                        return;
+                    }
+                    // Cancel Button
+                    if mouse.cell_y == btn_y && mouse.cell_x >= mx + mw - 14 && mouse.cell_x < mx + mw - 2 {
+                        self.color_picker_open = None;
+                        return;
+                    }
+                }
+            }
             return;
         }
 
@@ -133,6 +199,22 @@ impl EditorState {
                                 Color::DarkGrey, Color::Grey, Color::DarkRed, Color::DarkGreen, Color::DarkBlue, Color::DarkYellow, Color::DarkCyan, Color::DarkMagenta,
                             ];
                             if color_idx < colors.len() { self.palette.tiles[sel].bg = colors[color_idx]; self.unsaved = true; }
+                        }
+                    }
+                    r if r == my + 10 => {
+                        self.palette_editor_focus = None;
+                        if mouse.cell_x >= cx && mouse.cell_x < cx + 30 {
+                            let col = self.palette.tiles[sel].fg;
+                            self.color_picker_hsv = col.to_hsv(crate::renderer::color::DEFAULT_FG);
+                            self.color_picker_open = Some(true);
+                        }
+                    }
+                    r if r == my + 14 => {
+                        self.palette_editor_focus = None;
+                        if mouse.cell_x >= cx && mouse.cell_x < cx + 30 {
+                            let col = self.palette.tiles[sel].bg;
+                            self.color_picker_hsv = col.to_hsv(crate::renderer::color::DEFAULT_BG);
+                            self.color_picker_open = Some(false);
                         }
                     }
                     _ => { self.palette_editor_focus = None; }

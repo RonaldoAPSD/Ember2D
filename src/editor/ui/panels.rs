@@ -127,6 +127,26 @@ pub fn draw_status_bar(renderer: &mut Renderer, mouse: &crate::mouse::MouseState
     }
 }
 
+pub fn draw_dock_tabs(renderer: &mut Renderer, x: usize, y: usize, w: usize, panels: &[(PanelId, &str)], active: Option<PanelId>) {
+    if panels.is_empty() { return; }
+    
+    // Background for the tab bar
+    renderer.draw_rect_filled(x, y, w, 1, ' ', Color::White, Color::Black);
+
+    let mut cursor_x = x;
+    for (id, title) in panels {
+        let is_active = Some(*id) == active;
+        let fg = if is_active { Color::White } else { Color::Grey };
+        let bg = if is_active { Color::DarkBlue } else { Color::DarkGrey };
+        
+        let label = format!(" {} ", title);
+        if cursor_x + label.len() > x + w { break; }
+        
+        renderer.draw_str(cursor_x, y, &label, fg, bg);
+        cursor_x += label.len() + 1;
+    }
+}
+
 pub fn draw_text_input(renderer: &mut Renderer, prompt: &str, buffer: &str, layout: &Layout) {
     let mw = 40usize;
     let mh = 7usize;
@@ -340,6 +360,11 @@ pub fn draw_palette_editor_modal(renderer: &mut Renderer, pal: &crate::editor::p
         let ch = if pal.fg == col { '*' } else { '#' };
         renderer.draw_str(gx, gy, &format!("[{}]", ch), col, Color::Black);
     }
+    let fg_custom_label = match pal.fg {
+        Color::Rgb(r, g, b) => format!("#{:02X}{:02X}{:02X}", r, g, b),
+        _ => "Advanced".to_string(),
+    };
+    renderer.draw_str(cx, my + 10, &format!("[ {} ]", fg_custom_label), Color::White, Color::DarkBlue);
 
     renderer.draw_str(cx, my + 11, "Background Color:", Color::Yellow, Color::DarkGrey);
     for (i, &col) in colors.iter().enumerate() {
@@ -348,11 +373,95 @@ pub fn draw_palette_editor_modal(renderer: &mut Renderer, pal: &crate::editor::p
         let ch = if pal.bg == col { '*' } else { '#' };
         renderer.draw_str(gx, gy, &format!("[{}]", ch), col, Color::Black);
     }
+    let bg_custom_label = match pal.bg {
+        Color::Rgb(r, g, b) => format!("#{:02X}{:02X}{:02X}", r, g, b),
+        _ => "Advanced".to_string(),
+    };
+    renderer.draw_str(cx, my + 14, &format!("[ {} ]", bg_custom_label), Color::White, Color::DarkBlue);
 
     // Buttons at the bottom
     let btn_y = my + mh - 2;
     renderer.draw_str(mx + 2, btn_y, " [ Save & Close ] ", Color::Black, Color::Cyan);
     renderer.draw_str(mx + 22, btn_y, " [ Delete ] ", Color::White, Color::DarkRed);
+}
+
+pub fn draw_color_picker_modal(renderer: &mut Renderer, hsv: (f32, f32, f32), is_fg: bool, layout: &Layout) {
+    let mw = 44usize;
+    let mh = 16usize;
+    let mx = (layout.screen_w.saturating_sub(mw)) / 2;
+    let my = (layout.screen_h.saturating_sub(mh)) / 2;
+
+    // Window borders
+    renderer.draw_rect_filled(mx, my, mw, mh, ' ', Color::White, Color::DarkGrey);
+    let border_str: String = std::iter::repeat('-').take(mw).collect();
+    renderer.draw_str(mx, my, &border_str, Color::Grey, Color::DarkGrey);
+    renderer.draw_str(mx, my + mh - 1, &border_str, Color::Grey, Color::DarkGrey);
+    for row in (my + 1)..(my + mh - 1) {
+        renderer.draw_char(mx, row, '|', Color::Grey, Color::DarkGrey);
+        renderer.draw_char(mx + mw - 1, row, '|', Color::Grey, Color::DarkGrey);
+    }
+    renderer.draw_char(mx, my, '+', Color::White, Color::DarkBlue);
+    renderer.draw_char(mx + mw - 1, my, '+', Color::White, Color::DarkBlue);
+    renderer.draw_char(mx, my + mh - 1, '+', Color::Grey, Color::DarkGrey);
+    renderer.draw_char(mx + mw - 1, my + mh - 1, '+', Color::Grey, Color::DarkGrey);
+
+    // Title
+    let title = format!(" ADVANCED COLOR: {} ", if is_fg { "FOREGROUND" } else { "BACKGROUND" });
+    let title_bg = Color::DarkBlue;
+    renderer.draw_rect_filled(mx + 1, my, mw - 2, 1, ' ', Color::White, title_bg);
+    renderer.draw_str(mx + 2, my, &title, Color::White, title_bg);
+    renderer.draw_str(mx + mw - 4, my, "[X]", Color::White, title_bg);
+
+    let cx = mx + 2;
+    let (h, s, v) = hsv;
+
+    // 1. Hue Bar (0..360)
+    renderer.draw_str(cx, my + 2, "Hue:", Color::Yellow, Color::DarkGrey);
+    let hbar_w = 36;
+    let hbar_x = cx + 5;
+    for i in 0..hbar_w {
+        let hue = (i as f32 / hbar_w as f32) * 360.0;
+        let col = Color::from_hsv(hue, 1.0, 1.0);
+        renderer.draw_char(hbar_x + i, my + 2, ' ', Color::Reset, col);
+    }
+    let h_indicator_x = hbar_x + ((h / 360.0) * (hbar_w - 1) as f32).round() as usize;
+    renderer.draw_char(h_indicator_x, my + 1, 'v', Color::White, Color::DarkGrey);
+
+    // 2. SV Map (Saturation vs Value)
+    renderer.draw_str(cx, my + 4, "Sat/Val Map:", Color::Yellow, Color::DarkGrey);
+    let map_w = 20;
+    let map_h = 8;
+    let map_x = cx + 5;
+    let map_y = my + 5;
+    for sy in 0..map_h {
+        for sx in 0..map_w {
+            let sat = sx as f32 / (map_w - 1) as f32;
+            let val = 1.0 - (sy as f32 / (map_h - 1) as f32);
+            let col = Color::from_hsv(h, sat, val);
+            renderer.draw_char(map_x + sx, map_y + sy, ' ', Color::Reset, col);
+        }
+    }
+    // Cursor in map
+    let cur_sx = (s * (map_w - 1) as f32).round() as usize;
+    let cur_sy = ((1.0 - v) * (map_h - 1) as f32).round() as usize;
+    renderer.draw_char(map_x + cur_sx, map_y + cur_sy, '+', Color::White, Color::Reset);
+
+    // 3. Current Color Preview
+    let current_col = Color::from_hsv(h, s, v);
+    renderer.draw_str(mx + 30, my + 6, "Selected:", Color::White, Color::DarkGrey);
+    renderer.draw_rect_filled(mx + 30, my + 7, 8, 3, ' ', Color::Reset, current_col);
+    
+    match current_col {
+        Color::Rgb(r, g, b) => {
+            renderer.draw_str(mx + 30, my + 11, &format!("#{:02X}{:02X}{:02X}", r, g, b), Color::Cyan, Color::DarkGrey);
+        }
+        _ => {}
+    }
+
+    // Buttons
+    let btn_y = my + mh - 2;
+    renderer.draw_str(mx + 2, btn_y, " [ Apply ] ", Color::Black, Color::Cyan);
+    renderer.draw_str(mx + mw - 14, btn_y, " [ Cancel ] ", Color::White, Color::Black);
 }
 
 pub fn draw_hierarchy(renderer: &mut Renderer, grid: &LevelGrid, hier_sel: Option<HierarchySelection>, hx: usize, hy: usize, hw: usize, hh: usize) {
@@ -521,4 +630,44 @@ pub fn draw_help_overlay(renderer: &mut Renderer, layout: &Layout) {
     let hint = "Press ? or Esc to close";
     let hcol = cx + (cw.saturating_sub(hint.len())) / 2;
     renderer.draw_str(hcol, cy + ch - 2, hint, Color::DarkGrey, Color::Black);
+}
+
+pub fn draw_context_menu(renderer: &mut Renderer, menu: &ContextMenu) {
+    let mw = 20usize;
+    let mh = menu.items.len() + 2;
+    let mx = menu.x;
+    let my = menu.y;
+
+    // Boundary check
+    let mx = if mx + mw > renderer.width { renderer.width.saturating_sub(mw) } else { mx };
+    let my = if my + mh > renderer.height { renderer.height.saturating_sub(mh) } else { my };
+
+    // Fill background
+    renderer.draw_rect_filled(mx, my, mw, mh, ' ', Color::White, Color::DarkGrey);
+    
+    // Borders
+    let bfg = Color::Grey;
+    let bbg = Color::DarkGrey;
+    for row in my..(my + mh) {
+        renderer.draw_char(mx, row, '│', bfg, bbg);
+        renderer.draw_char(mx + mw - 1, row, '│', bfg, bbg);
+    }
+    let top_line: String = std::iter::repeat('─').take(mw).collect();
+    renderer.draw_str(mx, my, &top_line, bfg, bbg);
+    renderer.draw_str(mx, my + mh - 1, &top_line, bfg, bbg);
+    renderer.draw_char(mx, my, '┌', bfg, bbg);
+    renderer.draw_char(mx + mw - 1, my, '┐', bfg, bbg);
+    renderer.draw_char(mx, my + mh - 1, '└', bfg, bbg);
+    renderer.draw_char(mx + mw - 1, my + mh - 1, '┘', bfg, bbg);
+
+    for (i, (label, _)) in menu.items.iter().enumerate() {
+        let row = my + 1 + i;
+        let is_selected = i == menu.selected;
+        let fg = if is_selected { Color::Black } else { Color::White };
+        let bg = if is_selected { Color::Cyan } else { Color::DarkGrey };
+        
+        let mut text = format!(" {:<width$} ", label, width = mw - 2);
+        if text.len() > mw { text = text.chars().take(mw).collect(); }
+        renderer.draw_str(mx, row, &text, fg, bg);
+    }
 }

@@ -28,9 +28,7 @@ pub struct Renderer {
     pub pixel_height: usize,
     
     // WGPU core objects
-    instance: wgpu::Instance,
     surface:  wgpu::Surface<'static>,
-    adapter:  wgpu::Adapter,
     device:   wgpu::Device,
     queue:    wgpu::Queue,
     config:   wgpu::SurfaceConfiguration,
@@ -104,9 +102,7 @@ impl Renderer {
             height,
             pixel_width,
             pixel_height,
-            instance,
             surface,
-            adapter,
             device,
             queue,
             config,

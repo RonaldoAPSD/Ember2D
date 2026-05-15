@@ -5,7 +5,7 @@ use crate::renderer::color::Color;
 
 use super::EditorState;
 use super::node_graph;
-use super::panel::{PanelId, draw_panel_chrome};
+use super::panel::{PanelId, DockSide, draw_panel_chrome};
 use super::TextInputPurpose;
 use super::ui::{self, HierarchySelection, Layout, MenuState};
 
@@ -212,6 +212,25 @@ impl EditorState {
             let pch = panel.content_h();
             let pcw = panel.content_w();
             draw_panel_chrome(renderer, panel);
+
+            // Draw tabs if docked
+            if panel.dock != DockSide::None {
+                let docked = self.panels.get_docked_panels(panel.dock);
+                if docked.len() > 1 {
+                    let mut tab_info = Vec::new();
+                    for id in docked {
+                        tab_info.push((id, self.panels.get(id).title));
+                    }
+                    let active = match panel.dock {
+                        DockSide::Left   => self.panels.active_left,
+                        DockSide::Right  => self.panels.active_right,
+                        DockSide::Bottom => self.panels.active_bottom,
+                        DockSide::None   => None,
+                    };
+                    ui::draw_dock_tabs(renderer, panel.x as usize, panel.y as usize, panel.w, &tab_info, active);
+                }
+            }
+
             match pid {
                 PanelId::Hierarchy => {
                     ui::draw_hierarchy(renderer, &self.grid, self.hierarchy_sel, pcx, pcy, pcw, pch);
@@ -246,6 +265,10 @@ impl EditorState {
             if let Some(pal) = self.palette.tiles.get(self.palette_editing_idx) {
                 ui::draw_palette_editor_modal(renderer, pal, self.palette_editor_focus.as_ref(), &self.layout);
             }
+        }
+
+        if let Some(is_fg) = self.color_picker_open {
+            ui::draw_color_picker_modal(renderer, self.color_picker_hsv, is_fg, &self.layout);
         }
 
         // ── Menu dropdown (drawn over panels and canvas) ──────────────────────
@@ -328,12 +351,18 @@ impl EditorState {
                 TextInputPurpose::PlayerColliderLayer      => "Player layer",
                 TextInputPurpose::PlayerColliderMask       => "Player mask (comma-separated)",
                 TextInputPurpose::NewScriptName            => "New script name (e.g. ai.rhai)",
+                TextInputPurpose::PaletteFgCustom          => "Custom FG Hex (e.g. #FF8C00)",
+                TextInputPurpose::PaletteBgCustom          => "Custom BG Hex (e.g. #222222)",
             };
             ui::draw_text_input(renderer, prompt, &ti.buffer, &layout);
         }
 
         if let Some(ref m) = self.modal {
             ui::draw_confirm_modal(renderer, &m.title, &m.message, &layout);
+        }
+
+        if let Some(ref cm) = self.context_menu {
+            ui::draw_context_menu(renderer, cm);
         }
     }
 }

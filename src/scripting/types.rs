@@ -94,24 +94,25 @@ pub fn parse_color(name: &str) -> Color {
 
 pub fn color_to_name(color: Color) -> String {
     match color {
-        Color::Black       => "Black",
-        Color::DarkRed     => "DarkRed",
-        Color::DarkGreen   => "DarkGreen",
-        Color::DarkYellow  => "DarkYellow",
-        Color::DarkBlue    => "DarkBlue",
-        Color::DarkMagenta => "DarkMagenta",
-        Color::DarkCyan    => "DarkCyan",
-        Color::Grey        => "Grey",
-        Color::DarkGrey    => "DarkGrey",
-        Color::Red         => "Red",
-        Color::Green       => "Green",
-        Color::Yellow      => "Yellow",
-        Color::Blue        => "Blue",
-        Color::Magenta     => "Magenta",
-        Color::Cyan        => "Cyan",
-        Color::White       => "White",
-        Color::Reset       => "Reset",
-    }.to_string()
+        Color::Black       => "Black".to_string(),
+        Color::DarkRed     => "DarkRed".to_string(),
+        Color::DarkGreen   => "DarkGreen".to_string(),
+        Color::DarkYellow  => "DarkYellow".to_string(),
+        Color::DarkBlue    => "DarkBlue".to_string(),
+        Color::DarkMagenta => "DarkMagenta".to_string(),
+        Color::DarkCyan    => "DarkCyan".to_string(),
+        Color::Grey        => "Grey".to_string(),
+        Color::DarkGrey    => "DarkGrey".to_string(),
+        Color::Red         => "Red".to_string(),
+        Color::Green       => "Green".to_string(),
+        Color::Yellow      => "Yellow".to_string(),
+        Color::Blue        => "Blue".to_string(),
+        Color::Magenta     => "Magenta".to_string(),
+        Color::Cyan        => "Cyan".to_string(),
+        Color::White       => "White".to_string(),
+        Color::Reset       => "Reset".to_string(),
+        Color::Rgb(r, g, b) => format!("#{:02X}{:02X}{:02X}", r, g, b),
+    }
 }
 
 // ── Key name snapshot ─────────────────────────────────────────────────────────

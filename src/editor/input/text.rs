@@ -2,7 +2,7 @@
 
 use crate::input::Key;
 use super::super::EditorState;
-use super::super::{key_to_char, TEXT_INPUT_KEYS, DEFAULT_LEVEL_W, DEFAULT_LEVEL_H};
+use super::super::{DEFAULT_LEVEL_W, DEFAULT_LEVEL_H};
 use super::super::TextInputPurpose;
 use super::super::commands::Command;
 use super::super::commands::UndoStack;
@@ -243,6 +243,34 @@ impl EditorState {
                         self.undo.push(Command::UpdatePlayer { before, after: after.clone() });
                         self.grid.player = after;
                         self.unsaved = true;
+                    }
+                    TextInputPurpose::PaletteFgCustom => {
+                        let hex = ti.buffer.trim().trim_start_matches('#');
+                        if hex.len() == 6 {
+                            if let (Ok(r), Ok(g), Ok(b)) = (
+                                u8::from_str_radix(&hex[0..2], 16),
+                                u8::from_str_radix(&hex[2..4], 16),
+                                u8::from_str_radix(&hex[4..6], 16)
+                            ) {
+                                let sel = self.palette.selected;
+                                self.palette.tiles[sel].fg = crate::renderer::color::Color::Rgb(r, g, b);
+                                self.unsaved = true;
+                            }
+                        }
+                    }
+                    TextInputPurpose::PaletteBgCustom => {
+                        let hex = ti.buffer.trim().trim_start_matches('#');
+                        if hex.len() == 6 {
+                            if let (Ok(r), Ok(g), Ok(b)) = (
+                                u8::from_str_radix(&hex[0..2], 16),
+                                u8::from_str_radix(&hex[2..4], 16),
+                                u8::from_str_radix(&hex[4..6], 16)
+                            ) {
+                                let sel = self.palette.selected;
+                                self.palette.tiles[sel].bg = crate::renderer::color::Color::Rgb(r, g, b);
+                                self.unsaved = true;
+                            }
+                        }
                     }
                 }
                 return;

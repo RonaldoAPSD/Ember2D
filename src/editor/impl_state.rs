@@ -362,6 +362,15 @@ impl EditorState {
         }
     }
 
+    pub(super) fn start_text_input(&mut self, purpose: super::TextInputPurpose) {
+        let initial = match &purpose {
+            super::TextInputPurpose::LevelName => self.grid.name.clone(),
+            super::TextInputPurpose::SaveAs => self.save_path.clone(),
+            _ => String::new(),
+        };
+        self.text_input = Some(super::TextInput { buffer: initial, purpose });
+    }
+
     pub(super) fn clear_tool_modes(&mut self) {
         self.select_mode = false;
         self.selecting   = false;

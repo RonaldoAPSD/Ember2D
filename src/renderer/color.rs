@@ -31,6 +31,8 @@ pub enum Color {
     White,
     /// Use the terminal's default color. Renderer resolves this to DEFAULT_FG or DEFAULT_BG.
     Reset,
+    /// A custom 24-bit RGB color.
+    Rgb(u8, u8, u8),
 }
 
 impl Color {
@@ -57,6 +59,7 @@ impl Color {
             Color::Cyan        => 0x55FFFF,
             Color::White       => 0xFFFFFF,
             Color::Reset       => default,
+            Color::Rgb(r, g, b) => ((r as u32) << 16) | ((g as u32) << 8) | (b as u32),
         }
     }
 
@@ -66,6 +69,62 @@ impl Color {
         let g = ((rgb >> 8) & 0xFF) as f32 / 255.0;
         let b = (rgb & 0xFF) as f32 / 255.0;
         [r, g, b, 1.0]
+    }
+
+    pub fn from_hsv(h: f32, s: f32, v: f32) -> Self {
+        let h = h.rem_euclid(360.0);
+        let s = s.clamp(0.0, 1.0);
+        let v = v.clamp(0.0, 1.0);
+
+        let c = v * s;
+        let x = c * (1.0 - ((h / 60.0).rem_euclid(2.0) - 1.0).abs());
+        let m = v - c;
+
+        let (r, g, b) = if h < 60.0 {
+            (c, x, 0.0)
+        } else if h < 120.0 {
+            (x, c, 0.0)
+        } else if h < 180.0 {
+            (0.0, c, x)
+        } else if h < 240.0 {
+            (0.0, x, c)
+        } else if h < 300.0 {
+            (x, 0.0, c)
+        } else {
+            (c, 0.0, x)
+        };
+
+        Color::Rgb(
+            ((r + m) * 255.0).round() as u8,
+            ((g + m) * 255.0).round() as u8,
+            ((b + m) * 255.0).round() as u8,
+        )
+    }
+
+    pub fn to_hsv(self, default: u32) -> (f32, f32, f32) {
+        let rgb = self.to_rgb(default);
+        let r = ((rgb >> 16) & 0xFF) as f32 / 255.0;
+        let g = ((rgb >> 8) & 0xFF) as f32 / 255.0;
+        let b = (rgb & 0xFF) as f32 / 255.0;
+
+        let max = r.max(g).max(b);
+        let min = r.min(g).min(b);
+        let delta = max - min;
+
+        let h = if delta == 0.0 {
+            0.0
+        } else if max == r {
+            60.0 * (((g - b) / delta).rem_euclid(6.0))
+        } else if max == g {
+            60.0 * (((b - r) / delta) + 2.0)
+        } else {
+            60.0 * (((r - g) / delta) + 4.0)
+        };
+
+        let s = if max == 0.0 { 0.0 } else { delta / max };
+        let v = max;
+
+        (h, s, v)
     }
 }
 

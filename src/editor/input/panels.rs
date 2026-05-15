@@ -19,10 +19,19 @@ impl EditorState {
         if input.just_pressed(Key::F2) { self.panels.toggle(PanelId::Inspector); }
         if input.just_pressed(Key::F3) { self.console_log.clear(); }
 
-        // ── Panel drag / resize / close ───────────────────────────────────────
+        // ── Panel drag / resize / close / tabs ───────────────────────────────────────
         if mouse.left_just_pressed() && mouse.in_bounds {
             let col = mouse.cell_x;
             let row = mouse.cell_y;
+
+            // Tabs (switch active panel in dock)
+            let sw = self.layout.screen_w;
+            let sh = self.layout.screen_h;
+            if let Some(tid) = self.panels.tab_at(col, row, sw, sh) {
+                self.panels.set_active(tid);
+                self.ignore_drag = true;
+                return;
+            }
             
             // Focus tracking
             if let Some(pid) = self.panels.panel_at(col, row) {
@@ -48,6 +57,75 @@ impl EditorState {
                 return;
             }
         }
+
+        // ── Right-click context menus ───────────────────────────────────────
+        if mouse.right_just_pressed() && mouse.in_bounds {
+            let col = mouse.cell_x;
+            let row = mouse.cell_y;
+            let sw = self.layout.screen_w;
+            let sh = self.layout.screen_h;
+
+            // 1. Tab Context Menu
+            if let Some(tid) = self.panels.tab_at(col, row, sw, sh) {
+                self.context_menu = Some(ui::ContextMenu {
+                    x: col, y: row,
+                    selected: 0,
+                    items: vec![
+                        ("Close Tab", ui::ContextMenuAction::CloseTab(tid)),
+                        ("Close Others", ui::ContextMenuAction::CloseOthers(tid)),
+                        ("Float Panel", ui::ContextMenuAction::FloatPanel(tid)),
+                    ],
+                });
+                return;
+            }
+
+            // 2. Panel-specific context menus
+            if let Some(pid) = self.panels.panel_at(col, row) {
+                match pid {
+                    PanelId::FileBrowser => {
+                        let p = self.panels.get(pid);
+                        if row > p.content_y() {
+                            let row_idx = self.file_browser_scroll + (row - (p.content_y() + 1));
+                            let mut items = vec![
+                                ("New Level", ui::ContextMenuAction::NewLevel),
+                                ("New Script", ui::ContextMenuAction::NewScript),
+                                ("New Folder", ui::ContextMenuAction::NewFolder),
+                            ];
+                            if row_idx < self.file_browser_files.len() {
+                                let raw = &self.file_browser_files[row_idx];
+                                if !raw.contains("[UP]") {
+                                    let clean = if raw.len() > 3 { &raw[3..] } else { raw };
+                                    items.push(("Delete", ui::ContextMenuAction::DeleteFile(clean.to_string())));
+                                }
+                            }
+                            self.context_menu = Some(ui::ContextMenu { x: col, y: row, selected: 0, items });
+                            return;
+                        }
+                    }
+                    PanelId::Hierarchy => {
+                        let p = self.panels.get(pid);
+                        let cy = p.content_y();
+                        if row >= cy + 1 {
+                            let hier_row = row - cy;
+                            let sel = if hier_row == 1 { Some(HierarchySelection::Player) }
+                                     else { Some(HierarchySelection::Spawn(hier_row - 2)) };
+                            
+                            if let Some(s) = sel {
+                                let mut items = vec![("Focus Camera", ui::ContextMenuAction::FocusCamera(s))];
+                                if let HierarchySelection::Spawn(_) = s {
+                                    items.push(("Duplicate", ui::ContextMenuAction::DuplicateEntity(s)));
+                                    items.push(("Delete", ui::ContextMenuAction::DeleteEntity(s)));
+                                }
+                                self.context_menu = Some(ui::ContextMenu { x: col, y: row, selected: 0, items });
+                                return;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         if mouse.left_held() {
             let sw = self.layout.screen_w;
             let sh = self.layout.screen_h;

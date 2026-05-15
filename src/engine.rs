@@ -161,6 +161,10 @@ impl Engine {
         self.events = EventBus::new();
     }
 
+    pub fn state_stack_len(&self) -> usize {
+        self.state_stack.len()
+    }
+
     fn poll_events(&mut self) {
         self.input.clear();
         self.mouse.clear();
