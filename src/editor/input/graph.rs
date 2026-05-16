@@ -2,7 +2,7 @@
 
 use crate::input::Key;
 use super::super::EditorState;
-use super::super::{key_to_char, TEXT_INPUT_KEYS, apply_param_edit, param_default_for};
+use super::super::helpers::{key_to_char, TEXT_INPUT_KEYS, apply_param_edit, param_default_for};
 use super::super::node_graph::{self, PortDir};
 
 impl EditorState {

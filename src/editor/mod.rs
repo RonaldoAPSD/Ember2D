@@ -8,59 +8,69 @@ pub mod node_graph;
 pub mod start_screen;
 pub mod ui;
 
+pub mod helpers;
 mod input;
 mod impl_render;
-mod helpers;
 mod impl_state;
 
-pub use helpers::*;
-pub use ui::bresenham;
-
+pub use ui::HierarchySelection;
 use crate::engine::{GameState, RenderContext, Transition, UpdateContext};
-use crate::event::EventBus;
 use crate::level::TileRecord;
 use crate::scripting::LogEntry;
-use crate::world::World;
-use crate::editor::panel::PanelId;
-
-use commands::UndoStack;
 use grid::LevelGrid;
 use palette::TilePalette;
-use panel::PanelManager;
-use crate::project::{StartResult, StartTemplate};
-use ui::{Layout, ToolKind, MenuKind, HierarchySelection};
+use panel::{PanelId, PanelManager};
+use commands::UndoStack;
+use ui::{Layout, MenuKind, ToolKind};
 
-pub const DEFAULT_LEVEL_W: usize = 68;
-pub const DEFAULT_LEVEL_H: usize = 22;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaletteField { Name, Tag, Glyph }
 
-#[derive(Debug, Clone)]
-pub enum TextInputPurpose {
-    LevelName, SaveAs, ScriptPath { gx: i32, gy: i32 }, TileNextLevel { gx: i32, gy: i32 },
-    TileTag { gx: i32, gy: i32 }, TileGlyph { gx: i32, gy: i32 }, NamedSpawn, ResizeLevel,
-    PlayerTag, PlayerScript, PlayerGlyph, NewLevelName, NewScriptName, PaletteName,
-    TileColliderLayer { gx: i32, gy: i32 }, TileColliderMask { gx: i32, gy: i32 },
-    PlayerColliderLayer, PlayerColliderMask,
-    PaletteFgCustom, PaletteBgCustom,
-}
-
-#[derive(Debug, Clone)]
-pub struct TextInput { pub buffer: String, pub purpose: TextInputPurpose }
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum PaletteField { Name, Glyph, Tag }
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModalPurpose { ConfirmSwitchLevel { path: String } }
 
-pub struct Modal { pub title: String, pub message: String, pub purpose: ModalPurpose }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextInputPurpose {
+    LevelName,
+    SaveAs,
+    ScriptPath { gx: i32, gy: i32 },
+    TileNextLevel { gx: i32, gy: i32 },
+    TileTag { gx: i32, gy: i32 },
+    TileGlyph { gx: i32, gy: i32 },
+    NamedSpawn,
+    ResizeLevel,
+    PlayerTag,
+    PlayerScript,
+    PlayerGlyph,
+    NewLevelName,
+    PaletteName,
+    TileColliderLayer { gx: i32, gy: i32 },
+    TileColliderMask  { gx: i32, gy: i32 },
+    PlayerColliderLayer,
+    PlayerColliderMask,
+    NewScriptName,
+    PaletteFgCustom,
+    PaletteBgCustom,
+}
+
+pub struct TextInput {
+    pub buffer:  String,
+    pub purpose: TextInputPurpose,
+}
+
+pub struct Modal {
+    pub title:   String,
+    pub message: String,
+    pub purpose: ModalPurpose,
+}
 
 pub struct EditorState {
-    pub(super) grid:    LevelGrid,
-    pub(super) palette: TilePalette,
-    pub(super) undo:    UndoStack,
-    pub(super) save_path: String,
-    pub(super) unsaved:   bool,
-    pub(super) show_grid: bool,
+    pub(super) grid:         LevelGrid,
+    pub(super) palette:      TilePalette,
+    pub(super) undo:         UndoStack,
+    pub(super) save_path:    String,
+    pub(super) unsaved:      bool,
+    pub(super) show_grid:    bool,
     pub(super) active_layer: u8,
     pub(super) palette_scroll: usize,
     pub(super) palette_editor_open: bool,
@@ -129,6 +139,9 @@ pub struct EditorState {
     pub(super) layout: Layout,
     pub(super) zoom:   f32,
 }
+
+const DEFAULT_LEVEL_W: usize = 32;
+const DEFAULT_LEVEL_H: usize = 20;
 
 impl EditorState {
     pub fn new(save_path: &str) -> Self {
@@ -200,12 +213,12 @@ impl EditorState {
             graph_palette_cursor: 0,
             graph_editing_param: None,
             graph_clipboard:     None,
-            script_mode:         false,
-            color_picker_open:   None,
-            color_picker_hsv:    (0.0, 1.0, 1.0),
-            context_menu:        None,
-            layout:       Layout::new(80, 24),
-            zoom:         1.0,
+            script_mode: false,
+            color_picker_open: None,
+            color_picker_hsv: (0.0, 1.0, 1.0),
+            context_menu: None,
+            layout: Layout::new(80, 24),
+            zoom: 1.0,
         }
     }
 
@@ -224,8 +237,9 @@ impl EditorState {
         }
     }
 
-    pub fn new_from_result(result: StartResult) -> Result<Self, String> {
-        use crate::project::ProjectData;
+    pub fn new_from_result(result: crate::project::StartResult) -> Result<Self, String> {
+        use crate::project::{ProjectData, StartTemplate};
+        use helpers::apply_basic_room;
         match result.template {
             None => {
                 let mut editor = EditorState::load(&result.level_path)?;
@@ -253,7 +267,7 @@ impl EditorState {
 }
 
 impl GameState for EditorState {
-    fn on_start(&mut self, _world: &mut World, _events: &mut EventBus, _viewport_width: usize, _viewport_height: usize) {}
+    fn on_start(&mut self, _world: &mut crate::world::World, _events: &mut crate::event::EventBus, _viewport_width: usize, _viewport_height: usize) {}
     fn update(&mut self, ctx: UpdateContext) { self.handle_update(ctx); }
     fn render(&mut self, ctx: RenderContext) { self.handle_render(ctx); }
     fn take_transition(&mut self) -> Option<Transition> { self.pending_transition.take() }

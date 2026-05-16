@@ -1,7 +1,7 @@
 // editor/input/mod.rs — Input orchestration for EditorState.
 
 use crate::engine::UpdateContext;
-use crate::editor::commands::Command;
+use super::commands::Command;
 use super::{EditorState, PaletteField};
 
 mod canvas;
@@ -92,7 +92,7 @@ impl EditorState {
         if self.palette_editor_open {
             use crate::input::Key;
             use crate::renderer::color::Color;
-            use super::{TEXT_INPUT_KEYS, key_to_char};
+            use super::helpers::{TEXT_INPUT_KEYS, key_to_char};
 
             let mw = 36usize;
             let mh = 18usize;
@@ -305,7 +305,7 @@ impl EditorState {
         // ── Text input: Palette Search ───────────────────────────────────────
         if self.palette_search_focused {
             use crate::input::Key;
-            use super::{TEXT_INPUT_KEYS, key_to_char};
+            use super::helpers::{TEXT_INPUT_KEYS, key_to_char};
             let shift = input.is_held(Key::LeftShift) || input.is_held(Key::RightShift);
             for &key in TEXT_INPUT_KEYS {
                 if input.just_pressed(key) {

@@ -10,6 +10,7 @@ pub enum DockSide { None, Left, Right, Bottom }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum PanelId {
+    Viewport,
     Hierarchy,
     Palette,
     Inspector,

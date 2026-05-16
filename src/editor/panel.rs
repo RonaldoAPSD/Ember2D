@@ -111,6 +111,7 @@ impl PanelManager {
         let con_y  = screen_h as i32 - CON_H as i32 - 1;
 
         let mut panels = vec![
+            Panel::new(PanelId::Viewport,      "Viewport",      0,       canvas_y, screen_w, canvas_h as usize),
             Panel::new(PanelId::Hierarchy,    "Hierarchy",     0,       canvas_y, HIER_W, canvas_h as usize),
             Panel::new(PanelId::Inspector,    "Inspector",     insp_x,  canvas_y, INSP_W, canvas_h as usize),
             Panel::new(PanelId::Palette,      "Palette",       pal_x,   canvas_y, PAL_W,  canvas_h as usize),
@@ -120,27 +121,31 @@ impl PanelManager {
             Panel::new(PanelId::ScriptEditor, "Script Editor", 0,       con_y,    screen_w, EDIT_H),
         ];
 
-        // Default docking
-        panels[0].dock    = DockSide::Left;
-        panels[0].visible = true;  // Hierarchy
+        panels[0].visible = true; // Viewport
+        panels[0].z       = 0;
 
-        panels[1].dock    = DockSide::Right;
-        panels[1].visible = true;  // Inspector
+        panels[1].dock    = DockSide::Left;
+        panels[1].visible = true;  // Hierarchy
 
-        panels[2].visible = false; // Palette (floating, hidden by default)
+        panels[2].dock    = DockSide::Right;
+        panels[2].visible = true;  // Inspector
 
-        panels[3].dock    = DockSide::Bottom;  // Console (hidden by default)
+        panels[3].visible = false; // Palette (floating, hidden by default)
 
-        panels[5].dock    = DockSide::Left;
-        panels[5].visible = false; // FileBrowser
+        panels[4].dock    = DockSide::Bottom;  // Console (hidden by default)
 
-        panels[6].dock    = DockSide::Bottom;
-        panels[6].visible = false; // ScriptEditor
+        panels[6].dock    = DockSide::Left;
+        panels[6].visible = false; // FileBrowser
 
-        for (i, p) in panels.iter_mut().enumerate() { p.z = i; }
+        panels[7].dock    = DockSide::Bottom;
+        panels[7].visible = false; // ScriptEditor
+
+        for (i, p) in panels.iter_mut().enumerate() { 
+            if p.id != PanelId::Viewport { p.z = i + 10; }
+        }
 
         PanelManager {
-            panels, next_z: 7, dragging: None, resizing: None,
+            panels, next_z: 20, dragging: None, resizing: None,
             active_left:   Some(PanelId::Hierarchy),
             active_right:  Some(PanelId::Inspector),
             active_bottom: Some(PanelId::Console),
@@ -149,7 +154,7 @@ impl PanelManager {
 
     fn idx(&self, id: PanelId) -> usize {
         self.panels.iter().position(|p| p.id == id)
-            .expect("PanelManager: unknown PanelId")
+            .unwrap_or_else(|| panic!("PanelManager: unknown PanelId: {:?}", id))
     }
 
     pub fn get(&self, id: PanelId) -> &Panel { &self.panels[self.idx(id)] }
@@ -197,6 +202,7 @@ impl PanelManager {
     }
 
     pub fn bring_to_front(&mut self, id: PanelId) {
+        if id == PanelId::Viewport { return; }
         let z = self.next_z;
         self.next_z += 1;
         let i = self.idx(id);
@@ -254,7 +260,7 @@ impl PanelManager {
     }
 
     pub fn is_point_on_panel(&self, col: usize, row: usize) -> bool {
-        self.panels.iter().any(|p| p.visible && p.contains(col, row))
+        self.panels.iter().any(|p| p.visible && p.id != PanelId::Viewport && p.contains(col, row))
     }
 
     pub fn get_docked_panels(&self, side: DockSide) -> Vec<PanelId> {
@@ -441,26 +447,37 @@ impl PanelManager {
 
         for p in &mut self.panels {
             if !p.visible { continue; }
-            match p.dock {
-                DockSide::Left => {
-                    p.x = 0;
-                    p.y = canvas_top as i32;
-                    p.w = left_w;
-                    p.h = full_h;
-                }
-                DockSide::Right => {
-                    p.x = right_x;
-                    p.y = canvas_top as i32;
-                    p.w = right_w;
-                    p.h = full_h;
-                }
-                DockSide::Bottom => {
+            match p.id {
+                PanelId::Viewport => {
                     p.x = left_w as i32;
-                    p.y = bottom_y;
+                    p.y = canvas_top as i32;
                     p.w = screen_w.saturating_sub(left_w + right_w);
-                    p.h = bottom_h;
+                    p.h = canvas_bottom.saturating_sub(canvas_top + bottom_h);
+                    p.dock = DockSide::None;
                 }
-                DockSide::None => {}
+                _ => {
+                    match p.dock {
+                        DockSide::Left => {
+                            p.x = 0;
+                            p.y = canvas_top as i32;
+                            p.w = left_w;
+                            p.h = full_h;
+                        }
+                        DockSide::Right => {
+                            p.x = right_x;
+                            p.y = canvas_top as i32;
+                            p.w = right_w;
+                            p.h = full_h;
+                        }
+                        DockSide::Bottom => {
+                            p.x = left_w as i32;
+                            p.y = bottom_y;
+                            p.w = screen_w.saturating_sub(left_w + right_w);
+                            p.h = bottom_h;
+                        }
+                        DockSide::None => {}
+                    }
+                }
             }
         }
     }
@@ -494,16 +511,9 @@ impl PanelManager {
 
     /// Canvas bounds after accounting for all docked panels.
     /// Returns (canvas_x, canvas_y, canvas_w, canvas_h).
-    pub fn canvas_bounds(&self, screen_w: usize, screen_h: usize) -> (usize, usize, usize, usize) {
-        let canvas_top = 2usize;
-        let left_w = self.active_left.map(|id| self.get(id).w).unwrap_or(0);
-        let right_w = self.active_right.map(|id| self.get(id).w).unwrap_or(0);
-        let bottom_h = self.active_bottom.map(|id| self.get(id).h).unwrap_or(0);
-
-        let canvas_x = left_w;
-        let canvas_w = screen_w.saturating_sub(left_w + right_w).max(20);
-        let canvas_h = screen_h.saturating_sub(3 + bottom_h).max(4);
-        (canvas_x, canvas_top, canvas_w, canvas_h)
+    pub fn canvas_bounds(&self, _screen_w: usize, _screen_h: usize) -> (usize, usize, usize, usize) {
+        let vp = self.get(PanelId::Viewport);
+        (vp.content_x(), vp.content_y(), vp.content_w(), vp.content_h())
     }
 }
 
@@ -520,7 +530,8 @@ pub fn draw_panel_chrome(renderer: &mut Renderer, panel: &Panel) {
     if w < 2 || h < 2 { return; }
 
     // 1. Fill panel interior
-    renderer.draw_rect_filled(x, y, w, h, ' ', Color::White, Color::DarkGrey);
+    let interior_bg = if panel.id == PanelId::Viewport { Color::Black } else { Color::DarkGrey };
+    renderer.draw_rect_filled(x, y, w, h, ' ', Color::White, interior_bg);
 
     // 2. Title Bar (Top border area)
     renderer.draw_rect_filled(x, y, w, 1, ' ', Color::White, Color::DarkBlue);
@@ -534,13 +545,13 @@ pub fn draw_panel_chrome(renderer: &mut Renderer, panel: &Panel) {
     let clipped: String = title.chars().take(w.saturating_sub(6)).collect();
     renderer.draw_str(x + 1, y, &clipped, Color::White, Color::DarkBlue);
 
-    if w >= 5 {
+    if w >= 5 && panel.id != PanelId::Viewport {
         renderer.draw_str(x + w - 4, y, "[X]", Color::White, Color::DarkBlue);
     }
 
     // 3. Side and Bottom Borders (blended)
     let border_fg = Color::Grey;
-    let border_bg = Color::DarkGrey;
+    let border_bg = interior_bg;
     
     // Left & Right
     for row in (y + 1)..(y + h - 1) {

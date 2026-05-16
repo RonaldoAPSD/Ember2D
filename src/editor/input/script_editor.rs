@@ -2,7 +2,7 @@
 
 use crate::input::Key;
 use super::super::EditorState;
-use super::super::{key_to_char, TEXT_INPUT_KEYS};
+use super::super::helpers::{key_to_char, TEXT_INPUT_KEYS};
 use super::super::panel::PanelId;
 
 impl EditorState {

@@ -89,7 +89,7 @@ impl EditorState {
         let on_canvas = mouse.in_bounds
             && mouse.cell_x >= l.canvas_x
             && mouse.cell_x < l.canvas_x + l.canvas_w
-            && mouse.cell_y >= l.canvas_y
+            && mouse.cell_y >= (l.canvas_y - 1) // Allow interaction on Viewport title bar (row 2)
             && mouse.cell_y < l.canvas_y + l.canvas_h
             && !self.panels.is_point_on_panel(mouse.cell_x, mouse.cell_y);
 

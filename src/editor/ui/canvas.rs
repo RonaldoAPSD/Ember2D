@@ -13,13 +13,39 @@ pub fn grid_to_pixel(gx: i32, gy: i32, scroll: (i32, i32), zoom: f32, layout: &L
 
 pub fn draw_scaled_tile(renderer: &mut Renderer, gx: i32, gy: i32, glyph: char, fg: Color, bg: Color, scroll: (i32, i32), zoom: f32, layout: &Layout) {
     let (px, py) = grid_to_pixel(gx, gy, scroll, zoom, layout);
+    
+    // Clipping check: don't draw outside the viewport panel content area
+    let cx = layout.canvas_x as i32 * 8;
+    let cy = layout.canvas_y as i32 * 16;
+    let cw = layout.canvas_w as i32 * 8;
+    let ch = layout.canvas_h as i32 * 16;
+    
+    // Basic bounding box check for the scaled tile (assuming 8x16 base)
+    let tw = (8.0 * zoom) as i32;
+    let th = (16.0 * zoom) as i32;
+    
+    if px + tw <= cx || px >= cx + cw || py + th <= cy || py >= cy + ch {
+        return;
+    }
+    
     renderer.draw_char_scaled_pixels(px, py, glyph, fg, bg, zoom);
 }
 
 pub fn draw_grid(renderer: &mut Renderer, grid: &LevelGrid, active_layer: u8, scroll: (i32, i32), zoom: f32, layout: &Layout) {
+    // Optimized range: only iterate tiles potentially on screen
+    let cw_grid = (layout.canvas_w as f32 / zoom).ceil() as i32;
+    let ch_grid = (layout.canvas_h as f32 / zoom).ceil() as i32;
+    
+    let x0 = scroll.0 - 1;
+    let y0 = scroll.1 - 1;
+    let x1 = x0 + cw_grid + 2;
+    let y1 = y0 + ch_grid + 2;
+
     for l in 0..3 {
         for (&(gx, gy, lyr), tile) in &grid.tiles {
             if lyr != l { continue; }
+            if gx < x0 || gx > x1 || gy < y0 || gy > y1 { continue; }
+            
             let (mut fg, mut bg) = (tile.fg, tile.bg);
             if lyr != active_layer {
                 fg = dim_color(fg);
@@ -118,10 +144,12 @@ pub fn draw_extra_spawns(renderer: &mut Renderer, spawns: &[(String, f32, f32)],
         
         let (px, py) = grid_to_pixel(gx, gy, scroll, zoom, layout);
         let label: String = name.chars().take(3).collect();
-        // Draw label at 1:1 using the buffered system
+        // Clipping for label
         let lx = (px / 8) as usize + 1;
         let ly = (py / 16) as usize;
-        renderer.draw_str(lx, ly, &label, Color::Magenta, Color::Reset);
+        if lx >= layout.canvas_x && lx < layout.canvas_x + layout.canvas_w && ly >= layout.canvas_y && ly < layout.canvas_y + layout.canvas_h {
+            renderer.draw_str(lx, ly, &label, Color::Magenta, Color::Reset);
+        }
     }
 }
 

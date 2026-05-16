@@ -124,52 +124,15 @@ impl EditorState {
         ui::draw_menu_toolbar(renderer, self.active_menu, self.active_tool, &layout);
 
 
-        ui::draw_void(renderer, &self.grid, self.scroll, self.zoom, &layout);
-        ui::draw_level_boundary(renderer, &self.grid, self.scroll, self.zoom, &layout);
-        if self.show_grid { ui::draw_grid_overlay(renderer, &self.grid, self.scroll, self.zoom, &layout); }
-        ui::draw_grid(renderer, &self.grid, self.active_layer, self.scroll, self.zoom, &layout);
-        ui::draw_spawn_marker(renderer, self.grid.spawn_point, self.scroll, self.zoom, &layout);
-        ui::draw_extra_spawns(renderer, &self.grid.extra_spawns, self.scroll, self.zoom, &layout);
-
-        // ── Mode overlays ─────────────────────────────────────────────────────
+        // ── Mode resolution ──────────────────────────────────────────────────
         let grid_cursor = self.mouse_to_grid(mouse.cell_x, mouse.cell_y);
 
-        if self.pasting {
-            if let Some(cursor) = grid_cursor {
-                ui::draw_paste_preview(renderer, &self.clipboard, cursor,
-                    self.paste_flip_x, self.paste_flip_y, self.paste_rotate, self.scroll, self.zoom, &layout);
-            }
-        } else if self.selecting || self.cutting {
-            if let (Some(anchor), Some(current)) = (self.sel_anchor, grid_cursor) {
-                ui::draw_selection_preview(renderer, anchor, current, self.scroll, self.zoom, &layout);
-            }
-        } else if let Some(anchor) = self.rect_anchor {
-            let current = grid_cursor.unwrap_or(anchor);
-            ui::draw_rect_preview(renderer, anchor, current, self.palette.current().glyph, self.scroll, self.zoom, &layout);
-        } else if let Some(anchor) = self.line_anchor {
-            let current = grid_cursor.unwrap_or(anchor);
-            ui::draw_line_preview(renderer, anchor, current, self.palette.current().glyph, self.scroll, self.zoom, &layout);
-        } else {
-            ui::draw_cursor_highlight(renderer, mouse, &self.palette, self.select_mode, self.zoom, &layout);
-        }
-
-        // Physics overlay — tints solid/trigger tiles.
-        if self.show_physics {
-            ui::draw_physics_overlay(renderer, &self.grid, self.active_layer, self.scroll, self.zoom, &layout);
-        }
-
-        // Erase brush preview — only when right button held and brush > 1 cell.
-        if mouse.right_held() && self.erase_size > 1 {
-            if let Some(cursor) = grid_cursor {
-                ui::draw_erase_preview(renderer, cursor, self.erase_size, self.scroll, self.zoom, &layout);
-            }
-        }
-
-
-        // Help screen overlay.
-        if self.show_help {
-            ui::draw_help_overlay(renderer, &layout);
-        }
+        let mode_label = if self.pasting          { Some("PASTE") }
+            else if self.cutting                  { Some("CUT") }
+            else if self.selecting                { Some("COPY") }
+            else if self.rect_anchor.is_some()    { Some("RECT") }
+            else if self.line_anchor.is_some()    { Some("LINE") }
+            else                                  { None };
 
         // ── Inspector tile / position resolution ──────────────────────────────
         let player_tile: Option<crate::level::TileRecord> =
@@ -196,13 +159,6 @@ impl EditorState {
                     (tile, pos, tag)
                 }
             };
-
-        let mode_label = if self.pasting          { Some("PASTE") }
-            else if self.cutting                  { Some("CUT") }
-            else if self.selecting                { Some("COPY") }
-            else if self.rect_anchor.is_some()    { Some("RECT") }
-            else if self.line_anchor.is_some()    { Some("LINE") }
-            else                                  { None };
 
         // ── All panels (back-to-front by z-order) ────────────────────────────
         for pid in self.panels.in_draw_order() {
@@ -232,6 +188,47 @@ impl EditorState {
             }
 
             match pid {
+                PanelId::Viewport => {
+                    // Render Viewport content within its panel area
+                    ui::draw_void(renderer, &self.grid, self.scroll, self.zoom, &layout);
+                    ui::draw_level_boundary(renderer, &self.grid, self.scroll, self.zoom, &layout);
+                    if self.show_grid { ui::draw_grid_overlay(renderer, &self.grid, self.scroll, self.zoom, &layout); }
+                    ui::draw_grid(renderer, &self.grid, self.active_layer, self.scroll, self.zoom, &layout);
+                    ui::draw_spawn_marker(renderer, self.grid.spawn_point, self.scroll, self.zoom, &layout);
+                    ui::draw_extra_spawns(renderer, &self.grid.extra_spawns, self.scroll, self.zoom, &layout);
+
+                    // ── Mode overlays ─────────────────────────────────────────────
+                    if self.pasting {
+                        if let Some(cursor) = grid_cursor {
+                            ui::draw_paste_preview(renderer, &self.clipboard, cursor,
+                                self.paste_flip_x, self.paste_flip_y, self.paste_rotate, self.scroll, self.zoom, &layout);
+                        }
+                    } else if self.selecting || self.cutting {
+                        if let (Some(anchor), Some(current)) = (self.sel_anchor, grid_cursor) {
+                            ui::draw_selection_preview(renderer, anchor, current, self.scroll, self.zoom, &layout);
+                        }
+                    } else if let Some(anchor) = self.rect_anchor {
+                        let current = grid_cursor.unwrap_or(anchor);
+                        ui::draw_rect_preview(renderer, anchor, current, self.palette.current().glyph, self.scroll, self.zoom, &layout);
+                    } else if let Some(anchor) = self.line_anchor {
+                        let current = grid_cursor.unwrap_or(anchor);
+                        ui::draw_line_preview(renderer, anchor, current, self.palette.current().glyph, self.scroll, self.zoom, &layout);
+                    } else {
+                        ui::draw_cursor_highlight(renderer, mouse, &self.palette, self.select_mode, self.zoom, &layout);
+                    }
+
+                    // Physics overlay — tints solid/trigger tiles.
+                    if self.show_physics {
+                        ui::draw_physics_overlay(renderer, &self.grid, self.active_layer, self.scroll, self.zoom, &layout);
+                    }
+
+                    // Erase brush preview — only when right button held and brush > 1 cell.
+                    if mouse.right_held() && self.erase_size > 1 {
+                        if let Some(cursor) = grid_cursor {
+                            ui::draw_erase_preview(renderer, cursor, self.erase_size, self.scroll, self.zoom, &layout);
+                        }
+                    }
+                }
                 PanelId::Hierarchy => {
                     ui::draw_hierarchy(renderer, &self.grid, self.hierarchy_sel, pcx, pcy, pcw, pch);
                 }
@@ -355,6 +352,11 @@ impl EditorState {
                 TextInputPurpose::PaletteBgCustom          => "Custom BG Hex (e.g. #222222)",
             };
             ui::draw_text_input(renderer, prompt, &ti.buffer, &layout);
+        }
+
+        // Help screen overlay.
+        if self.show_help {
+            ui::draw_help_overlay(renderer, &layout);
         }
 
         if let Some(ref m) = self.modal {

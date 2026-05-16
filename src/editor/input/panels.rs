@@ -42,17 +42,17 @@ impl EditorState {
             }
 
             if let Some(pid) = self.panels.close_btn_at(col, row) {
-                self.panels.hide(pid);
+                if pid != PanelId::Viewport { self.panels.hide(pid); }
                 self.ignore_drag = true;
                 return;
             }
             if let Some(pid) = self.panels.resize_handle_at(col, row) {
-                self.panels.start_resize(pid, col as i32, row as i32);
+                if pid != PanelId::Viewport { self.panels.start_resize(pid, col as i32, row as i32); }
                 self.ignore_drag = true;
                 return;
             }
             if let Some(pid) = self.panels.title_bar_at(col, row) {
-                self.panels.start_drag(pid, col as i32, row as i32);
+                if pid != PanelId::Viewport { self.panels.start_drag(pid, col as i32, row as i32); }
                 self.ignore_drag = true;
                 return;
             }

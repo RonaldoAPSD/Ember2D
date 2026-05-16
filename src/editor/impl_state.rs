@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 use crate::engine::Transition;
-use crate::scripting::{LogEntry, LogLevel};
+use crate::scripting::LogEntry;
 use super::EditorState;
 use super::commands::Command;
 use super::ui::{ToolKind, ToolbarAction, transform_offset, bresenham};
@@ -35,12 +35,23 @@ impl EditorState {
     }
 
     pub(super) fn mouse_to_grid(&self, cell_x: usize, cell_y: usize) -> Option<(i32, i32)> {
-        if self.panels.is_point_on_panel(cell_x, cell_y) { return None; }
+        // 1. Block input if mouse is over any OTHER panel (except Viewport)
+        if let Some(pid) = self.panels.panel_at(cell_x, cell_y) {
+            if pid != PanelId::Viewport { return None; }
+        }
+
         let l = &self.layout;
+        // 2. Localize to canvas space
         if cell_x < l.canvas_x || cell_x >= l.canvas_x + l.canvas_w { return None; }
         if cell_y < l.canvas_y || cell_y >= l.canvas_y + l.canvas_h { return None; }
-        let gx = ((cell_x - l.canvas_x) as f32 / self.zoom).floor() as i32 + self.scroll.0;
-        let gy = ((cell_y - l.canvas_y) as f32 / self.zoom).floor() as i32 + self.scroll.1;
+        
+        let local_x = (cell_x - l.canvas_x) as f32;
+        let local_y = (cell_y - l.canvas_y) as f32;
+
+        // 3. Project to grid coordinates
+        let gx = (local_x / self.zoom + self.scroll.0 as f32).floor() as i32;
+        let gy = (local_y / self.zoom + self.scroll.1 as f32).floor() as i32;
+        
         Some((gx, gy))
     }
 
@@ -447,13 +458,11 @@ impl EditorState {
     }
 
     pub fn receive_log(&mut self, entries: Vec<LogEntry>) {
-        let had_errors = entries.iter().any(|e| e.level == LogLevel::Error);
         self.console_log.extend(entries);
         if self.console_log.len() > 200 {
             let drain = self.console_log.len() - 200;
             self.console_log.drain(..drain);
         }
-        if had_errors { self.panels.show(PanelId::Console); }
     }
 
     pub(super) fn export_game(&mut self) {

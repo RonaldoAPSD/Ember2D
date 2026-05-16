@@ -4,7 +4,7 @@ use crate::project::ProjectData;
 use crate::input::Key;
 use super::mod_types::*;
 use super::drawing::*;
-use crate::editor::key_to_char;
+use crate::editor::helpers::{key_to_char, TEXT_INPUT_KEYS};
 use super::*;
 
 impl StartScreen {
@@ -125,7 +125,7 @@ impl StartScreen {
                 }
             }
             Screen::NewName => {
-                for &key in crate::editor::TEXT_INPUT_KEYS { if input.just_pressed(key) { if let Some(ch) = key_to_char(key, shift) { self.name_buf.push(ch); } } }
+                for &key in TEXT_INPUT_KEYS { if input.just_pressed(key) { if let Some(ch) = key_to_char(key, shift) { self.name_buf.push(ch); } } }
                 if input.just_pressed(Key::Backspace) { self.name_buf.pop(); }
                 if input.just_pressed(Key::Escape) { self.screen = Screen::MainMenu; }
                 if input.just_pressed(Key::Enter) && !self.name_buf.is_empty() { self.style_sel = 0; self.screen = Screen::NewStyle; }
@@ -165,7 +165,7 @@ impl StartScreen {
                 }
             }
             Screen::NewFolder => {
-                for &key in crate::editor::TEXT_INPUT_KEYS { if input.just_pressed(key) { if let Some(ch) = key_to_char(key, shift) { self.folder_buf.push(ch); } } }
+                for &key in TEXT_INPUT_KEYS { if input.just_pressed(key) { if let Some(ch) = key_to_char(key, shift) { self.folder_buf.push(ch); } } }
                 if input.just_pressed(Key::Backspace) { self.folder_buf.pop(); }
                 if input.just_pressed(Key::Escape) { self.screen = Screen::FolderBrowser; }
                 if input.just_pressed(Key::Enter) && !self.folder_buf.is_empty() {
