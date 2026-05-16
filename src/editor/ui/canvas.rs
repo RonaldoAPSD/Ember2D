@@ -131,10 +131,12 @@ pub fn draw_cursor_highlight(renderer: &mut Renderer, mouse: &crate::mouse::Mous
     let gy = (((row - layout.canvas_y) as f32) / zoom).floor() as i32;
     
     if select_mode {
-        draw_scaled_tile(renderer, gx, gy, '+', Color::Yellow, Color::DarkGrey, (0.0, 0.0), zoom, layout);
+        // Correct color for select mode as per plan: stark Dark Blue background for visibility
+        draw_scaled_tile(renderer, gx, gy, '+', Color::Yellow, Color::DarkBlue, (0.0, 0.0), zoom, layout);
     } else {
         let tile = palette.current();
-        draw_scaled_tile(renderer, gx, gy, tile.glyph, Color::Black, Color::White, (0.0, 0.0), zoom, layout);
+        // Correct color for paint mode as per plan: stark White background to make it pop
+        draw_scaled_tile(renderer, gx, gy, tile.glyph, tile.fg, Color::White, (0.0, 0.0), zoom, layout);
     }
 }
 
@@ -182,10 +184,24 @@ pub fn draw_selection_preview(renderer: &mut Renderer, anchor: (i32, i32), curre
     let y0 = anchor.1.min(current.1);
     let x1 = anchor.0.max(current.0);
     let y1 = anchor.1.max(current.1);
+    
+    let fg = Color::Yellow;
+    let bg = Color::DarkBlue;
+
     for gy in y0..=y1 {
         for gx in x0..=x1 {
-            if gx == x0 || gx == x1 || gy == y0 || gy == y1 {
-                draw_scaled_tile(renderer, gx, gy, '+', Color::Yellow, Color::DarkGrey, scroll, zoom, layout);
+            let is_corner = (gx == x0 || gx == x1) && (gy == y0 || gy == y1);
+            let is_edge = gx == x0 || gx == x1 || gy == y0 || gy == y1;
+            
+            if is_corner {
+                let ch = if gx == x0 && gy == y0 { '┌' }
+                    else if gx == x1 && gy == y0 { '┐' }
+                    else if gx == x0 && gy == y1 { '└' }
+                    else { '┘' };
+                draw_scaled_tile(renderer, gx, gy, ch, fg, bg, scroll, zoom, layout);
+            } else if is_edge {
+                let ch = if gx == x0 || gx == x1 { '│' } else { '─' };
+                draw_scaled_tile(renderer, gx, gy, ch, fg, Color::Reset, scroll, zoom, layout);
             }
         }
     }

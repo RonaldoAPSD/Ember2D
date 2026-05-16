@@ -49,8 +49,8 @@ impl EditorState {
         let local_y = (cell_y - l.canvas_y) as f32;
 
         // 3. Project to grid coordinates
-        let gx = (local_x / self.zoom + self.scroll.0 as f32).floor() as i32;
-        let gy = (local_y / self.zoom + self.scroll.1 as f32).floor() as i32;
+        let gx = (local_x / self.zoom + self.scroll.0).floor() as i32;
+        let gy = (local_y / self.zoom + self.scroll.1).floor() as i32;
         
         Some((gx, gy))
     }
