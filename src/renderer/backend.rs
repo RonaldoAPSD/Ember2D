@@ -17,6 +17,8 @@ pub trait RenderBackend {
     fn height(&self) -> usize;
     fn set_sprite_mode(&mut self, enabled: bool);
     fn upload_texture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, texture: &Texture);
+    fn set_scissor(&mut self, rect: Option<(u32, u32, u32, u32)>);
+    fn set_render_scale(&mut self, scale: f32);
 }
 
 #[repr(C)]
@@ -71,9 +73,11 @@ pub struct Globals {
     pub projection: [[f32; 4]; 4],
 }
 
+#[derive(Clone, PartialEq, Eq)]
 struct Batch {
     texture_id: u64,
     instance_range: std::ops::Range<u32>,
+    scissor: Option<(u32, u32, u32, u32)>,
 }
 
 // ────────────────────────── WgpuBackend ──────────────────────────────────────
@@ -82,6 +86,7 @@ pub struct WgpuBackend {
     width: usize,
     height: usize,
     pub is_sprite_mode: bool,
+    pub render_scale:   f32,
     
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
@@ -91,6 +96,7 @@ pub struct WgpuBackend {
     
     instances: Vec<SpriteInstance>,
     batches:   Vec<Batch>,
+    current_scissor: Option<(u32, u32, u32, u32)>,
     
     font_texture_id: u64,
     texture_cache:   HashMap<u64, wgpu::BindGroup>,
@@ -268,10 +274,12 @@ impl WgpuBackend {
 
         WgpuBackend {
             width, height, is_sprite_mode: false,
+            render_scale: 1.0,
             pipeline, vertex_buffer, index_buffer, instance_buffer,
             instance_buffer_capacity,
             instances: Vec::with_capacity(instance_buffer_capacity),
             batches:   Vec::new(),
+            current_scissor: None,
             font_texture_id,
             texture_cache,
             sampler,
@@ -289,7 +297,7 @@ impl WgpuBackend {
 
     fn ensure_batch(&mut self, texture_id: u64) {
         if let Some(last) = self.batches.last_mut() {
-            if last.texture_id == texture_id {
+            if last.texture_id == texture_id && last.scissor == self.current_scissor {
                 return;
             }
             last.instance_range.end = self.instances.len() as u32;
@@ -298,6 +306,7 @@ impl WgpuBackend {
         self.batches.push(Batch {
             texture_id,
             instance_range: (self.instances.len() as u32)..(self.instances.len() as u32),
+            scissor: self.current_scissor,
         });
     }
 
@@ -343,6 +352,7 @@ impl RenderBackend for WgpuBackend {
     fn clear(&mut self) {
         self.instances.clear();
         self.batches.clear();
+        self.current_scissor = None;
     }
 
     fn draw_char(&mut self, x: usize, y: usize, ch: char, fg: Color, bg: Color) {
@@ -405,6 +415,10 @@ impl RenderBackend for WgpuBackend {
         });
     }
 
+    fn set_scissor(&mut self, rect: Option<(u32, u32, u32, u32)>) {
+        self.current_scissor = rect;
+    }
+
     fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, view: &wgpu::TextureView) {
         self.update_globals(queue);
 
@@ -453,6 +467,17 @@ impl RenderBackend for WgpuBackend {
 
             for batch in &self.batches {
                 if let Some(bind_group) = self.texture_cache.get(&batch.texture_id) {
+                    if let Some((x, y, w, h)) = batch.scissor {
+                        let sx = (x as f32 * self.render_scale).round() as u32;
+                        let sy = (y as f32 * self.render_scale).round() as u32;
+                        let sw = (w as f32 * self.render_scale).round() as u32;
+                        let sh = (h as f32 * self.render_scale).round() as u32;
+                        rp.set_scissor_rect(sx, sy, sw, sh);
+                    } else {
+                        let fw = (self.width as f32 * 8.0 * self.render_scale).round() as u32;
+                        let fh = (self.height as f32 * 16.0 * self.render_scale).round() as u32;
+                        rp.set_scissor_rect(0, 0, fw, fh);
+                    }
                     rp.set_bind_group(0, bind_group, &[]);
                     rp.draw_indexed(0..6, 0, batch.instance_range.clone());
                 }
@@ -471,5 +496,9 @@ impl RenderBackend for WgpuBackend {
 
     fn upload_texture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, texture: &Texture) {
         self.upload_texture(device, queue, texture);
+    }
+
+    fn set_render_scale(&mut self, scale: f32) {
+        self.render_scale = scale;
     }
 }

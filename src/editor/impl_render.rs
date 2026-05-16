@@ -117,6 +117,7 @@ impl EditorState {
         self.panels.apply_layout(renderer.width, renderer.height);
         let (cx, cy, cw, ch) = self.panels.canvas_bounds(renderer.width, renderer.height);
         self.layout = Layout::new(renderer.width, renderer.height).with_canvas(cx, cy, cw, ch);
+        self.layout.zoom = self.zoom;
         let layout = self.layout.clone();
 
         renderer.draw_rect_filled(0, 0, renderer.width, renderer.height, ' ', Color::Reset, Color::Reset);
@@ -189,6 +190,13 @@ impl EditorState {
 
             match pid {
                 PanelId::Viewport => {
+                    // ── Set Hardware Scissor ─────────────────────────────────────
+                    let (sc_x, sc_y, sc_w, sc_h) = (
+                        (pcx * 8) as u32, (pcy * 16) as u32,
+                        (pcw * 8) as u32, (pch * 16) as u32
+                    );
+                    renderer.set_scissor(Some((sc_x, sc_y, sc_w, sc_h)));
+
                     // Render Viewport content within its panel area
                     ui::draw_void(renderer, &self.grid, self.scroll, self.zoom, &layout);
                     ui::draw_level_boundary(renderer, &self.grid, self.scroll, self.zoom, &layout);
@@ -228,6 +236,9 @@ impl EditorState {
                             ui::draw_erase_preview(renderer, cursor, self.erase_size, self.scroll, self.zoom, &layout);
                         }
                     }
+
+                    // Reset Scissor
+                    renderer.set_scissor(None);
                 }
                 PanelId::Hierarchy => {
                     ui::draw_hierarchy(renderer, &self.grid, self.hierarchy_sel, pcx, pcy, pcw, pch);

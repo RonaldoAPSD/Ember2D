@@ -78,8 +78,8 @@ impl EditorState {
                 };
                 if let Some((gx, gy)) = pos {
                     let (cw, ch) = (self.layout.canvas_w as f32 / self.zoom, self.layout.canvas_h as f32 / self.zoom);
-                    self.scroll.0 = (gx - cw / 2.0) as i32;
-                    self.scroll.1 = (gy - ch / 2.0) as i32;
+                    self.target_scroll.0 = gx - cw / 2.0;
+                    self.target_scroll.1 = gy - ch / 2.0;
                     self.clamp_scroll();
                 }
             }

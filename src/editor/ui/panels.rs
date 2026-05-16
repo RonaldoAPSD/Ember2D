@@ -8,12 +8,12 @@ use crate::level::TileRecord;
 use crate::scripting::{LogEntry, LogLevel};
 use super::types::*;
 
-pub fn draw_title_bar(renderer: &mut Renderer, level_name: &str, unsaved: bool, undo_count: usize, redo_count: usize, scroll: (i32, i32), level_size: (usize, usize)) {
+pub fn draw_title_bar(renderer: &mut Renderer, level_name: &str, unsaved: bool, undo_count: usize, redo_count: usize, scroll: (f32, f32), level_size: (usize, usize)) {
     renderer.draw_rect_filled(0, 0, renderer.width, 1, ' ', Color::White, Color::DarkBlue);
     renderer.draw_str(1, 0, "EMBER2D EDITOR", Color::White, Color::DarkBlue);
 
     let saved_marker = if unsaved { "*" } else { " " };
-    let scroll_str = if scroll != (0, 0) { format!(" @{},{}", scroll.0, scroll.1) } else { String::new() };
+    let scroll_str = if scroll.0.abs() > 0.001 || scroll.1.abs() > 0.001 { format!(" @{:.1},{:.1}", scroll.0, scroll.1) } else { String::new() };
     let info = format!("{}{}  {}×{}{}  U:{} R:{}", saved_marker, level_name, level_size.0, level_size.1, scroll_str, undo_count, redo_count);
     let col = renderer.width.saturating_sub(info.len() + 1);
     renderer.draw_str(col, 0, &info, Color::Yellow, Color::DarkBlue);
@@ -96,12 +96,12 @@ pub fn draw_stats_panel(renderer: &mut Renderer, grid: &LevelGrid, palette: &Til
     renderer.draw_str(cx, cy + ch - 1, &format!(" Total:{:>4}", total), Color::White, Color::DarkGrey);
 }
 
-pub fn draw_status_bar(renderer: &mut Renderer, mouse: &crate::mouse::MouseState, _palette: &TilePalette, grid_overlay: bool, save_path: &str, tile_under: Option<&TileRecord>, mode_hint: &str, scroll: (i32, i32), active_layer: u8, erase_size: usize, layout: &Layout) {
+pub fn draw_status_bar(renderer: &mut Renderer, mouse: &crate::mouse::MouseState, _palette: &TilePalette, grid_overlay: bool, _save_path: &str, tile_under: Option<&TileRecord>, mode_hint: &str, scroll: (f32, f32), active_layer: u8, erase_size: usize, layout: &Layout) {
     let status_row = renderer.height - 1;
     renderer.draw_rect_filled(0, status_row, renderer.width, 1, ' ', Color::White, Color::DarkGrey);
-    let cx = mouse.cell_x.saturating_sub(layout.canvas_x) as i32 + scroll.0;
-    let cy = mouse.cell_y.saturating_sub(layout.canvas_y) as i32 + scroll.1;
-    let pos_str = format!(" ({:3},{:3})", cx, cy);
+    let cx = mouse.cell_x.saturating_sub(layout.canvas_x) as f32 / layout.zoom + scroll.0;
+    let cy = mouse.cell_y.saturating_sub(layout.canvas_y) as f32 / layout.zoom + scroll.1;
+    let pos_str = format!(" ({:3.1},{:3.1})", cx, cy);
     renderer.draw_str(0, status_row, &pos_str, Color::Cyan, Color::DarkGrey);
     
     let lyr_name = match active_layer { 0 => "Background", 1 => "Main", 2 => "Foreground", _ => "Unknown" };
@@ -119,11 +119,6 @@ pub fn draw_status_bar(renderer: &mut Renderer, mouse: &crate::mouse::MouseState
         let erase_hint = format!("E:{}px", erase_size);
         let hints = format!("| {} S:save U:undo R:redo {}", erase_hint, grid_hint);
         renderer.draw_str(30, status_row, &hints, Color::White, Color::DarkGrey);
-    }
-    if !save_path.is_empty() {
-        let path_display = if save_path.len() > 14 { format!("..{}", &save_path[save_path.len() - 12..]) } else { save_path.to_string() };
-        let col = renderer.width.saturating_sub(path_display.len() + 1);
-        renderer.draw_str(col, status_row, &path_display, Color::DarkGrey, Color::DarkGrey);
     }
 }
 
@@ -195,12 +190,6 @@ pub fn draw_text_input(renderer: &mut Renderer, prompt: &str, buffer: &str, layo
 }
 
 pub fn draw_console(renderer: &mut Renderer, log: &[LogEntry], cx: usize, cy: usize, cw: usize, ch: usize) {
-    let err_count = log.iter().filter(|e| e.level == LogLevel::Error).count();
-    if err_count > 0 {
-        let badge = format!(" {} ERR ", err_count);
-        let col = (cx + cw).saturating_sub(badge.len());
-        renderer.draw_str(col, cy - 1, &badge, Color::White, Color::Red);
-    }
     let visible = ch;
     let start   = log.len().saturating_sub(visible);
     for (i, entry) in log.iter().skip(start).enumerate() {

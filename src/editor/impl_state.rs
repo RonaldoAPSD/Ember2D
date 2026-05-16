@@ -56,16 +56,16 @@ impl EditorState {
     }
 
     pub(super) fn center_on(&mut self, gx: i32, gy: i32) {
-        self.scroll.0 = (gx - self.layout.canvas_w as i32 / 2).max(0);
-        self.scroll.1 = (gy - self.layout.canvas_h as i32 / 2).max(0);
+        self.target_scroll.0 = (gx as f32 - self.layout.canvas_w as f32 / 2.0 / self.zoom).max(0.0);
+        self.target_scroll.1 = (gy as f32 - self.layout.canvas_h as f32 / 2.0 / self.zoom).max(0.0);
         self.clamp_scroll();
     }
 
     pub(super) fn clamp_scroll(&mut self) {
-        let max_x = (self.grid.width  as i32 - self.layout.canvas_w as i32).max(0);
-        let max_y = (self.grid.height as i32 - self.layout.canvas_h as i32).max(0);
-        self.scroll.0 = self.scroll.0.clamp(0, max_x);
-        self.scroll.1 = self.scroll.1.clamp(0, max_y);
+        let max_x = (self.grid.width  as f32 - self.layout.canvas_w as f32 / self.zoom).max(0.0);
+        let max_y = (self.grid.height as f32 - self.layout.canvas_h as f32 / self.zoom).max(0.0);
+        self.target_scroll.0 = self.target_scroll.0.clamp(0.0, max_x);
+        self.target_scroll.1 = self.target_scroll.1.clamp(0.0, max_y);
     }
 
     pub(super) fn apply_command(&mut self, cmd: &Command) {

@@ -331,5 +331,14 @@ impl EditorState {
         self.handle_panel_input(input, mouse);
         self.handle_canvas_input(input, mouse);
         self.handle_shortcuts(input, mouse);
+
+        // ── Smooth camera lerp ────────────────────────────────────────────────
+        let lerp_factor = 0.2; // Snappiness
+        self.scroll.0 += (self.target_scroll.0 - self.scroll.0) * lerp_factor;
+        self.scroll.1 += (self.target_scroll.1 - self.scroll.1) * lerp_factor;
+
+        // Snap if close enough to prevent infinite micro-movement
+        if (self.scroll.0 - self.target_scroll.0).abs() < 0.001 { self.scroll.0 = self.target_scroll.0; }
+        if (self.scroll.1 - self.target_scroll.1).abs() < 0.001 { self.scroll.1 = self.target_scroll.1; }
     }
 }

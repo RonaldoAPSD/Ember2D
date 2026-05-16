@@ -12,14 +12,14 @@ impl EditorState {
 
         // ── Middle-mouse drag pan ─────────────────────────────────────────────
         if mouse.middle_just_pressed() {
-            self.pan_anchor = Some((mouse.cell_x, mouse.cell_y, self.scroll.0, self.scroll.1));
+            self.pan_anchor = Some((mouse.cell_x, mouse.cell_y, self.target_scroll.0.round() as i32, self.target_scroll.1.round() as i32));
         }
         if mouse.middle_held() {
             if let Some((ax, ay, sx, sy)) = self.pan_anchor {
-                let dx = mouse.cell_x as i32 - ax as i32;
-                let dy = mouse.cell_y as i32 - ay as i32;
-                self.scroll.0 = (sx - dx).max(0);
-                self.scroll.1 = (sy - dy).max(0);
+                let dx = (mouse.cell_x as i32 - ax as i32) as f32 / self.zoom;
+                let dy = (mouse.cell_y as i32 - ay as i32) as f32 / self.zoom;
+                self.target_scroll.0 = sx as f32 - dx;
+                self.target_scroll.1 = sy as f32 - dy;
                 self.clamp_scroll();
             }
         }
@@ -115,11 +115,11 @@ impl EditorState {
         let do_scroll = self.scroll_repeat == 1
             || (self.scroll_repeat > 12 && self.scroll_repeat % 2 == 0);
         if do_scroll {
-            let scroll_speed = if shift { 5 } else { 1 };
-            if input.is_held(Key::Left)  { self.scroll.0 -= scroll_speed; }
-            if input.is_held(Key::Right) { self.scroll.0 += scroll_speed; }
-            if input.is_held(Key::Up)    { self.scroll.1 -= scroll_speed; }
-            if input.is_held(Key::Down)  { self.scroll.1 += scroll_speed; }
+            let scroll_speed = if shift { 5.0f32 } else { 1.0f32 };
+            if input.is_held(Key::Left)  { self.target_scroll.0 -= scroll_speed; }
+            if input.is_held(Key::Right) { self.target_scroll.0 += scroll_speed; }
+            if input.is_held(Key::Up)    { self.target_scroll.1 -= scroll_speed; }
+            if input.is_held(Key::Down)  { self.target_scroll.1 += scroll_speed; }
             self.clamp_scroll();
         }
 
@@ -133,11 +133,11 @@ impl EditorState {
             let cx = self.layout.canvas_x as f32;
             let cy = self.layout.canvas_y as f32;
             
-            let gx_before = (mx - cx) / self.zoom + self.scroll.0 as f32;
-            let gy_before = (my - cy) / self.zoom + self.scroll.1 as f32;
+            let gx_before = (mx - cx) / self.zoom + self.target_scroll.0;
+            let gy_before = (my - cy) / self.zoom + self.target_scroll.1;
 
             // 2. Apply multiplicative zoom
-            let factor = if ctrl { 1.5 } else { 1.1 };
+            let factor = if ctrl { 1.5f32 } else { 1.1f32 };
             if mouse.wheel_y > 0.0 {
                 self.zoom *= factor;
             } else {
@@ -146,14 +146,14 @@ impl EditorState {
             self.zoom = self.zoom.clamp(0.25, 4.0);
 
             // 3. Adjust scroll to keep the same grid point under the mouse
-            self.scroll.0 = (gx_before - (mx - cx) / self.zoom).round() as i32;
-            self.scroll.1 = (gy_before - (my - cy) / self.zoom).round() as i32;
+            self.target_scroll.0 = gx_before - (mx - cx) / self.zoom;
+            self.target_scroll.1 = gy_before - (my - cy) / self.zoom;
             
             self.clamp_scroll();
         }
         if mouse.wheel_x != 0.0 {
-            let dx = if mouse.wheel_x > 0.0 { 3i32 } else { -3i32 };
-            self.scroll.0 += dx;
+            let dx = if mouse.wheel_x > 0.0 { 3.0f32 } else { -3.0f32 };
+            self.target_scroll.0 += dx;
             self.clamp_scroll();
         }
 

@@ -144,8 +144,15 @@ impl Renderer {
         self.backend.draw_char_scaled_pixels(px, py, ch, fg, bg, scale);
     }
 
+    pub fn upload_texture(&mut self, texture: &Texture) {
+        self.backend.upload_texture(&self.device, &self.queue, texture);
+    }
+
+    pub fn set_scissor(&mut self, rect: Option<(u32, u32, u32, u32)>) {
+        self.backend.set_scissor(rect);
+    }
+
     pub fn draw_texture(&mut self, px: i32, py: i32, texture: &Texture, scale: f32) {
-        // Ensure texture is on GPU before drawing
         self.backend.upload_texture(&self.device, &self.queue, texture);
         self.backend.draw_texture(px, py, texture, scale);
     }
@@ -187,7 +194,23 @@ impl Renderer {
     }
 
     pub fn present(&mut self) -> io::Result<()> {
-        let output = self.surface.get_current_texture().map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        let output = match self.surface.get_current_texture() {
+            Ok(frame) => frame,
+            Err(wgpu::SurfaceError::Outdated) => {
+                self.surface.configure(&self.device, &self.config);
+                return Ok(());
+            }
+            Err(wgpu::SurfaceError::Lost) => {
+                self.surface.configure(&self.device, &self.config);
+                return Ok(());
+            }
+            Err(e) => return Err(io::Error::new(io::ErrorKind::Other, e.to_string())),
+        };
+
+        // Sync scale factor for scissor clipping
+        let scale = self.scale_factor();
+        self.backend.set_render_scale(scale);
+
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         self.backend.render(&self.device, &self.queue, &view);

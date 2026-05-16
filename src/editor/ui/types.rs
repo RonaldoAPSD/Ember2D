@@ -129,6 +129,7 @@ pub struct Layout {
     pub canvas_w:    usize,
     pub canvas_h:    usize,
     pub toolbar_row: usize,
+    pub zoom:        f32,
 }
 
 impl Layout {
@@ -141,6 +142,7 @@ impl Layout {
             canvas_w:    screen_w,
             canvas_h:    screen_h.saturating_sub(3).max(4),
             toolbar_row: 1,
+            zoom:        1.0,
         }
     }
 
