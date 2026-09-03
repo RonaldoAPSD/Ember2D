@@ -25,6 +25,8 @@
 //   │ 5: ~ Water     │
 //   └────────────────┘
 
+use std::collections::{HashMap, HashSet};
+use serde::{Serialize, Deserialize};
 use crate::renderer::color::Color;
 use crate::level::TileRecord;
 
@@ -34,10 +36,10 @@ use crate::level::TileRecord;
 ///
 /// When the user selects this entry and left-clicks on the canvas, a TileRecord
 /// is created from these fields and placed in the LevelGrid.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TileDefinition {
     /// Short human-readable name shown in the palette panel.
-    pub name: &'static str,
+    pub name: String,
 
     /// The ASCII character drawn at each cell of this type.
     pub glyph: char,
@@ -57,7 +59,7 @@ pub struct TileDefinition {
 
     /// Tag string stored in the TileRecord. Game logic can query `world.find_by_tag`.
     /// Empty string = no tag.
-    pub tag: &'static str,
+    pub tag: String,
 }
 
 impl TileDefinition {
@@ -67,11 +69,12 @@ impl TileDefinition {
     pub fn to_tile_record(&self, x: i32, y: i32) -> TileRecord {
         TileRecord::new(
             x, y,
+            0, // Default layer, will be overwritten by grid.place()
             self.glyph,
             self.fg, self.bg,
             self.solid,
             self.trigger,
-            self.tag,
+            &self.tag,
         )
     }
 }
@@ -79,6 +82,7 @@ impl TileDefinition {
 // ── TilePalette ───────────────────────────────────────────────────────────────
 
 /// The full palette: a list of tile definitions and a "currently selected" index.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TilePalette {
     /// All available tile types, in the order they appear in the panel.
     /// Index 0 = key "1", index 1 = key "2", etc.
@@ -86,97 +90,174 @@ pub struct TilePalette {
 
     /// Index into `tiles` for the currently selected entry.
     pub selected: usize,
+
+    /// Set of uppercase category names that are currently hidden.
+    #[serde(default)]
+    pub collapsed: HashSet<String>,
+
+    /// Current filter string for the palette.
+    #[serde(skip)]
+    pub search: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum PaletteRow {
+    Header(String),
+    Item(usize), // Index into `tiles`
 }
 
 impl TilePalette {
+    /// Generate a visual layout of headers and items grouped by tag.
+    pub fn build_layout(&self) -> Vec<PaletteRow> {
+        let mut grouped: HashMap<String, Vec<usize>> = HashMap::new();
+        let query = self.search.to_uppercase();
+
+        for (i, tile) in self.tiles.iter().enumerate() {
+            // Apply search filter
+            if !query.is_empty() {
+                let name = tile.name.to_uppercase();
+                let tag  = tile.tag.to_uppercase();
+                if !name.contains(&query) && !tag.contains(&query) {
+                    continue;
+                }
+            }
+
+            let cat = if tile.tag.is_empty() { String::new() } else { tile.tag.to_uppercase() };
+            grouped.entry(cat).or_default().push(i);
+        }
+
+        let mut sorted_keys: Vec<_> = grouped.keys().cloned().collect();
+        sorted_keys.sort_by(|a, b| {
+            if a.is_empty() { std::cmp::Ordering::Less }
+            else if b.is_empty() { std::cmp::Ordering::Greater }
+            else { a.cmp(b) }
+        });
+
+        let mut layout = Vec::new();
+        for key in sorted_keys {
+            if !key.is_empty() {
+                layout.push(PaletteRow::Header(key.clone()));
+            }
+            
+            if key.is_empty() || !self.collapsed.contains(&key) {
+                if let Some(indices) = grouped.get(&key) {
+                    for &idx in indices {
+                        layout.push(PaletteRow::Item(idx));
+                    }
+                }
+            }
+        }
+        layout
+    }
+
     /// Build the default palette with the standard tile types.
     pub fn default_palette() -> Self {
         TilePalette {
             tiles: vec![
                 TileDefinition {
-                    name:    "Wall",
+                    name:    "Wall".into(),
                     glyph:   '#',
                     fg:      Color::Grey,
                     bg:      Color::Reset,
                     solid:   true,
                     trigger: false,
-                    tag:     "wall",
+                    tag:     "".into(),
                 },
                 TileDefinition {
-                    name:    "Floor",
+                    name:    "Floor".into(),
                     glyph:   '.',
                     fg:      Color::DarkGrey,
                     bg:      Color::Reset,
                     solid:   false,
                     trigger: false,
-                    tag:     "floor",
+                    tag:     "".into(),
                 },
                 TileDefinition {
-                    name:    "Item",
+                    name:    "Item".into(),
                     glyph:   '*',
                     fg:      Color::Yellow,
                     bg:      Color::Reset,
                     solid:   false,
                     trigger: true,
-                    tag:     "item",
+                    tag:     "".into(),
                 },
                 TileDefinition {
-                    name:    "Spawn",
+                    name:    "Spawn".into(),
                     glyph:   '@',
                     fg:      Color::Green,
                     bg:      Color::Reset,
                     solid:   false,
                     trigger: false,
-                    tag:     "spawn",
+                    tag:     "".into(),
                 },
                 TileDefinition {
-                    name:    "Water",
+                    name:    "Water".into(),
                     glyph:   '~',
                     fg:      Color::Cyan,
                     bg:      Color::DarkBlue,
                     solid:   false,
                     trigger: true,
-                    tag:     "water",
+                    tag:     "".into(),
                 },
                 TileDefinition {
-                    name:    "Door",
+                    name:    "Door".into(),
                     glyph:   '+',
                     fg:      Color::DarkYellow,
                     bg:      Color::Reset,
                     solid:   true,
                     trigger: false,
-                    tag:     "door",
+                    tag:     "".into(),
                 },
                 TileDefinition {
-                    name:    "Chest",
+                    name:    "Chest".into(),
                     glyph:   '$',
                     fg:      Color::Yellow,
                     bg:      Color::Reset,
                     solid:   false,
                     trigger: true,
-                    tag:     "chest",
+                    tag:     "".into(),
                 },
                 TileDefinition {
-                    name:    "Pillar",
+                    name:    "Pillar".into(),
                     glyph:   'O',
                     fg:      Color::White,
                     bg:      Color::Reset,
                     solid:   true,
                     trigger: false,
-                    tag:     "pillar",
+                    tag:     "".into(),
                 },
                 TileDefinition {
-                    name:    "Danger",
+                    name:    "Danger".into(),
                     glyph:   '^',
                     fg:      Color::Red,
                     bg:      Color::Reset,
                     solid:   false,
                     trigger: true,
-                    tag:     "danger",
+                    tag:     "".into(),
                 },
             ],
             selected: 0,
+            collapsed: HashSet::new(),
+            search: String::new(),
         }
+    }
+
+    /// Save the palette to a RON file.
+    pub fn save(&self, path: &str) -> Result<(), String> {
+        let pretty = ron::ser::PrettyConfig::default()
+            .depth_limit(2)
+            .separate_tuple_members(true)
+            .enumerate_arrays(true);
+        let s = ron::ser::to_string_pretty(self, pretty).map_err(|e| e.to_string())?;
+        std::fs::write(path, s).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Load a palette from a RON file.
+    pub fn load(path: &str) -> Result<Self, String> {
+        let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        let palette: TilePalette = ron::de::from_str(&content).map_err(|e| e.to_string())?;
+        Ok(palette)
     }
 
     /// Select the tile at `index` (0-based). Clamps to valid range.
@@ -200,7 +281,7 @@ impl TilePalette {
 
     /// Return a reference to the currently selected tile definition.
     pub fn current(&self) -> &TileDefinition {
-        &self.tiles[self.selected]
+        self.tiles.get(self.selected).unwrap_or(&self.tiles[0])
     }
 
     /// Number of tile entries in the palette.

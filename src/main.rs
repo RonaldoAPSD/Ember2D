@@ -1,158 +1,81 @@
 // main.rs — Entry point for the ember2d demo game and level editor.
-//
-// ── TWO MODES ─────────────────────────────────────────────────────────────────
-//
-//   cargo run                          → opens a blank level editor (default)
-//   cargo run -- --editor              → opens a blank level editor
-//   cargo run -- --editor level.level  → opens the editor with a level file
-//   cargo run -- level.level           → plays the level directly (no editor UI)
-//
-// The editor launches by default when no args are given.
-//
-// ── DEMO GAME OVERVIEW ────────────────────────────────────────────────────────
-//
-//   - Implementing the GameState trait
-//   - Spawning entities with multiple components
-//   - Smooth keyboard-driven player movement (delta-time scaled)
-//   - Solid collision: walls stop the player (position rollback in late_update)
-//   - Trigger collision: walking over items collects them
-//   - Z-ordered rendering: floor → items → walls → player
-//   - HUD: FPS counter, score, player position
-//
-// DEMO CONTROLS:
-//   WASD or Arrow keys — move the player (@)
-//   Escape             — quit
 
-use ember2d::prelude::*;
+use std::env;
+use std::io;
+use std::path::Path;
+
+use ember2d::app::{AppState, run_editor_app, run_play_app};
+use ember2d::editor::EditorState;
 use ember2d::editor::start_screen::StartScreen;
-use ember2d::renderer::SCALE;
+use ember2d::engine::{Engine, Transition};
+use ember2d::level::LevelData;
+use ember2d::project::{ProjectData, VisualStyle};
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Screen size detection
-// ─────────────────────────────────────────────────────────────────────────────
+fn main() -> io::Result<()> {
+    let args: Vec<String> = env::args().collect();
+    let mut engine = Engine::new(80, 24, "Ember2D")?;
+    let _app_state = AppState::new();
 
-/// Detect the primary monitor's character-cell dimensions.
-/// On Windows we call GetSystemMetrics directly (no extra crate needed).
-/// Other platforms fall back to a comfortable 80×24 default.
-#[cfg(target_os = "windows")]
-fn screen_cells() -> (usize, usize) {
-    extern "system" { fn GetSystemMetrics(nIndex: i32) -> i32; }
-    // SM_CXSCREEN = 0 (screen width in pixels), SM_CYSCREEN = 1 (height in pixels).
-    let sw = unsafe { GetSystemMetrics(0) }.max(0) as usize;
-    let sh = unsafe { GetSystemMetrics(1) }.max(0) as usize;
-    // Each cell is 8px wide × 16px tall in the pixel buffer, then doubled by Scale::X2.
-    let cell_w = 8 * SCALE;   // 16 px/cell on screen
-    let cell_h = 16 * SCALE;  // 32 px/cell on screen
-    let cols = (sw / cell_w).max(80);
-    let rows = (sh / cell_h).max(24);
-    (cols, rows)
-}
+    if args.len() > 1 {
+        let mut editor_mode = false;
+        let mut path = String::new();
+        for arg in &args[1..] {
+            if arg == "--editor" { editor_mode = true; }
+            else if !arg.starts_with("--") { path = arg.clone(); }
+        }
 
-#[cfg(not(target_os = "windows"))]
-fn screen_cells() -> (usize, usize) { (80, 24) }
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Entry point
-// ─────────────────────────────────────────────────────────────────────────────
-
-fn main() {
-    // ── Mode detection ────────────────────────────────────────────────────────
-    //
-    // CLI argument matrix:
-    //
-    //   (no args)                   → open level editor (blank canvas)
-    //   --editor                    → open level editor (blank canvas)
-    //   --editor path/to/file.level → open level editor with a saved level
-    //   path/to/file.level          → play the level directly (no editor UI)
-    //
-    // We detect mode by scanning args:
-    //   - "--editor" flag OR no args → editor mode
-    //   - a *.level filename without "--editor" → direct play
-    let args: Vec<String> = std::env::args().collect();
-    let has_level_file = args.iter().skip(1).any(|a| a.ends_with(".level") && !a.starts_with('-'));
-    let editor_mode = args.iter().any(|a| a == "--editor") || (!has_level_file && args.len() == 1);
-
-    // Find a .level file arg that isn't the editor flag itself.
-    let level_file: Option<&str> = args.iter()
-        .skip(1)
-        .find(|a| a.ends_with(".level") && !a.starts_with('-'))
-        .map(String::as_str);
-
-    let (screen_w, screen_h) = screen_cells();
-
-    if editor_mode {
-        // ── Level editor with Editor ↔ Play switching ────────────────────────
-        //
-        // run_editor_app handles F5 (go to play) and Escape (return to editor)
-        // in a loop — so we don't need `engine.run()` directly here.
-
-        let level_path = args.iter()
-            .skip_while(|a| *a != "--editor")
-            .nth(1)
-            .map(String::as_str)
-            .unwrap_or("");
-
-        let mut engine = Engine::new(screen_w, screen_h, "Ember2D Level Editor")
-            .expect("Failed to open window.");
-
-        let mut current_level_path = level_path.to_string();
+        if editor_mode {
+            let editor = if path.is_empty() { EditorState::new("") } 
+            else { match EditorState::load(&path) { Ok(e) => e, Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); } } };
+            let project_dir = Path::new(&path).parent().unwrap_or(Path::new("."));
+            if let Ok(proj) = ProjectData::load(&project_dir.to_string_lossy()) {
+                if proj.visual_style == VisualStyle::Sprites2D { engine.renderer.set_sprite_mode(true); } 
+                else { engine.renderer.set_sprite_mode(false); }
+                engine.gameplay_loop = proj.gameplay_loop;
+            }
+            run_editor_app(&mut engine, editor)?;
+        } else if !path.is_empty() {
+            let data = match LevelData::load(&path) { Ok(d) => d, Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); } };
+            let project_dir = Path::new(&path).parent().unwrap_or(Path::new("."));
+            if let Ok(proj) = ProjectData::load(&project_dir.to_string_lossy()) {
+                if proj.visual_style == VisualStyle::Sprites2D { engine.renderer.set_sprite_mode(true); } 
+                else { engine.renderer.set_sprite_mode(false); }
+                engine.gameplay_loop = proj.gameplay_loop;
+            }
+            run_play_app(&mut engine, data)?;
+        } else {
+            print_usage();
+        }
+    } else {
         loop {
-            let editor = if current_level_path.is_empty() {
-                // Show the start screen so the user can name/configure the project.
-                let mut start = StartScreen::new();
-                if let Err(e) = engine.run(&mut start) {
-                    eprintln!("Start screen error: {}", e);
-                    std::process::exit(1);
-                }
-                engine.reset_world();
-                match start.result {
-                    None => break,  // user quit from the start screen
-                    Some(result) => EditorState::new_from_result(result).unwrap_or_else(|e| {
-                        eprintln!("Warning: {}", e);
-                        EditorState::new("")
-                    }),
-                }
-            } else {
-                EditorState::load(&current_level_path).unwrap_or_else(|e| {
-                    eprintln!("Warning: {}", e);
-                    EditorState::new(&current_level_path)
-                })
-            };
+            engine.reset_world();
+            engine.push_state(Box::new(StartScreen::new()));
 
-            match run_editor_app(&mut engine, editor) {
-                Ok(true) => {
-                    current_level_path = String::new();
-                    continue;
+            match engine.run()? {
+                Some(Transition::ToEditorWithResult(res)) => {
+                    engine.pop_state(); // Pop start screen
+                    if let Ok(editor) = EditorState::new_from_result(res) {
+                        let folder = editor.project_folder.clone().unwrap_or_else(|| ".".to_string());
+                        if let Ok(proj) = ProjectData::load(&folder) {
+                            if proj.visual_style == VisualStyle::Sprites2D { engine.renderer.set_sprite_mode(true); } 
+                            else { engine.renderer.set_sprite_mode(false); }
+                            engine.gameplay_loop = proj.gameplay_loop;
+                        }
+                        if !run_editor_app(&mut engine, editor)? { break; } // Quit from editor
+                    }
                 }
-                Ok(false) => break,
-                Err(e) => {
-                    eprintln!("Editor error: {}", e);
-                    std::process::exit(1);
-                }
+                Some(Transition::Quit) | None => break,
+                _ => { engine.pop_state(); }
             }
         }
-
-    } else if let Some(path) = level_file {
-        // ── Direct play: load a .level file and run it ───────────────────────
-
-        let data = LevelData::load(path).unwrap_or_else(|e| {
-            eprintln!("Failed to load level '{}': {}", path, e);
-            std::process::exit(1);
-        });
-
-        let mut engine = Engine::new(screen_w, screen_h, &format!("Ember2D — {}", path))
-            .expect("Failed to open window.");
-
-        if let Err(e) = run_play_app(&mut engine, data) {
-            eprintln!("Play error: {}", e);
-            std::process::exit(1);
-        }
-
-    } else {
-        println!("Usage:");
-        println!("  ember2d                      (Launch the editor start screen)");
-        println!("  ember2d --editor             (Launch the editor start screen)");
-        println!("  ember2d --editor file.level  (Open a specific level in the editor)");
-        println!("  ember2d file.level           (Play a level directly)");
     }
+    Ok(())
+}
+
+fn print_usage() {
+    println!("Ember2D Engine v0.5");
+    println!("Usage:");
+    println!("  ember2d --editor             (Launch the editor start screen)");
+    println!("  ember2d --editor file.level  (Open a specific level in the editor)");
+    println!("  ember2d file.level           (Play a level directly)");
 }

@@ -32,25 +32,69 @@ use serde::{Deserialize, Serialize};
 
 // ── ProjectData ───────────────────────────────────────────────────────────────
 
+/// The visual aesthetic of the project.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum VisualStyle {
+    /// Character-cell based, using the standard font8x8.
+    ClassicASCII,
+    /// Future expansion for sprite-based rendering.
+    Sprites2D,
+}
+
+/// The core gameplay execution model.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum GameplayLoop {
+    /// Standard 60 FPS update/render loop.
+    RealTime,
+    /// Logic only updates when the player or events trigger it.
+    TurnBased,
+}
+
 /// Metadata stored in a project's `project.ron` file.
-///
-/// Currently just a name — expand this struct as you add project-level settings.
-/// Old `.ron` files that are missing new fields will still deserialize correctly
-/// because serde's `#[serde(default)]` handles missing fields gracefully.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectData {
     /// Human-readable project name (e.g. "My Platformer").
-    ///
-    /// Shown in the start screen and editor title bar.
-    /// Independent of the folder name — you can rename the folder without
-    /// changing the project name stored here.
     pub name: String,
+
+    /// Whether the game uses ASCII cells or sprites.
+    #[serde(default = "default_visual_style")]
+    pub visual_style: VisualStyle,
+
+    /// Whether the game is real-time or turn-based.
+    #[serde(default = "default_gameplay_loop")]
+    pub gameplay_loop: GameplayLoop,
+
+    /// The default level to load when opening this project.
+    #[serde(default = "default_start_level")]
+    pub start_level: Option<String>,
+}
+
+fn default_visual_style() -> VisualStyle { VisualStyle::ClassicASCII }
+fn default_gameplay_loop() -> GameplayLoop { GameplayLoop::RealTime }
+fn default_start_level() -> Option<String> { Some("main.level".to_string()) }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum StartTemplate { Empty, BasicRoom }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartResult {
+    pub project_folder: String,
+    pub project_name:   String,
+    pub level_path:     String,
+    pub template:       Option<StartTemplate>,
+    pub visual_style:   VisualStyle,
+    pub gameplay_loop:  GameplayLoop,
 }
 
 impl ProjectData {
-    /// Create a new ProjectData with the given name.
-    pub fn new(name: impl Into<String>) -> Self {
-        ProjectData { name: name.into() }
+    /// Create a new ProjectData with the given settings.
+    pub fn new(name: impl Into<String>, visual_style: VisualStyle, gameplay_loop: GameplayLoop) -> Self {
+        ProjectData {
+            name: name.into(),
+            visual_style,
+            gameplay_loop,
+            start_level: Some("main.level".to_string()),
+        }
     }
 
     /// Write a `project.ron` file into the given folder.

@@ -1,106 +1,118 @@
 // app.rs — Top-level application loop: manages Editor ↔ Play mode transitions.
-//
-// ── WHY THIS FILE EXISTS ──────────────────────────────────────────────────────
-//
-// The Engine's `run()` method handles ONE GameState until quit. But we want to
-// switch between two GameStates at runtime (editor ↔ play). That switching logic
-// lives here so neither GameState nor the Engine needs to know about the other.
-//
-// ── THE LOOP ─────────────────────────────────────────────────────────────────
-//
-//   run_editor_app():
-//     loop {
-//         run editor until F5 or quit
-//         if F5 → reset world, run play until Escape or quit
-//         if Escape → reset world, loop back to editor
-//         if quit from either → exit
-//     }
-//
-// The editor's state (grid, palette, undo history) is kept alive on the stack
-// across the play session. When the player presses Escape in play mode and
-// we loop back, the editor picks up exactly where it left off.
-//
-// ── DIRECT PLAY ──────────────────────────────────────────────────────────────
-//
-// run_play_app() skips the editor entirely — used when launched with a
-// .level file argument: `cargo run -- mymap.level`
 
+use std::collections::HashMap;
 use std::io;
 
 use crate::editor::EditorState;
 use crate::engine::{Engine, Transition};
 use crate::level::LevelData;
 use crate::play::PlayState;
-use crate::scripting::LogEntry;
+use crate::save::SaveState;
 
-// ── Editor ↔ Play loop ────────────────────────────────────────────────────────
+pub struct AppState {
+    pub persistent: HashMap<String, rhai::Dynamic>,
+}
 
-/// Run the editor with full editor ↔ play-mode switching.
-///
-/// - F5 in the editor: transitions to play mode with the current grid.
-/// - Escape in play mode: returns to the editor (state preserved).
-/// - Escape in the editor (or closing the window): exits the app.
-pub fn run_editor_app(engine: &mut Engine, mut editor: EditorState) -> io::Result<bool> {
-    loop {
-        // ── Run the editor ─────────────────────────────────────────────────
-        match engine.run_until_transition(&mut editor)? {
-            None => {
-                // Editor exited normally (Escape or window close). Done.
-                break;
-            }
-            Some(Transition::ToPlay(mut level_data)) => {
-                // ── F5 pressed — switch to play mode ───────────────────────
-                // Loop so that level-exit transitions stay in play mode
-                // instead of bouncing back through the editor.
-                let mut accumulated_log: Vec<LogEntry> = Vec::new();
-                let window_closed = loop {
+impl AppState {
+    pub fn new() -> Self {
+        Self { persistent: HashMap::new() }
+    }
+}
+
+pub fn run_editor_app(engine: &mut Engine, editor: EditorState) -> io::Result<bool> {
+    engine.push_state(Box::new(editor));
+
+    while let Some(transition) = engine.run()? {
+        match transition {
+            Transition::ToPlay(mut level_data) => {
+                // ── Switch to play mode ────────────────────────────────────
+                let mut pending_save: Option<SaveState> = None;
+                loop {
                     engine.reset_world();
-                    let mut play = PlayState::from_level(level_data);
-                    match engine.run_until_transition(&mut play)? {
-                        None => break true,
+                    let play = if let Some(save) = pending_save.take() {
+                        engine.world = save.world;
+                        engine.persistent = save.persistent;
+                        level_data = LevelData::load(&save.level_path)
+                            .map_err(|e| { eprintln!("Error loading level: {}", e); io::Error::new(io::ErrorKind::Other, "Level load failed") })?;
+                        PlayState::from_save(level_data.clone(), engine.persistent.clone())
+                    } else {
+                        PlayState::from_level(level_data.clone(), engine.persistent.clone())
+                    };
+                    engine.push_state(Box::new(play));
+                    
+                    match engine.run()? {
                         Some(Transition::ToEditor) => {
-                            accumulated_log.extend(play.take_log());
-                            break false;
+                            while engine.state_stack_len() > 1 {
+                                engine.pop_state();
+                            }
+                            engine.reset_world();
+                            break; // Back to editor loop
                         }
                         Some(Transition::ToPlay(next_data)) => {
-                            accumulated_log.extend(play.take_log());
+                            engine.pop_state();
                             level_data = next_data;
+                            // Loop continues to run next level
                         }
-                        _ => break false,
+                        Some(Transition::LoadGame(save_state)) => {
+                            engine.pop_state();
+                            pending_save = Some(save_state);
+                            // Loop continues and restores world at top
+                        }
+                        Some(Transition::ToStart) => {
+                            while engine.state_stack_len() > 1 {
+                                engine.pop_state();
+                            }
+                            return Ok(true);
+                        }
+                        Some(Transition::Quit) => {
+                            return Ok(false);
+                        }
+                        _ => {
+                            while engine.state_stack_len() > 1 {
+                                engine.pop_state();
+                            }
+                            break;
+                        }
                     }
-                };
-                engine.reset_world();
-                if !accumulated_log.is_empty() { editor.receive_log(accumulated_log); }
-                if window_closed { break; }
-                // outer loop continues back to editor
+                }
             }
-            Some(Transition::ToStart) => return Ok(true),
-            _ => break, // unexpected transition from editor
+            Transition::ToStart => return Ok(true),
+            Transition::Quit => break,
+            _ => {}
         }
     }
 
     Ok(false)
 }
 
-// ── Direct play (no editor) ───────────────────────────────────────────────────
-
-/// Run play mode directly from a LevelData without opening the editor.
-///
-/// Used when the user launches with a .level file:
-///   `cargo run -- mymap.level`
-///
-/// In this mode, Escape quits the app (there is no editor to return to).
-/// PlayState::update() sets Transition::ToEditor on Escape; we treat that as
-/// a normal exit here since there is no editor to go back to.
 pub fn run_play_app(engine: &mut Engine, mut data: LevelData) -> io::Result<()> {
+    let mut pending_save: Option<SaveState> = None;
     loop {
-        let mut play = PlayState::from_level(data);
-        match engine.run_until_transition(&mut play)? {
+        engine.reset_world();
+        let play = if let Some(save) = pending_save.take() {
+            engine.world = save.world;
+            engine.persistent = save.persistent;
+            data = LevelData::load(&save.level_path)
+                .map_err(|e| { eprintln!("Error loading level: {}", e); io::Error::new(io::ErrorKind::Other, "Level load failed") })?;
+            PlayState::from_save(data.clone(), engine.persistent.clone())
+        } else {
+            PlayState::from_level(data.clone(), engine.persistent.clone())
+        };
+        engine.push_state(Box::new(play));
+        
+        match engine.run()? {
             Some(Transition::ToPlay(next)) => {
-                engine.reset_world();
+                engine.pop_state();
                 data = next;
             }
-            _ => return Ok(()),
+            Some(Transition::LoadGame(save_state)) => {
+                engine.pop_state();
+                pending_save = Some(save_state);
+            }
+            _ => {
+                engine.pop_state();
+                return Ok(());
+            }
         }
     }
 }

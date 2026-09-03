@@ -3,287 +3,508 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ember2D Scripting API</title>
+    <title>Ember2D Documentation</title>
     <style>
         :root {
-            --bg-color: #1e1e1e;
-            --sidebar-bg: #252526;
-            --text-color: #d4d4d4;
-            --accent: #569cd6;
-            --keyword: #c586c0;
-            --string: #ce9178;
-            --comment: #6a9955;
-            --border: #3c3c3c;
-            --code-bg: #111111;
+            --bg: #1a1a1a;
+            --text: #e0e0e0;
+            --accent: #ffcc00;
+            --code-bg: #2d2d2d;
+            --sidebar-bg: #252525;
         }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
             margin: 0;
             display: flex;
-            height: 100vh;
-            overflow: hidden;
         }
-        h1, h2, h3 { font-weight: 500; }
-        h1 { color: #fff; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
-        h2 { color: var(--accent); margin-top: 40px; }
-        a { color: var(--accent); text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        
-        /* Layout */
         .sidebar {
-            width: 280px;
+            width: 250px;
             background-color: var(--sidebar-bg);
-            border-right: 1px solid var(--border);
+            height: 100vh;
+            position: fixed;
             padding: 20px;
+            border-right: 1px solid #333;
             overflow-y: auto;
+            box-sizing: border-box;
         }
+        .sidebar ul { list-style: none; padding: 0; margin: 0; }
+        .sidebar li { margin: 6px 0; }
+        .sidebar a { color: #ccc; text-decoration: none; font-size: 0.9em; }
+        .sidebar a:hover { color: var(--accent); }
         .content {
-            flex: 1;
+            margin-left: 290px;
             padding: 40px;
-            overflow-y: auto;
-            line-height: 1.6;
+            max-width: 900px;
         }
-        
-        /* Sidebar Navigation */
-        .sidebar h3 { margin-top: 0; color: #fff; }
-        .sidebar ul { list-style: none; padding: 0; margin-bottom: 20px; }
-        .sidebar li { margin-bottom: 8px; }
-        .sidebar a { color: #cccccc; font-size: 0.95em; }
-        .sidebar a:hover { color: #fff; }
-
-        /* Code Blocks */
+        h1, h2, h3 { color: var(--accent); }
+        h2 { border-bottom: 1px solid #333; padding-bottom: 6px; margin-top: 40px; }
         code {
-            font-family: "Consolas", "Courier New", monospace;
             background-color: var(--code-bg);
             padding: 2px 6px;
             border-radius: 4px;
-            font-size: 0.9em;
-            color: #dcdcaa;
+            font-family: 'Consolas', monospace;
         }
         pre {
             background-color: var(--code-bg);
             padding: 15px;
-            border-radius: 6px;
+            border-radius: 8px;
             overflow-x: auto;
-            border: 1px solid var(--border);
+            font-family: 'Consolas', monospace;
         }
-        pre code {
-            background-color: transparent;
-            padding: 0;
-            color: var(--text-color);
+        .method {
+            margin-bottom: 24px;
+            border-bottom: 1px solid #2a2a2a;
+            padding-bottom: 16px;
         }
-        
-        /* API Item Styling */
-        .api-item {
-            background-color: var(--sidebar-bg);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 15px;
-            margin-bottom: 15px;
-        }
-        .api-sig {
-            font-family: "Consolas", "Courier New", monospace;
-            font-size: 1.1em;
-            color: #dcdcaa;
-            margin-bottom: 10px;
+        .method:last-child { border-bottom: none; }
+        .method-name {
             font-weight: bold;
+            font-size: 1.1em;
+            color: var(--accent);
+            font-family: 'Consolas', monospace;
         }
-        .api-sig .ret { color: var(--keyword); }
-        .api-sig .func { color: var(--accent); }
-        .api-desc { margin: 0; font-size: 0.95em; color: #aaaaaa; }
+        .tag {
+            font-size: 0.75em;
+            background: #444;
+            padding: 2px 8px;
+            border-radius: 10px;
+            margin-left: 8px;
+            vertical-align: middle;
+            font-family: sans-serif;
+        }
+        .ret { color: #aaa; font-size: 0.9em; margin-left: 8px; font-family: 'Consolas', monospace; }
+        p { margin: 6px 0 0 0; line-height: 1.6; }
     </style>
 </head>
 <body>
 
 <div class="sidebar">
-    <h3>Ember2D API</h3>
+    <h2 style="margin-top:0">Ember2D API</h2>
     <ul>
-        <li><a href="#overview">Overview</a></li>
-        <li><a href="#callbacks">Callbacks</a></li>
-    </ul>
-    
-    <h3>Read API</h3>
-    <ul>
-        <li><a href="#read-transform">Position & Velocity</a></li>
-        <li><a href="#read-tags">Tags</a></li>
-        <li><a href="#read-input">Input</a></li>
-        <li><a href="#read-time">Time</a></li>
-        <li><a href="#read-spawns">Spawn Points</a></li>
-    </ul>
-    
-    <h3>Write API (Deferred)</h3>
-    <ul>
-        <li><a href="#write-motion">Motion & Appearance</a></li>
-        <li><a href="#write-lifecycle">Entity Lifecycle</a></li>
-        <li><a href="#write-flow">Game Flow & HUD</a></li>
-        <li><a href="#write-audio">Audio</a></li>
+        <li><a href="#basics">Basics</a></li>
+        <li><a href="#transform">Transform &amp; Physics</a></li>
+        <li><a href="#visuals">Visuals &amp; Sprites</a></li>
+        <li><a href="#tags">Tags &amp; Entities</a></li>
+        <li><a href="#input">Input</a></li>
+        <li><a href="#spatial">Spatial Queries</a></li>
+        <li><a href="#colliders">Colliders</a></li>
+        <li><a href="#camera">Camera &amp; Viewport</a></li>
+        <li><a href="#random">Randomness</a></li>
+        <li><a href="#timers">Timers</a></li>
+        <li><a href="#globals">Globals &amp; Persistence</a></li>
+        <li><a href="#hud">HUD Drawing</a></li>
+        <li><a href="#audio">Audio</a></li>
+        <li><a href="#particles">Particles</a></li>
+        <li><a href="#reference">Reference</a></li>
     </ul>
 </div>
 
 <div class="content">
-    <h1 id="overview">Ember2D Rhai Scripting API</h1>
-    <p>
-        Scripts in Ember2D are plain text files with a <code>.rhai</code> extension. 
-        Each script defines callback functions that the engine executes at specific moments.
-    </p>
-    <p>
-        All interactions with the game world happen through the <code>ctx</code> (Context) object passed into your functions. 
-        The engine preserves the scope of your scripts between frames, meaning any <code>let</code> variables you define will persist.
-    </p>
-    <p><strong>Hot-Reloading:</strong> During play mode, saving changes to a <code>.rhai</code> file will automatically recompile and apply the script in real-time!</p>
+    <h1>Ember2D Scripting API Reference</h1>
+    <p>Version 0.4.9 &mdash; Scripts are Rhai files attached to entities. Each script may define <code>on_start(id, ctx)</code>, <code>on_update(id, ctx)</code>, and <code>on_collide(id, other_id, ctx)</code>.</p>
 
-    <hr style="border: 0; border-top: 1px solid var(--border); margin: 40px 0;">
+    <!-- ── BASICS ──────────────────────────────────────────────────────────── -->
+    <h2 id="basics">Basics</h2>
 
-    <h2 id="callbacks">Callbacks</h2>
-    <p>Implement these functions in your script files to hook into the engine.</p>
-
-    <div class="api-item">
-        <div class="api-sig"><span class="keyword">fn</span> <span class="func">on_start</span>(entity_id, ctx)</div>
-        <p class="api-desc">Called exactly once when the level finishes loading and the entity is spawned into the world.</p>
+    <div class="method">
+        <span class="method-name">log(message)</span>
+        <p>Prints a string to the in-engine console and terminal.</p>
     </div>
-
-    <div class="api-item">
-        <div class="api-sig"><span class="keyword">fn</span> <span class="func">on_update</span>(entity_id, ctx)</div>
-        <p class="api-desc">Called every single frame before physics are applied. Put your AI logic, input handling, and movement here.</p>
+    <div class="method">
+        <span class="method-name">get_delta()</span><span class="ret">→ float</span>
+        <p>Seconds since the last frame (real-time mode) or <code>1.0</code> (turn-based mode).</p>
     </div>
-
-    <div class="api-item">
-        <div class="api-sig"><span class="keyword">fn</span> <span class="func">on_collide</span>(entity_id, other_id, ctx)</div>
-        <p class="api-desc">Called when this entity's bounding box overlaps with another entity's bounding box.</p>
+    <div class="method">
+        <span class="method-name">get_elapsed()</span><span class="ret">→ float</span>
+        <p>Total seconds since the level started.</p>
     </div>
-
-    <h2 id="read-transform">Read: Position & Velocity</h2>
-    <p>Retrieve the physical state of any entity by its ID.</p>
-
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">get_x</span>(id) <span class="ret">&rarr; f64</span></div>
-        <p class="api-desc">Returns the X position of the entity.</p>
+    <div class="method">
+        <span class="method-name">load_level(path)</span>
+        <p>Queues a level transition. <code>path</code> is relative to the project folder. Transition happens at end of frame.</p>
     </div>
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">get_y</span>(id) <span class="ret">&rarr; f64</span></div>
-        <p class="api-desc">Returns the Y position of the entity.</p>
+    <div class="method">
+        <span class="method-name">trigger_turn()</span> <span class="tag">V0.4.8</span>
+        <p>In Turn-Based games, signals that a simulation step should occur this frame.</p>
     </div>
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">get_vel_x</span>(id) <span class="ret">&rarr; f64</span></div>
-        <p class="api-desc">Returns the X velocity of the entity.</p>
+    <div class="method">
+        <span class="method-name">spawn(glyph, x, y, tag)</span><span class="ret">→ int (id)</span>
+        <p>Spawns a new 1×1 trigger-collider entity and returns its ID. <code>glyph</code> is a single character string.</p>
     </div>
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">get_vel_y</span>(id) <span class="ret">&rarr; f64</span></div>
-        <p class="api-desc">Returns the Y velocity of the entity.</p>
+    <div class="method">
+        <span class="method-name">despawn(id)</span>
+        <p>Removes an entity from the world at end of frame.</p>
     </div>
 
-    <h2 id="read-tags">Read: Tags</h2>
-    <p>Search for entities using semantic string tags.</p>
+    <!-- ── TRANSFORM ───────────────────────────────────────────────────────── -->
+    <h2 id="transform">Transform &amp; Physics</h2>
 
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">get_tag</span>(id) <span class="ret">&rarr; String</span></div>
-        <p class="api-desc">Returns the tag of the entity, or an empty string if none.</p>
+    <div class="method">
+        <span class="method-name">get_x(id)</span><span class="ret">→ float</span> &nbsp;/&nbsp;
+        <span class="method-name">get_y(id)</span><span class="ret">→ float</span>
+        <p>Returns the entity's current world position on each axis.</p>
     </div>
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">has_tag</span>(id, name) <span class="ret">&rarr; bool</span></div>
-        <p class="api-desc">Returns true if the entity has the specified tag.</p>
+    <div class="method">
+        <span class="method-name">get_position(id)</span><span class="ret">→ [x, y]</span> <span class="tag">V0.4.9</span>
+        <p>Returns world position as a two-element array.</p>
     </div>
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">find_by_tag</span>(name) <span class="ret">&rarr; i64</span></div>
-        <p class="api-desc">Returns the ID of the <i>first</i> entity found with this tag. Returns <code>-1</code> if no entity matches.</p>
+    <div class="method">
+        <span class="method-name">set_position(id, x, y)</span>
+        <p>Teleports an entity to the given world coordinates.</p>
     </div>
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">find_all_by_tag</span>(name) <span class="ret">&rarr; Array</span></div>
-        <p class="api-desc">Returns an array containing the IDs of all currently alive entities with this tag.</p>
+    <div class="method">
+        <span class="method-name">get_vel_x(id)</span><span class="ret">→ float</span> &nbsp;/&nbsp;
+        <span class="method-name">get_vel_y(id)</span><span class="ret">→ float</span>
+        <p>Returns the entity's current velocity on each axis.</p>
     </div>
-
-    <h2 id="read-input">Read: Input</h2>
-    <p>Check keyboard state. Valid key strings include: <code>w, a, s, d, e, q, r, f, z, x, c, v, up, down, left, right, space, enter, escape, shift, ctrl, tab, 0-9</code>.</p>
-
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">is_held</span>(key_name) <span class="ret">&rarr; bool</span></div>
-        <p class="api-desc">Returns true continuously while the specified key is held down.</p>
+    <div class="method">
+        <span class="method-name">get_velocity(id)</span><span class="ret">→ [vx, vy]</span> <span class="tag">V0.4.9</span>
+        <p>Returns velocity as a two-element array.</p>
     </div>
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">just_pressed</span>(key_name) <span class="ret">&rarr; bool</span></div>
-        <p class="api-desc">Returns true <i>only</i> on the exact frame the key was initially pressed.</p>
+    <div class="method">
+        <span class="method-name">set_velocity(id, vx, vy)</span>
+        <p>Sets velocity. Applied during the physics integration step each frame.</p>
     </div>
-
-    <h2 id="read-time">Read: Time</h2>
-    
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">get_delta</span>() <span class="ret">&rarr; f64</span></div>
-        <p class="api-desc">Returns the time elapsed since the last frame in seconds. Essential for smooth, framerate-independent movement or timers.</p>
+    <div class="method">
+        <span class="method-name">get_distance(id_a, id_b)</span><span class="ret">→ float</span>
+        <p>Returns the Euclidean distance between two entities' positions.</p>
     </div>
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">get_elapsed</span>() <span class="ret">&rarr; f64</span></div>
-        <p class="api-desc">Returns the total time elapsed in seconds since the level was loaded.</p>
+    <div class="method">
+        <span class="method-name">get_angle_to(from_id, to_id)</span><span class="ret">→ float (radians)</span>
+        <p>Returns the angle in radians from one entity toward another. Use <code>cos()</code>/<code>sin()</code> to get a direction vector.</p>
     </div>
 
-    <h2 id="read-spawns">Read: Spawn Points</h2>
+    <!-- ── VISUALS ─────────────────────────────────────────────────────────── -->
+    <h2 id="visuals">Visuals &amp; Sprites</h2>
 
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">get_spawn_point</span>(name) <span class="ret">&rarr; Array</span></div>
-        <p class="api-desc">Returns an array <code>[x, y]</code> of the coordinates for a named spawn point placed in the level editor. Returns an empty array <code>[]</code> if not found.</p>
+    <div class="method">
+        <span class="method-name">get_glyph(id)</span><span class="ret">→ string</span> <span class="tag">V0.4.9</span>
+        <p>Returns the entity's current ASCII character as a one-character string.</p>
     </div>
-
-    <h2 id="write-motion">Write: Motion & Appearance</h2>
-    <p><i>Note: All write commands are deferred. They are queued up and applied safely at the end of the frame after all scripts have finished running.</i></p>
-
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">set_velocity</span>(id, vx, vy) <span class="ret">&rarr; ()</span></div>
-        <p class="api-desc">Sets the velocity of the entity. Physics will automatically apply this to the position next frame.</p>
+    <div class="method">
+        <span class="method-name">set_glyph(id, char)</span>
+        <p>Changes the entity's ASCII glyph. Pass a one-character string.</p>
     </div>
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">set_position</span>(id, x, y) <span class="ret">&rarr; ()</span></div>
-        <p class="api-desc">Instantly teleports the entity to the given coordinates.</p>
+    <div class="method">
+        <span class="method-name">get_color(id)</span><span class="ret">→ [fg, bg]</span> <span class="tag">V0.4.9</span>
+        <p>Returns the entity's foreground and background color names as strings.</p>
     </div>
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">set_glyph</span>(id, glyph_string) <span class="ret">&rarr; ()</span></div>
-        <p class="api-desc">Changes the ASCII character displayed for this entity. Only takes the first character of the string.</p>
+    <div class="method">
+        <span class="method-name">set_color(id, fg, bg)</span>
+        <p>Sets the foreground and background color. Use color name strings (see <a href="#reference">Reference</a>).</p>
     </div>
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">set_color</span>(id, fg_color, bg_color) <span class="ret">&rarr; ()</span></div>
-        <p class="api-desc">Changes the colors of the entity. Valid strings: <code>Black, White, Red, Green, Yellow, Cyan, DarkBlue, DarkGrey, DarkGreen, Grey, Reset</code>.</p>
+    <div class="method">
+        <span class="method-name">get_texture(id)</span><span class="ret">→ string</span> <span class="tag">V0.4.9</span>
+        <p>Returns the entity's current texture path, or empty string if none.</p>
     </div>
-
-    <h2 id="write-lifecycle">Write: Entity Lifecycle</h2>
-
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">despawn</span>(id) <span class="ret">&rarr; ()</span></div>
-        <p class="api-desc">Removes the entity from the world at the end of the current frame.</p>
+    <div class="method">
+        <span class="method-name">set_texture(id, path)</span> <span class="tag">V0.4.7</span>
+        <p>Assigns an image texture for 2D sprite mode. Pass an empty string to clear it and revert to glyph rendering.</p>
     </div>
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">spawn</span>(glyph, x, y, tag) <span class="ret">&rarr; i64</span></div>
-        <p class="api-desc">Creates a new entity in the world and returns its ID. The ID is valid immediately, so you can call <code>set_velocity</code> on it in the same frame.</p>
+    <div class="method">
+        <span class="method-name">set_animation(id, frames, rate)</span>
+        <p>Sets an ASCII animation. <code>frames</code> is a string of characters (e.g. <code>"~-~"</code>), <code>rate</code> is frames per second.</p>
     </div>
-
-    <h2 id="write-flow">Write: Game Flow & HUD</h2>
-
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">load_level</span>(path) <span class="ret">&rarr; ()</span></div>
-        <p class="api-desc">Transitions the game to the specified <code>.level</code> file at the end of the frame.</p>
+    <div class="method">
+        <span class="method-name">is_visible(id)</span><span class="ret">→ bool</span> &nbsp;/&nbsp;
+        <span class="method-name">set_visible(id, bool)</span>
+        <p>Gets or sets whether an entity is rendered. Invisible entities still receive script updates.</p>
     </div>
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">log</span>(message) <span class="ret">&rarr; ()</span></div>
-        <p class="api-desc">Prints a message to the Level Editor's Console panel. Highly useful for debugging.</p>
-    </div>
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">draw_hud</span>(x, y, text, fg, bg) <span class="ret">&rarr; ()</span></div>
-        <p class="api-desc">Draws text onto the screen for a single frame. It renders on top of all sprites.</p>
+    <div class="method">
+        <span class="method-name">get_z_order(id)</span><span class="ret">→ int</span> &nbsp;/&nbsp;
+        <span class="method-name">set_z_order(id, z)</span>
+        <p>Gets or sets the rendering sort order. Higher values render on top. Default is <code>0</code>.</p>
     </div>
 
-    <h2 id="write-audio">Write: Audio</h2>
-    
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">play_sound</span>(path) <span class="ret">&rarr; ()</span></div>
-        <p class="api-desc">Plays a sound effect file (e.g. <code>"hit.ogg"</code>) once. Fire-and-forget.</p>
+    <!-- ── TAGS ───────────────────────────────────────────────────────────── -->
+    <h2 id="tags">Tags &amp; Entities</h2>
+
+    <div class="method">
+        <span class="method-name">get_tag(id)</span><span class="ret">→ string</span>
+        <p>Returns the entity's tag string, or empty string if none.</p>
     </div>
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">play_music</span>(path) <span class="ret">&rarr; ()</span></div>
-        <p class="api-desc">Starts looping a music track. Will automatically stop any currently playing music.</p>
+    <div class="method">
+        <span class="method-name">set_tag(id, tag)</span> <span class="tag">V0.4.9</span>
+        <p>Assigns or changes the entity's tag.</p>
     </div>
-    <div class="api-item">
-        <div class="api-sig">ctx.<span class="func">stop_music</span>() <span class="ret">&rarr; ()</span></div>
-        <p class="api-desc">Stops the currently playing music track.</p>
+    <div class="method">
+        <span class="method-name">has_tag(id, name)</span><span class="ret">→ bool</span>
+        <p>Returns <code>true</code> if the entity's tag equals <code>name</code>.</p>
     </div>
+    <div class="method">
+        <span class="method-name">find_by_tag(tag)</span><span class="ret">→ int (id)</span>
+        <p>Returns the ID of the first entity with a matching tag, or <code>-1</code> if not found.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">find_all_by_tag(tag)</span><span class="ret">→ [id, ...]</span>
+        <p>Returns an array of IDs for all entities with a matching tag.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">count_by_tag(tag)</span><span class="ret">→ int</span>
+        <p>Returns the number of live entities with a matching tag.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">entity_exists(id)</span><span class="ret">→ bool</span>
+        <p>Returns <code>true</code> if the entity with the given ID is still alive.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">get_spawn_point(name)</span><span class="ret">→ [x, y]</span>
+        <p>Returns the world position of a named spawn marker placed in the editor, or an empty array if not found.</p>
+    </div>
+
+    <!-- ── INPUT ──────────────────────────────────────────────────────────── -->
+    <h2 id="input">Input</h2>
+
+    <div class="method">
+        <span class="method-name">is_held(key)</span><span class="ret">→ bool</span>
+        <p>Returns <code>true</code> while the key is held down. Key is a string (see <a href="#reference">Reference</a>).</p>
+    </div>
+    <div class="method">
+        <span class="method-name">just_pressed(key)</span><span class="ret">→ bool</span>
+        <p>Returns <code>true</code> only on the first frame the key is pressed.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">get_mouse_x()</span><span class="ret">→ float</span> &nbsp;/&nbsp;
+        <span class="method-name">get_mouse_y()</span><span class="ret">→ float</span>
+        <p>Mouse position in screen cell coordinates (not world coordinates).</p>
+    </div>
+    <div class="method">
+        <span class="method-name">get_mouse_world_x()</span><span class="ret">→ float</span> &nbsp;/&nbsp;
+        <span class="method-name">get_mouse_world_y()</span><span class="ret">→ float</span>
+        <p>Mouse position translated into world coordinates (camera offset applied).</p>
+    </div>
+    <div class="method">
+        <span class="method-name">mouse_left_pressed()</span><span class="ret">→ bool</span> &nbsp;/&nbsp;
+        <span class="method-name">mouse_right_pressed()</span><span class="ret">→ bool</span>
+        <p>Returns <code>true</code> only on the first frame the mouse button is clicked.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">mouse_left_held()</span><span class="ret">→ bool</span> &nbsp;/&nbsp;
+        <span class="method-name">mouse_right_held()</span><span class="ret">→ bool</span>
+        <p>Returns <code>true</code> while the mouse button is held down.</p>
+    </div>
+
+    <!-- ── SPATIAL ────────────────────────────────────────────────────────── -->
+    <h2 id="spatial">Spatial Queries</h2>
+
+    <div class="method">
+        <span class="method-name">get_entity_at(x, y)</span><span class="ret">→ int (id)</span>
+        <p>Returns the ID of an entity whose collider contains the given world point, or <code>-1</code>.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">is_solid_at(x, y)</span><span class="ret">→ bool</span>
+        <p>Returns <code>true</code> if any solid-flagged collider occupies the given world point.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">find_entities_in_rect(x, y, w, h)</span><span class="ret">→ [id, ...]</span>
+        <p>Returns IDs of all entities whose colliders intersect the given rectangle.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">raycast(x1, y1, x2, y2, mask)</span><span class="ret">→ [id, hit_x, hit_y]</span> <span class="tag">V0.4.5</span>
+        <p>Casts a line segment and returns the first solid hit as <code>[id, hit_x, hit_y]</code>, or an empty array if nothing was hit. <code>mask</code> is an array of layer names to include; pass <code>[]</code> to hit all solid entities.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">get_path(x1, y1, x2, y2, mask)</span><span class="ret">→ [[x,y], ...]</span> <span class="tag">V0.4.5</span>
+        <p>A* pathfinding on the integer grid. Returns an ordered array of <code>[x, y]</code> steps from start to target. <code>mask</code> is an array of layer names that act as obstacles; pass <code>[]</code> to treat all solids as obstacles. Returns empty array if no path exists (max 2000 iterations).</p>
+    </div>
+
+    <!-- ── COLLIDERS ──────────────────────────────────────────────────────── -->
+    <h2 id="colliders">Colliders</h2>
+
+    <div class="method">
+        <span class="method-name">get_collider_w(id)</span><span class="ret">→ float</span> &nbsp;/&nbsp;
+        <span class="method-name">get_collider_h(id)</span><span class="ret">→ float</span>
+        <p>Returns the width or height of the entity's collider in world units.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">set_collider_size(id, w, h)</span> <span class="tag">V0.4.9</span>
+        <p>Resizes the entity's collider.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">is_collider_solid(id)</span><span class="ret">→ bool</span>
+        <p>Returns <code>true</code> if the entity's collider blocks movement and raycasts.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">set_collider_solid(id, bool)</span> <span class="tag">V0.4.9</span>
+        <p>Sets whether the collider is solid. Non-solid (trigger) colliders still fire <code>on_collide</code>.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">get_collider_layer(id)</span><span class="ret">→ string</span> &nbsp;/&nbsp;
+        <span class="method-name">set_collider_layer(id, layer)</span>
+        <p>Gets or sets the collision layer name. Used to filter raycasts and pathfinding.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">get_collider_mask(id)</span><span class="ret">→ [string, ...]</span> &nbsp;/&nbsp;
+        <span class="method-name">set_collider_mask(id, mask)</span>
+        <p>Gets or sets which layers this entity interacts with. <code>mask</code> is an array of layer name strings.</p>
+    </div>
+
+    <!-- ── CAMERA ─────────────────────────────────────────────────────────── -->
+    <h2 id="camera">Camera &amp; Viewport</h2>
+
+    <div class="method">
+        <span class="method-name">get_camera_x()</span><span class="ret">→ float</span> &nbsp;/&nbsp;
+        <span class="method-name">get_camera_y()</span><span class="ret">→ float</span>
+        <p>Returns the current camera position in world coordinates.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">set_camera(x, y)</span>
+        <p>Moves the camera to the given world position. Commonly called each frame targeting the player.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">shake_camera(intensity, duration)</span>
+        <p>Applies a screen-shake effect. <code>intensity</code> is the displacement amount, <code>duration</code> is in seconds.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">get_viewport_width()</span><span class="ret">→ int</span> &nbsp;/&nbsp;
+        <span class="method-name">get_viewport_height()</span><span class="ret">→ int</span>
+        <p>Returns the viewport size in character cells. Useful for centering HUD elements.</p>
+    </div>
+
+    <!-- ── RANDOMNESS ─────────────────────────────────────────────────────── -->
+    <h2 id="random">Randomness</h2>
+
+    <div class="method">
+        <span class="method-name">random_int(min, max)</span><span class="ret">→ int</span>
+        <p>Returns a random integer in the inclusive range <code>[min, max]</code>.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">random_float()</span><span class="ret">→ float</span>
+        <p>Returns a random float in <code>[0.0, 1.0)</code>.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">random_bool(chance)</span><span class="ret">→ bool</span>
+        <p>Returns <code>true</code> with probability <code>chance</code> (0.0 = never, 1.0 = always).</p>
+    </div>
+    <div class="method">
+        <span class="method-name">random_choice(array)</span><span class="ret">→ dynamic</span>
+        <p>Returns a random element from an array. Returns unit if the array is empty.</p>
+    </div>
+
+    <!-- ── TIMERS ─────────────────────────────────────────────────────────── -->
+    <h2 id="timers">Timers</h2>
+
+    <div class="method">
+        <span class="method-name">start_timer(name, duration)</span>
+        <p>Starts a named countdown timer for the current entity. <code>duration</code> is in seconds. Calling again resets it.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">timer_done(name)</span><span class="ret">→ bool</span>
+        <p>Returns <code>true</code> exactly once when the named timer reaches zero, then consumes it.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">cancel_timer(name)</span>
+        <p>Cancels a running timer before it fires.</p>
+    </div>
+
+    <!-- ── GLOBALS ────────────────────────────────────────────────────────── -->
+    <h2 id="globals">Globals &amp; Persistence</h2>
+
+    <p>Globals are shared between all scripts within a level and reset on level load. Persistent values survive level transitions.</p>
+
+    <div class="method">
+        <span class="method-name">set_global(key, val)</span> &nbsp;/&nbsp;
+        <span class="method-name">get_global(key)</span><span class="ret">→ dynamic</span>
+        <p>Stores or retrieves a value shared across all scripts in the current level.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">has_global(key)</span><span class="ret">→ bool</span>
+        <p>Returns <code>true</code> if the global key exists.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">remove_global(key)</span>
+        <p>Deletes a global key.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">set_persistent(key, val)</span> &nbsp;/&nbsp;
+        <span class="method-name">get_persistent(key)</span><span class="ret">→ dynamic</span>
+        <p>Stores or retrieves a value that survives level transitions (e.g. score, inventory).</p>
+    </div>
+    <div class="method">
+        <span class="method-name">has_persistent(key)</span><span class="ret">→ bool</span>
+        <p>Returns <code>true</code> if the persistent key exists.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">clear_persistent(key)</span>
+        <p>Deletes one persistent key.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">clear_all_persistent()</span>
+        <p>Deletes all persistent data.</p>
+    </div>
+
+    <!-- ── HUD ────────────────────────────────────────────────────────────── -->
+    <h2 id="hud">HUD Drawing</h2>
+
+    <p>HUD calls draw to the UI layer fixed to the screen (not the world). Coordinates are in screen cells, origin top-left.</p>
+
+    <div class="method">
+        <span class="method-name">draw_hud(x, y, text, fg, bg)</span>
+        <p>Draws a string at screen position <code>(x, y)</code>.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">draw_box(x, y, w, h, fg, bg)</span>
+        <p>Draws a border-only box using box-drawing characters.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">fill_rect(x, y, w, h, char, fg, bg)</span>
+        <p>Fills a rectangular region with a repeated character.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">draw_menu(x, y, w, options, selected, fg, bg, sel_fg, sel_bg)</span>
+        <p>Draws a vertical menu list. <code>options</code> is a string array, <code>selected</code> is the highlighted index. Highlighted item uses <code>sel_fg</code>/<code>sel_bg</code>.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">draw_panel(x, y, w, h, title, fg, bg)</span>
+        <p>Draws a bordered panel with a title in the top border.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">clear_hud()</span>
+        <p>Clears all HUD draws from the previous frame. Useful to avoid overdraw when rebuilding the HUD each frame.</p>
+    </div>
+
+    <!-- ── AUDIO ──────────────────────────────────────────────────────────── -->
+    <h2 id="audio">Audio</h2>
+
+    <div class="method">
+        <span class="method-name">play_sound(path)</span>
+        <p>Plays a sound effect at full volume. Path is relative to the project folder (<code>.ogg</code> or <code>.mp3</code>).</p>
+    </div>
+    <div class="method">
+        <span class="method-name">play_sound_at(path, x, y)</span> <span class="tag">V0.4.4</span>
+        <p>Plays a sound with volume attenuated by distance from the camera position. Useful for world-space effects.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">play_music(path)</span>
+        <p>Starts looping background music, stopping any currently playing track.</p>
+    </div>
+    <div class="method">
+        <span class="method-name">stop_music()</span>
+        <p>Stops the currently playing music track.</p>
+    </div>
+
+    <!-- ── PARTICLES ──────────────────────────────────────────────────────── -->
+    <h2 id="particles">Particles</h2>
+
+    <div class="method">
+        <span class="method-name">emit_particles(x, y, glyph, fg)</span>
+        <p>Emits a burst of ASCII particles at world position <code>(x, y)</code>. <code>glyph</code> is a single character, <code>fg</code> is a color name string.</p>
+    </div>
+
+    <!-- ── REFERENCE ──────────────────────────────────────────────────────── -->
+    <h2 id="reference">Reference</h2>
+
+    <h3>Color Names</h3>
+    <p><code>Black</code> <code>White</code> <code>Grey</code> <code>DarkGrey</code> <code>Red</code> <code>DarkRed</code> <code>Green</code> <code>DarkGreen</code> <code>Yellow</code> <code>DarkYellow</code> <code>Blue</code> <code>DarkBlue</code> <code>Magenta</code> <code>DarkMagenta</code> <code>Cyan</code> <code>DarkCyan</code> <code>Reset</code></p>
+
+    <h3>Key Names</h3>
+    <p><code>w</code> <code>a</code> <code>s</code> <code>d</code> <code>q</code> <code>e</code> <code>r</code> <code>f</code> <code>z</code> <code>x</code> <code>c</code> <code>v</code> &nbsp;&bull;&nbsp; <code>up</code> <code>down</code> <code>left</code> <code>right</code> &nbsp;&bull;&nbsp; <code>space</code> <code>enter</code> <code>escape</code> <code>backspace</code> <code>tab</code> &nbsp;&bull;&nbsp; <code>shift</code> <code>ctrl</code> &nbsp;&bull;&nbsp; <code>0</code>&ndash;<code>9</code></p>
+
+    <h3>Script Callbacks</h3>
+    <pre>fn on_start(id, ctx)           { /* runs once when level loads */ }
+fn on_update(id, ctx)          { /* runs every frame */ }
+fn on_collide(id, other_id, ctx) { /* runs when colliders overlap */ }</pre>
 
 </div>
 

@@ -15,8 +15,10 @@
 // A real engine might support MULTIPLE tags per entity (a Vec<String>),
 // but a single tag covers most use cases and keeps the API simple.
 
+use serde::{Serialize, Deserialize};
+
 /// A human-readable label for an entity.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tag {
     /// The label string. Common values: "player", "wall", "floor",
     /// "enemy", "pickup", "trigger", "projectile".

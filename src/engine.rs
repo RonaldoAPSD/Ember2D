@@ -1,432 +1,382 @@
 // engine.rs — The main game engine: the game loop and the trait your game implements.
-//
-// WHAT CHANGED FROM THE CROSSTERM VERSION:
-//   - No more terminal raw mode, alternate screen, or cursor hiding.
-//     The Renderer now owns a real OS window — no terminal setup needed.
-//   - Input is polled from the Renderer's window (minifb processes events
-//     during update_with_buffer), not from crossterm's event stream.
-//   - We check renderer.is_open() to detect the user closing the window.
-//   - Engine::new() now takes a `title` parameter for the window title.
-//
-// Everything else — the game loop order, GameState trait, context structs —
-// is identical to before. Switching backends didn't change the game API.
-//
-// ──────────────────────────────────────────────────────────────────────────────
-//  GAME LOOP ORDER (same as before)
-// ──────────────────────────────────────────────────────────────────────────────
-//
-//  loop {
-//      1. Poll input          (read keys from last frame's window update)
-//      2. Check quit          (window closed, or game set ctx.quit = true)
-//      3. Clear events
-//      4. Snapshot positions  (save positions BEFORE physics moves entities)
-//      5. update()            (game sets velocities, reads input)
-//      6. Physics             (velocity × delta_time → position)
-//      7. Collision detect    (find overlapping pairs → Collision events)
-//      8. late_update()       (game rolls back solid collisions, collects items)
-//      9. Render              (game draws to back buffer → present flips it)
-//     10. Frame cap           (sleep to target 60 FPS)
-//  }
 
 use std::collections::HashMap;
 use std::io;
 use std::time::{Duration, Instant};
 
-use minifb;
+use winit::event::{Event, WindowEvent};
+use winit::event_loop::EventLoop;
+use winit::platform::pump_events::EventLoopExtPumpEvents;
 
 use crate::event::EventBus;
-use crate::input::InputManager;
+use crate::gamepad::GamepadState;
+use crate::input::{InputManager, Key};
 use crate::level::LevelData;
 use crate::math::Vec2;
-use crate::mouse::MouseState;
-use crate::renderer::Renderer;
+use crate::mouse::{MouseState, MouseButton};
+use crate::renderer::{Renderer, AssetManager};
 use crate::world::{EntityId, World};
+use crate::project::{GameplayLoop, StartResult};
 
 // ── Mode transition ───────────────────────────────────────────────────────────
 
-/// Signals a requested mode switch, returned by `Engine::run_until_transition`.
-///
-/// A GameState implementation sets this via its own internal flag, then the
-/// engine detects it at the end of the frame and returns it to the caller
-/// (usually `run_app` in `src/app.rs`).
-///
-/// Example flow:
-///   EditorState receives F5 → stores `Some(Transition::ToPlay(data))`
-///   Engine detects it → returns `Ok(Some(Transition::ToPlay(data)))` to run_app
-///   run_app creates PlayState and calls run_until_transition again
 pub enum Transition {
-    /// Switch to play mode, loading the given level data.
+    /// Switch to play mode with new level data (replaces current state).
     ToPlay(LevelData),
-    /// Switch back to the level editor.
+    /// Load a saved game session (replaces current state).
+    LoadGame(crate::save::SaveState),
+    /// Return to editor (replaces current state).
     ToEditor,
-    /// Switch back to the start screen.
+    /// Open editor with a specific project/level result.
+    ToEditorWithResult(StartResult),
+    /// Return to start screen (replaces current state).
     ToStart,
+    /// Push a new state on top of the stack (e.g. Pause Menu).
+    Push(Box<dyn GameState>),
+    /// Pop the top state from the stack.
+    Pop,
+    /// Exit the application entirely.
+    Quit,
 }
 
 // ── Frame rate ────────────────────────────────────────────────────────────────
 
-/// Target frames per second.
 const TARGET_FPS: u64 = 60;
-
-/// How long each frame should take to hit TARGET_FPS.
-/// We sleep the remainder at the end of each frame.
 const FRAME_DURATION: Duration = Duration::from_micros(1_000_000 / TARGET_FPS);
+const SIM_DT: f32 = 1.0 / 60.0;
+const MAX_SIM_STEPS: u32 = 8;
 
 // ── Context structs ───────────────────────────────────────────────────────────
 
-/// Everything the game needs during `update()` and `late_update()`.
-///
-/// Destructure it for convenience:
-///   `let UpdateContext { world, input, mouse, events, .. } = ctx;`
 pub struct UpdateContext<'a> {
-    /// Full read/write access to entities and components.
     pub world: &'a mut World,
-
-    /// Current keyboard state — use `input.is_held(Key::W)`, etc.
-    pub input: &'a InputManager,
-
-    /// Current mouse position and button state.
-    /// Use `mouse.left_just_pressed()`, `mouse.cell_x`, etc.
+    pub input: &'a mut InputManager,
     pub mouse: &'a MouseState,
-
-    /// The event bus: read collision events, emit custom events.
+    pub gamepad: &'a GamepadState,
     pub events: &'a mut EventBus,
-
-    /// Positions of all entities at the START of this frame (before physics).
-    /// In `late_update()`, pass this to `world.rollback_position(id, prev_positions)`
-    /// to move a colliding entity back to where it was before it hit something.
     pub prev_positions: &'a HashMap<EntityId, Vec2>,
-
-    /// Seconds since the last frame. Multiply velocities by this for frame-rate independence.
     pub delta_time: f32,
-
-    /// Seconds since the engine started. Use for animations, pulsing effects, timers.
     pub elapsed: f32,
-
-    /// Set to `true` from game code to exit the game loop gracefully.
     pub quit: &'a mut bool,
+    pub turn_triggered: &'a mut bool,
+    pub viewport_width: usize,
+    pub viewport_height: usize,
+    pub persistent: &'a mut HashMap<String, rhai::Dynamic>,
 }
 
-/// Everything the game needs during `render()`.
+impl<'a> UpdateContext<'a> {
+    pub fn trigger_turn(&mut self) {
+        *self.turn_triggered = true;
+    }
+}
+
 pub struct RenderContext<'a> {
-    /// Read-only entity/component data — draw it but don't change it here.
     pub world: &'a World,
-
-    /// Call `renderer.draw_char(...)`, `draw_str(...)`, etc. to fill the frame.
     pub renderer: &'a mut Renderer,
-
-    /// Current mouse position and button state (read-only during render).
+    pub assets: &'a mut AssetManager,
     pub mouse: &'a MouseState,
-
-    /// Seconds since the last frame. Useful for animated sprites.
     pub delta_time: f32,
-
-    /// Seconds since the engine started. Useful for pulsing and scrolling effects.
     pub elapsed: f32,
+    pub persistent: &'a HashMap<String, rhai::Dynamic>,
 }
 
 // ── GameState trait ───────────────────────────────────────────────────────────
 
-/// Implement this trait to write a game using ember2d.
-///
-/// # Minimal example
-/// ```rust
-/// struct MyGame;
-/// impl GameState for MyGame {
-///     fn on_start(&mut self, world: &mut World, _: &mut EventBus) {
-///         let id = world.spawn();
-///         world.add_transform(id, Transform::new(5.0, 5.0));
-///         world.add_sprite(id, Sprite::simple('@', Color::Green));
-///     }
-///     fn update(&mut self, _ctx: UpdateContext) {}
-///     fn render(&mut self, ctx: RenderContext) {
-///         // draw_* calls here
-///     }
-/// }
-/// fn main() {
-///     Engine::new(80, 24, "My Game").unwrap().run(&mut MyGame).unwrap();
-/// }
-/// ```
 pub trait GameState {
-    /// Called once before the game loop. Spawn entities, build maps, set initial state.
-    fn on_start(&mut self, world: &mut World, events: &mut EventBus);
+    fn on_start(&mut self, _world: &mut World, _events: &mut EventBus, _viewport_width: usize, _viewport_height: usize) {}
+    fn on_stop(&mut self, _world: &mut World, _events: &mut EventBus) {}
+    fn on_pause(&mut self) {}
+    fn on_resume(&mut self, _world: &mut World, _events: &mut EventBus, _viewport_width: usize, _viewport_height: usize) {}
 
-    /// Called every frame BEFORE physics.
-    /// Set velocities from input here. Physics hasn't moved anything yet.
     fn update(&mut self, ctx: UpdateContext);
-
-    /// Called every frame AFTER physics and collision detection.
-    /// Collision events are in `ctx.events`. Roll back solid collisions here.
-    /// Has a default empty implementation — omit it if you don't need it.
     fn late_update(&mut self, _ctx: UpdateContext) {}
-
-    /// Called every frame after late_update. Draw entities to the renderer here.
     fn render(&mut self, ctx: RenderContext);
-
-    /// Optional: return a pending mode transition.
-    ///
-    /// The engine calls this once per frame, after render. If it returns Some,
-    /// the engine stops the current game loop and returns the transition to the
-    /// caller. Implement this if your GameState needs to switch modes (e.g.
-    /// F5 in the editor goes to play mode, Escape in play returns to editor).
-    ///
-    /// The default returns None — most GameStates don't need mode switching.
     fn take_transition(&mut self) -> Option<Transition> { None }
 }
 
 // ── Engine ────────────────────────────────────────────────────────────────────
 
-/// The main engine: owns all core systems and runs the game loop.
 pub struct Engine {
-    renderer: Renderer,
-    world:    World,
-    input:    InputManager,
-    mouse:    MouseState,
-    events:   EventBus,
-    /// Viewport width in character columns.
+    pub renderer: Renderer,
+    pub event_loop: EventLoop<()>,
+    pub gameplay_loop: GameplayLoop,
+    pub assets:   AssetManager,
+    pub world:    World,
+    pub input:    InputManager,
+    pub mouse:    MouseState,
+    pub gamepad:  GamepadState,
+    pub events:   EventBus,
     pub width: usize,
-    /// Viewport height in character rows.
     pub height: usize,
+    pub persistent: HashMap<String, rhai::Dynamic>,
+    
+    state_stack: Vec<Box<dyn GameState>>,
+    simulation_accumulator: f32,
 }
 
 impl Engine {
-    /// Create a new engine with a `width × height` character viewport.
-    ///
-    /// `title` is the OS window title bar text.
-    ///
-    /// This opens the window immediately. If the display server is unavailable
-    /// (e.g. running headless on a server) this returns an error.
     pub fn new(width: usize, height: usize, title: &str) -> io::Result<Self> {
-        let renderer = Renderer::new(width, height, title)?;
+        let event_loop = EventLoop::new().map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        let renderer = Renderer::new(width, height, title, &event_loop)?;
+
         Ok(Engine {
             renderer,
+            event_loop,
+            gameplay_loop: GameplayLoop::RealTime,
+            assets: AssetManager::new(),
             world:  World::new(),
             input:  InputManager::new(),
             mouse:  MouseState::new(),
+            gamepad: GamepadState::new(),
             events: EventBus::new(),
             width,
             height,
+            persistent: HashMap::new(),
+            state_stack: Vec::new(),
+            simulation_accumulator: 0.0,
         })
     }
 
-    /// Reset the ECS world and clear the event queue.
-    ///
-    /// Call this before handing control to a new GameState so it starts with
-    /// a clean slate — no leftover entities from the previous mode.
+    pub fn push_state(&mut self, mut state: Box<dyn GameState>) {
+        if let Some(top) = self.state_stack.last_mut() {
+            top.on_pause();
+        }
+        state.on_start(&mut self.world, &mut self.events, self.width, self.height);
+        self.state_stack.push(state);
+    }
+
+    pub fn pop_state(&mut self) -> Option<Box<dyn GameState>> {
+        let mut old = self.state_stack.pop();
+        if let Some(ref mut s) = old {
+            s.on_stop(&mut self.world, &mut self.events);
+        }
+        if let Some(top) = self.state_stack.last_mut() {
+            top.on_resume(&mut self.world, &mut self.events, self.width, self.height);
+        }
+        old
+    }
+
     pub fn reset_world(&mut self) {
         self.world  = World::new();
         self.events = EventBus::new();
     }
 
-    /// Run until the game exits OR signals a mode transition.
-    ///
-    /// Identical to `run()` except that after each frame it calls
-    /// `game.take_transition()`. If that returns `Some(t)`, the loop stops
-    /// and `Ok(Some(t))` is returned so the caller can switch modes.
-    /// Returns `Ok(None)` if the game exits normally (window closed / quit flag).
-    pub fn run_until_transition<G: GameState>(&mut self, game: &mut G) -> io::Result<Option<Transition>> {
-        game.on_start(&mut self.world, &mut self.events);
-
-        let start_time = Instant::now();
-        let mut last_frame = Instant::now();
-        let mut should_quit = false;
-
-        loop {
-            let now        = Instant::now();
-            let delta_time = now.duration_since(last_frame).as_secs_f32();
-            let elapsed    = now.duration_since(start_time).as_secs_f32();
-            last_frame = now;
-
-            let current_keys = self.renderer.current_keys();
-            let window_open  = self.renderer.is_open();
-            self.input.poll(current_keys, window_open);
-
-            let mouse_pos   = self.renderer.current_mouse_pos();
-            let left_down   = self.renderer.is_mouse_button_down(minifb::MouseButton::Left);
-            let right_down  = self.renderer.is_mouse_button_down(minifb::MouseButton::Right);
-            let middle_down = self.renderer.is_mouse_button_down(minifb::MouseButton::Middle);
-            let scroll      = self.renderer.get_scroll_wheel();
-            self.mouse.poll(mouse_pos, left_down, right_down, middle_down, scroll);
-
-            if self.input.quit_requested { break; }
-
-            self.events.clear();
-            let prev_positions = self.world.snapshot_positions();
-
-            game.update(UpdateContext {
-                world:          &mut self.world,
-                input:          &self.input,
-                mouse:          &self.mouse,
-                events:         &mut self.events,
-                prev_positions: &prev_positions,
-                delta_time,
-                elapsed,
-                quit:           &mut should_quit,
-            });
-
-            if should_quit { break; }
-
-            self.world.integrate_physics(delta_time);
-            self.world.detect_collisions(&mut self.events);
-
-            game.late_update(UpdateContext {
-                world:          &mut self.world,
-                input:          &self.input,
-                mouse:          &self.mouse,
-                events:         &mut self.events,
-                prev_positions: &prev_positions,
-                delta_time,
-                elapsed,
-                quit:           &mut should_quit,
-            });
-
-            if should_quit { break; }
-
-            self.renderer.clear();
-            game.render(RenderContext {
-                world:    &self.world,
-                renderer: &mut self.renderer,
-                mouse:    &self.mouse,
-                delta_time,
-                elapsed,
-            });
-            self.renderer.present()?;
-
-            // Sync engine dimensions if the window was resized.
-            if self.renderer.try_handle_resize() {
-                self.width  = self.renderer.width;
-                self.height = self.renderer.height;
-            }
-
-            // Check for mode transition AFTER rendering the last frame.
-            if let Some(t) = game.take_transition() {
-                return Ok(Some(t));
-            }
-
-            let frame_elapsed = Instant::now().duration_since(now);
-            if frame_elapsed < FRAME_DURATION {
-                std::thread::sleep(FRAME_DURATION - frame_elapsed);
-            }
-        }
-
-        Ok(None)
+    pub fn state_stack_len(&self) -> usize {
+        self.state_stack.len()
     }
 
-    /// Start the game loop and hand control to `game`.
-    ///
-    /// Blocks until the game exits (window closed, or `ctx.quit = true`).
-    pub fn run<G: GameState>(&mut self, game: &mut G) -> io::Result<()> {
-        // ── Initialize ─────────────────────────────────────────────────────
-        game.on_start(&mut self.world, &mut self.events);
+    fn poll_events(&mut self) {
+        self.input.clear();
+        self.mouse.clear();
+        self.gamepad.clear();
 
+        let input = &mut self.input;
+        let mouse = &mut self.mouse;
+        self.gamepad.poll();
+        let renderer = &mut self.renderer;
+        let engine_width = &mut self.width;
+        let engine_height = &mut self.height;
+
+        let _ = self.event_loop.pump_events(Some(Duration::ZERO), |event, _| {
+            match event {
+                Event::WindowEvent { event, .. } => match event {
+                    WindowEvent::CloseRequested => input.quit_requested = true,
+                    WindowEvent::KeyboardInput { event: key_event, .. } => {
+                        // 1. Physical key for state tracking (held/pressed)
+                        if let Some(key) = Key::from_winit(key_event.physical_key) {
+                            if key_event.state.is_pressed() { input.handle_pressed(key); } 
+                            else { input.handle_released(key); }
+                        }
+
+                        // 2. Logical key for text entry (characters, symbols, etc.)
+                        if key_event.state.is_pressed() {
+                            if let winit::keyboard::Key::Character(text) = &key_event.logical_key {
+                                for ch in text.chars() {
+                                    if !ch.is_control() {
+                                        input.text_buffer.push(ch);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    WindowEvent::CursorMoved { position, .. } => {
+                        let scale = renderer.scale_factor();
+                        mouse.handle_move(position.x as f32 / scale, position.y as f32 / scale);
+                    }
+                    WindowEvent::MouseInput { state, button, .. } => {
+                        let btn = MouseButton::from_winit(button);
+                        if state.is_pressed() { mouse.handle_pressed(btn); } 
+                        else { mouse.handle_released(btn); }
+                    }
+                    WindowEvent::MouseWheel { delta, .. } => {
+                        match delta {
+                            winit::event::MouseScrollDelta::LineDelta(x, y) => mouse.handle_scroll(x, y),
+                            winit::event::MouseScrollDelta::PixelDelta(pos) => mouse.handle_scroll(pos.x as f32 / 8.0, pos.y as f32 / 16.0),
+                        }
+                    }
+                    WindowEvent::Resized(_) => {
+                        if renderer.try_handle_resize() {
+                            *engine_width = renderer.width;
+                            *engine_height = renderer.height;
+                        }
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+        });
+    }
+
+    /// Main engine execution loop.
+    ///
+    /// NOTE: At least one state MUST be pushed to the stack (via `push_state`) 
+    /// before calling this, or it will return `Ok(None)` immediately.
+    pub fn run(&mut self) -> io::Result<Option<Transition>> {
         let start_time = Instant::now();
         let mut last_frame = Instant::now();
         let mut should_quit = false;
 
-        // ── Main game loop ─────────────────────────────────────────────────
         loop {
-            // ── 1. Timing ──────────────────────────────────────────────────
+            self.poll_events();
+            if self.input.quit_requested { return Ok(Some(Transition::Quit)); }
+
             let now = Instant::now();
             let delta_time = now.duration_since(last_frame).as_secs_f32();
             let elapsed    = now.duration_since(start_time).as_secs_f32();
             last_frame = now;
 
-            // ── 2. Input ───────────────────────────────────────────────────
-            // After last frame's `update_with_buffer`, minifb has the current key state.
-            // We poll it now so `update()` sees fresh input.
-            let current_keys = self.renderer.current_keys();
-            let window_open  = self.renderer.is_open();
-            self.input.poll(current_keys, window_open);
+            self.simulation_accumulator += delta_time;
 
-            // Poll mouse: convert raw window-space coords to cell coords.
-            let mouse_pos   = self.renderer.current_mouse_pos();
-            let left_down   = self.renderer.is_mouse_button_down(minifb::MouseButton::Left);
-            let right_down  = self.renderer.is_mouse_button_down(minifb::MouseButton::Right);
-            let middle_down = self.renderer.is_mouse_button_down(minifb::MouseButton::Middle);
-            let scroll      = self.renderer.get_scroll_wheel();
-            self.mouse.poll(mouse_pos, left_down, right_down, middle_down, scroll);
+            // Only update the top-most state
+            if let Some(state) = self.state_stack.last_mut() {
+                if self.gameplay_loop == GameplayLoop::RealTime {
+                    let mut steps = 0u32;
+                    while self.simulation_accumulator >= SIM_DT && steps < MAX_SIM_STEPS {
+                        steps += 1;
+                        self.events.clear();
+                        let prev_positions = self.world.snapshot_positions();
+                        let mut turn_triggered = false;
 
-            if self.input.quit_requested {
-                break;
+                        state.update(UpdateContext {
+                            world:           &mut self.world,
+                            input:           &mut self.input,
+                            mouse:           &self.mouse,
+                            gamepad:         &self.gamepad,
+                            events:          &mut self.events,
+                            prev_positions:  &prev_positions,
+                            delta_time:      SIM_DT,
+                            elapsed,
+                            quit:            &mut should_quit,
+                            turn_triggered:  &mut turn_triggered,
+                            viewport_width:  self.width,
+                            viewport_height: self.height,
+                            persistent:      &mut self.persistent,
+                        });
+
+                        if should_quit { return Ok(Some(Transition::Quit)); }
+                        self.world.integrate_physics(SIM_DT);
+                        self.world.detect_collisions(&mut self.events);
+
+                        state.late_update(UpdateContext {
+                            world:           &mut self.world,
+                            input:           &mut self.input,
+                            mouse:           &self.mouse,
+                            gamepad:         &self.gamepad,
+                            events:          &mut self.events,
+                            prev_positions:  &prev_positions,
+                            delta_time:      SIM_DT,
+                            elapsed,
+                            quit:            &mut should_quit,
+                            turn_triggered:  &mut turn_triggered,
+                            viewport_width:  self.width,
+                            viewport_height: self.height,
+                            persistent:      &mut self.persistent,
+                        });
+
+                        self.simulation_accumulator -= SIM_DT;
+                        if should_quit { return Ok(Some(Transition::Quit)); }
+                    }
+                    if steps >= MAX_SIM_STEPS { self.simulation_accumulator = 0.0; }
+                } else {
+                    self.events.clear();
+                    let prev_positions = self.world.snapshot_positions();
+                    let mut turn_triggered = false;
+
+                    state.update(UpdateContext {
+                        world:           &mut self.world,
+                        input:           &mut self.input,
+                        mouse:           &self.mouse,
+                        gamepad:         &self.gamepad,
+                        events:          &mut self.events,
+                        prev_positions:  &prev_positions,
+                        delta_time,
+                        elapsed,
+                        quit:            &mut should_quit,
+                        turn_triggered:  &mut turn_triggered,
+                        viewport_width:  self.width,
+                        viewport_height: self.height,
+                        persistent:      &mut self.persistent,
+                    });
+
+                    if !should_quit && turn_triggered {
+                        self.world.integrate_physics(1.0);
+                        self.world.detect_collisions(&mut self.events);
+
+                        state.late_update(UpdateContext {
+                            world:           &mut self.world,
+                            input:           &mut self.input,
+                            mouse:           &self.mouse,
+                            gamepad:         &self.gamepad,
+                            events:          &mut self.events,
+                            prev_positions:  &prev_positions,
+                            delta_time,
+                            elapsed,
+                            quit:            &mut should_quit,
+                            turn_triggered:  &mut turn_triggered,
+                            viewport_width:  self.width,
+                            viewport_height: self.height,
+                            persistent:      &mut self.persistent,
+                        });
+                    }
+                    self.simulation_accumulator = 0.0;
+                }
             }
 
-            // ── 3. Events ──────────────────────────────────────────────────
-            // Clear last frame's events. A fresh set is built below.
-            self.events.clear();
+            if should_quit { return Ok(Some(Transition::Quit)); }
 
-            // ── 4. Snapshot positions ──────────────────────────────────────
-            // Record where each entity is BEFORE physics moves them.
-            // Passed to late_update so the game can roll back collisions.
-            let prev_positions = self.world.snapshot_positions();
-
-            // ── 5. Game update (pre-physics) ───────────────────────────────
-            // Game code reads input and sets velocities.
-            // Nothing has moved yet — entities are at prev_positions.
-            game.update(UpdateContext {
-                world:          &mut self.world,
-                input:          &self.input,
-                mouse:          &self.mouse,
-                events:         &mut self.events,
-                prev_positions: &prev_positions,
-                delta_time,
-                elapsed,
-                quit:           &mut should_quit,
-            });
-
-            if should_quit { break; }
-
-            // ── 6. Physics ─────────────────────────────────────────────────
-            // Apply velocity × delta_time to all transforms.
-            self.world.integrate_physics(delta_time);
-
-            // ── 7. Collision detection ──────────────────────────────────────
-            // Find all overlapping pairs and emit Collision events.
-            self.world.detect_collisions(&mut self.events);
-
-            // ── 8. Late update (post-physics) ──────────────────────────────
-            // Game responds to collisions: roll back solid entities, collect items.
-            game.late_update(UpdateContext {
-                world:          &mut self.world,
-                input:          &self.input,
-                mouse:          &self.mouse,
-                events:         &mut self.events,
-                prev_positions: &prev_positions,
-                delta_time,
-                elapsed,
-                quit:           &mut should_quit,
-            });
-
-            if should_quit { break; }
-
-            // ── 9. Render ──────────────────────────────────────────────────
-            // Clear the back buffer, let the game fill it, then present.
-            // `present()` also calls minifb's update_with_buffer, which refreshes
-            // key state for the NEXT frame's input poll.
+            // Render all states from bottom to top
             self.renderer.clear();
-            game.render(RenderContext {
-                world:    &self.world,
-                renderer: &mut self.renderer,
-                mouse:    &self.mouse,
-                delta_time,
-                elapsed,
-            });
+            for state in &mut self.state_stack {
+                state.render(RenderContext {
+                    world:    &self.world,
+                    renderer: &mut self.renderer,
+                    assets:   &mut self.assets,
+                    mouse:    &self.mouse,
+                    delta_time,
+                    elapsed,
+                    persistent: &self.persistent,
+                });
+            }
             self.renderer.present()?;
 
-            // Sync engine dimensions if the window was resized.
-            if self.renderer.try_handle_resize() {
-                self.width  = self.renderer.width;
-                self.height = self.renderer.height;
+            // Process transitions from top-most state
+            if let Some(state) = self.state_stack.last_mut() {
+                if let Some(t) = state.take_transition() {
+                    match t {
+                        Transition::Push(new_state) => { self.push_state(new_state); }
+                        Transition::Pop => { self.pop_state(); if self.state_stack.is_empty() { return Ok(None); } }
+                        Transition::Quit => { return Ok(Some(Transition::Quit)); }
+                        other => { return Ok(Some(other)); } // Handle ToPlay, ToEditor etc externally for now
+                    }
+                }
+            } else {
+                return Ok(None); // Stack empty
             }
 
-            // ── 10. Frame cap ──────────────────────────────────────────────
-            // Sleep for whatever time remains to hit exactly TARGET_FPS.
-            // If the frame ran long, we skip sleeping and start the next immediately.
             let frame_elapsed = Instant::now().duration_since(now);
             if frame_elapsed < FRAME_DURATION {
                 std::thread::sleep(FRAME_DURATION - frame_elapsed);
             }
         }
-
-        Ok(())
     }
 }

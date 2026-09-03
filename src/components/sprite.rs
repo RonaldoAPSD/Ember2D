@@ -22,41 +22,38 @@
 //     4 = UI / overlays
 
 use crate::renderer::Color;
+use serde::{Serialize, Deserialize};
 
 /// The visual representation of an entity in the fake terminal.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sprite {
     /// The ASCII character used to represent this entity.
-    ///
-    /// Classic ASCII game glyphs:
-    ///   '@' = player        '#' = wall           '.' = floor
-    ///   '*' = item/star     '~' = water          '^' = spike
-    ///   '!' = exclamation   '+' = cross/health   'o' = barrel
-    ///   'D' = dragon        'g' = goblin         'E' = exit
     pub glyph: char,
 
     /// The foreground (text/glyph) color.
     pub fg: Color,
 
     /// The background color behind the glyph.
-    /// `Color::Reset` uses the terminal's default background (usually black).
     pub bg: Color,
 
-    /// Draw order: entities with lower z_order are drawn first (appear behind).
-    /// Entities with the same z_order are drawn in an unspecified order.
-    ///
-    /// Suggested conventions:
-    ///   0 = background / floor tiles
-    ///   1 = items and pickups
-    ///   2 = walls and obstacles
-    ///   3 = characters (player, enemies)
-    ///   4 = effects and UI overlays
+    /// Draw order: lower = drawn first.
     pub z_order: i32,
 
-    /// When false, this entity is not drawn even if it exists in the world.
-    /// Use this to temporarily hide entities (e.g., invisible platforms,
-    /// off-screen enemies, or entities mid-animation).
+    /// When false, this entity is not drawn.
     pub visible: bool,
+
+    /// Optional animation frames. If not empty, the `glyph` is ignored
+    /// and frames are cycled based on `frame_timer`.
+    pub frames: Vec<char>,
+
+    /// How many seconds each frame lasts.
+    pub frame_rate: f32,
+
+    /// Internal timer for cycling frames.
+    pub frame_timer: f32,
+
+    /// Optional path to a texture file (for Sprites2D mode).
+    pub texture: Option<String>,
 }
 
 impl Sprite {
@@ -68,18 +65,32 @@ impl Sprite {
             bg,
             z_order,
             visible: true,
+            frames: Vec::new(),
+            frame_rate: 0.1,
+            frame_timer: 0.0,
+            texture: None,
         }
     }
 
+    /// Add a texture to this sprite.
+    pub fn with_texture(mut self, path: impl Into<String>) -> Self {
+        self.texture = Some(path.into());
+        self
+    }
+
     /// Shorthand: glyph + foreground color, transparent background, z_order 0.
-    /// The most common case for simple game objects.
     pub fn simple(glyph: char, fg: Color) -> Self {
         Sprite::new(glyph, fg, Color::Reset, 0)
     }
 
-    /// Set the z_order using the builder pattern — returns Self for chaining.
-    ///
-    /// Example: `Sprite::simple('@', Color::Green).with_z(3)`
+    /// Add animation frames to this sprite.
+    pub fn with_animation(mut self, frames: Vec<char>, rate: f32) -> Self {
+        self.frames = frames;
+        self.frame_rate = rate;
+        self
+    }
+
+    /// Set the z_order using the builder pattern.
     pub fn with_z(mut self, z: i32) -> Self {
         self.z_order = z;
         self

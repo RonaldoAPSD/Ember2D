@@ -11,32 +11,30 @@
 
 [package]
 name    = "ember2d"
-version = "0.3.4"
+version = "0.5.0"
 edition = "2021"
 
 [dependencies]
-# minifb: opens a real OS window and gives us a raw u32 pixel buffer to draw into.
-#
-# "mfb" stands for "mini framebuffer." A framebuffer is simply a flat array of pixels
-# that the OS blits to the display. We write colors into it however we want —
-# no terminal, no escape codes, no shell needed.
-#
-# What minifb handles for us:
-#   - Opening a titled, resizable/fixed window (Win32 on Windows, X11 on Linux, Cocoa on macOS)
-#   - Receiving keyboard and mouse events from the OS
-#   - Blitting our pixel buffer to the screen every frame
-#   - Optional built-in integer scaling (Scale::X2 → draws each pixel as a 2×2 block)
-minifb = "0.27"
+# winit: opens a real OS window and provides an event loop.
+winit = { version = "0.29" }
+
+# wgpu: cross-platform, safe, pure-rust graphics API.
+wgpu = "0.19"
+
+# bytemuck: for casting vertex data to bytes for GPU upload.
+bytemuck = { version = "1", features = ["derive"] }
+
+# glam: fast linear algebra for 2D/3D math.
+glam = "0.25"
+
+# pollster: for blocking on async WGPU calls.
+pollster = "0.3"
 
 # font8x8: an embedded 8×8-pixel bitmap font covering the ASCII range (0–127).
-#
-# A bitmap font stores each character as a small pixel grid.
-# For font8x8, each character is 8 bytes — one byte per row of 8 pixels.
-# Bit 0 of each byte is the leftmost pixel; bit 7 is the rightmost.
-#
-# We use this to turn the character stored in a Cell (e.g. '@', '#', '.')
-# into the actual pixels we write into minifb's framebuffer.
 font8x8 = "0.2"
+
+# image: for loading PNG/JPG textures.
+image = "0.24"
 
 # serde: Rust's universal serialization framework.
 # The "derive" feature enables #[derive(Serialize, Deserialize)] on any struct or enum,
@@ -63,9 +61,16 @@ ron = "0.8"
 #
 # Scripts live in .rhai files and define an `on_update(entity_id, ctx)` function
 # called every frame by the engine for entities that have a Script component.
-rhai = { version = "1", features = ["no_module", "no_closure"] }
+rhai = { version = "1", features = ["no_module", "no_closure", "serde"] }
 
 # kira: a game-focused audio library with first-class support for looping,
 # fading, and pausing. Pure Rust — no C dependencies, builds on all platforms.
 # "ogg" and "mp3" enable those decoder features via symphonia.
 kira = { version = "0.9", features = ["ogg", "mp3"] }
+
+# rand: random number generation. SmallRng is fast and suitable for games.
+rand = { version = "0.8", features = ["small_rng"] }
+rfd = "0.17.2"
+
+# gilrs: gamepad input support.
+gilrs = "0.10"

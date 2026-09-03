@@ -24,6 +24,8 @@
 
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
+use serde::{Serialize, Deserialize};
+
 // ─────────────────────────── Vec2 ────────────────────────────────────────────
 
 /// A 2-dimensional vector with 32-bit floating-point components.
@@ -31,7 +33,7 @@ use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 /// Used for world-space positions, velocities, directions, and forces.
 /// The `Copy` derive means this type is cheap to copy — passing it to a
 /// function does not move it out of the caller (unlike heap-allocated types).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Vec2 {
     pub x: f32,
     pub y: f32,
@@ -157,7 +159,7 @@ impl Neg for Vec2 {
 ///
 /// Used for screen/grid positions where fractional values are meaningless.
 /// `Eq` and `Hash` are derived so IVec2 can be used as a HashMap key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct IVec2 {
     pub x: i32,
     pub y: i32,
@@ -206,7 +208,7 @@ impl Sub for IVec2 {
 ///     h  │           │
 ///     │  └───────────┘
 ///     ▼
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Rect {
     /// X coordinate of the left edge.
     pub x: f32,
@@ -258,5 +260,43 @@ impl Rect {
     /// Returns true if the point (px, py) falls inside this rect.
     pub fn contains_point(self, px: f32, py: f32) -> bool {
         px >= self.x && px < self.right() && py >= self.y && py < self.bottom()
+    }
+
+    /// Slab method for Ray-AABB intersection.
+    /// Returns the distance `t` to the first intersection point along the ray
+    /// starting at (ox, oy) with direction (dx, dy).
+    /// Returns None if no intersection occurs.
+    pub fn ray_intersects(&self, ox: f32, oy: f32, dx: f32, dy: f32) -> Option<f32> {
+        let mut tmin = 0.0f32;
+        let mut tmax = f32::INFINITY;
+
+        // X slab
+        if dx.abs() < f32::EPSILON {
+            if ox < self.x || ox >= self.right() { return None; }
+        } else {
+            let inv_d = 1.0 / dx;
+            let mut t1 = (self.x - ox) * inv_d;
+            let mut t2 = (self.right() - ox) * inv_d;
+            if t1 > t2 { std::mem::swap(&mut t1, &mut t2); }
+            tmin = tmin.max(t1);
+            tmax = tmax.min(t2);
+            if tmin > tmax { return None; }
+        }
+
+        // Y slab
+        if dy.abs() < f32::EPSILON {
+            if oy < self.y || oy >= self.bottom() { return None; }
+        } else {
+            let inv_d = 1.0 / dy;
+            let mut t1 = (self.y - oy) * inv_d;
+            let mut t2 = (self.bottom() - oy) * inv_d;
+            if t1 > t2 { std::mem::swap(&mut t1, &mut t2); }
+            tmin = tmin.max(t1);
+            tmax = tmax.min(t2);
+            if tmin > tmax { return None; }
+        }
+
+        if tmax < 0.0 { return None; }
+        Some(tmin)
     }
 }

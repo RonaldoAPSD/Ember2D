@@ -20,22 +20,23 @@
 //   +X → right    +Y → down (screen space, matches terminal rows)
 
 use crate::math::Vec2;
+use crate::world::EntityId;
+use serde::{Serialize, Deserialize};
 
 /// Stores an entity's world-space position and movement velocity.
 ///
 /// Every entity that exists "somewhere in the game world" should have one.
 /// Entities without a Transform are considered to have no location.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Transform {
-    /// Current world-space position.
-    /// (0.0, 0.0) is the top-left of the viewport.
+    /// Current position. Relative to parent if parent is Some, else world-space.
     pub position: Vec2,
 
     /// Speed and direction of movement, in world-units per second.
-    ///
-    /// A velocity of Vec2::new(8.0, 0.0) means "move 8 columns per second rightward."
-    /// The physics step multiplies this by delta_time each frame to advance position.
     pub velocity: Vec2,
+
+    /// Optional parent entity. If set, `position` is relative to this parent.
+    pub parent: Option<EntityId>,
 }
 
 impl Transform {
@@ -44,16 +45,16 @@ impl Transform {
         Transform {
             position: Vec2::new(x, y),
             velocity: Vec2::ZERO,
+            parent: None,
         }
     }
 
     /// Create a Transform with both an initial position and velocity.
-    ///
-    /// Useful for projectiles, particles, or anything that starts moving immediately.
     pub fn with_velocity(x: f32, y: f32, vx: f32, vy: f32) -> Self {
         Transform {
             position: Vec2::new(x, y),
             velocity: Vec2::new(vx, vy),
+            parent: None,
         }
     }
 
