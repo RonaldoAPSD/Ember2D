@@ -14,7 +14,10 @@ pub trait RenderBackend {
     /// same convention as `draw_char_scaled_pixels`'s `scale`, but per-axis
     /// so non-square sprites and world-space sizing (Step 2c) are possible).
     /// `rotation` is radians, about the instance's own center (Step 2b).
-    fn draw_texture(&mut self, px: i32, py: i32, texture: &Texture, size: [f32; 2], rotation: f32, tint: Color);
+    /// `uv_rect` is a normalized `[x, y, w, h]` (0..1) sub-rect of the
+    /// texture to sample — `None` samples the whole thing. This is what
+    /// `SpriteSource::Texture::src` (Step 3b) backs, e.g. for sprite sheets.
+    fn draw_texture(&mut self, px: i32, py: i32, texture: &Texture, size: [f32; 2], rotation: f32, tint: Color, uv_rect: Option<[f32; 4]>);
     /// `surface_width`/`surface_height` are the *actual* physical pixel size
     /// of the render target (`Renderer`'s `wgpu::SurfaceConfiguration`) —
     /// the backend needs these to clamp scissor rects; see the comment at
@@ -420,17 +423,21 @@ impl RenderBackend for WgpuBackend {
         });
     }
 
-    fn draw_texture(&mut self, px: i32, py: i32, texture: &Texture, size: [f32; 2], rotation: f32, tint: Color) {
+    fn draw_texture(&mut self, px: i32, py: i32, texture: &Texture, size: [f32; 2], rotation: f32, tint: Color, uv_rect: Option<[f32; 4]>) {
         self.ensure_batch(texture.id);
 
         let cell_x = px as f32 / 8.0;
         let cell_y = py as f32 / 16.0;
+        let (uv_offset, uv_size) = match uv_rect {
+            Some([x, y, w, h]) => ([x, y], [w, h]),
+            None => ([0.0, 0.0], [1.0, 1.0]),
+        };
 
         self.instances.push(SpriteInstance {
             position: [cell_x, cell_y],
             size,
-            uv_offset: [0.0, 0.0],
-            uv_size: [1.0, 1.0],
+            uv_offset,
+            uv_size,
             // Reset means "no tint" here, i.e. white — DEFAULT_FG (the
             // ASCII text default) would incorrectly darken every sprite.
             color_fg: tint.to_rgba(0xFFFFFF),

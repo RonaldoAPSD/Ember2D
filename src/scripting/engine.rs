@@ -10,158 +10,16 @@ use rhai::{Engine, Scope, AST};
 use crate::world::{EntityId, World};
 use crate::input::InputManager;
 use crate::event::EventBus;
-use crate::components::{Collider, Sprite, Tag, Transform};
+use crate::components::{Animator, AnimationClip, Collider, Sprite, SpriteSource, Tag, Transform};
 
 use super::types::*;
 use super::api::ScriptCtx;
 
-pub(super) struct ScriptState {
-    pub(super) positions:        HashMap<i64, (f32, f32)>,
-    pub(super) velocities:       HashMap<i64, (f32, f32)>,
-    pub(super) parents:          HashMap<i64, i64>,
-    /// (width, height, solid, layer, mask, locked)
-    pub(super) colliders:        HashMap<i64, (f32, f32, bool, String, Vec<String>, bool)>,
-    pub(super) tags:             HashMap<i64, String>,
-    pub(super) glyphs:           HashMap<i64, char>,
-    pub(super) colors:           HashMap<i64, (String, String)>,
-    pub(super) textures:         HashMap<i64, String>,
-    pub(super) tag_to_id:        HashMap<String, i64>,
-    pub(super) tag_to_ids:       HashMap<String, Vec<i64>>,
-    pub(super) visibility:       HashMap<i64, bool>,
-    pub(super) z_orders:         HashMap<i64, i32>,
-    pub(super) delta_time:       f32,
-    pub(super) elapsed:          f32,
-    pub(super) next_spawn_id:    EntityId,
-    pub(super) held_keys:        HashSet<String>,
-    pub(super) just_pressed_keys: HashSet<String>,
-    pub(super) extra_spawns:     HashMap<String, (f32, f32)>,
-    pub(super) mouse_pos:        (f32, f32),
-    pub(super) mouse_held:       (bool, bool),
-    pub(super) mouse_pressed:    (bool, bool),
-
-    pub(super) gamepad_held:     HashSet<(usize, String)>,
-    pub(super) gamepad_pressed:  HashSet<(usize, String)>,
-    pub(super) gamepad_axes:     HashMap<(usize, String), f32>,
-
-    pub(super) globals:          HashMap<String, rhai::Dynamic>,
-    pub(super) persistent:       HashMap<String, rhai::Dynamic>,
-    pub(super) camera_pos:       (f32, f32),
-    pub(super) viewport_size:    (usize, usize),
-    pub(super) pending_velocities: Vec<(i64, f32, f32)>,
-    pub(super) pending_positions:  Vec<(i64, f32, f32)>,
-    pub(super) pending_parents:    Vec<(i64, i64, bool)>,
-    pub(super) pending_glyphs:     Vec<(i64, char)>,
-    pub(super) pending_colors:     Vec<(i64, String, String)>,
-    pub(super) pending_animations: Vec<(i64, Vec<char>, f32)>,
-    pub(super) pending_textures:   Vec<(i64, Option<String>)>,
-    pub(super) pending_hud_draws:  Vec<HudDraw>,
-    pub(super) pending_particles:  Vec<ParticleRequest>,
-    pub(super) clear_hud:          bool,
-    pub(super) despawn_queue:      Vec<i64>,
-    pub(super) spawn_queue:        Vec<SpawnRequest>,
-    pub(super) pending_level:      Option<String>,
-    pub(super) pending_save:       Option<String>,
-    pub(super) pending_load:       Option<String>,
-    pub(super) pending_logs:       Vec<String>,
-    pub(super) pending_sounds:     Vec<String>,
-    pub(super) pending_spatial_sounds: Vec<(String, f32, f32)>,
-    pub(super) pending_music:      Option<String>,
-    pub(super) stop_music:         bool,
-    pub(super) pending_globals:    HashMap<String, rhai::Dynamic>,
-    pub(super) pending_persistent: HashMap<String, rhai::Dynamic>,
-    pub(super) pending_camera:     Option<crate::math::Vec2>,
-    pub(super) pending_shake:      Option<crate::play::ShakeState>,
-    pub(super) pending_visibility: Vec<(i64, bool)>,
-    pub(super) pending_z_order:    Vec<(i64, i32)>,
-    pub(super) pending_tags:       Vec<(i64, String)>,
-    pub(super) pending_collider_size:  Vec<(i64, f32, f32)>,
-    pub(super) pending_collider_solid: Vec<(i64, bool)>,
-    pub(super) pending_collider_layer: Vec<(i64, String)>,
-    pub(super) pending_collider_locked: Vec<(i64, bool)>,
-    pub(super) pending_collider_mask:  Vec<(i64, Vec<String>)>,
-    pub(super) pending_timers:     Vec<(EntityId, String, f64)>,
-    pub(super) timers:             HashMap<EntityId, HashMap<String, f64>>,
-    pub(super) pending_turn:       bool,
-}
-
-impl ScriptState {
-    pub(super) fn from_world(
-        world: &World, delta_time: f32, elapsed: f32,
-        input: Option<&InputManager>, mouse: Option<&crate::mouse::MouseState>,
-        gamepad: Option<&crate::gamepad::GamepadState>,
-        spawns: &[(String, f32, f32)], globals: HashMap<String, rhai::Dynamic>,
-        persistent: HashMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2,
-        viewport_size: (usize, usize),
-    ) -> Self {
-        let mut positions  = HashMap::new();
-        let mut velocities = HashMap::new();
-        let mut parents    = HashMap::new();
-        let mut colliders  = HashMap::new();
-        let mut tags       = HashMap::new();
-        let mut glyphs     = HashMap::new();
-        let mut colors     = HashMap::new();
-        let mut textures   = HashMap::new();
-        let mut tag_to_id  = HashMap::new();
-        let mut tag_to_ids: HashMap<String, Vec<i64>> = HashMap::new();
-        let mut visibility = HashMap::new();
-        let mut z_orders   = HashMap::new();
-
-        for (id, tf) in &world.transforms {
-            let eid = *id as i64;
-            positions.insert(eid,  (tf.position.x, tf.position.y));
-            velocities.insert(eid, (tf.velocity.x, tf.velocity.y));
-            if let Some(pid) = tf.parent { parents.insert(eid, pid as i64); }
-            if let Some(sp) = world.sprites.get(id) {
-                glyphs.insert(eid, sp.glyph);
-                colors.insert(eid, (crate::scripting::types::color_to_name(sp.fg), crate::scripting::types::color_to_name(sp.bg)));
-                textures.insert(eid, sp.texture.clone().unwrap_or_default());
-                visibility.insert(eid, sp.visible);
-                z_orders.insert(eid, sp.z_order);
-            }
-        }
-        for (id, col) in &world.colliders { colliders.insert(*id as i64, (col.width, col.height, col.solid, col.layer.clone(), col.mask.clone(), col.locked)); }
-        for (id, tag) in &world.tags {
-            let eid = *id as i64;
-            tags.insert(eid, tag.name.clone());
-            tag_to_id.entry(tag.name.clone()).or_insert(eid);
-            tag_to_ids.entry(tag.name.clone()).or_default().push(eid);
-        }
-        let (held_keys, just_pressed_keys) = input.map(snapshot_keys).unwrap_or_default();
-        let mouse_pos = mouse.map(|m| (m.cell_x as f32, m.cell_y as f32)).unwrap_or((0.0, 0.0));
-        let mouse_held = mouse.map(|m| (m.left_held(), m.right_held())).unwrap_or((false, false));
-        let mouse_pressed = mouse.map(|m| (m.left_just_pressed(), m.right_just_pressed())).unwrap_or((false, false));
-
-        let mut gamepad_held = HashSet::new();
-        let mut gamepad_pressed = HashSet::new();
-        let mut gamepad_axes = HashMap::new();
-
-        if let Some(gp) = gamepad {
-            for &(id, btn) in &gp.held { gamepad_held.insert((id, btn.to_string())); }
-            for &(id, btn) in &gp.consumed { gamepad_pressed.insert((id, btn.to_string())); }
-            for (&(id, ax), &val) in &gp.axes { gamepad_axes.insert((id, ax.to_string()), val); }
-        }
-
-        let extra_spawns: HashMap<String, (f32, f32)> = spawns.iter().map(|(name, x, y)| (name.clone(), (*x, *y))).collect();
-
-        ScriptState {
-            positions, velocities, parents, colliders, tags, glyphs, colors, textures, tag_to_id, tag_to_ids, visibility, z_orders,
-            delta_time, elapsed, next_spawn_id: world.next_id, held_keys, just_pressed_keys, extra_spawns,
-            mouse_pos, mouse_held, mouse_pressed,
-            gamepad_held, gamepad_pressed, gamepad_axes,
-            globals, persistent, camera_pos: (camera_pos.x, camera_pos.y), viewport_size,
-            pending_velocities: Vec::new(), pending_positions: Vec::new(), pending_parents: Vec::new(),
-            pending_glyphs: Vec::new(), pending_colors: Vec::new(), pending_animations: Vec::new(), pending_textures: Vec::new(),
-            pending_hud_draws: Vec::new(), pending_particles: Vec::new(), clear_hud: false, despawn_queue: Vec::new(),
-            spawn_queue: Vec::new(), pending_level: None, pending_save: None, pending_load: None, pending_logs: Vec::new(),
-            pending_sounds: Vec::new(), pending_spatial_sounds: Vec::new(),
-            pending_music: None, stop_music: false, pending_globals: HashMap::new(), pending_persistent: HashMap::new(),
-            pending_camera: None, pending_shake: None, pending_visibility: Vec::new(), pending_z_order: Vec::new(), pending_tags: Vec::new(),
-            pending_collider_size: Vec::new(), pending_collider_solid: Vec::new(), pending_collider_layer: Vec::new(), pending_collider_mask: Vec::new(),
-            pending_collider_locked: Vec::new(),
-            pending_timers: Vec::new(), timers: HashMap::new(), pending_turn: false,
-        }
-    }
-}
+// ScriptState (the per-frame snapshot + write-queue scripts see through
+// ScriptCtx) lives in state.rs, a sibling module declared in
+// scripting/mod.rs (not here) since api.rs needs it too — see that file's
+// header comment for why it was split out of engine.rs.
+use super::state::ScriptState;
 
 pub struct ScriptEngine {
     engine:    Engine,
@@ -301,6 +159,16 @@ impl ScriptEngine {
         engine.register_fn("gp_just_pressed", ScriptCtx::gp_just_pressed);
         engine.register_fn("gp_axis",         ScriptCtx::gp_axis);
 
+        // Phase 3: named animation clips
+        engine.register_fn("register_clip",   ScriptCtx::register_clip);
+        engine.register_fn("play_clip",       ScriptCtx::play_clip);
+        engine.register_fn("play_clip_once",  ScriptCtx::play_clip_once);
+        engine.register_fn("stop_clip",       ScriptCtx::stop_clip);
+        engine.register_fn("set_clip_speed",  ScriptCtx::set_clip_speed);
+        engine.register_fn("get_frame",       ScriptCtx::get_frame);
+        engine.register_fn("set_frame",       ScriptCtx::set_frame);
+        engine.register_fn("clip_finished",   ScriptCtx::clip_finished);
+
         use rand::SeedableRng;
         ScriptEngine {
             engine, ast_cache: HashMap::new(), scopes: HashMap::new(), mod_times: HashMap::new(),
@@ -329,9 +197,9 @@ impl ScriptEngine {
         }
     }
 
-    pub fn run_on_start_all(&mut self, world: &mut World, log: &mut Vec<LogEntry>, extra_spawns: &[(String, f32, f32)], globals: HashMap<String, rhai::Dynamic>, persistent: &mut HashMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, viewport_size: (usize, usize)) -> ScriptUpdateResult {
+    pub fn run_on_start_all(&mut self, world: &mut World, log: &mut Vec<LogEntry>, extra_spawns: &[(String, f32, f32)], globals: HashMap<String, rhai::Dynamic>, clips: HashMap<String, AnimationClip>, persistent: &mut HashMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, viewport_size: (usize, usize)) -> ScriptUpdateResult {
         let scripted: Vec<(i64, String)> = world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
-        let mut ctx_state = ScriptState::from_world(world, 0.0, 0.0, None, None, None, extra_spawns, globals, persistent.clone(), camera_pos, viewport_size);
+        let mut ctx_state = ScriptState::from_world(world, 0.0, 0.0, None, None, None, extra_spawns, globals, clips, persistent.clone(), camera_pos, viewport_size);
         for (entity_id, _) in &scripted {
             let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);
             let mut entity_timers = HashMap::new();
@@ -356,9 +224,9 @@ impl ScriptEngine {
         self.apply_ctx(ctx, world, log)
     }
 
-    pub fn run_scripts(&mut self, world: &mut World, _events: &mut EventBus, log: &mut Vec<LogEntry>, delta_time: f32, elapsed: f32, input: Option<&InputManager>, mouse: Option<&crate::mouse::MouseState>, gamepad: Option<&crate::gamepad::GamepadState>, spawns: &[(String, f32, f32)], globals: HashMap<String, rhai::Dynamic>, persistent: &mut HashMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, viewport_size: (usize, usize)) -> ScriptUpdateResult {
+    pub fn run_scripts(&mut self, world: &mut World, _events: &mut EventBus, log: &mut Vec<LogEntry>, delta_time: f32, elapsed: f32, input: Option<&InputManager>, mouse: Option<&crate::mouse::MouseState>, gamepad: Option<&crate::gamepad::GamepadState>, spawns: &[(String, f32, f32)], globals: HashMap<String, rhai::Dynamic>, clips: HashMap<String, AnimationClip>, persistent: &mut HashMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, viewport_size: (usize, usize)) -> ScriptUpdateResult {
         self.check_hot_reload(world, log);
-        let mut ctx_state = ScriptState::from_world(world, delta_time, elapsed, input, mouse, gamepad, spawns, globals, persistent.clone(), camera_pos, viewport_size);
+        let mut ctx_state = ScriptState::from_world(world, delta_time, elapsed, input, mouse, gamepad, spawns, globals, clips, persistent.clone(), camera_pos, viewport_size);
         let scripted: Vec<(i64, String)> = world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
         for (entity_id, _) in &scripted {
             let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);
@@ -386,14 +254,14 @@ impl ScriptEngine {
         self.apply_ctx(ctx, world, log)
     }
 
-    pub fn run_collisions(&mut self, world: &mut World, pairs: &[(EntityId, EntityId)], log: &mut Vec<LogEntry>, delta_time: f32, elapsed: f32, spawns: &[(String, f32, f32)], globals: HashMap<String, rhai::Dynamic>, persistent: &mut HashMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, viewport_size: (usize, usize)) -> ScriptUpdateResult {
+    pub fn run_collisions(&mut self, world: &mut World, pairs: &[(EntityId, EntityId)], log: &mut Vec<LogEntry>, delta_time: f32, elapsed: f32, spawns: &[(String, f32, f32)], globals: HashMap<String, rhai::Dynamic>, clips: HashMap<String, AnimationClip>, persistent: &mut HashMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, viewport_size: (usize, usize)) -> ScriptUpdateResult {
         let scripted_paths: HashMap<EntityId, String> = world.scripts.iter().map(|(id, s)| (*id, s.path.clone())).collect();
         let mut calls: Vec<(i64, i64, String)> = Vec::new();
         for &(a, b) in pairs {
             if let Some(p) = scripted_paths.get(&a) { calls.push((a as i64, b as i64, p.clone())); }
             if let Some(p) = scripted_paths.get(&b) { calls.push((b as i64, a as i64, p.clone())); }
         }
-        let mut ctx_state = ScriptState::from_world(world, delta_time, elapsed, None, None, None, spawns, globals, persistent.clone(), camera_pos, viewport_size);
+        let mut ctx_state = ScriptState::from_world(world, delta_time, elapsed, None, None, None, spawns, globals, clips, persistent.clone(), camera_pos, viewport_size);
         for (entity_id, _, _) in &calls {
             let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);
             let mut entity_timers = HashMap::new();
@@ -474,10 +342,22 @@ impl ScriptEngine {
         for &(id, vx, vy) in &state.pending_velocities { if let Some(tf) = world.transforms.get_mut(&(id as EntityId)) { tf.velocity.x = vx; tf.velocity.y = vy; } }
         for &(id, x, y) in &state.pending_positions { if let Some(tf) = world.transforms.get_mut(&(id as EntityId)) { tf.position.x = x; tf.position.y = y; } }
         for &(id, pid, keep_world) in &state.pending_parents { let parent = if pid < 0 { None } else { Some(pid as EntityId) }; world.set_parent(id as EntityId, parent, keep_world); }
-        for &(id, ch) in &state.pending_glyphs { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.glyph = ch; } }
-        for (id, f, b) in state.pending_colors.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.fg = parse_color(&f); sp.bg = parse_color(&b); } }
+        // set_glyph only means something for a Glyph-sourced sprite —
+        // silently does nothing otherwise, same "setters on the wrong kind
+        // of entity are a no-op" convention every other setter here follows.
+        for &(id, ch) in &state.pending_glyphs {
+            if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) {
+                if let SpriteSource::Glyph { ch: c, .. } = &mut sp.source { *c = ch; }
+            }
+        }
+        for (id, f, b) in state.pending_colors.drain(..) {
+            if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) {
+                sp.tint = parse_color(&f);
+                if let SpriteSource::Glyph { bg, .. } = &mut sp.source { *bg = parse_color(&b); }
+            }
+        }
         for (id, v) in state.pending_visibility.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.visible = v; } }
-        for (id, z) in state.pending_z_order.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.z_order = z; } }
+        for (id, z) in state.pending_z_order.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.layer = z; } }
         for (id, t) in state.pending_tags.drain(..) { world.add_tag(id as EntityId, Tag::new(&t)); }
         for (id, w, h) in state.pending_collider_size.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.width = w; col.height = h; } }
         for (id, s) in state.pending_collider_solid.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.solid = s; } }
@@ -485,7 +365,36 @@ impl ScriptEngine {
         for (id, l) in state.pending_collider_locked.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.locked = l; } }
         for (id, m) in state.pending_collider_mask.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.mask = m; } }
         for (id, f, r) in state.pending_animations.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.frames = f; sp.frame_rate = r; sp.frame_timer = 0.0; } }
-        for (id, p) in state.pending_textures.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.texture = p; } }
+        // Clearing (set_texture(id, "") -> None here) has no defined
+        // behavior under the SpriteSource model — there's no stored
+        // "previous glyph" to revert to, so it's a no-op. Nothing in the
+        // demo (or any known script) relies on clear-to-glyph; revisit if
+        // real usage needs it.
+        for (id, p) in state.pending_textures.drain(..) {
+            if let Some(path) = p {
+                if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) {
+                    sp.source = SpriteSource::Texture { path, src: None };
+                }
+            }
+        }
+        // play_clip/play_clip_once both (re)point the sprite at the clip by
+        // name AND (re)start its Animator — the two used to be one call
+        // (`set_animation`) before Step 3c split "what to show" from
+        // "where playback is", so this is where they get reunited.
+        for (id, name, oneshot) in state.pending_play_clip.drain(..) {
+            let animator = world.animators.entry(id as EntityId).or_insert_with(|| Animator::new(name.clone()));
+            animator.clip = name.clone();
+            animator.frame = 0;
+            animator.elapsed = 0.0;
+            animator.playing = true;
+            animator.oneshot = oneshot;
+            if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.source = SpriteSource::Clip { name }; }
+        }
+        for id in state.pending_stop_clip.drain(..) { if let Some(a) = world.animators.get_mut(&(id as EntityId)) { a.playing = false; } }
+        for (id, speed) in state.pending_clip_speed.drain(..) { if let Some(a) = world.animators.get_mut(&(id as EntityId)) { a.speed = speed; } }
+        for (id, frame) in state.pending_set_frame.drain(..) { if let Some(a) = world.animators.get_mut(&(id as EntityId)) { a.frame = frame; a.elapsed = 0.0; } }
+        let clip_defs: Vec<(String, AnimationClip)> = state.pending_clip_defs.drain(..).collect();
+        for (name, clip) in clip_defs { state.clips.insert(name, clip); }
         self.pending_hud_draws.extend(state.pending_hud_draws.drain(..));
         self.pending_sounds.extend(state.pending_sounds.drain(..));
         self.pending_spatial_sounds.extend(state.pending_spatial_sounds.drain(..));
@@ -498,7 +407,7 @@ impl ScriptEngine {
         let persistent_to_apply: Vec<(String, rhai::Dynamic)> = state.pending_persistent.drain().collect();
         for (k, v) in persistent_to_apply { if v.is_unit() { state.persistent.remove(&k); } else { state.persistent.insert(k, v); } }
         for (id, name, duration) in state.pending_timers.drain(..) { if let Some(scope) = self.scopes.get_mut(&id) { let key = format!("__timer_{}", name); if duration < -900.0 { scope.set_value(key, -1.0f64); } else { scope.set_value(key, duration); } } }
-        let result = ScriptUpdateResult { pending_level: state.pending_level.take(), pending_save: state.pending_save.take(), pending_load: state.pending_load.take(), globals: state.globals.clone(), persistent: state.persistent.clone(), camera_override: state.pending_camera.take(), shake_state: state.pending_shake.take(), clear_hud: state.clear_hud, particles: state.pending_particles.drain(..).collect(), trigger_turn };
+        let result = ScriptUpdateResult { pending_level: state.pending_level.take(), pending_save: state.pending_save.take(), pending_load: state.pending_load.take(), globals: state.globals.clone(), clips: state.clips.clone(), persistent: state.persistent.clone(), camera_override: state.pending_camera.take(), shake_state: state.pending_shake.take(), clear_hud: state.clear_hud, particles: state.pending_particles.drain(..).collect(), trigger_turn };
         state.clear_hud = false; let despawn_ids = state.despawn_queue.clone(); drop(state);
         for id in despawn_ids { world.despawn(id as EntityId); self.scopes.remove(&(id as EntityId)); }
         result

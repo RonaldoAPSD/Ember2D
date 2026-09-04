@@ -9,6 +9,15 @@ use super::*;
 use crate::components::Script;
 use crate::renderer::color::Color;
 
+/// Unwraps a Glyph-sourced sprite's (char, bg) — panics for any other
+/// source, which is correct for these tests since they all spawn glyphs.
+fn glyph_and_bg(sp: &Sprite) -> (char, Color) {
+    match &sp.source {
+        SpriteSource::Glyph { ch, bg } => (*ch, *bg),
+        other => panic!("expected a Glyph source, got {:?}", other),
+    }
+}
+
 // ── Tests: D3, D8 scoped hot-reload, D9 disable-on-error, D10 spawn_entity ──────
 // (docs/ember2d-refactor-plan.md §3 — D3: the script RNG used to be
 // `SmallRng::from_entropy()`, making random_* nondeterministic across runs.
@@ -91,7 +100,7 @@ fn run_scripts_once(engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<
     let mut persistent = HashMap::new();
     engine.run_scripts(
         world, &mut events, log, 1.0 / 60.0, 0.0, None, None, None,
-        &[], HashMap::new(), &mut persistent, crate::math::Vec2::ZERO, (80, 24),
+        &[], HashMap::new(), HashMap::new(), &mut persistent, crate::math::Vec2::ZERO, (80, 24),
     );
 }
 
@@ -174,10 +183,11 @@ fn spawn_entity_default_overload_keeps_the_legacy_appearance() {
     let tf = world.transforms.get(&spawned).unwrap();
     assert_eq!((tf.position.x, tf.position.y), (3.0, 4.0));
     let sp = world.sprites.get(&spawned).unwrap();
-    assert_eq!(sp.glyph, 'Q');
-    assert_eq!(sp.fg, Color::White);
-    assert_eq!(sp.bg, Color::Reset);
-    assert_eq!(sp.z_order, 2);
+    let (ch, bg) = glyph_and_bg(sp);
+    assert_eq!(ch, 'Q');
+    assert_eq!(sp.tint, Color::White);
+    assert_eq!(bg, Color::Reset);
+    assert_eq!(sp.layer, 2);
     let col = world.colliders.get(&spawned).unwrap();
     assert!(!col.solid);
     assert_eq!((col.width, col.height), (1.0, 1.0));
@@ -194,9 +204,10 @@ fn spawn_entity_extended_overload_honors_every_parameter() {
 
     let spawned = world.find_by_tag("bullet").expect("spawned entity should exist");
     let sp = world.sprites.get(&spawned).unwrap();
-    assert_eq!(sp.glyph, 'B');
-    assert_eq!(sp.fg, Color::Red);
-    assert_eq!(sp.z_order, 9);
+    let (ch, _bg) = glyph_and_bg(sp);
+    assert_eq!(ch, 'B');
+    assert_eq!(sp.tint, Color::Red);
+    assert_eq!(sp.layer, 9);
     let col = world.colliders.get(&spawned).unwrap();
     assert!(col.solid);
     assert_eq!((col.width, col.height), (0.5, 0.5));
@@ -216,5 +227,93 @@ fn a_script_can_configure_the_entity_it_just_spawned_in_the_same_frame() {
     "#);
 
     let spawned = world.find_by_tag("thing").expect("spawned entity should exist");
-    assert_eq!(world.sprites.get(&spawned).unwrap().z_order, 42, "a setter called on the same frame as spawn_entity must not be dropped");
+    assert_eq!(world.sprites.get(&spawned).unwrap().layer, 42, "a setter called on the same frame as spawn_entity must not be dropped");
+}
+
+// ── Tests: Step 3c named animation clips (ember2d-refactor-plan.md Phase 3) ────
+
+/// Compile `source` to a temp file, attach it to a fresh scripted entity in
+/// a fresh world, and run one update pass — like `run_source`, but also
+/// hands back the driver entity's own id, which a script with no tag/sprite
+/// of its own (as the clip tests below need) has no other way to recover.
+fn run_source_with_driver(name: &str, source: &str) -> (World, EntityId, Vec<LogEntry>) {
+    let mut script = std::env::temp_dir();
+    script.push(format!("ember2d_test_clip_{}.rhai", name));
+    std::fs::write(&script, source).unwrap();
+    let path = script.to_string_lossy().to_string();
+
+    let mut engine = ScriptEngine::new(42);
+    let mut log = Vec::new();
+    assert!(engine.compile(&path, &mut log));
+
+    let mut world = World::new();
+    let driver = world.spawn();
+    world.add_script(driver, Script::new(&path));
+
+    run_scripts_once(&mut engine, &mut world, &mut log);
+    let _ = std::fs::remove_file(&script);
+    (world, driver, log)
+}
+
+#[test]
+fn play_clip_starts_an_animator_and_points_the_sprite_at_the_clip() {
+    let (world, driver, _log) = run_source_with_driver("play_clip", r#"
+        fn on_update(id, ctx) {
+            ctx.register_clip("flicker", "*+#", 6.0, true);
+            ctx.play_clip(id, "flicker");
+        }
+    "#);
+
+    let animator = world.animators.get(&driver).expect("play_clip must create an Animator");
+    assert_eq!(animator.clip, "flicker");
+    assert_eq!(animator.frame, 0);
+    assert!(animator.playing);
+    assert!(!animator.oneshot, "play_clip must not set the play_clip_once override");
+}
+
+#[test]
+fn play_clip_once_sets_the_oneshot_override() {
+    let (world, driver, _log) = run_source_with_driver("play_clip_once", r#"
+        fn on_update(id, ctx) {
+            ctx.register_clip("swing", "ab", 6.0, true);
+            ctx.play_clip_once(id, "swing");
+        }
+    "#);
+
+    assert!(world.animators.get(&driver).unwrap().oneshot, "play_clip_once must set the oneshot override even for a looping clip");
+}
+
+#[test]
+fn clip_finished_reports_true_for_entities_whose_animator_just_finished_this_tick() {
+    // Animator ticking itself lives in PlayState::update (Step 3c wires
+    // Animator::advance in there, not in the script engine), so this pins
+    // just the read side: clip_finished(id) must reflect whatever
+    // Animator::just_finished the World already carries into this frame.
+    let mut script = std::env::temp_dir();
+    script.push("ember2d_test_clip_finished.rhai");
+    std::fs::write(&script, r#"
+        fn on_update(id, ctx) { ctx.set_global("finished", ctx.clip_finished(id)); }
+    "#).unwrap();
+    let path = script.to_string_lossy().to_string();
+
+    let mut engine = ScriptEngine::new(1);
+    let mut log = Vec::new();
+    assert!(engine.compile(&path, &mut log));
+
+    let mut world = World::new();
+    let entity = world.spawn();
+    world.add_script(entity, Script::new(&path));
+    let mut animator = Animator::new("swing");
+    animator.just_finished = true;
+    world.animators.insert(entity, animator);
+
+    let mut events = EventBus::new();
+    let mut persistent = HashMap::new();
+    let result = engine.run_scripts(
+        &mut world, &mut events, &mut log, 1.0 / 60.0, 0.0, None, None, None,
+        &[], HashMap::new(), HashMap::new(), &mut persistent, crate::math::Vec2::ZERO, (80, 24),
+    );
+
+    assert_eq!(result.globals.get("finished").and_then(|d| d.as_bool().ok()), Some(true));
+    let _ = std::fs::remove_file(&script);
 }

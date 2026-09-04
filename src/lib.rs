@@ -60,11 +60,13 @@ pub mod prelude {
 
     // ── Renderer ──────────────────────────────────────────────────────────
     // The terminal renderer and its color palette.
-    pub use crate::renderer::{Color, Renderer, Texture, RenderBackend, WgpuBackend, AssetManager};
+    pub use crate::renderer::{Color, Renderer, Texture, TextureId, RenderBackend, WgpuBackend, AssetManager};
 
     // ── Components ────────────────────────────────────────────────────────
-    // The four core components every entity can have.
-    pub use crate::components::{Collider, Sprite, Tag, Transform};
+    // The core components every entity can have, plus Phase 3's animation
+    // playback (Animator) and shared clip-definition (AnimationClip,
+    // ClipFrames) types.
+    pub use crate::components::{Animator, AnimationClip, ClipFrames, Collider, Sprite, SpriteSource, Tag, Transform};
 
     // ── World ─────────────────────────────────────────────────────────────
     // The entity database and the EntityId type alias.

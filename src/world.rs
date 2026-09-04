@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::components::{Collider, Script, Sprite, Tag, Transform};
+use crate::components::{Animator, Collider, Script, Sprite, Tag, Transform};
 use crate::event::{EventBus, GameEvent};
 use crate::math::{Rect, Vec2};
 
@@ -23,6 +23,12 @@ pub struct World {
     pub colliders:  HashMap<EntityId, Collider>,
     pub tags:       HashMap<EntityId, Tag>,
     pub scripts:    HashMap<EntityId, Script>,
+    /// Animation playback state (Phase 3, Step 3c). `#[serde(default)]` so a
+    /// save file from before this field existed still deserializes — it
+    /// just loads with no entities animating, same as any other new
+    /// component store would.
+    #[serde(default)]
+    pub animators:  HashMap<EntityId, Animator>,
 }
 
 impl World {
@@ -35,6 +41,7 @@ impl World {
             colliders:  HashMap::new(),
             tags:       HashMap::new(),
             scripts:    HashMap::new(),
+            animators:  HashMap::new(),
         }
     }
 
@@ -52,6 +59,7 @@ impl World {
         self.colliders.remove(&id);
         self.tags.remove(&id);
         self.scripts.remove(&id);
+        self.animators.remove(&id);
     }
 
     // ── Component accessors ───────────────────────────────────────────────
@@ -214,10 +222,46 @@ impl World {
             } else {
                 let mover_cy    = global_y + mover_h * 0.5;
                 let obstacle_cy = obstacle_rect.y + obstacle_rect.h * 0.5;
-                if mover_cy < obstacle_cy { tf.position.y -= overlap_y; } 
+                if mover_cy < obstacle_cy { tf.position.y -= overlap_y; }
                 else { tf.position.y += overlap_y; }
                 tf.velocity.y = 0.0;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::Animator;
+
+    #[test]
+    fn a_world_with_animators_round_trips_through_ron() {
+        let mut world = World::new();
+        let id = world.spawn();
+        world.animators.insert(id, Animator::new("flicker"));
+
+        let ron = ron::to_string(&world).expect("World must serialize");
+        let restored: World = ron::from_str(&ron).expect("World must deserialize");
+        assert_eq!(restored.animators.get(&id).map(|a| a.clip.as_str()), Some("flicker"));
+    }
+
+    #[test]
+    fn a_saved_world_from_before_the_animators_store_existed_still_loads() {
+        // Step 3c added `animators` to an already-shipped serialized type;
+        // #[serde(default)] is what keeps an old save (missing the field
+        // entirely) loading instead of erroring out.
+        let pre_step_3c_ron = "(next_id:1,transforms:{},sprites:{},colliders:{},tags:{},scripts:{})";
+        let restored: World = ron::from_str(pre_step_3c_ron).expect("a World RON with no `animators` key must still deserialize");
+        assert!(restored.animators.is_empty());
+    }
+
+    #[test]
+    fn despawn_removes_the_entitys_animator() {
+        let mut world = World::new();
+        let id = world.spawn();
+        world.animators.insert(id, Animator::new("flicker"));
+        world.despawn(id);
+        assert!(!world.animators.contains_key(&id), "despawn must clean up the animators store like every other component store");
     }
 }

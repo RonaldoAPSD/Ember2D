@@ -25,7 +25,7 @@ impl PlayState {
             let mut sprite = Sprite::new(tile.glyph, tile.fg, tile.bg, z);
             if let Some(ref path) = tile.texture {
                 let full = resolve_exit_path(path, &self.level.path);
-                sprite.texture = Some(full);
+                sprite = sprite.with_texture(full);
             }
             world.add_sprite(id, sprite);
 
@@ -84,7 +84,7 @@ impl PlayState {
         let mut p_sprite = Sprite::new(pr.glyph, pr.fg, pr.bg, Z_PLAYER);
         if let Some(ref path) = pr.texture {
             let full = resolve_exit_path(path, &self.level.path);
-            p_sprite.texture = Some(full);
+            p_sprite = p_sprite.with_texture(full);
         }
         world.add_sprite(player, p_sprite);
         let mut p_col = Collider::new(0.75, 0.75);
@@ -115,7 +115,7 @@ impl PlayState {
 
         let res = self.script_engine.run_on_start_all(
             world, &mut self.script_log, &self.level.extra_spawns,
-            self.globals.clone(), persistent, Vec2::new(cam_x, cam_y),
+            self.globals.clone(), self.clips.clone(), persistent, Vec2::new(cam_x, cam_y),
             (viewport_width, viewport_height),
         );
         let mut dummy = false;

@@ -9,7 +9,7 @@ use ember2d::editor::EditorState;
 use ember2d::editor::start_screen::StartScreen;
 use ember2d::engine::{Engine, Transition};
 use ember2d::level::LevelData;
-use ember2d::project::{GameplayLoop, ProjectData, VisualStyle};
+use ember2d::project::{self, GameplayLoop, ProjectData, VisualStyle};
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -32,21 +32,25 @@ fn main() -> io::Result<()> {
             // sprite mode applies here. `gameplay_loop` is captured separately
             // and only takes effect once the editor actually enters play mode.
             let mut play_gameplay_loop = GameplayLoop::RealTime;
+            let mut pixels_per_unit = project::default_pixels_per_unit();
             if let Ok(proj) = ProjectData::load(&project_dir.to_string_lossy()) {
                 if proj.visual_style == VisualStyle::Sprites2D { engine.renderer.set_sprite_mode(true); }
                 else { engine.renderer.set_sprite_mode(false); }
                 play_gameplay_loop = proj.gameplay_loop;
+                pixels_per_unit = proj.pixels_per_unit;
             }
-            run_editor_app(&mut engine, editor, play_gameplay_loop)?;
+            run_editor_app(&mut engine, editor, play_gameplay_loop, pixels_per_unit)?;
         } else if !path.is_empty() {
             let data = match LevelData::load(&path) { Ok(d) => d, Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); } };
             let project_dir = Path::new(&path).parent().unwrap_or(Path::new("."));
+            let mut pixels_per_unit = project::default_pixels_per_unit();
             if let Ok(proj) = ProjectData::load(&project_dir.to_string_lossy()) {
-                if proj.visual_style == VisualStyle::Sprites2D { engine.renderer.set_sprite_mode(true); } 
+                if proj.visual_style == VisualStyle::Sprites2D { engine.renderer.set_sprite_mode(true); }
                 else { engine.renderer.set_sprite_mode(false); }
                 engine.gameplay_loop = proj.gameplay_loop;
+                pixels_per_unit = proj.pixels_per_unit;
             }
-            run_play_app(&mut engine, data)?;
+            run_play_app(&mut engine, data, pixels_per_unit)?;
         } else {
             print_usage();
         }
@@ -65,12 +69,14 @@ fn main() -> io::Result<()> {
                     if let Ok(editor) = EditorState::new_from_result(res) {
                         let folder = editor.project_folder.clone().unwrap_or_else(|| ".".to_string());
                         let mut play_gameplay_loop = GameplayLoop::RealTime;
+                        let mut pixels_per_unit = project::default_pixels_per_unit();
                         if let Ok(proj) = ProjectData::load(&folder) {
                             if proj.visual_style == VisualStyle::Sprites2D { engine.renderer.set_sprite_mode(true); }
                             else { engine.renderer.set_sprite_mode(false); }
                             play_gameplay_loop = proj.gameplay_loop;
+                            pixels_per_unit = proj.pixels_per_unit;
                         }
-                        if !run_editor_app(&mut engine, editor, play_gameplay_loop)? { break; } // Quit from editor
+                        if !run_editor_app(&mut engine, editor, play_gameplay_loop, pixels_per_unit)? { break; } // Quit from editor
                     }
                 }
                 Some(Transition::Quit) | None => break,

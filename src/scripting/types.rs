@@ -27,6 +27,7 @@ pub struct ScriptUpdateResult {
     pub pending_save:    Option<String>,
     pub pending_load:    Option<String>,
     pub globals:         HashMap<String, rhai::Dynamic>,
+    pub clips:           HashMap<String, crate::components::AnimationClip>,
     pub persistent:      HashMap<String, rhai::Dynamic>,
     pub camera_override: Option<crate::math::Vec2>,
     pub shake_state:     Option<super::super::play::ShakeState>,

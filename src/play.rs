@@ -1,12 +1,16 @@
 // play.rs — Play mode: run a level built from a LevelData file.
 
+mod render;
 mod spawn;
 
 use std::collections::HashMap;
 use std::path::Path;
 
 use crate::camera::Camera;
+use crate::components::{AnimationClip, ClipFrames, SpriteSource};
 use crate::engine::{GameState, RenderContext, Transition, UpdateContext};
+pub use render::{DrawCommand, DrawList, Space};
+use render::{in_viewport, sprite_size};
 use crate::event::{EventBus, GameEvent};
 use crate::input::Key;
 use crate::level::LevelData;
@@ -49,82 +53,9 @@ const PLAYER_SPEED: f32 = 10.0;
 /// which both now go through.
 pub const HUD_TOP_ROWS: i32 = 1;
 
-// ── Draw list ────────────────────────────────────────────────────────────────
-//
-// Step 2d of docs/ember2d-refactor-plan.md: everything the entity draw loop
-// used to build inline (an ad hoc tuple, sorted only by (z, id) for defect
-// D5's sake) is now a real DrawCommand/DrawList, sorted by (space, z,
-// texture, id). The texture dimension is the point of this step: WgpuBackend
-// only merges *consecutive* same-texture instances into one draw call
-// (`ensure_batch`), so a list that happened to interleave glyphs and
-// textures degenerated into one draw call per sprite. Sorting by texture
-// before submission means every sprite sharing a texture (including the
-// font atlas, which every glyph implicitly shares) lands adjacent.
-//
-// `layer` from the plan's (space, layer, z, texture) isn't included yet —
-// `Sprite` has no field distinct from `z_order` to sort by, so there's
-// nothing to add without inventing data that doesn't exist. `z_order`
-// already folds in the tile's authored layer (`z_for_tag(tag) + layer*10`,
-// see play/spawn.rs), so this isn't a functional gap, just a naming one
-// Phase 3's sprite model may resolve.
-//
-// Step 2e: commands now carry a real world-space position instead of a
-// pre-subtracted screen col/row — `Space::World` was a lie otherwise
-// (screen coordinates labeled "World"). The camera conversion happens once,
-// in `render`, via `Camera::world_to_screen`.
-
-/// World vs. screen space — every command built today is `World`; `Screen`
-/// exists so HUD/particle work in later phases has somewhere to go without
-/// another format change.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Space { World, Screen }
-
-pub struct DrawCommand<'w> {
-    pub space: Space,
-    pub z: i32,
-    /// Sort tiebreak only, not display data — see defect D5's rationale.
-    pub id: EntityId,
-    pub world_pos: Vec2,
-    pub glyph: char,
-    pub fg: Color,
-    pub bg: Color,
-    pub texture: Option<&'w str>,
-}
-
-pub struct DrawList<'w> {
-    pub commands: Vec<DrawCommand<'w>>,
-}
-
-impl<'w> DrawList<'w> {
-    /// Collect every visible sprite, sorted for rendering. Free
-    /// function-shaped (an associated fn with no `&self`) so it's testable
-    /// without a live GPU-backed `Renderer`. No camera involved here at
-    /// all — that conversion happens per-command in `render`.
-    fn from_world(world: &'w World) -> Self {
-        let mut commands: Vec<DrawCommand<'w>> = world.transforms.keys().filter_map(|&id| {
-            let pos = world.get_global_position(id);
-            world.sprites.get(&id).and_then(|sp| {
-                if !sp.visible { return None; }
-                let glyph = if sp.frames.is_empty() { sp.glyph }
-                else { let idx = (sp.frame_timer / sp.frame_rate) as usize % sp.frames.len(); sp.frames[idx] };
-                Some(DrawCommand { space: Space::World, z: sp.z_order, id, world_pos: pos, glyph, fg: sp.fg, bg: sp.bg, texture: sp.texture.as_deref() })
-            })
-        }).collect();
-
-        commands.sort_unstable_by_key(|c| (c.space, c.z, c.texture, c.id));
-        DrawList { commands }
-    }
-}
-
-/// True if a screen cell at (col, row) falls inside the playable viewport —
-/// i.e. on screen and above the bottom HUD bar (the last row is reserved).
-///
-/// Shared by both the glyph and texture draw paths in `render` (defect D13:
-/// the texture path used to skip this check entirely, since it `continue`d
-/// before the bounds test ran).
-fn in_viewport(col: i32, row: i32, width: usize, height: usize) -> bool {
-    col >= 0 && row >= 0 && (col as usize) < width && (row as usize) < height.saturating_sub(1)
-}
+// Draw-list types (Space, DrawCommand, DrawList) and rendering support
+// (in_viewport, sprite_size) live in play/render.rs — see that file's
+// header comment for why they were split out.
 
 // ── Particles ────────────────────────────────────────────────────────────────
 
@@ -221,6 +152,10 @@ pub struct PlayState {
     camera_entity: Option<EntityId>,
     exit_targets: HashMap<EntityId, String>,
     pub globals: HashMap<String, rhai::Dynamic>,
+    /// Script-registered clip definitions (Step 3c) — round-trips through
+    /// the script engine every frame the same way `globals` does; see
+    /// `scripting::state::ScriptState`'s `clips` field.
+    pub clips: HashMap<String, AnimationClip>,
     pub camera_override: Option<Vec2>,
     pub shake_state: Option<ShakeState>,
     pub shake_timer: f32,
@@ -234,6 +169,14 @@ pub struct PlayState {
     /// Seeded once from the level's stored seed and reused for its whole
     /// lifetime — never reallocated from OS entropy per call.
     rng: SmallRng,
+    /// Source-texture pixels per world unit, for a `Sprite` whose `size` is
+    /// `None` (Step 3b). Defaults to `ProjectData::pixels_per_unit`'s own
+    /// default (8.0); `set_pixels_per_unit` lets a caller that actually has
+    /// the project's settings (`app.rs`) override it after construction,
+    /// since `PlayState::from_level`/`from_save` take a `LevelData`, not a
+    /// `ProjectData` — keeping those constructors' signatures (and every
+    /// existing call site, tests included) unchanged.
+    pixels_per_unit: f32,
 }
 
 /// A different constant offset from the level's seed for `PlayState::rng`
@@ -258,6 +201,7 @@ impl PlayState {
             camera_entity:      None,
             exit_targets:       HashMap::new(),
             globals:            HashMap::new(),
+            clips:              HashMap::new(),
             camera_override:    None,
             shake_state:        None,
             shake_timer:        0.0,
@@ -265,6 +209,7 @@ impl PlayState {
             particles:          Vec::new(),
             is_loading_save:    false,
             rng:                SmallRng::seed_from_u64(seed.wrapping_add(PLAYSTATE_RNG_SEED_OFFSET)),
+            pixels_per_unit:    crate::project::default_pixels_per_unit(),
         }
     }
 
@@ -272,6 +217,14 @@ impl PlayState {
         let mut ps = Self::from_level(level_data, _persistent);
         ps.is_loading_save = true;
         ps
+    }
+
+    /// Override the default `pixels_per_unit` with the owning project's
+    /// actual setting. Optional — callers that don't have a `ProjectData`
+    /// handy (tests, anything constructing a level standalone) just keep
+    /// the default.
+    pub fn set_pixels_per_unit(&mut self, value: f32) {
+        self.pixels_per_unit = value;
     }
 
     fn apply_script_result(&mut self, world: &mut World, res: crate::scripting::ScriptUpdateResult, turn_triggered: &mut bool, persistent: &mut HashMap<String, rhai::Dynamic>) {
@@ -284,6 +237,7 @@ impl PlayState {
             }
         }
         self.globals = res.globals;
+        self.clips = res.clips;
         *persistent = res.persistent;
 
         if let Some(save_path) = res.pending_save {
@@ -407,6 +361,15 @@ impl GameState for PlayState {
 
         for sprite in world.sprites.values_mut() { if !sprite.frames.is_empty() { sprite.frame_timer += delta_time; } }
 
+        // Advance every Animator before scripts run this frame, so
+        // `clip_finished(id)` reflects this tick, not last frame's — an
+        // entity whose clip has no matching registration (renamed,
+        // never registered) simply doesn't advance and never finishes.
+        for animator in world.animators.values_mut() {
+            if let Some(clip) = self.clips.get(&animator.clip) { animator.advance(clip, delta_time); }
+            else { animator.just_finished = false; }
+        }
+
         let mut target_cam = self.camera_entity.map(|id| world.get_global_position(id)).unwrap_or(Vec2::ZERO);
         if let Some(over) = self.camera_override { target_cam = over; }
 
@@ -435,7 +398,7 @@ impl GameState for PlayState {
         let camera_origin = self.script_camera_origin();
         let res = self.script_engine.run_scripts(
             world, events, &mut self.script_log, delta_time, elapsed, Some(input), Some(mouse), Some(ctx.gamepad),
-            &self.level.extra_spawns, self.globals.clone(), persistent, camera_origin,
+            &self.level.extra_spawns, self.globals.clone(), self.clips.clone(), persistent, camera_origin,
             (viewport_width, viewport_height),
         );
         self.apply_script_result(world, res, turn_triggered, persistent);
@@ -484,7 +447,7 @@ impl GameState for PlayState {
         let camera_origin = self.script_camera_origin();
         let res = self.script_engine.run_collisions(
             world, &all_pairs, &mut self.script_log, delta_time, elapsed,
-            &self.level.extra_spawns, self.globals.clone(), persistent, camera_origin,
+            &self.level.extra_spawns, self.globals.clone(), self.clips.clone(), persistent, camera_origin,
             (viewport_width, viewport_height),
         );
         self.apply_script_result(world, res, turn_triggered, persistent);
@@ -515,17 +478,37 @@ impl GameState for PlayState {
             // viewport culling entirely (glyph sprites were always culled
             // correctly). Both paths now share one check up front.
             if !in_viewport(col, row, renderer.width, renderer.height) { continue; }
-            if let Some(path) = cmd.texture {
-                if let Ok(t) = assets.load_texture(path) {
-                    // Preserves the exact size the old `draw_texture(.., 32.0)`
-                    // magic-scale call produced at zoom 1 — real per-sprite
-                    // sizing is Phase 3's Sprite::size, not this step's job.
-                    let size = Vec2::new(t.width as f32 * 4.0, t.height as f32 * 4.0) * (1.0 / render_camera.zoom);
-                    renderer.draw_texture_world(&render_camera, cmd.world_pos, t, size, 0.0, Color::White);
-                    continue;
+
+            match cmd.source {
+                SpriteSource::Glyph { ch, bg } => {
+                    // Legacy animation override (Step 3c migrates this into
+                    // AnimationClip/Animator) — if present, it replaces
+                    // whichever glyph the source would otherwise show.
+                    let glyph = if cmd.frames.is_empty() { *ch }
+                    else { let idx = (cmd.frame_timer / cmd.frame_rate) as usize % cmd.frames.len(); cmd.frames[idx] };
+                    renderer.draw_char_world(&render_camera, cmd.world_pos, glyph, cmd.tint, *bg);
+                }
+                SpriteSource::Texture { path, src } => {
+                    let id = assets.load(path);
+                    if let Some(t) = assets.get(id) {
+                        let size = sprite_size(cmd.size, t.width, t.height, self.pixels_per_unit);
+                        renderer.draw_texture_world(&render_camera, cmd.world_pos, t, size, 0.0, cmd.tint, *src);
+                    }
+                }
+                SpriteSource::Clip { name } => {
+                    // ClipFrames::Rects isn't resolved here yet (Step 3c's
+                    // scope, per the plan file, is glyph clips only — no
+                    // demo content needs sheet animation, and there's no
+                    // way to author the rects until Phase 8's asset
+                    // tooling exists).
+                    if let Some(ClipFrames::Glyphs { frames }) = self.clips.get(name).map(|c| &c.frames) {
+                        if !frames.is_empty() {
+                            let frame = world.animators.get(&cmd.id).map(|a| a.frame).unwrap_or(0) % frames.len();
+                            renderer.draw_char_world(&render_camera, cmd.world_pos, frames[frame], cmd.tint, Color::Reset);
+                        }
+                    }
                 }
             }
-            renderer.draw_char_world(&render_camera, cmd.world_pos, cmd.glyph, cmd.fg, cmd.bg);
         }
 
         for p in &self.particles {

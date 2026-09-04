@@ -3,7 +3,7 @@
 use std::rc::Rc;
 use std::cell::RefCell;
 use rhai::{Array, Dynamic};
-use super::engine::ScriptState;
+use super::state::ScriptState;
 use super::types::*;
 use rand::rngs::SmallRng;
 use rand::Rng;
@@ -509,4 +509,32 @@ impl ScriptCtx {
     pub fn gp_axis(&mut self, gp_id: i64, axis: String) -> f64 {
         self.inner.borrow_mut().gamepad_axes.get(&(gp_id as usize, axis)).copied().unwrap_or(0.0) as f64
     }
+
+    // ── Phase 3: named animation clips ──────────────────────────────────────
+
+    /// Define (or redefine) a named clip from a string of glyphs, cycled at
+    /// `fps`. `looping` is this clip's own default — `play_clip_once`
+    /// overrides it per-play without needing a second registration.
+    pub fn register_clip(&mut self, name: String, frames_str: String, fps: f64, looping: bool) {
+        let frames: Vec<char> = frames_str.chars().collect();
+        let clip = crate::components::AnimationClip {
+            frames: crate::components::ClipFrames::Glyphs { frames },
+            fps: fps as f32,
+            looping,
+        };
+        self.inner.borrow_mut().pending_clip_defs.push((name, clip));
+    }
+
+    /// Play `name` from frame 0, respecting the clip's own `looping` flag.
+    pub fn play_clip(&mut self, id: i64, name: String) { self.inner.borrow_mut().pending_play_clip.push((id, name, false)); }
+    /// Play `name` from frame 0, stopping at its last frame even if the
+    /// clip itself was registered as looping.
+    pub fn play_clip_once(&mut self, id: i64, name: String) { self.inner.borrow_mut().pending_play_clip.push((id, name, true)); }
+    pub fn stop_clip(&mut self, id: i64) { self.inner.borrow_mut().pending_stop_clip.push(id); }
+    pub fn set_clip_speed(&mut self, id: i64, speed: f64) { self.inner.borrow_mut().pending_clip_speed.push((id, speed as f32)); }
+    pub fn get_frame(&mut self, id: i64) -> i64 { self.inner.borrow_mut().animator_frames.get(&id).copied().unwrap_or(0) as i64 }
+    pub fn set_frame(&mut self, id: i64, frame: i64) { self.inner.borrow_mut().pending_set_frame.push((id, frame.max(0) as usize)); }
+    /// True for exactly the frame a non-looping (or `play_clip_once`)
+    /// playback reaches its last frame — see `Animator::just_finished`.
+    pub fn clip_finished(&mut self, id: i64) -> bool { self.inner.borrow_mut().clip_finished.contains(&id) }
 }

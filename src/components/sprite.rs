@@ -1,98 +1,133 @@
 // components/sprite.rs — Visual appearance component.
 //
-// A Sprite is "what this entity looks like." In ASCII rendering, that means:
-//   - A single character (the glyph): '@', '#', '.', '*', '~', etc.
-//   - A foreground color (the glyph's color)
-//   - A background color (the cell behind the glyph)
-//   - A z_order (draw order: lower = drawn first = appears "behind")
-//   - A visibility flag (hidden entities still exist but aren't drawn)
+// A Sprite is "what this entity looks like." As of Phase 3
+// (docs/ember2d-refactor-plan.md), that's a `SpriteSource` — a glyph from
+// the font atlas, a loaded texture, or (Step 3c) a named animation clip —
+// plus a tint, an optional explicit size, and a draw layer.
 //
-// MULTI-CHARACTER SPRITES:
-//   This Sprite stores one character. For ASCII art spanning multiple cells,
-//   you'd spawn multiple entities and group them — or extend this struct with
-//   a Vec<Vec<char>> for a grid of characters. For now, one char keeps it simple.
+// SpriteSource::Texture stores the texture's *path*, not a `TextureId`:
+// ids are runtime-assigned and don't survive save/load (see
+// `renderer::texture::TextureId`'s own doc comment), so the path is what's
+// actually persisted; resolving it to a handle is a render-time concern
+// (`play.rs`'s render loop, via `AssetManager::load`).
 //
-// Z-ORDER (draw order):
+// Z-ORDER (draw order, now called `layer`):
 //   In a flat buffer, whoever draws last "wins" — they appear on top.
-//   By sorting entities by z_order before drawing, we get predictable layering:
-//     0 = floor tiles (drawn first, everything appears on top of them)
-//     1 = items, pickups
-//     2 = enemies, walls
-//     3 = player
-//     4 = UI / overlays
+//   By sorting entities by `layer` before drawing, we get predictable
+//   layering: 0 = floor tiles (drawn first), 1 = items, 2 = walls, etc.
 
+use crate::math::{Rect, Vec2};
 use crate::renderer::Color;
 use serde::{Serialize, Deserialize};
 
-/// The visual representation of an entity in the fake terminal.
+/// What a Sprite draws. `tint`/`size`/`layer`/`visible` (on `Sprite` itself)
+/// apply uniformly regardless of which variant this is.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum SpriteSource {
+    /// A single glyph from the font atlas. `bg` is the cell's background
+    /// color — `Color::Reset` (the existing "no override" sentinel) means
+    /// transparent, same convention `Color` already uses everywhere else.
+    /// The glyph's *foreground* color is `Sprite::tint`, not stored here.
+    Glyph { ch: char, bg: Color },
+
+    /// A loaded texture. `src` is an optional pixel-space sub-rect (for
+    /// sprite sheets); `None` samples the whole texture.
+    Texture { path: String, src: Option<Rect> },
+
+    /// A named, script-registered animation clip (Step 3c —
+    /// `ctx.register_clip`). Not constructible yet: nothing produces this
+    /// variant until that step exists to give it meaning.
+    Clip { name: String },
+}
+
+/// The visual representation of an entity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sprite {
-    /// The ASCII character used to represent this entity.
-    pub glyph: char,
+    pub source: SpriteSource,
 
-    /// The foreground (text/glyph) color.
-    pub fg: Color,
+    /// Foreground/tint color: a glyph's ink color, or a texture's
+    /// multiplicative color tint (`Color::White` = no tint, matching how
+    /// texture draws already treated an all-white `color_fg` before this).
+    pub tint: Color,
 
-    /// The background color behind the glyph.
-    pub bg: Color,
+    /// World-space size. `None` = natural size: a glyph is always exactly
+    /// one world unit (matching the ASCII grid); a texture is its pixel
+    /// dimensions divided by `ProjectData::pixels_per_unit`.
+    pub size: Option<Vec2>,
 
-    /// Draw order: lower = drawn first.
-    pub z_order: i32,
+    /// Draw order: lower = drawn first. Was `z_order`.
+    pub layer: i32,
 
     /// When false, this entity is not drawn.
     pub visible: bool,
 
-    /// Optional animation frames. If not empty, the `glyph` is ignored
-    /// and frames are cycled based on `frame_timer`.
+    /// Legacy glyph-cycling animation override — if not empty, the glyph
+    /// this cycles through replaces whatever `SpriteSource::Glyph::ch`
+    /// would otherwise show. Migrates into Step 3c's `AnimationClip` +
+    /// `Animator`; kept here only until that step lands, so static
+    /// entities (most of a tilemap) can go back to carrying zero
+    /// animation state once it does.
     pub frames: Vec<char>,
-
-    /// How many seconds each frame lasts.
     pub frame_rate: f32,
-
-    /// Internal timer for cycling frames.
     pub frame_timer: f32,
-
-    /// Optional path to a texture file (for Sprites2D mode).
-    pub texture: Option<String>,
 }
 
 impl Sprite {
-    /// Create a fully specified sprite.
-    pub fn new(glyph: char, fg: Color, bg: Color, z_order: i32) -> Self {
+    /// A glyph sprite — the common case for ASCII tiles/entities.
+    pub fn glyph(ch: char, tint: Color, bg: Color, layer: i32) -> Self {
         Sprite {
-            glyph,
-            fg,
-            bg,
-            z_order,
+            source: SpriteSource::Glyph { ch, bg },
+            tint,
+            size: None,
+            layer,
             visible: true,
             frames: Vec::new(),
             frame_rate: 0.1,
             frame_timer: 0.0,
-            texture: None,
         }
     }
 
-    /// Add a texture to this sprite.
+    /// A texture sprite at natural size (see `size`'s doc comment).
+    pub fn texture(path: impl Into<String>, layer: i32) -> Self {
+        Sprite {
+            source: SpriteSource::Texture { path: path.into(), src: None },
+            tint: Color::White,
+            size: None,
+            layer,
+            visible: true,
+            frames: Vec::new(),
+            frame_rate: 0.1,
+            frame_timer: 0.0,
+        }
+    }
+
+    /// Equivalent to `Sprite::glyph` — kept under the pre-Phase-3 name
+    /// (and argument order) for the many existing positional call sites.
+    pub fn new(glyph: char, fg: Color, bg: Color, z_order: i32) -> Self {
+        Self::glyph(glyph, fg, bg, z_order)
+    }
+
+    /// Switch this sprite to a texture, builder-style.
     pub fn with_texture(mut self, path: impl Into<String>) -> Self {
-        self.texture = Some(path.into());
+        self.source = SpriteSource::Texture { path: path.into(), src: None };
         self
     }
 
-    /// Shorthand: glyph + foreground color, transparent background, z_order 0.
+    /// Shorthand: glyph + foreground color, transparent background, layer 0.
     pub fn simple(glyph: char, fg: Color) -> Self {
-        Sprite::new(glyph, fg, Color::Reset, 0)
+        Sprite::glyph(glyph, fg, Color::Reset, 0)
     }
 
-    /// Add animation frames to this sprite.
+    /// Add legacy glyph-cycling animation frames to this sprite.
     pub fn with_animation(mut self, frames: Vec<char>, rate: f32) -> Self {
         self.frames = frames;
         self.frame_rate = rate;
         self
     }
 
-    /// Set the z_order using the builder pattern.
+    /// Set the draw layer using the builder pattern.
     pub fn with_z(mut self, z: i32) -> Self {
-        self.z_order = z;
+        self.layer = z;
         self
     }
 
@@ -100,5 +135,39 @@ impl Sprite {
     pub fn hidden(mut self) -> Self {
         self.visible = false;
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn glyph_constructor_produces_a_glyph_source_with_no_explicit_size() {
+        let sp = Sprite::glyph('@', Color::Green, Color::Reset, 3);
+        assert_eq!(sp.source, SpriteSource::Glyph { ch: '@', bg: Color::Reset });
+        assert_eq!(sp.tint, Color::Green);
+        assert_eq!(sp.layer, 3);
+        assert_eq!(sp.size, None, "glyphs are always natural (1x1) size, not an explicit override");
+        assert!(sp.visible);
+    }
+
+    #[test]
+    fn texture_constructor_produces_a_texture_source_with_white_tint() {
+        let sp = Sprite::texture("assets/coin.png", 5);
+        assert_eq!(sp.source, SpriteSource::Texture { path: "assets/coin.png".to_string(), src: None });
+        assert_eq!(sp.tint, Color::White, "white tint means \"no tint\" — a texture shows its own colors by default");
+        assert_eq!(sp.layer, 5);
+    }
+
+    #[test]
+    fn new_is_equivalent_to_glyph_for_the_many_existing_positional_call_sites() {
+        assert_eq!(Sprite::new('x', Color::Red, Color::Black, 1).source, Sprite::glyph('x', Color::Red, Color::Black, 1).source);
+    }
+
+    #[test]
+    fn with_texture_switches_an_existing_sprite_to_a_texture_source() {
+        let sp = Sprite::glyph('#', Color::White, Color::Reset, 0).with_texture("wall.png");
+        assert_eq!(sp.source, SpriteSource::Texture { path: "wall.png".to_string(), src: None });
     }
 }

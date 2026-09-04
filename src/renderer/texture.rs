@@ -7,6 +7,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
+/// A stable runtime handle for a loaded texture, backed by `Texture::id`.
+/// Resolving one (`AssetManager::get`) is a plain integer `HashMap` lookup —
+/// the point (Phase 3, docs/ember2d-refactor-plan.md) is a cleaner, typed
+/// alternative to passing raw path strings around at every draw call.
+///
+/// Deliberately NOT `Serialize`/`Deserialize`: ids are assigned at runtime
+/// (`NEXT_ID`) and aren't stable across process restarts or save/load, so a
+/// persisted `Sprite` must keep storing the texture's *path* (portable,
+/// re-resolvable) — a `TextureId` is a render-time convenience derived from
+/// that path, never the thing on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TextureId(pub u64);
+
 /// A simple RGBA texture stored in CPU memory as a flat Vec<u32>.
 /// Colors are stored as 0xRRGGBBAA for easier GPU upload.
 #[derive(Clone)]

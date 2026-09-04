@@ -67,11 +67,23 @@ pub struct ProjectData {
     /// The default level to load when opening this project.
     #[serde(default = "default_start_level")]
     pub start_level: Option<String>,
+
+    /// Source-texture pixels per world unit, for a `Sprite` whose `size` is
+    /// `None` ("natural size" — Phase 3, docs/ember2d-refactor-plan.md).
+    /// Defaults to 8 (the font atlas's cell width in pixels), so an 8x8
+    /// pixel-art sprite sized to match the ASCII grid occupies exactly one
+    /// world unit — the same footprint a glyph would.
+    #[serde(default = "default_pixels_per_unit")]
+    pub pixels_per_unit: f32,
 }
 
 fn default_visual_style() -> VisualStyle { VisualStyle::ClassicASCII }
 fn default_gameplay_loop() -> GameplayLoop { GameplayLoop::RealTime }
 fn default_start_level() -> Option<String> { Some("main.level".to_string()) }
+// pub so both PlayState (play.rs, same crate) and main.rs (the binary
+// crate) can use this exact constant as their own fallback default, instead
+// of a second hardcoded "8.0" drifting from this one.
+pub fn default_pixels_per_unit() -> f32 { 8.0 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum StartTemplate { Empty, BasicRoom }
@@ -94,6 +106,7 @@ impl ProjectData {
             visual_style,
             gameplay_loop,
             start_level: Some("main.level".to_string()),
+            pixels_per_unit: default_pixels_per_unit(),
         }
     }
 

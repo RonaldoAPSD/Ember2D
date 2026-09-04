@@ -12,7 +12,7 @@ use winit::window::{Window, WindowBuilder};
 use winit::event_loop::EventLoop;
 
 pub use color::{Color, DEFAULT_FG, DEFAULT_BG};
-pub use texture::Texture;
+pub use texture::{Texture, TextureId};
 pub use backend::{RenderBackend, WgpuBackend};
 pub use assets::AssetManager;
 
@@ -157,7 +157,7 @@ impl Renderer {
         // Preserves the exact size/rotation/tint this always had before the
         // backend gained real per-axis size, rotation, and tint (Step 2c).
         let size = [texture.width as f32 * scale / CELL_W as f32, texture.height as f32 * scale / CELL_H as f32];
-        self.backend.draw_texture(px, py, texture, size, 0.0, Color::White);
+        self.backend.draw_texture(px, py, texture, size, 0.0, Color::White, None);
     }
 
     /// Draw a glyph at a world-space position, through `camera`. A thin
@@ -176,12 +176,20 @@ impl Renderer {
     /// at zoom 1.0, the same footprint a glyph would. `world_pos` is the
     /// sprite's top-left corner before rotation (matching `Transform`'s
     /// position convention), and `rotation` is applied about its center
-    /// (Step 2b's shader change).
-    pub fn draw_texture_world(&mut self, camera: &crate::camera::Camera, world_pos: crate::math::Vec2, texture: &Texture, size: crate::math::Vec2, rotation: f32, tint: Color) {
+    /// (Step 2b's shader change). `src` is an optional pixel-space sub-rect
+    /// of `texture` to sample (`SpriteSource::Texture::src`, Step 3b) —
+    /// `None` samples the whole texture.
+    pub fn draw_texture_world(&mut self, camera: &crate::camera::Camera, world_pos: crate::math::Vec2, texture: &Texture, size: crate::math::Vec2, rotation: f32, tint: Color, src: Option<crate::math::Rect>) {
         self.backend.upload_texture(&self.device, &self.queue, texture);
         let (px, py) = screen_cell_to_pixel(camera.world_to_screen(world_pos));
         let cell_size = [size.x * camera.zoom, size.y * camera.zoom];
-        self.backend.draw_texture(px, py, texture, cell_size, rotation, tint);
+        let uv_rect = src.map(|r| [
+            r.x / texture.width as f32,
+            r.y / texture.height as f32,
+            r.w / texture.width as f32,
+            r.h / texture.height as f32,
+        ]);
+        self.backend.draw_texture(px, py, texture, cell_size, rotation, tint, uv_rect);
     }
 
     pub fn draw_str(&mut self, x: usize, y: usize, s: &str, fg: Color, bg: Color) {

@@ -308,3 +308,26 @@ fn script_camera_origin_matches_the_pre_refactor_formula() {
 
     assert_eq!(play.script_camera_origin(), expected);
 }
+
+// ── Tests: Step 3b sprite/asset model (ember2d-refactor-plan.md Phase 3) ───────
+
+#[test]
+fn sprite_size_uses_the_explicit_size_when_given() {
+    let explicit = Vec2::new(2.5, 1.5);
+    assert_eq!(sprite_size(Some(explicit), 64, 32, 8.0), explicit);
+}
+
+#[test]
+fn sprite_size_falls_back_to_pixels_over_pixels_per_unit() {
+    // A 64x32 texture at 8 pixels/unit is an 8x4 world-unit sprite —
+    // nothing like the old hardcoded `* 4.0` magic scale this replaces.
+    assert_eq!(sprite_size(None, 64, 32, 8.0), Vec2::new(8.0, 4.0));
+}
+
+#[test]
+fn sprite_size_natural_size_scales_with_pixels_per_unit() {
+    // Halving pixels_per_unit doubles the natural size — an 8x8 sprite
+    // authored for a chunkier grid should look twice as big on one that
+    // packs half as many pixels into a world unit.
+    assert_eq!(sprite_size(None, 8, 8, 4.0), Vec2::new(2.0, 2.0));
+}

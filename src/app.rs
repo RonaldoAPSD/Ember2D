@@ -26,8 +26,11 @@ impl AppState {
 /// TurnBased) for actual gameplay. The editor itself has no time model of
 /// its own (D6 — it must not inherit the project's setting) and always runs
 /// realtime; `play_gameplay_loop` only takes effect for the stretches where
-/// a `PlayState` is on top of the stack.
-pub fn run_editor_app(engine: &mut Engine, editor: EditorState, play_gameplay_loop: GameplayLoop) -> io::Result<bool> {
+/// a `PlayState` is on top of the stack. `pixels_per_unit` is the project's
+/// natural-texture-sizing setting (Step 3b) — threaded through the same way
+/// for the same reason: `PlayState::from_level` takes only a `LevelData`,
+/// not a `ProjectData`.
+pub fn run_editor_app(engine: &mut Engine, editor: EditorState, play_gameplay_loop: GameplayLoop, pixels_per_unit: f32) -> io::Result<bool> {
     engine.gameplay_loop = GameplayLoop::RealTime;
     engine.push_state(Box::new(editor));
 
@@ -39,7 +42,7 @@ pub fn run_editor_app(engine: &mut Engine, editor: EditorState, play_gameplay_lo
                 let mut pending_save: Option<SaveState> = None;
                 loop {
                     engine.reset_world();
-                    let play = if let Some(save) = pending_save.take() {
+                    let mut play = if let Some(save) = pending_save.take() {
                         engine.world = save.world;
                         engine.persistent = save.persistent;
                         level_data = LevelData::load(&save.level_path)
@@ -48,6 +51,7 @@ pub fn run_editor_app(engine: &mut Engine, editor: EditorState, play_gameplay_lo
                     } else {
                         PlayState::from_level(level_data.clone(), engine.persistent.clone())
                     };
+                    play.set_pixels_per_unit(pixels_per_unit);
                     engine.push_state(Box::new(play));
                     
                     match engine.run()? {
@@ -97,11 +101,11 @@ pub fn run_editor_app(engine: &mut Engine, editor: EditorState, play_gameplay_lo
     Ok(false)
 }
 
-pub fn run_play_app(engine: &mut Engine, mut data: LevelData) -> io::Result<()> {
+pub fn run_play_app(engine: &mut Engine, mut data: LevelData, pixels_per_unit: f32) -> io::Result<()> {
     let mut pending_save: Option<SaveState> = None;
     loop {
         engine.reset_world();
-        let play = if let Some(save) = pending_save.take() {
+        let mut play = if let Some(save) = pending_save.take() {
             engine.world = save.world;
             engine.persistent = save.persistent;
             data = LevelData::load(&save.level_path)
@@ -110,6 +114,7 @@ pub fn run_play_app(engine: &mut Engine, mut data: LevelData) -> io::Result<()> 
         } else {
             PlayState::from_level(data.clone(), engine.persistent.clone())
         };
+        play.set_pixels_per_unit(pixels_per_unit);
         engine.push_state(Box::new(play));
         
         match engine.run()? {
