@@ -13,6 +13,7 @@ struct InstanceInput {
     @location(6) color_fg: vec4<f32>,
     @location(7) color_bg: vec4<f32>,
     @location(8) mode: u32, // 0 = ASCII, 1 = Sprite
+    @location(9) rotation: f32, // radians, about the instance's own center
 }
 
 struct VertexOutput {
@@ -36,8 +37,17 @@ fn vs_main(
     instance: InstanceInput,
 ) -> VertexOutput {
     var out: VertexOutput;
-    
-    let world_pos = instance.pos + model.position * instance.size;
+
+    // Rotate the quad's corners about the instance's own center, then place
+    // that center at `instance.pos + half_size`. At rotation == 0.0 this
+    // reduces exactly to the old `instance.pos + model.position * instance.size`.
+    let half_size = instance.size * 0.5;
+    let center = instance.pos + half_size;
+    let local = (model.position - vec2<f32>(0.5, 0.5)) * instance.size;
+    let c = cos(instance.rotation);
+    let s = sin(instance.rotation);
+    let rotated = vec2<f32>(local.x * c - local.y * s, local.x * s + local.y * c);
+    let world_pos = center + rotated;
     out.clip_position = globals.projection * vec4<f32>(world_pos, 0.0, 1.0);
     
     out.uv = instance.uv_offset + model.uv * instance.uv_size;

@@ -83,7 +83,13 @@ pub struct RenderContext<'a> {
 // ── GameState trait ───────────────────────────────────────────────────────────
 
 pub trait GameState {
-    fn on_start(&mut self, _world: &mut World, _events: &mut EventBus, _viewport_width: usize, _viewport_height: usize) {}
+    /// `persistent` is the engine's real cross-level persistent store — the
+    /// same map `UpdateContext::persistent` gives `update`. Passing it here
+    /// (rather than a throwaway local) is what lets `ctx.set_persistent`
+    /// calls made from a script's `on_start` actually survive (defect D2 in
+    /// docs/ember2d-refactor-plan.md §3 — previously PlayState::on_start
+    /// ran scripts against a fresh, discarded `HashMap`).
+    fn on_start(&mut self, _world: &mut World, _events: &mut EventBus, _viewport_width: usize, _viewport_height: usize, _persistent: &mut HashMap<String, rhai::Dynamic>) {}
     fn on_stop(&mut self, _world: &mut World, _events: &mut EventBus) {}
     fn on_pause(&mut self) {}
     fn on_resume(&mut self, _world: &mut World, _events: &mut EventBus, _viewport_width: usize, _viewport_height: usize) {}
@@ -141,7 +147,7 @@ impl Engine {
         if let Some(top) = self.state_stack.last_mut() {
             top.on_pause();
         }
-        state.on_start(&mut self.world, &mut self.events, self.width, self.height);
+        state.on_start(&mut self.world, &mut self.events, self.width, self.height, &mut self.persistent);
         self.state_stack.push(state);
     }
 
@@ -257,6 +263,13 @@ impl Engine {
                         let prev_positions = self.world.snapshot_positions();
                         let mut turn_triggered = false;
 
+                        // This step claims whatever presses are sitting in the
+                        // buffer — see INPUT_BUFFER_WINDOW. A later step this
+                        // same frame will see none of them (already drained).
+                        self.input.consume_step();
+                        self.mouse.consume_step();
+                        self.gamepad.consume_step();
+
                         state.update(UpdateContext {
                             world:           &mut self.world,
                             input:           &mut self.input,
@@ -302,6 +315,14 @@ impl Engine {
                     let prev_positions = self.world.snapshot_positions();
                     let mut turn_triggered = false;
 
+                    // Turn-based mode still only runs one "step" per frame,
+                    // but a buffered press may have been waiting several
+                    // frames for the turn to come around — this is what
+                    // claims it. See INPUT_BUFFER_WINDOW.
+                    self.input.consume_step();
+                    self.mouse.consume_step();
+                    self.gamepad.consume_step();
+
                     state.update(UpdateContext {
                         world:           &mut self.world,
                         input:           &mut self.input,
@@ -341,6 +362,14 @@ impl Engine {
                     self.simulation_accumulator = 0.0;
                 }
             }
+
+            // Age the input buffer by real wall-clock time, once per frame,
+            // regardless of how many (or how few) simulation steps ran above.
+            // A press that no step claimed stays buffered for a future frame
+            // until INPUT_BUFFER_WINDOW runs out.
+            self.input.decay(delta_time);
+            self.mouse.decay(delta_time);
+            self.gamepad.decay(delta_time);
 
             if should_quit { return Ok(Some(Transition::Quit)); }
 

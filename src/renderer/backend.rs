@@ -10,8 +10,16 @@ pub trait RenderBackend {
     fn clear(&mut self);
     fn draw_char(&mut self, x: usize, y: usize, ch: char, fg: Color, bg: Color);
     fn draw_char_scaled_pixels(&mut self, px: i32, py: i32, ch: char, fg: Color, bg: Color, scale: f32);
-    fn draw_texture(&mut self, px: i32, py: i32, texture: &Texture, scale: f32);
-    fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, view: &wgpu::TextureView);
+    /// `size` is the instance's on-screen size in cell units (post-zoom —
+    /// same convention as `draw_char_scaled_pixels`'s `scale`, but per-axis
+    /// so non-square sprites and world-space sizing (Step 2c) are possible).
+    /// `rotation` is radians, about the instance's own center (Step 2b).
+    fn draw_texture(&mut self, px: i32, py: i32, texture: &Texture, size: [f32; 2], rotation: f32, tint: Color);
+    /// `surface_width`/`surface_height` are the *actual* physical pixel size
+    /// of the render target (`Renderer`'s `wgpu::SurfaceConfiguration`) —
+    /// the backend needs these to clamp scissor rects; see the comment at
+    /// their one use site for why a recomputed value isn't safe to trust.
+    fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, view: &wgpu::TextureView, surface_width: u32, surface_height: u32);
     fn resize(&mut self, width: usize, height: usize);
     fn width(&self) -> usize;
     fn height(&self) -> usize;
@@ -50,12 +58,14 @@ pub struct SpriteInstance {
     pub color_fg:  [f32; 4],
     pub color_bg:  [f32; 4],
     pub mode:      u32, // 0 = ASCII, 1 = Sprite
-    pub _padding:  u32,
+    /// Radians, applied in the vertex shader around the instance's own
+    /// center (Phase 2 — replaces what used to be unused padding here).
+    pub rotation:  f32,
 }
 
 impl SpriteInstance {
-    const ATTRIBS: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
-        2 => Float32x2, 3 => Float32x2, 4 => Float32x2, 5 => Float32x2, 6 => Float32x4, 7 => Float32x4, 8 => Uint32
+    const ATTRIBS: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
+        2 => Float32x2, 3 => Float32x2, 4 => Float32x2, 5 => Float32x2, 6 => Float32x4, 7 => Float32x4, 8 => Uint32, 9 => Float32
     ];
 
     fn desc() -> wgpu::VertexBufferLayout<'static> {
@@ -163,7 +173,20 @@ impl WgpuBackend {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            // Defect D14: this was Rgba8UnormSrgb while loaded textures are
+            // Rgba8Unorm and the surface is deliberately non-sRGB (see
+            // renderer/mod.rs). textureSample() auto-decodes an *Srgb
+            // texture from gamma-encoded storage to linear values on read,
+            // which loaded textures never get — two different color spaces
+            // feeding the same non-sRGB, no-further-conversion output.
+            // Matching the surface and loaded textures here (both Unorm)
+            // means every texture in the pipeline is interpreted the same
+            // way: raw byte value in, same float value out, no hidden
+            // conversion. (fs_main's glyph path only ever thresholds this
+            // texture's red channel as a boolean mask, so this had no
+            // visible symptom yet — but it's the trap Phase 2/3 would
+            // inherit the moment glyphs are sampled/blended like sprites.)
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -371,7 +394,7 @@ impl RenderBackend for WgpuBackend {
             color_fg: fg_rgba,
             color_bg: bg_rgba,
             mode: 0,
-            _padding: 0,
+            rotation: 0.0,
         });
     }
 
@@ -393,25 +416,27 @@ impl RenderBackend for WgpuBackend {
             color_fg: fg_rgba,
             color_bg: bg_rgba,
             mode: 0,
-            _padding: 0,
+            rotation: 0.0,
         });
     }
 
-    fn draw_texture(&mut self, px: i32, py: i32, texture: &Texture, scale: f32) {
+    fn draw_texture(&mut self, px: i32, py: i32, texture: &Texture, size: [f32; 2], rotation: f32, tint: Color) {
         self.ensure_batch(texture.id);
-        
+
         let cell_x = px as f32 / 8.0;
         let cell_y = py as f32 / 16.0;
-        
+
         self.instances.push(SpriteInstance {
             position: [cell_x, cell_y],
-            size: [texture.width as f32 * scale / 8.0, texture.height as f32 * scale / 16.0],
+            size,
             uv_offset: [0.0, 0.0],
             uv_size: [1.0, 1.0],
-            color_fg: [1.0, 1.0, 1.0, 1.0], // Tint
+            // Reset means "no tint" here, i.e. white — DEFAULT_FG (the
+            // ASCII text default) would incorrectly darken every sprite.
+            color_fg: tint.to_rgba(0xFFFFFF),
             color_bg: [0.0, 0.0, 0.0, 0.0], // Background not used for sprites
             mode: 1,
-            _padding: 0,
+            rotation,
         });
     }
 
@@ -419,7 +444,7 @@ impl RenderBackend for WgpuBackend {
         self.current_scissor = rect;
     }
 
-    fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, view: &wgpu::TextureView) {
+    fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, view: &wgpu::TextureView, surface_width: u32, surface_height: u32) {
         self.update_globals(queue);
 
         if self.instances.is_empty() { return; }
@@ -467,17 +492,39 @@ impl RenderBackend for WgpuBackend {
 
             for batch in &self.batches {
                 if let Some(bind_group) = self.texture_cache.get(&batch.texture_id) {
-                    if let Some((x, y, w, h)) = batch.scissor {
-                        let sx = (x as f32 * self.render_scale).round() as u32;
-                        let sy = (y as f32 * self.render_scale).round() as u32;
-                        let sw = (w as f32 * self.render_scale).round() as u32;
-                        let sh = (h as f32 * self.render_scale).round() as u32;
-                        rp.set_scissor_rect(sx, sy, sw, sh);
+                    let (raw_x, raw_y, raw_w, raw_h) = if let Some((x, y, w, h)) = batch.scissor {
+                        (
+                            (x as f32 * self.render_scale).round() as u32,
+                            (y as f32 * self.render_scale).round() as u32,
+                            (w as f32 * self.render_scale).round() as u32,
+                            (h as f32 * self.render_scale).round() as u32,
+                        )
                     } else {
-                        let fw = (self.width as f32 * 8.0 * self.render_scale).round() as u32;
-                        let fh = (self.height as f32 * 16.0 * self.render_scale).round() as u32;
-                        rp.set_scissor_rect(0, 0, fw, fh);
-                    }
+                        // "No explicit scissor" means "reset to the full
+                        // surface" — NOT "recompute the full surface size
+                        // from self.width/height". Those are cell counts
+                        // produced by ceiling-rounding an arbitrary physical
+                        // resize (Renderer::try_handle_resize), so
+                        // `cells * CELL_W * scale` can land a few pixels
+                        // *past* the real surface whenever the window's
+                        // physical size doesn't divide evenly into whole
+                        // cells (e.g. maximizing to a height like 829px).
+                        // wgpu's set_scissor_rect rejects — and panics on —
+                        // any rect not fully contained in the render target,
+                        // so this used to crash the whole game on maximize.
+                        (0, 0, surface_width, surface_height)
+                    };
+                    // Defensive clamp for both branches: an editor panel's
+                    // scissor could in principle also land outside the
+                    // surface after some other resize edge case, and the
+                    // failure mode (a hard panic, not a validation warning)
+                    // is bad enough to guard unconditionally rather than
+                    // trust either source to always stay in bounds.
+                    let sx = raw_x.min(surface_width.saturating_sub(1));
+                    let sy = raw_y.min(surface_height.saturating_sub(1));
+                    let sw = raw_w.min(surface_width.saturating_sub(sx)).max(1);
+                    let sh = raw_h.min(surface_height.saturating_sub(sy)).max(1);
+                    rp.set_scissor_rect(sx, sy, sw, sh);
                     rp.set_bind_group(0, bind_group, &[]);
                     rp.draw_indexed(0..6, 0, batch.instance_range.clone());
                 }

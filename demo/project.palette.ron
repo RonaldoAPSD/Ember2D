@@ -1,0 +1,15 @@
+(
+    tiles: [
+        /*[0]*/ (name: "Wall", glyph: '#', fg: Grey, bg: Reset, solid: true, trigger: false, tag: ""),
+        /*[1]*/ (name: "Floor", glyph: '.', fg: DarkGrey, bg: Reset, solid: false, trigger: false, tag: ""),
+        /*[2]*/ (name: "Item", glyph: '*', fg: Yellow, bg: Reset, solid: false, trigger: true, tag: ""),
+        /*[3]*/ (name: "Spawn", glyph: '@', fg: Green, bg: Reset, solid: false, trigger: false, tag: ""),
+        /*[4]*/ (name: "Water", glyph: '~', fg: Cyan, bg: DarkBlue, solid: false, trigger: true, tag: ""),
+        /*[5]*/ (name: "Door", glyph: '+', fg: DarkYellow, bg: Reset, solid: true, trigger: false, tag: ""),
+        /*[6]*/ (name: "Chest", glyph: '$', fg: Yellow, bg: Reset, solid: false, trigger: true, tag: ""),
+        /*[7]*/ (name: "Pillar", glyph: 'O', fg: White, bg: Reset, solid: true, trigger: false, tag: ""),
+        /*[8]*/ (name: "Danger", glyph: '^', fg: Red, bg: Reset, solid: false, trigger: true, tag: ""),
+    ],
+    selected: 0,
+    collapsed: [],
+)

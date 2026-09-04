@@ -10,7 +10,7 @@ use crate::world::World;
 use super::{resolve_exit_path, PlayState, Z_PLAYER};
 
 impl PlayState {
-    pub(super) fn do_on_start(&mut self, world: &mut World, _events: &mut EventBus, viewport_width: usize, viewport_height: usize) {
+    pub(super) fn do_on_start(&mut self, world: &mut World, _events: &mut EventBus, viewport_width: usize, viewport_height: usize, persistent: &mut HashMap<String, rhai::Dynamic>) {
         let mut item_count   = 0u32;
         let mut scripts_ok   = 0u32;
         let mut scripts_fail = 0u32;
@@ -31,12 +31,20 @@ impl PlayState {
 
             if tile.solid {
                 let mut col = Collider::unit();
+                // Solid tiles default to the "solid" layer so a mask like
+                // ["solid"] hits any generic wall the author didn't bother
+                // naming. Triggers get no such default — see the branch below.
                 col.layer = if tile.collider_layer.is_empty() { "solid".to_string() } else { tile.collider_layer.clone() };
                 col.mask = tile.collider_mask.clone();
                 world.add_collider(id, col);
             } else if tile.trigger {
                 let mut col = Collider::trigger(1.0, 1.0);
-                col.layer = if tile.collider_layer.is_empty() { "solid".to_string() } else { tile.collider_layer.clone() };
+                // Defect D4: this used to default to "solid" too, which meant
+                // an unlabeled trigger (item, chest, danger zone) matched any
+                // mask like ["solid"] meant only for real obstacles, corrupting
+                // collision filtering. A trigger with no explicit layer just
+                // stays unlabeled — same empty default Collider::trigger() uses.
+                col.layer = tile.collider_layer.clone();
                 col.mask = tile.collider_mask.clone();
                 world.add_collider(id, col);
                 if tile.tag == "item" || tile.tag == "chest" { item_count += 1; }
@@ -105,13 +113,12 @@ impl PlayState {
         let cam_x = (cam_pos.x - viewport_width as f32 / 2.0).max(0.0).round();
         let cam_y = (cam_pos.y - game_h as f32 / 2.0).max(0.0).round();
 
-        let mut persistent = HashMap::new(); // Dummy for on_start, will be synced in update
         let res = self.script_engine.run_on_start_all(
             world, &mut self.script_log, &self.level.extra_spawns,
-            self.globals.clone(), &mut persistent, Vec2::new(cam_x, cam_y),
+            self.globals.clone(), persistent, Vec2::new(cam_x, cam_y),
             (viewport_width, viewport_height),
         );
         let mut dummy = false;
-        self.apply_script_result(world, res, &mut dummy, &mut persistent);
+        self.apply_script_result(world, res, &mut dummy, persistent);
     }
 }

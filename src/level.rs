@@ -247,6 +247,20 @@ pub struct LevelData {
     /// `next_level` exit paths at runtime. Not written to disk.
     #[serde(skip, default)]
     pub path: String,
+
+    /// Seeds every RNG stream play mode uses for this level — script
+    /// `random_*` calls, particle velocity/life, and camera shake jitter.
+    ///
+    /// Defect D3: these used to be reseeded from OS entropy on every run
+    /// (scripts) or reallocated from entropy on every single call (particles,
+    /// shake), so nothing was reproducible. Chosen once, here, and reused
+    /// for the life of the level: replaying the same level with the same
+    /// inputs now produces the same "random" outcomes every time — required
+    /// for automated tests later (Phase 5) and for netcode (§5) after that.
+    /// `#[serde(default)]` means old .level files without this field load as
+    /// seed 0, which is still fully deterministic — just not level-unique.
+    #[serde(default)]
+    pub seed: u64,
 }
 
 impl LevelData {
@@ -254,6 +268,11 @@ impl LevelData {
     ///
     /// `width` and `height` should match the editor's canvas size so that
     /// the grid overlay lines up correctly.
+    ///
+    /// The seed is picked once here, from OS entropy, and then written to
+    /// disk with everything else — a fresh level gets its own distinct
+    /// "randomness", but from that point on it's fixed and reproducible
+    /// (defect D3), not re-rolled on every launch.
     pub fn empty(width: usize, height: usize) -> Self {
         LevelData {
             name:         String::from("Untitled"),
@@ -264,6 +283,7 @@ impl LevelData {
             tiles:        Vec::new(),
             player:       PlayerRecord::default(),
             path:         String::new(),
+            seed:         rand::random(),
         }
     }
 

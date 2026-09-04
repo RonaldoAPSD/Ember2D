@@ -269,7 +269,7 @@ impl EditorState {
 }
 
 impl GameState for EditorState {
-    fn on_start(&mut self, _world: &mut crate::world::World, _events: &mut crate::event::EventBus, _viewport_width: usize, _viewport_height: usize) {}
+    fn on_start(&mut self, _world: &mut crate::world::World, _events: &mut crate::event::EventBus, _viewport_width: usize, _viewport_height: usize, _persistent: &mut std::collections::HashMap<String, rhai::Dynamic>) {}
     fn update(&mut self, ctx: UpdateContext) { self.handle_update(ctx); }
     fn render(&mut self, ctx: RenderContext) { self.handle_render(ctx); }
     fn take_transition(&mut self) -> Option<Transition> { self.pending_transition.take() }

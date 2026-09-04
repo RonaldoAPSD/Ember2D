@@ -154,7 +154,34 @@ impl Renderer {
 
     pub fn draw_texture(&mut self, px: i32, py: i32, texture: &Texture, scale: f32) {
         self.backend.upload_texture(&self.device, &self.queue, texture);
-        self.backend.draw_texture(px, py, texture, scale);
+        // Preserves the exact size/rotation/tint this always had before the
+        // backend gained real per-axis size, rotation, and tint (Step 2c).
+        let size = [texture.width as f32 * scale / CELL_W as f32, texture.height as f32 * scale / CELL_H as f32];
+        self.backend.draw_texture(px, py, texture, size, 0.0, Color::White);
+    }
+
+    /// Draw a glyph at a world-space position, through `camera`. A thin
+    /// wrapper over `draw_char_scaled_pixels` — `world_pos` is converted to
+    /// screen cells via `camera.world_to_screen`, then to the same
+    /// pixel-snapped convention `draw_char_scaled_pixels` already uses (the
+    /// editor's zoomed viewport does the identical conversion by hand in
+    /// `editor/ui/canvas.rs::grid_to_pixel`).
+    pub fn draw_char_world(&mut self, camera: &crate::camera::Camera, world_pos: crate::math::Vec2, ch: char, fg: Color, bg: Color) {
+        let (px, py) = screen_cell_to_pixel(camera.world_to_screen(world_pos));
+        self.draw_char_scaled_pixels(px, py, ch, fg, bg, camera.zoom);
+    }
+
+    /// Draw a texture at a world-space position, through `camera`. `size` is
+    /// in world units — e.g. a 1.0×1.0 sprite occupies exactly one grid cell
+    /// at zoom 1.0, the same footprint a glyph would. `world_pos` is the
+    /// sprite's top-left corner before rotation (matching `Transform`'s
+    /// position convention), and `rotation` is applied about its center
+    /// (Step 2b's shader change).
+    pub fn draw_texture_world(&mut self, camera: &crate::camera::Camera, world_pos: crate::math::Vec2, texture: &Texture, size: crate::math::Vec2, rotation: f32, tint: Color) {
+        self.backend.upload_texture(&self.device, &self.queue, texture);
+        let (px, py) = screen_cell_to_pixel(camera.world_to_screen(world_pos));
+        let cell_size = [size.x * camera.zoom, size.y * camera.zoom];
+        self.backend.draw_texture(px, py, texture, cell_size, rotation, tint);
     }
 
     pub fn draw_str(&mut self, x: usize, y: usize, s: &str, fg: Color, bg: Color) {
@@ -211,9 +238,15 @@ impl Renderer {
         let scale = self.scale_factor();
         self.backend.set_render_scale(scale);
 
+        // The actual swapchain texture's own size — the authoritative
+        // render-target dimensions wgpu will validate scissor rects against,
+        // not `self.config`'s (which could in principle be one resize event
+        // stale) or a value re-derived from cell counts (see the backend's
+        // render() for why that rounds past the real surface and panics).
+        let surface_size = output.texture.size();
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.backend.render(&self.device, &self.queue, &view);
+        self.backend.render(&self.device, &self.queue, &view, surface_size.width, surface_size.height);
 
         output.present();
 
@@ -241,5 +274,38 @@ impl Renderer {
             return true;
         }
         false
+    }
+}
+
+/// Convert a screen-space cell position (as `Camera::world_to_screen`
+/// returns it) into the pixel-snapped convention `draw_char_scaled_pixels`
+/// and the backend's `draw_texture` expect — multiply by the cell size in
+/// pixels, then round to a whole pixel. Pulled out as a free function so the
+/// coordinate math (Step 2c) is testable without a live GPU-backed `Renderer`.
+fn screen_cell_to_pixel(screen: crate::math::Vec2) -> (i32, i32) {
+    ((screen.x * CELL_W as f32).round() as i32, (screen.y * CELL_H as f32).round() as i32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::camera::Camera;
+    use crate::math::Vec2;
+
+    #[test]
+    fn screen_cell_to_pixel_scales_by_cell_size_and_rounds() {
+        assert_eq!(screen_cell_to_pixel(Vec2::new(0.0, 0.0)), (0, 0));
+        assert_eq!(screen_cell_to_pixel(Vec2::new(1.0, 1.0)), (CELL_W as i32, CELL_H as i32));
+        assert_eq!(screen_cell_to_pixel(Vec2::new(2.5, 3.0)), (20, 48)); // 2.5*8=20, 3.0*16=48
+    }
+
+    #[test]
+    fn camera_position_lands_at_the_viewport_center_in_pixels() {
+        let mut cam = Camera::new(80.0, 24.0);
+        cam.position = Vec2::new(10.0, 5.0);
+        cam.zoom = 1.0;
+
+        let (px, py) = screen_cell_to_pixel(cam.world_to_screen(cam.position));
+        assert_eq!((px, py), ((40 * CELL_W) as i32, (12 * CELL_H) as i32));
     }
 }

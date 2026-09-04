@@ -1,7 +1,23 @@
 // input.rs — Keyboard input system, backend-agnostic.
 
+use std::collections::{HashMap, HashSet};
 use serde::{Serialize, Deserialize};
 use winit::keyboard::{KeyCode, PhysicalKey};
+
+/// How long a press waits in the buffer for a simulation step to consume it.
+///
+/// This exists because `just_pressed` is produced once per *frame* (in
+/// `poll_events`) but consumed once per *simulation step*, and those two
+/// cadences don't match under a fixed-timestep accumulator: a heavy frame
+/// runs several steps, a light frame can run zero. Without buffering, a
+/// press either fires on every step in a heavy frame (duplicates) or gets
+/// silently cleared before any step observes it (drops) — defect D1 in
+/// docs/ember2d-refactor-plan.md §3/§4.1.
+///
+/// The chosen fix: a press enters this buffer and lives here until the
+/// first simulation step consumes it, surviving frames that run zero steps.
+/// 100–150ms also happens to double as jump-buffering/coyote-time forgiveness.
+pub const INPUT_BUFFER_WINDOW: f32 = 0.12;
 
 /// A backend-agnostic representation of a keyboard key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -73,8 +89,16 @@ pub struct InputManager {
     /// All keys that are currently held down.
     held: Vec<Key>,
 
-    /// Keys that transitioned from UP → DOWN this frame only.
-    just_pressed: Vec<Key>,
+    /// Keys pressed but not yet consumed by a simulation step, each with its
+    /// remaining lifetime in the buffer (seconds). Populated by `handle_pressed`,
+    /// drained by `consume_step`, decayed by `decay`.
+    pending: HashMap<Key, f32>,
+
+    /// The set of keys the current simulation step sees as just-pressed —
+    /// i.e. whatever `consume_step` last pulled out of `pending`. This is
+    /// what `just_pressed` reads; it does not change again until the next
+    /// `consume_step` call.
+    consumed: HashSet<Key>,
 
     /// Keys that transitioned from DOWN → UP this frame only.
     just_released: Vec<Key>,
@@ -91,18 +115,38 @@ impl InputManager {
     pub fn new() -> Self {
         InputManager {
             held:          Vec::new(),
-            just_pressed:  Vec::new(),
+            pending:       HashMap::new(),
+            consumed:      HashSet::new(),
             just_released: Vec::new(),
             text_buffer:   String::new(),
             quit_requested: false,
         }
     }
 
-    /// Clear the just_pressed and just_released lists.
-    /// Should be called at the start of every frame before processing new events.
+    /// Clear the just_released list. Should be called at the start of every
+    /// frame before processing new events.
+    ///
+    /// Deliberately does NOT touch `pending` — a buffered press must survive
+    /// across frames until a simulation step consumes it or it decays away.
     pub fn clear(&mut self) {
-        self.just_pressed.clear();
         self.just_released.clear();
+    }
+
+    /// Pull the current buffered presses into this simulation step's
+    /// just-pressed set and remove them from the buffer, so no later step
+    /// (this frame or a future one) observes the same press again.
+    ///
+    /// Call once per simulation step, before running game/script update code.
+    pub fn consume_step(&mut self) {
+        self.consumed = self.pending.keys().copied().collect();
+        self.pending.clear();
+    }
+
+    /// Age out buffered presses that no simulation step claimed in time.
+    /// Call once per frame (real delta time, not sim dt) after the frame's
+    /// simulation steps have had their chance to consume them.
+    pub fn decay(&mut self, dt: f32) {
+        self.pending.retain(|_, remaining| { *remaining -= dt; *remaining > 0.0 });
     }
 
     /// Returns the contents of the text buffer and clears it.
@@ -114,7 +158,7 @@ impl InputManager {
     pub fn handle_pressed(&mut self, key: Key) {
         if !self.held.contains(&key) {
             self.held.push(key);
-            self.just_pressed.push(key);
+            self.pending.insert(key, INPUT_BUFFER_WINDOW);
         }
     }
 
@@ -131,13 +175,85 @@ impl InputManager {
         self.held.contains(&key)
     }
 
-    /// True ONLY on the single frame this key first went down.
+    /// True in exactly one simulation step per physical press — see
+    /// `INPUT_BUFFER_WINDOW` for why this is buffered rather than frame-scoped.
     pub fn just_pressed(&self, key: Key) -> bool {
-        self.just_pressed.contains(&key)
+        self.consumed.contains(&key)
     }
 
     /// True ONLY on the single frame this key was released.
     pub fn just_released(&self, key: Key) -> bool {
         self.just_released.contains(&key)
+    }
+}
+
+// ── Tests: D1 input buffering (docs/ember2d-refactor-plan.md §3/§4.1) ──────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn consumed_once_even_across_multiple_steps_in_one_frame() {
+        let mut input = InputManager::new();
+        input.handle_pressed(Key::Space);
+
+        input.consume_step(); // first sim step this (heavy) frame
+        assert!(input.just_pressed(Key::Space));
+
+        input.consume_step(); // second sim step, same frame
+        assert!(!input.just_pressed(Key::Space), "a second step must not see the same press again");
+    }
+
+    #[test]
+    fn survives_a_frame_that_runs_zero_steps() {
+        let mut input = InputManager::new();
+        input.handle_pressed(Key::Space);
+
+        // Light frame: no simulation step runs, so nothing consumes it —
+        // only the per-frame decay ticks the buffer down.
+        input.decay(1.0 / 240.0);
+        assert!(!input.just_pressed(Key::Space), "no step ran yet, so nothing should be marked just-pressed");
+
+        // Next frame, a step finally runs and should still see the press.
+        input.consume_step();
+        assert!(input.just_pressed(Key::Space), "a press must survive a frame that ran zero steps");
+    }
+
+    #[test]
+    fn expires_if_unclaimed_past_the_buffer_window() {
+        let mut input = InputManager::new();
+        input.handle_pressed(Key::Space);
+
+        // Starve it past INPUT_BUFFER_WINDOW without any step consuming it.
+        input.decay(INPUT_BUFFER_WINDOW + 0.01);
+
+        input.consume_step();
+        assert!(!input.just_pressed(Key::Space), "an unclaimed press should eventually expire, not buffer forever");
+    }
+
+    #[test]
+    fn press_and_release_within_one_frame_still_registers() {
+        let mut input = InputManager::new();
+        input.handle_pressed(Key::Space);
+        input.handle_released(Key::Space);
+
+        assert!(!input.is_held(Key::Space));
+        assert!(input.just_released(Key::Space));
+
+        input.consume_step();
+        assert!(input.just_pressed(Key::Space), "a tap shorter than one frame must still register as a press");
+    }
+
+    #[test]
+    fn is_held_is_unbuffered_continuous_state() {
+        let mut input = InputManager::new();
+        assert!(!input.is_held(Key::W));
+        input.handle_pressed(Key::W);
+        assert!(input.is_held(Key::W));
+        input.consume_step();
+        assert!(input.is_held(Key::W), "is_held must stay true regardless of buffer consumption");
+        input.handle_released(Key::W);
+        assert!(!input.is_held(Key::W));
     }
 }

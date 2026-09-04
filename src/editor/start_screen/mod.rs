@@ -69,7 +69,7 @@ impl StartScreen {
 }
 
 impl GameState for StartScreen {
-    fn on_start(&mut self, _world: &mut World, _events: &mut EventBus, _viewport_width: usize, _viewport_height: usize) {}
+    fn on_start(&mut self, _world: &mut World, _events: &mut EventBus, _viewport_width: usize, _viewport_height: usize, _persistent: &mut std::collections::HashMap<String, rhai::Dynamic>) {}
     
     fn update(&mut self, ctx: UpdateContext) {
         let mut q = *ctx.quit;

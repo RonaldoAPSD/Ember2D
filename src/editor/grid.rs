@@ -66,6 +66,13 @@ pub struct LevelGrid {
     /// Properties of the player entity (glyph, color, script, camera, etc.).
     /// Editable through the inspector when the Player entry in the hierarchy is selected.
     pub player: PlayerRecord,
+
+    /// Seeds every RNG stream play mode uses for this level (see
+    /// `LevelData::seed` / defect D3). Carried through untouched by
+    /// `from_level_data`/`to_level_data` so saving an existing level doesn't
+    /// silently re-randomize it; a brand-new grid picks a fresh one, same as
+    /// `LevelData::empty`.
+    pub seed: u64,
 }
 
 impl LevelGrid {
@@ -82,6 +89,7 @@ impl LevelGrid {
             extra_spawns: Vec::new(),
             name:         "Untitled".to_string(),
             player:       PlayerRecord::default(),
+            seed:         rand::random(),
         }
     }
 
@@ -183,6 +191,7 @@ impl LevelGrid {
             tiles:        self.tiles.values().cloned().collect(),
             player:       self.player.clone(),
             path:         String::new(),
+            seed:         self.seed,
         }
     }
 
@@ -197,6 +206,7 @@ impl LevelGrid {
         grid.spawn_point  = data.spawn_point;
         grid.extra_spawns = data.extra_spawns.clone();
         grid.player       = data.player.clone();
+        grid.seed         = data.seed;
 
         for tile in &data.tiles {
             grid.tiles.insert((tile.x, tile.y, tile.layer), tile.clone());

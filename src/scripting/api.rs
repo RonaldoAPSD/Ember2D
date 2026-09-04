@@ -82,12 +82,32 @@ impl ScriptCtx {
     }
 
     pub fn despawn(&mut self, id: i64) { self.inner.borrow_mut().despawn_queue.push(id); }
+
+    /// Spawn an entity with just a glyph, position, and tag. Appearance and
+    /// collider fall back to the engine's long-standing defaults: white
+    /// glyph, z_order 2, a 1x1 non-solid trigger with no layer. Registered
+    /// under the same Rhai name as `spawn_entity_full` (arity picks the
+    /// overload), so existing scripts calling this 4-arg form are unaffected.
     pub fn spawn_entity(&mut self, glyph_str: String, x: f64, y: f64, tag: String) -> i64 {
+        self.spawn_entity_full(glyph_str, x, y, tag, "White".to_string(), "Reset".to_string(), 2, false, 1.0, 1.0, String::new())
+    }
+
+    /// Spawn an entity with full control over appearance and collider
+    /// (defect D10 — `spawn_entity` used to hardcode all of this).
+    /// `fg`/`bg` are color names as in `set_color`; `z` is draw order;
+    /// `solid` marks a physical obstacle rather than a trigger; `w`/`h` are
+    /// the collider size; `layer` is the collision layer (empty = unlabeled,
+    /// matching the trigger-layer default from defect D4).
+    pub fn spawn_entity_full(&mut self, glyph_str: String, x: f64, y: f64, tag: String, fg: String, bg: String, z: i64, solid: bool, w: f64, h: f64, layer: String) -> i64 {
         let glyph = glyph_str.chars().next().unwrap_or('?');
         let mut s = self.inner.borrow_mut();
         let id = s.next_spawn_id;
         s.next_spawn_id += 1;
-        s.spawn_queue.push(SpawnRequest { id, glyph, x: x as f32, y: y as f32, tag });
+        s.spawn_queue.push(SpawnRequest {
+            id, glyph, x: x as f32, y: y as f32, tag,
+            fg: parse_color(&fg), bg: parse_color(&bg), z: z as i32, solid,
+            w: w as f32, h: h as f32, layer,
+        });
         id as i64
     }
 
@@ -148,7 +168,7 @@ impl ScriptCtx {
     // 3. Spatial Queries
     pub fn get_entity_at(&mut self, x: f64, y: f64) -> i64 {
         let s = self.inner.borrow_mut();
-        for (&id, &(w, h, _, _, _)) in &s.colliders {
+        for (&id, &(w, h, _, _, _, _)) in &s.colliders {
             if let Some(&(px, py)) = s.positions.get(&id) {
                 if x >= px as f64 && x < (px + w) as f64 && y >= py as f64 && y < (py + h) as f64 { return id; }
             }
@@ -157,7 +177,7 @@ impl ScriptCtx {
     }
     pub fn is_solid_at(&mut self, x: f64, y: f64) -> bool {
         let s = self.inner.borrow_mut();
-        for (&id, &(w, h, solid, _, _)) in &s.colliders {
+        for (&id, &(w, h, solid, _, _, _)) in &s.colliders {
             if !solid { continue; }
             if let Some(&(px, py)) = s.positions.get(&id) {
                 if x >= px as f64 && x < (px + w) as f64 && y >= py as f64 && y < (py + h) as f64 { return true; }
@@ -169,7 +189,7 @@ impl ScriptCtx {
         let s = self.inner.borrow_mut();
         let mut found = Vec::new();
         let r1 = crate::math::Rect::new(x as f32, y as f32, w as f32, h as f32);
-        for (&id, &(cw, ch, _, _, _)) in &s.colliders {
+        for (&id, &(cw, ch, _, _, _, _)) in &s.colliders {
             if let Some(&(px, py)) = s.positions.get(&id) {
                 let r2 = crate::math::Rect::new(px, py, cw, ch);
                 if r1.intersects(r2) { found.push(Dynamic::from(id)); }
@@ -216,8 +236,13 @@ impl ScriptCtx {
     
     pub fn get_mouse_world_y(&mut self) -> f64 {
         let s = self.inner.borrow_mut();
-        // Screen row Y (1..H-1) -> World row (Y - 1 + cam_y)
-        (s.mouse_pos.1 + s.camera_pos.1 - 1.0) as f64
+        // Screen row -> world row: subtract the HUD's reserved top row(s)
+        // before adding the camera offset. This used to be a bare "-1.0"
+        // here, hand-duplicated against the render loop's own "+1" — Phase 2
+        // (docs/ember2d-refactor-plan.md) replaces both with the one
+        // `crate::play::HUD_TOP_ROWS` constant `Camera::viewport_origin` is
+        // built from, so there's a single source of truth again.
+        (s.mouse_pos.1 - crate::play::HUD_TOP_ROWS as f32 + s.camera_pos.1) as f64
     }
 
     pub fn mouse_left_pressed(&mut self) -> bool { self.inner.borrow_mut().mouse_pressed.0 }
@@ -273,7 +298,7 @@ impl ScriptCtx {
         let mut closest_id = -1i64;
         let mut closest_t = 1.0f32; // normalized distance [0, 1] along the segment
 
-        for (&id, &(w, h, solid, ref layer, ref _entity_mask)) in &s.colliders {
+        for (&id, &(w, h, solid, ref layer, ref _entity_mask, _)) in &s.colliders {
             if id == self.entity_id { continue; } // Don't hit self
             if !solid { continue; }
             if !mask_vec.is_empty() && !mask_vec.contains(layer) { continue; }
@@ -352,7 +377,7 @@ impl ScriptCtx {
 
                 // Check collision at (nx, ny)
                 let mut blocked = false;
-                for (&id, &(w, h, solid, ref layer, ref _entity_mask)) in &s.colliders {
+                for (&id, &(w, h, solid, ref layer, ref _entity_mask, _)) in &s.colliders {
                     if !solid { continue; }
                     // If mask is empty, ALL solids block.
                     // If mask is NOT empty, only solids with layers in the mask block.
@@ -429,6 +454,13 @@ impl ScriptCtx {
         let mask_vec: Vec<String> = mask.into_iter().map(|d| d.to_string()).collect();
         self.inner.borrow_mut().pending_collider_mask.push((id, mask_vec));
     }
+
+    /// Defect D12: exits used to check `get_collider_layer(id) == "locked"`,
+    /// smuggling a gameplay gate through the layer field meant for collision
+    /// filtering. `locked` is now its own flag — an exit trigger checks this
+    /// instead, and a locked collider still detects overlap normally.
+    pub fn is_collider_locked(&mut self, id: i64) -> bool { self.inner.borrow_mut().colliders.get(&id).map(|c| c.5).unwrap_or(false) }
+    pub fn set_collider_locked(&mut self, id: i64, locked: bool) { self.inner.borrow_mut().pending_collider_locked.push((id, locked)); }
 
     // ── V0.5 Hierarchy ────────────────────────────────────────────────────────
 

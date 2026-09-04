@@ -52,12 +52,22 @@ pub struct Collider {
     /// Optional collision mask: a list of layer names this collider should
     /// interact with. If empty, it interacts with ALL layers (default).
     pub mask: Vec<String>,
+
+    /// If true, an exit trigger referencing this collider will not fire.
+    ///
+    /// Purely a gameplay gate — the collider still physically detects overlap
+    /// as normal. Scripts toggle this with `set_collider_locked` (e.g. a door
+    /// that won't open until all items are collected). Defect D12: this used
+    /// to be smuggled through `layer == "locked"`, which corrupted the layer
+    /// field's real purpose (collision filtering) for any locked exit tile.
+    #[serde(default)]
+    pub locked: bool,
 }
 
 impl Collider {
     /// Create a solid collider with the given dimensions.
     pub fn new(width: f32, height: f32) -> Self {
-        Collider { width, height, solid: true, layer: String::new(), mask: Vec::new() }
+        Collider { width, height, solid: true, layer: String::new(), mask: Vec::new(), locked: false }
     }
 
     /// A 1×1 solid collider — the standard size for a single-character entity.
@@ -71,7 +81,7 @@ impl Collider {
     /// Trigger colliders fire Collision events but don't block movement.
     /// Use them for: pickups, damage areas, door triggers, room boundaries.
     pub fn trigger(width: f32, height: f32) -> Self {
-        Collider { width, height, solid: false, layer: String::new(), mask: Vec::new() }
+        Collider { width, height, solid: false, layer: String::new(), mask: Vec::new(), locked: false }
     }
 
     /// Compute the world-space bounding Rect for this collider given the

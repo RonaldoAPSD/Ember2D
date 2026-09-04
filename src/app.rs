@@ -7,6 +7,7 @@ use crate::editor::EditorState;
 use crate::engine::{Engine, Transition};
 use crate::level::LevelData;
 use crate::play::PlayState;
+use crate::project::GameplayLoop;
 use crate::save::SaveState;
 
 pub struct AppState {
@@ -19,13 +20,22 @@ impl AppState {
     }
 }
 
-pub fn run_editor_app(engine: &mut Engine, editor: EditorState) -> io::Result<bool> {
+/// Run the editor, switching into play mode and back as the user requests.
+///
+/// `play_gameplay_loop` is the project's target loop model (RealTime or
+/// TurnBased) for actual gameplay. The editor itself has no time model of
+/// its own (D6 — it must not inherit the project's setting) and always runs
+/// realtime; `play_gameplay_loop` only takes effect for the stretches where
+/// a `PlayState` is on top of the stack.
+pub fn run_editor_app(engine: &mut Engine, editor: EditorState, play_gameplay_loop: GameplayLoop) -> io::Result<bool> {
+    engine.gameplay_loop = GameplayLoop::RealTime;
     engine.push_state(Box::new(editor));
 
     while let Some(transition) = engine.run()? {
         match transition {
             Transition::ToPlay(mut level_data) => {
                 // ── Switch to play mode ────────────────────────────────────
+                engine.gameplay_loop = play_gameplay_loop;
                 let mut pending_save: Option<SaveState> = None;
                 loop {
                     engine.reset_world();
@@ -75,6 +85,8 @@ pub fn run_editor_app(engine: &mut Engine, editor: EditorState) -> io::Result<bo
                         }
                     }
                 }
+                // Back under editor control — restore realtime (D6).
+                engine.gameplay_loop = GameplayLoop::RealTime;
             }
             Transition::ToStart => return Ok(true),
             Transition::Quit => break,

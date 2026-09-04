@@ -5,6 +5,7 @@ mod spawn;
 use std::collections::HashMap;
 use std::path::Path;
 
+use crate::camera::Camera;
 use crate::engine::{GameState, RenderContext, Transition, UpdateContext};
 use crate::event::{EventBus, GameEvent};
 use crate::input::Key;
@@ -14,6 +15,8 @@ use crate::renderer::color::Color;
 use crate::audio::AudioEngine;
 use crate::scripting::{LogEntry, ScriptEngine, HudDraw};
 use crate::world::{EntityId, World};
+use rand::{Rng, SeedableRng};
+use rand::rngs::SmallRng;
 
 // ── Path resolution ───────────────────────────────────────────────────────────
 
@@ -38,6 +41,90 @@ const Z_WALL:   i32 = 2;
 const Z_PLAYER: i32 = 15;
 
 const PLAYER_SPEED: f32 = 10.0;
+
+/// Rows reserved for HUD chrome above the playable viewport (currently just
+/// the top status bar). The single source of truth for what used to be a
+/// bare `+1`/`-1` literal hand-duplicated between the render loop and
+/// `get_mouse_world_y` (`scripting/api.rs`) — see `Camera::viewport_origin`,
+/// which both now go through.
+pub const HUD_TOP_ROWS: i32 = 1;
+
+// ── Draw list ────────────────────────────────────────────────────────────────
+//
+// Step 2d of docs/ember2d-refactor-plan.md: everything the entity draw loop
+// used to build inline (an ad hoc tuple, sorted only by (z, id) for defect
+// D5's sake) is now a real DrawCommand/DrawList, sorted by (space, z,
+// texture, id). The texture dimension is the point of this step: WgpuBackend
+// only merges *consecutive* same-texture instances into one draw call
+// (`ensure_batch`), so a list that happened to interleave glyphs and
+// textures degenerated into one draw call per sprite. Sorting by texture
+// before submission means every sprite sharing a texture (including the
+// font atlas, which every glyph implicitly shares) lands adjacent.
+//
+// `layer` from the plan's (space, layer, z, texture) isn't included yet —
+// `Sprite` has no field distinct from `z_order` to sort by, so there's
+// nothing to add without inventing data that doesn't exist. `z_order`
+// already folds in the tile's authored layer (`z_for_tag(tag) + layer*10`,
+// see play/spawn.rs), so this isn't a functional gap, just a naming one
+// Phase 3's sprite model may resolve.
+//
+// Step 2e: commands now carry a real world-space position instead of a
+// pre-subtracted screen col/row — `Space::World` was a lie otherwise
+// (screen coordinates labeled "World"). The camera conversion happens once,
+// in `render`, via `Camera::world_to_screen`.
+
+/// World vs. screen space — every command built today is `World`; `Screen`
+/// exists so HUD/particle work in later phases has somewhere to go without
+/// another format change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Space { World, Screen }
+
+pub struct DrawCommand<'w> {
+    pub space: Space,
+    pub z: i32,
+    /// Sort tiebreak only, not display data — see defect D5's rationale.
+    pub id: EntityId,
+    pub world_pos: Vec2,
+    pub glyph: char,
+    pub fg: Color,
+    pub bg: Color,
+    pub texture: Option<&'w str>,
+}
+
+pub struct DrawList<'w> {
+    pub commands: Vec<DrawCommand<'w>>,
+}
+
+impl<'w> DrawList<'w> {
+    /// Collect every visible sprite, sorted for rendering. Free
+    /// function-shaped (an associated fn with no `&self`) so it's testable
+    /// without a live GPU-backed `Renderer`. No camera involved here at
+    /// all — that conversion happens per-command in `render`.
+    fn from_world(world: &'w World) -> Self {
+        let mut commands: Vec<DrawCommand<'w>> = world.transforms.keys().filter_map(|&id| {
+            let pos = world.get_global_position(id);
+            world.sprites.get(&id).and_then(|sp| {
+                if !sp.visible { return None; }
+                let glyph = if sp.frames.is_empty() { sp.glyph }
+                else { let idx = (sp.frame_timer / sp.frame_rate) as usize % sp.frames.len(); sp.frames[idx] };
+                Some(DrawCommand { space: Space::World, z: sp.z_order, id, world_pos: pos, glyph, fg: sp.fg, bg: sp.bg, texture: sp.texture.as_deref() })
+            })
+        }).collect();
+
+        commands.sort_unstable_by_key(|c| (c.space, c.z, c.texture, c.id));
+        DrawList { commands }
+    }
+}
+
+/// True if a screen cell at (col, row) falls inside the playable viewport —
+/// i.e. on screen and above the bottom HUD bar (the last row is reserved).
+///
+/// Shared by both the glyph and texture draw paths in `render` (defect D13:
+/// the texture path used to skip this check entirely, since it `continue`d
+/// before the bounds test ran).
+fn in_viewport(col: i32, row: i32, width: usize, height: usize) -> bool {
+    col >= 0 && row >= 0 && (col as usize) < width && (row as usize) < height.saturating_sub(1)
+}
 
 // ── Particles ────────────────────────────────────────────────────────────────
 
@@ -137,13 +224,27 @@ pub struct PlayState {
     pub camera_override: Option<Vec2>,
     pub shake_state: Option<ShakeState>,
     pub shake_timer: f32,
-    pub camera_pos: Vec2,
+    /// Owns world<->screen conversion for this level (Step 2e). Its
+    /// viewport/origin fields are refreshed every `update()` call — see
+    /// `script_camera_origin` for the one place that reads it back out.
+    pub camera: Camera,
     pub particles: Vec<Particle>,
     pub is_loading_save: bool,
+    /// Drives particle velocity/life and camera shake jitter (defect D3).
+    /// Seeded once from the level's stored seed and reused for its whole
+    /// lifetime — never reallocated from OS entropy per call.
+    rng: SmallRng,
 }
+
+/// A different constant offset from the level's seed for `PlayState::rng`
+/// than the one `ScriptEngine` seeds from directly (see `from_level`), so
+/// script randomness and particle/shake randomness are two independent
+/// deterministic streams instead of mirroring each other's sequence.
+const PLAYSTATE_RNG_SEED_OFFSET: u64 = 0x9E3779B97F4A7C15; // splitmix64's golden-ratio constant
 
 impl PlayState {
     pub fn from_level(data: LevelData, _persistent: HashMap<String, rhai::Dynamic>) -> Self {
+        let seed = data.seed;
         PlayState {
             player_id:          0,
             score:              0,
@@ -151,7 +252,7 @@ impl PlayState {
             fps:                0.0,
             level:              data,
             pending_transition: None,
-            script_engine:      ScriptEngine::new(),
+            script_engine:      ScriptEngine::new(seed),
             audio:              AudioEngine::new(),
             script_log:         Vec::new(),
             camera_entity:      None,
@@ -160,9 +261,10 @@ impl PlayState {
             camera_override:    None,
             shake_state:        None,
             shake_timer:        0.0,
-            camera_pos:         Vec2::ZERO,
+            camera:             Camera::new(0.0, 0.0), // real dimensions set every update()
             particles:          Vec::new(),
             is_loading_save:    false,
+            rng:                SmallRng::seed_from_u64(seed.wrapping_add(PLAYSTATE_RNG_SEED_OFFSET)),
         }
     }
 
@@ -211,12 +313,10 @@ impl PlayState {
         }
 
         if !res.particles.is_empty() {
-            use rand::{Rng, SeedableRng};
-            let mut rng = rand::rngs::SmallRng::from_entropy();
             for req in res.particles {
-                let vx = rng.gen_range(-5.0..5.0);
-                let vy = rng.gen_range(-5.0..5.0);
-                let life = rng.gen_range(0.2..0.8);
+                let vx = self.rng.gen_range(-5.0..5.0);
+                let vy = self.rng.gen_range(-5.0..5.0);
+                let life = self.rng.gen_range(0.2..0.8);
                 self.particles.push(Particle { x: req.x, y: req.y, vx, vy, glyph: req.glyph, fg: req.fg, life });
             }
         }
@@ -234,7 +334,7 @@ impl PlayState {
 
     fn flush_audio(&mut self) {
         for path in self.script_engine.pending_sounds.drain(..) { self.audio.play_sound(&path, 1.0); }
-        let cam_pos = self.camera_pos;
+        let cam_pos = self.camera.position;
         let max_dist = 20.0f32;
         for (path, x, y) in self.script_engine.pending_spatial_sounds.drain(..) {
             let dx = x - cam_pos.x;
@@ -246,12 +346,25 @@ impl PlayState {
         if self.script_engine.stop_music { self.audio.stop_music(); self.script_engine.stop_music = false; }
         if let Some(path) = self.script_engine.pending_music.take() { self.audio.play_music(&path); }
     }
+
+    /// World position scripts see as the camera's origin — `get_camera_x/y`
+    /// and (added to the mouse's screen cell) `get_mouse_world_x/y` both key
+    /// off this. Rounded to whole cells, matching the precision scripts have
+    /// always seen (e.g. `player.rhai`'s click-to-teleport lands on an exact
+    /// cell); only the render path benefits from `self.camera`'s true float
+    /// precision. A dedicated method so `update`/`late_update` don't
+    /// hand-duplicate this formula — they used to, which is the same defect
+    /// shape D5 was about, just for camera math instead of draw order.
+    fn script_camera_origin(&self) -> Vec2 {
+        let tl = self.camera.top_left();
+        Vec2::new(tl.x.round(), tl.y.round())
+    }
 }
 
 impl GameState for PlayState {
-    fn on_start(&mut self, world: &mut World, events: &mut EventBus, viewport_width: usize, viewport_height: usize) {
+    fn on_start(&mut self, world: &mut World, events: &mut EventBus, viewport_width: usize, viewport_height: usize, persistent: &mut HashMap<String, rhai::Dynamic>) {
         if !self.is_loading_save {
-            self.do_on_start(world, events, viewport_width, viewport_height);
+            self.do_on_start(world, events, viewport_width, viewport_height, persistent);
         } else {
             if let Some(id) = world.find_by_tag("player") { self.player_id = id; }
             for (_, script) in &world.scripts { self.script_engine.compile(&script.path, &mut self.script_log); }
@@ -309,18 +422,20 @@ impl GameState for PlayState {
         target_cam.x = target_cam.x.clamp(min_x, max_x);
         target_cam.y = target_cam.y.clamp(min_y, max_y);
 
-        if self.camera_pos == Vec2::ZERO { self.camera_pos = target_cam; } 
+        if self.camera.position == Vec2::ZERO { self.camera.position = target_cam; }
         else {
             let lerp_speed = 5.0;
-            self.camera_pos = self.camera_pos + (target_cam - self.camera_pos) * (1.0 - (-lerp_speed * delta_time).exp());
+            self.camera.position = self.camera.position + (target_cam - self.camera.position) * (1.0 - (-lerp_speed * delta_time).exp());
         }
+        self.camera.viewport_width = viewport_width as f32;
+        self.camera.viewport_height = game_h;
+        self.camera.viewport_origin = Vec2::new(0.0, HUD_TOP_ROWS as f32);
+        self.camera.zoom = 1.0; // Phase 2 doesn't add a scripted zoom control yet
 
-        let cam_x = (self.camera_pos.x - viewport_width as f32 / 2.0).round();
-        let cam_y = (self.camera_pos.y - game_h / 2.0).round();
-
+        let camera_origin = self.script_camera_origin();
         let res = self.script_engine.run_scripts(
             world, events, &mut self.script_log, delta_time, elapsed, Some(input), Some(mouse), Some(ctx.gamepad),
-            &self.level.extra_spawns, self.globals.clone(), persistent, Vec2::new(cam_x, cam_y),
+            &self.level.extra_spawns, self.globals.clone(), persistent, camera_origin,
             (viewport_width, viewport_height),
         );
         self.apply_script_result(world, res, turn_triggered, persistent);
@@ -342,13 +457,17 @@ impl GameState for PlayState {
             all_pairs.push((a, b));
             let other = if a == self.player_id { b } else if b == self.player_id { a } else { continue };
             let solid = world.colliders.get(&other).map(|c| c.solid).unwrap_or(false);
-            let layer = world.colliders.get(&other).map(|c| c.layer.as_str()).unwrap_or("");
+            // Defect D12: this used to read the collider's `layer` string and
+            // compare it against the magic value "locked", which corrupted
+            // the layer field's real purpose (collision filtering) for any
+            // locked exit tile. `locked` is now its own flag.
+            let locked = world.colliders.get(&other).map(|c| c.locked).unwrap_or(false);
             let other_tag = world.tags.get(&other).map(|t| t.name.as_str());
 
-            if solid { world.resolve_solid_collision(self.player_id, other, prev_positions); } 
-            else if matches!(other_tag, Some("item") | Some("chest")) { to_collect.push(other); } 
+            if solid { world.resolve_solid_collision(self.player_id, other, prev_positions); }
+            else if matches!(other_tag, Some("item") | Some("chest")) { to_collect.push(other); }
             else if let Some(path) = self.exit_targets.get(&other).cloned() {
-                if layer != "locked" {
+                if !locked {
                     let full_path = resolve_exit_path(&path, &self.level.path);
                     match LevelData::load(&full_path) {
                         Ok(next) => { self.pending_transition = Some(Transition::ToPlay(next)); }
@@ -359,13 +478,13 @@ impl GameState for PlayState {
         }
         for id in to_collect { if world.sprites.contains_key(&id) { world.despawn(id); self.score += 1; } }
 
-        let game_h = (viewport_height as i32 - 2).max(1) as f32;
-        let cam_x = (self.camera_pos.x - viewport_width as f32 / 2.0).round();
-        let cam_y = (self.camera_pos.y - game_h / 2.0).round();
-
+        // self.camera was already refreshed this step by the preceding
+        // update() call (see engine.rs's per-step order: update, physics,
+        // collisions, late_update) — no need to recompute it here.
+        let camera_origin = self.script_camera_origin();
         let res = self.script_engine.run_collisions(
             world, &all_pairs, &mut self.script_log, delta_time, elapsed,
-            &self.level.extra_spawns, self.globals.clone(), persistent, Vec2::new(cam_x, cam_y),
+            &self.level.extra_spawns, self.globals.clone(), persistent, camera_origin,
             (viewport_width, viewport_height),
         );
         self.apply_script_result(world, res, turn_triggered, persistent);
@@ -376,42 +495,45 @@ impl GameState for PlayState {
         let RenderContext { world, renderer, assets, .. } = ctx;
         renderer.draw_rect_filled(0, 0, renderer.width, renderer.height, ' ', Color::Reset, Color::Reset);
 
-        let game_h = (renderer.height as i32 - 2).max(1);
-        let mut cam_x = (self.camera_pos.x - renderer.width as f32 / 2.0).round() as i32;
-        let mut cam_y = (self.camera_pos.y - game_h as f32 / 2.0).round() as i32;
-
+        // self.camera's viewport/origin were already refreshed this frame by
+        // update() (see script_camera_origin's doc comment). Shake jitters a
+        // *copy* — self.camera.position must stay the stable, unshaken value
+        // flush_audio's distance falloff (and script_camera_origin) read.
+        let mut render_camera = self.camera;
         if let Some(shake) = self.shake_state.filter(|s| s.duration > 0.0) {
-            use rand::{Rng, SeedableRng};
-            let mut rng = rand::rngs::SmallRng::from_entropy();
             let intensity = shake.intensity * (self.shake_timer / shake.duration);
-            cam_x += rng.gen_range(-intensity..=intensity).round() as i32;
-            cam_y += rng.gen_range(-intensity..=intensity).round() as i32;
+            render_camera.position.x += self.rng.gen_range(-intensity..=intensity);
+            render_camera.position.y += self.rng.gen_range(-intensity..=intensity);
         }
 
-        let mut draw_list: Vec<(i32, i32, i32, char, Color, Color, Option<&str>)> = world.transforms.keys().filter_map(|&id| {
-            let pos = world.get_global_position(id);
-            world.sprites.get(&id).and_then(|sp| {
-                if !sp.visible { return None; }
-                let col = pos.x.round() as i32 - cam_x;
-                let row = pos.y.round() as i32 - cam_y + 1;
-                let glyph = if sp.frames.is_empty() { sp.glyph } 
-                else { let idx = (sp.frame_timer / sp.frame_rate) as usize % sp.frames.len(); sp.frames[idx] };
-                Some((sp.z_order, col, row, glyph, sp.fg, sp.bg, sp.texture.as_deref()))
-            })
-        }).collect();
-
-        draw_list.sort_unstable_by_key(|(z, ..)| *z);
-        for (_, col, row, glyph, fg, bg, tex) in draw_list {
-            if let Some(path) = tex { if let Ok(t) = assets.load_texture(path) { renderer.draw_texture(col * 8, row * 16, t, 32.0); continue; } }
-            if col >= 0 && row >= 0 && (col as usize) < renderer.width && (row as usize) < renderer.height - 1 {
-                renderer.draw_char(col as usize, row as usize, glyph, fg, bg);
+        let draw_list = DrawList::from_world(world);
+        for cmd in draw_list.commands {
+            let screen = render_camera.world_to_screen(cmd.world_pos);
+            let (col, row) = (screen.x.round() as i32, screen.y.round() as i32);
+            // Defect D13: the texture branch used to draw and `continue`
+            // before this bounds check ran, so textured sprites bypassed
+            // viewport culling entirely (glyph sprites were always culled
+            // correctly). Both paths now share one check up front.
+            if !in_viewport(col, row, renderer.width, renderer.height) { continue; }
+            if let Some(path) = cmd.texture {
+                if let Ok(t) = assets.load_texture(path) {
+                    // Preserves the exact size the old `draw_texture(.., 32.0)`
+                    // magic-scale call produced at zoom 1 — real per-sprite
+                    // sizing is Phase 3's Sprite::size, not this step's job.
+                    let size = Vec2::new(t.width as f32 * 4.0, t.height as f32 * 4.0) * (1.0 / render_camera.zoom);
+                    renderer.draw_texture_world(&render_camera, cmd.world_pos, t, size, 0.0, Color::White);
+                    continue;
+                }
             }
+            renderer.draw_char_world(&render_camera, cmd.world_pos, cmd.glyph, cmd.fg, cmd.bg);
         }
 
         for p in &self.particles {
-            let col = p.x.round() as i32 - cam_x; let row = p.y.round() as i32 - cam_y + 1;
-            if col >= 0 && row >= 1 && (col as usize) < renderer.width && (row as usize) < renderer.height - 1 {
-                renderer.draw_char(col as usize, row as usize, p.glyph, p.fg, Color::Reset);
+            let world_pos = Vec2::new(p.x, p.y);
+            let screen = render_camera.world_to_screen(world_pos);
+            let (col, row) = (screen.x.round() as i32, screen.y.round() as i32);
+            if in_viewport(col, row, renderer.width, renderer.height) {
+                renderer.draw_char_world(&render_camera, world_pos, p.glyph, p.fg, Color::Reset);
             }
         }
 
@@ -454,3 +576,8 @@ impl GameState for PlayState {
 
     fn take_transition(&mut self) -> Option<Transition> { self.pending_transition.take() }
 }
+
+// Tests split into play/tests.rs — see that file's header comment — once
+// this file approached the project's 600-line hard limit (CLAUDE.md).
+#[cfg(test)]
+mod tests;

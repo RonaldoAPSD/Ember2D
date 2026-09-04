@@ -1,0 +1,6 @@
+(
+    name: "Demo",
+    visual_style: ClassicASCII,
+    gameplay_loop: RealTime,
+    start_level: Some("level1.level"),
+)

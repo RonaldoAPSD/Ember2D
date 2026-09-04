@@ -53,6 +53,19 @@ pub(super) struct SpawnRequest {
     pub x:     f32,
     pub y:     f32,
     pub tag:   String,
+    /// Defect D10: these used to be hardcoded (white, z=2, 1x1 non-solid
+    /// trigger, no layer) in `apply_ctx` regardless of what the script asked
+    /// for. `spawn_entity`'s default overload still fills in these exact
+    /// same values, so existing scripts see no behavior change; the new
+    /// extended overload lets a script set them at spawn time instead of
+    /// having to `set_color`/`set_z_order`/etc. the id on some later frame.
+    pub fg:    Color,
+    pub bg:    Color,
+    pub z:     i32,
+    pub solid: bool,
+    pub w:     f32,
+    pub h:     f32,
+    pub layer: String,
 }
 
 // ── ParticleRequest ───────────────────────────────────────────────────────────
@@ -118,22 +131,24 @@ pub fn color_to_name(color: Color) -> String {
 // ── Key name snapshot ─────────────────────────────────────────────────────────
 
 pub(super) fn snapshot_keys(input: &InputManager) -> (HashSet<String>, HashSet<String>) {
+    // Lowercase to match the documented script API contract
+    // (docs/ember2d-scripting-api.md §3: `"w"`, `"space"`, `"escape"`, `"left"`, …).
     const KEY_MAP: &[(Key, &str)] = &[
-        (Key::W, "W"), (Key::A, "A"), (Key::S, "S"), (Key::D, "D"),
-        (Key::Q, "Q"), (Key::E, "E"), (Key::R, "R"), (Key::F, "F"),
-        (Key::Z, "Z"), (Key::X, "X"), (Key::C, "C"), (Key::V, "V"),
-        (Key::Up, "Up"), (Key::Down, "Down"), (Key::Left, "Left"), (Key::Right, "Right"),
-        (Key::Space, "Space"), (Key::Enter, "Enter"), (Key::Escape, "Escape"),
-        (Key::LeftShift, "Shift"), (Key::RightShift, "Shift"),
-        (Key::LeftCtrl, "Ctrl"),  (Key::RightCtrl, "Ctrl"),
+        (Key::W, "w"), (Key::A, "a"), (Key::S, "s"), (Key::D, "d"),
+        (Key::Q, "q"), (Key::E, "e"), (Key::R, "r"), (Key::F, "f"),
+        (Key::Z, "z"), (Key::X, "x"), (Key::C, "c"), (Key::V, "v"),
+        (Key::Up, "up"), (Key::Down, "down"), (Key::Left, "left"), (Key::Right, "right"),
+        (Key::Space, "space"), (Key::Enter, "enter"), (Key::Escape, "escape"),
+        (Key::LeftShift, "shift"), (Key::RightShift, "shift"),
+        (Key::LeftCtrl, "ctrl"),  (Key::RightCtrl, "ctrl"),
         (Key::Key1, "1"), (Key::Key2, "2"), (Key::Key3, "3"),
         (Key::Key4, "4"), (Key::Key5, "5"), (Key::Key6, "6"),
         (Key::Key7, "7"), (Key::Key8, "8"), (Key::Key9, "9"), (Key::Key0, "0"),
-        (Key::Tab, "Tab"),
-        (Key::Backspace, "Backspace"),
-        (Key::F1, "F1"), (Key::F2, "F2"), (Key::F3, "F3"), (Key::F4, "F4"),
-        (Key::F5, "F5"), (Key::F6, "F6"), (Key::F7, "F7"), (Key::F8, "F8"),
-        (Key::F9, "F9"), (Key::F10, "F10"), (Key::F11, "F11"), (Key::F12, "F12"),
+        (Key::Tab, "tab"),
+        (Key::Backspace, "backspace"),
+        (Key::F1, "f1"), (Key::F2, "f2"), (Key::F3, "f3"), (Key::F4, "f4"),
+        (Key::F5, "f5"), (Key::F6, "f6"), (Key::F7, "f7"), (Key::F8, "f8"),
+        (Key::F9, "f9"), (Key::F10, "f10"), (Key::F11, "f11"), (Key::F12, "f12"),
     ];
 
     let mut held         = HashSet::new();
@@ -143,4 +158,28 @@ pub(super) fn snapshot_keys(input: &InputManager) -> (HashSet<String>, HashSet<S
         if input.just_pressed(*key) { just_pressed.insert(name.to_string()); }
     }
     (held, just_pressed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_keys_uses_lowercase_names() {
+        // Regression test: KEY_MAP previously emitted "W"/"Up"/"Enter" while
+        // both the documented API (ember2d-scripting-api.md §3) and every
+        // demo script call ctx.is_held("w") / ctx.just_pressed("enter") in
+        // lowercase. The mismatch meant scripts gating on movement/menu keys
+        // silently never matched — e.g. demo/scripts/player.rhai's tutorial
+        // gate never dismissed, which zeroed player velocity every frame.
+        let mut input = InputManager::new();
+        input.handle_pressed(Key::W);
+        input.handle_pressed(Key::Enter);
+        input.consume_step();
+
+        let (held, just_pressed) = snapshot_keys(&input);
+        assert!(held.contains("w"), "held set should use lowercase key names");
+        assert!(just_pressed.contains("enter"), "just_pressed set should use lowercase key names");
+        assert!(!held.contains("W") && !just_pressed.contains("Enter"), "no capitalized names should leak through");
+    }
 }

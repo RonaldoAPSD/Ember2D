@@ -1,6 +1,8 @@
 // mouse.rs — Mouse input tracking, backend-agnostic.
 
+use std::collections::{HashMap, HashSet};
 use serde::{Serialize, Deserialize};
+use crate::input::INPUT_BUFFER_WINDOW;
 
 /// A backend-agnostic representation of a mouse button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -54,8 +56,13 @@ pub struct MouseState {
     /// Buttons currently held down.
     held: Vec<MouseButton>,
 
-    /// Buttons pressed this frame.
-    just_pressed: Vec<MouseButton>,
+    /// Buttons pressed but not yet consumed by a simulation step, each with
+    /// its remaining buffer lifetime (seconds). See `input::INPUT_BUFFER_WINDOW`
+    /// for why button presses are buffered rather than frame-scoped (D1).
+    pending: HashMap<MouseButton, f32>,
+
+    /// The set of buttons the current simulation step sees as just-pressed.
+    consumed: HashSet<MouseButton>,
 
     /// Buttons released this frame.
     just_released: Vec<MouseButton>,
@@ -72,17 +79,32 @@ impl MouseState {
             wheel_x:        0.0,
             wheel_y:        0.0,
             held:          Vec::new(),
-            just_pressed:  Vec::new(),
+            pending:       HashMap::new(),
+            consumed:      HashSet::new(),
             just_released: Vec::new(),
         }
     }
 
-    /// Clear transient state (just_pressed, just_released, scroll).
+    /// Clear transient per-frame state (just_released, scroll). Deliberately
+    /// does NOT touch `pending` — see `InputManager::clear`.
     pub fn clear(&mut self) {
-        self.just_pressed.clear();
         self.just_released.clear();
         self.wheel_x = 0.0;
         self.wheel_y = 0.0;
+    }
+
+    /// Pull buffered presses into this simulation step's just-pressed set.
+    /// Call once per simulation step, before running game/script update code.
+    pub fn consume_step(&mut self) {
+        self.consumed = self.pending.keys().copied().collect();
+        self.pending.clear();
+    }
+
+    /// Age out buffered presses no simulation step claimed in time.
+    /// Call once per frame (real delta time) after the frame's simulation
+    /// steps have had their chance to consume them.
+    pub fn decay(&mut self, dt: f32) {
+        self.pending.retain(|_, remaining| { *remaining -= dt; *remaining > 0.0 });
     }
 
     /// Update mouse position.
@@ -97,7 +119,7 @@ impl MouseState {
     pub fn handle_pressed(&mut self, button: MouseButton) {
         if !self.held.contains(&button) {
             self.held.push(button);
-            self.just_pressed.push(button);
+            self.pending.insert(button, INPUT_BUFFER_WINDOW);
         }
     }
 
@@ -120,7 +142,7 @@ impl MouseState {
     // ── Button query methods ─────────────────────────────────────────────────
 
     pub fn is_held(&self, button: MouseButton) -> bool { self.held.contains(&button) }
-    pub fn just_pressed(&self, button: MouseButton) -> bool { self.just_pressed.contains(&button) }
+    pub fn just_pressed(&self, button: MouseButton) -> bool { self.consumed.contains(&button) }
     pub fn just_released(&self, button: MouseButton) -> bool { self.just_released.contains(&button) }
 
     // Shorthands for common buttons to avoid breaking too much code

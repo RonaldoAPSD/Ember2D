@@ -3,6 +3,7 @@
 use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet};
 use gilrs::{Gilrs, Button, Axis, Event, EventType};
+use crate::input::INPUT_BUFFER_WINDOW;
 
 /// A backend-agnostic representation of a gamepad button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -74,13 +75,17 @@ impl GamepadAxis {
 pub struct GamepadState {
     /// Buttons currently held down. (gamepad_id, button)
     pub(crate) held: HashSet<(usize, GamepadButton)>,
-    /// Buttons pressed this frame.
-    pub(crate) just_pressed: HashSet<(usize, GamepadButton)>,
+    /// Buttons pressed but not yet consumed by a simulation step, each with
+    /// its remaining buffer lifetime (seconds). See `input::INPUT_BUFFER_WINDOW`
+    /// for why button presses are buffered rather than frame-scoped (D1).
+    pub(crate) pending: HashMap<(usize, GamepadButton), f32>,
+    /// The set of buttons the current simulation step sees as just-pressed.
+    pub(crate) consumed: HashSet<(usize, GamepadButton)>,
     /// Buttons released this frame.
     pub(crate) just_released: HashSet<(usize, GamepadButton)>,
     /// Current axis values.
     pub(crate) axes: HashMap<(usize, GamepadAxis), f32>,
-    
+
     gilrs: Option<Gilrs>,
 }
 
@@ -95,16 +100,32 @@ impl GamepadState {
 
         GamepadState {
             held: HashSet::new(),
-            just_pressed: HashSet::new(),
+            pending: HashMap::new(),
+            consumed: HashSet::new(),
             just_released: HashSet::new(),
             axes: HashMap::new(),
             gilrs,
         }
     }
 
+    /// Clear transient per-frame state (just_released). Deliberately does
+    /// NOT touch `pending` — see `InputManager::clear`.
     pub fn clear(&mut self) {
-        self.just_pressed.clear();
         self.just_released.clear();
+    }
+
+    /// Pull buffered presses into this simulation step's just-pressed set.
+    /// Call once per simulation step, before running game/script update code.
+    pub fn consume_step(&mut self) {
+        self.consumed = self.pending.keys().copied().collect();
+        self.pending.clear();
+    }
+
+    /// Age out buffered presses no simulation step claimed in time.
+    /// Call once per frame (real delta time) after the frame's simulation
+    /// steps have had their chance to consume them.
+    pub fn decay(&mut self, dt: f32) {
+        self.pending.retain(|_, remaining| { *remaining -= dt; *remaining > 0.0 });
     }
 
     pub fn poll(&mut self) {
@@ -115,9 +136,8 @@ impl GamepadState {
             match event {
                 EventType::ButtonPressed(button, ..) => {
                     let btn = GamepadButton::from_gilrs(button);
-                    if btn != GamepadButton::Unknown {
-                        self.held.insert((gamepad_id, btn));
-                        self.just_pressed.insert((gamepad_id, btn));
+                    if btn != GamepadButton::Unknown && self.held.insert((gamepad_id, btn)) {
+                        self.pending.insert((gamepad_id, btn), INPUT_BUFFER_WINDOW);
                     }
                 }
                 EventType::ButtonReleased(button, ..) => {
@@ -143,7 +163,7 @@ impl GamepadState {
     }
 
     pub fn just_pressed(&self, gamepad_id: usize, button: GamepadButton) -> bool {
-        self.just_pressed.contains(&(gamepad_id, button))
+        self.consumed.contains(&(gamepad_id, button))
     }
 
     pub fn just_released(&self, gamepad_id: usize, button: GamepadButton) -> bool {

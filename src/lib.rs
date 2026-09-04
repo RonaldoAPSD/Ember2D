@@ -25,6 +25,7 @@
 
 pub mod app;
 pub mod audio;
+pub mod camera;
 pub mod components;
 pub mod editor;
 pub mod engine;
@@ -52,6 +53,10 @@ pub mod prelude {
     // ── Math ──────────────────────────────────────────────────────────────
     // Fundamental types: 2D vectors and rectangles.
     pub use crate::math::{IVec2, Rect, Vec2};
+
+    // ── Camera ────────────────────────────────────────────────────────────
+    // World-space <-> screen-space conversion (Phase 2).
+    pub use crate::camera::Camera;
 
     // ── Renderer ──────────────────────────────────────────────────────────
     // The terminal renderer and its color palette.

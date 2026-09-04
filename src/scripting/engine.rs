@@ -11,7 +11,6 @@ use crate::world::{EntityId, World};
 use crate::input::InputManager;
 use crate::event::EventBus;
 use crate::components::{Collider, Sprite, Tag, Transform};
-use crate::renderer::color::Color;
 
 use super::types::*;
 use super::api::ScriptCtx;
@@ -20,7 +19,8 @@ pub(super) struct ScriptState {
     pub(super) positions:        HashMap<i64, (f32, f32)>,
     pub(super) velocities:       HashMap<i64, (f32, f32)>,
     pub(super) parents:          HashMap<i64, i64>,
-    pub(super) colliders:        HashMap<i64, (f32, f32, bool, String, Vec<String>)>,
+    /// (width, height, solid, layer, mask, locked)
+    pub(super) colliders:        HashMap<i64, (f32, f32, bool, String, Vec<String>, bool)>,
     pub(super) tags:             HashMap<i64, String>,
     pub(super) glyphs:           HashMap<i64, char>,
     pub(super) colors:           HashMap<i64, (String, String)>,
@@ -77,6 +77,7 @@ pub(super) struct ScriptState {
     pub(super) pending_collider_size:  Vec<(i64, f32, f32)>,
     pub(super) pending_collider_solid: Vec<(i64, bool)>,
     pub(super) pending_collider_layer: Vec<(i64, String)>,
+    pub(super) pending_collider_locked: Vec<(i64, bool)>,
     pub(super) pending_collider_mask:  Vec<(i64, Vec<String>)>,
     pub(super) pending_timers:     Vec<(EntityId, String, f64)>,
     pub(super) timers:             HashMap<EntityId, HashMap<String, f64>>,
@@ -118,7 +119,7 @@ impl ScriptState {
                 z_orders.insert(eid, sp.z_order);
             }
         }
-        for (id, col) in &world.colliders { colliders.insert(*id as i64, (col.width, col.height, col.solid, col.layer.clone(), col.mask.clone())); }
+        for (id, col) in &world.colliders { colliders.insert(*id as i64, (col.width, col.height, col.solid, col.layer.clone(), col.mask.clone(), col.locked)); }
         for (id, tag) in &world.tags {
             let eid = *id as i64;
             tags.insert(eid, tag.name.clone());
@@ -136,7 +137,7 @@ impl ScriptState {
 
         if let Some(gp) = gamepad {
             for &(id, btn) in &gp.held { gamepad_held.insert((id, btn.to_string())); }
-            for &(id, btn) in &gp.just_pressed { gamepad_pressed.insert((id, btn.to_string())); }
+            for &(id, btn) in &gp.consumed { gamepad_pressed.insert((id, btn.to_string())); }
             for (&(id, ax), &val) in &gp.axes { gamepad_axes.insert((id, ax.to_string()), val); }
         }
 
@@ -156,6 +157,7 @@ impl ScriptState {
             pending_music: None, stop_music: false, pending_globals: HashMap::new(), pending_persistent: HashMap::new(),
             pending_camera: None, pending_shake: None, pending_visibility: Vec::new(), pending_z_order: Vec::new(), pending_tags: Vec::new(),
             pending_collider_size: Vec::new(), pending_collider_solid: Vec::new(), pending_collider_layer: Vec::new(), pending_collider_mask: Vec::new(),
+            pending_collider_locked: Vec::new(),
             pending_timers: Vec::new(), timers: HashMap::new(), pending_turn: false,
         }
     }
@@ -166,7 +168,12 @@ pub struct ScriptEngine {
     ast_cache: HashMap<String, AST>,
     scopes:    HashMap<EntityId, Scope<'static>>,
     mod_times: HashMap<String, SystemTime>,
-    logged_runtime_errors: HashSet<String>,
+    /// Script paths that threw a runtime error and are no longer called —
+    /// defect D9: previously an error only suppressed its own log message
+    /// (`logged_runtime_errors`) while the script kept being invoked, and
+    /// kept failing, every frame. A script stays disabled until it hot-reloads
+    /// successfully (see `check_hot_reload`).
+    disabled_scripts: HashSet<String>,
     rng:       Rc<RefCell<rand::rngs::SmallRng>>,
     pub pending_hud_draws: Vec<HudDraw>,
     pub pending_sounds:    Vec<String>,
@@ -176,7 +183,13 @@ pub struct ScriptEngine {
 }
 
 impl ScriptEngine {
-    pub fn new() -> Self {
+    /// `seed` drives every `random_*` call scripts make. Defect D3: this
+    /// used to be `SmallRng::from_entropy()`, making script randomness
+    /// (and anything built on it — loot, AI decisions) different on every
+    /// run. Callers should pass the owning level's stored seed so replays
+    /// with the same level and inputs are reproducible; this is also the
+    /// determinism §5 needs for netcode later.
+    pub fn new(seed: u64) -> Self {
         let mut engine = Engine::new();
         engine.register_type_with_name::<ScriptCtx>("Ctx");
         engine.register_fn("get_x",           ScriptCtx::get_x);
@@ -207,6 +220,7 @@ impl ScriptEngine {
         engine.register_fn("trigger_turn",    ScriptCtx::trigger_turn);
         engine.register_fn("despawn",         ScriptCtx::despawn);
         engine.register_fn("spawn_entity",    ScriptCtx::spawn_entity);
+        engine.register_fn("spawn_entity",    ScriptCtx::spawn_entity_full);
         engine.register_fn("load_level",      ScriptCtx::load_level);
         engine.register_fn("log",             ScriptCtx::log);
         engine.register_fn("draw_hud",        ScriptCtx::draw_hud);
@@ -265,6 +279,8 @@ impl ScriptEngine {
         engine.register_fn("load_game",       ScriptCtx::load_game);
         engine.register_fn("get_collider_layer", ScriptCtx::get_collider_layer);
         engine.register_fn("set_collider_layer", ScriptCtx::set_collider_layer);
+        engine.register_fn("is_collider_locked", ScriptCtx::is_collider_locked);
+        engine.register_fn("set_collider_locked", ScriptCtx::set_collider_locked);
         engine.register_fn("get_collider_mask", ScriptCtx::get_collider_mask);
         engine.register_fn("set_collider_mask", ScriptCtx::set_collider_mask);
         engine.register_fn("raycast",         ScriptCtx::raycast);
@@ -288,7 +304,7 @@ impl ScriptEngine {
         use rand::SeedableRng;
         ScriptEngine {
             engine, ast_cache: HashMap::new(), scopes: HashMap::new(), mod_times: HashMap::new(),
-            logged_runtime_errors: HashSet::new(), rng: Rc::new(RefCell::new(rand::rngs::SmallRng::from_entropy())),
+            disabled_scripts: HashSet::new(), rng: Rc::new(RefCell::new(rand::rngs::SmallRng::seed_from_u64(seed))),
             pending_hud_draws: Vec::new(), pending_sounds: Vec::new(), pending_spatial_sounds: Vec::new(),
             pending_music: None, stop_music: false,
         }
@@ -326,18 +342,22 @@ impl ScriptEngine {
         }
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         for (entity_id, path) in &scripted {
+            if self.disabled_scripts.contains(path) { continue; }
             let Some(ast) = self.ast_cache.get(path) else { continue };
             let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);
             let entity_ctx = ctx.with_entity(*entity_id);
             if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_start", (*entity_id, entity_ctx)) {
-                if !e.to_string().contains("Function not found") { log.push(LogEntry::error(format!("on_start '{}': {}", path, e))); }
+                if !e.to_string().contains("Function not found") {
+                    log.push(LogEntry::error(format!("on_start '{}': {}", path, e)));
+                    self.disabled_scripts.insert(path.clone());
+                }
             }
         }
         self.apply_ctx(ctx, world, log)
     }
 
     pub fn run_scripts(&mut self, world: &mut World, _events: &mut EventBus, log: &mut Vec<LogEntry>, delta_time: f32, elapsed: f32, input: Option<&InputManager>, mouse: Option<&crate::mouse::MouseState>, gamepad: Option<&crate::gamepad::GamepadState>, spawns: &[(String, f32, f32)], globals: HashMap<String, rhai::Dynamic>, persistent: &mut HashMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, viewport_size: (usize, usize)) -> ScriptUpdateResult {
-        self.check_hot_reload(log);
+        self.check_hot_reload(world, log);
         let mut ctx_state = ScriptState::from_world(world, delta_time, elapsed, input, mouse, gamepad, spawns, globals, persistent.clone(), camera_pos, viewport_size);
         let scripted: Vec<(i64, String)> = world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
         for (entity_id, _) in &scripted {
@@ -352,12 +372,14 @@ impl ScriptEngine {
         }
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         for (entity_id, path) in scripted {
+            if self.disabled_scripts.contains(&path) { continue; }
             let Some(ast) = self.ast_cache.get(&path) else { continue };
             let scope = self.scopes.entry(entity_id as EntityId).or_insert_with(Scope::new);
             let entity_ctx = ctx.with_entity(entity_id);
             if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_update", (entity_id, entity_ctx)) {
-                if !self.logged_runtime_errors.contains(&path) {
-                    if !e.to_string().contains("Function not found") { log.push(LogEntry::error(format!("Runtime '{}': {}", path, e))); self.logged_runtime_errors.insert(path.clone()); }
+                if !e.to_string().contains("Function not found") {
+                    log.push(LogEntry::error(format!("Runtime '{}': {}", path, e)));
+                    self.disabled_scripts.insert(path.clone());
                 }
             }
         }
@@ -382,27 +404,48 @@ impl ScriptEngine {
         }
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         for (entity_id, other_id, path) in calls {
+            if self.disabled_scripts.contains(&path) { continue; }
             let Some(ast) = self.ast_cache.get(&path) else { continue };
             let scope = self.scopes.entry(entity_id as EntityId).or_insert_with(Scope::new);
             let entity_ctx = ctx.with_entity(entity_id);
             if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_collide", (entity_id, other_id, entity_ctx)) {
-                if !e.to_string().contains("Function not found") && !self.logged_runtime_errors.contains(&path) {
-                    log.push(LogEntry::error(format!("on_collide '{}': {}", path, e))); self.logged_runtime_errors.insert(path.clone());
+                if !e.to_string().contains("Function not found") {
+                    log.push(LogEntry::error(format!("on_collide '{}': {}", path, e)));
+                    self.disabled_scripts.insert(path.clone());
                 }
             }
         }
         self.apply_ctx(ctx, world, log)
     }
 
-    fn check_hot_reload(&mut self, log: &mut Vec<LogEntry>) {
+    fn check_hot_reload(&mut self, world: &World, log: &mut Vec<LogEntry>) {
         let paths: Vec<String> = self.ast_cache.keys().cloned().collect();
         for path in paths {
             let Ok(meta) = fs::metadata(&path) else { continue };
             let Ok(t)    = meta.modified()     else { continue };
             if self.mod_times.get(&path).map(|old| t > *old).unwrap_or(false) {
                 match self.engine.compile_file(path.clone().into()) {
-                    Ok(ast) => { self.ast_cache.insert(path.clone(), ast); self.mod_times.insert(path.clone(), t); self.logged_runtime_errors.remove(&path); self.scopes.clear(); log.push(LogEntry::info(format!("Hot-reloaded: {}", path))); }
-                    Err(e)  => { log.push(LogEntry::error(format!("Reload '{}': {}", path, e))); }
+                    Ok(ast) => {
+                        self.ast_cache.insert(path.clone(), ast);
+                        self.mod_times.insert(path.clone(), t);
+                        // Defect D9: a script disabled by a prior runtime
+                        // error gets one more chance once its source changes —
+                        // it re-enables here rather than staying dead forever.
+                        self.disabled_scripts.remove(&path);
+                        // Defect D8: this used to be `self.scopes.clear()`,
+                        // wiping every entity's persistent `let` state (and
+                        // __timer_* vars) whenever ANY script reloaded — not
+                        // just entities running the script that changed.
+                        // Only those entities need a fresh scope; everyone
+                        // else's state must survive untouched.
+                        let affected: Vec<EntityId> = world.scripts.iter()
+                            .filter(|(_, s)| s.path == path)
+                            .map(|(&id, _)| id)
+                            .collect();
+                        for id in affected { self.scopes.remove(&id); }
+                        log.push(LogEntry::info(format!("Hot-reloaded: {}", path)));
+                    }
+                    Err(e) => { log.push(LogEntry::error(format!("Reload '{}': {}", path, e))); }
                 }
             }
         }
@@ -411,6 +454,23 @@ impl ScriptEngine {
     fn apply_ctx(&mut self, ctx: ScriptCtx, world: &mut World, log: &mut Vec<LogEntry>) -> ScriptUpdateResult {
         let mut state = ctx.inner.borrow_mut();
         let trigger_turn = state.pending_turn; state.pending_turn = false;
+
+        // Spawns are applied first, ahead of every other pending_* queue below:
+        // a script that spawns an entity and immediately calls a setter on the
+        // returned id (e.g. `set_z_order`) needs that entity to already exist
+        // by the time this pass reaches the setter's queue, or the setter
+        // silently no-ops against a nonexistent entity until next frame.
+        for req in state.spawn_queue.drain(..) {
+            world.next_id = req.id + 1; let id = req.id;
+            world.transforms.insert(id, Transform::new(req.x, req.y));
+            world.sprites.insert(id, Sprite::new(req.glyph, req.fg, req.bg, req.z));
+            if !req.tag.is_empty() { world.add_tag(id, Tag::new(&req.tag)); }
+            let mut col = Collider::new(req.w, req.h);
+            col.solid = req.solid;
+            col.layer = req.layer;
+            world.add_collider(id, col);
+        }
+
         for &(id, vx, vy) in &state.pending_velocities { if let Some(tf) = world.transforms.get_mut(&(id as EntityId)) { tf.velocity.x = vx; tf.velocity.y = vy; } }
         for &(id, x, y) in &state.pending_positions { if let Some(tf) = world.transforms.get_mut(&(id as EntityId)) { tf.position.x = x; tf.position.y = y; } }
         for &(id, pid, keep_world) in &state.pending_parents { let parent = if pid < 0 { None } else { Some(pid as EntityId) }; world.set_parent(id as EntityId, parent, keep_world); }
@@ -422,16 +482,10 @@ impl ScriptEngine {
         for (id, w, h) in state.pending_collider_size.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.width = w; col.height = h; } }
         for (id, s) in state.pending_collider_solid.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.solid = s; } }
         for (id, l) in state.pending_collider_layer.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.layer = l; } }
+        for (id, l) in state.pending_collider_locked.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.locked = l; } }
         for (id, m) in state.pending_collider_mask.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.mask = m; } }
         for (id, f, r) in state.pending_animations.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.frames = f; sp.frame_rate = r; sp.frame_timer = 0.0; } }
         for (id, p) in state.pending_textures.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.texture = p; } }
-        for req in state.spawn_queue.drain(..) {
-            world.next_id = req.id + 1; let id = req.id;
-            world.transforms.insert(id, Transform::new(req.x, req.y));
-            world.sprites.insert(id, Sprite::new(req.glyph, Color::White, Color::Reset, 2));
-            if !req.tag.is_empty() { world.add_tag(id, Tag::new(&req.tag)); }
-            world.add_collider(id, Collider::trigger(1.0, 1.0));
-        }
         self.pending_hud_draws.extend(state.pending_hud_draws.drain(..));
         self.pending_sounds.extend(state.pending_sounds.drain(..));
         self.pending_spatial_sounds.extend(state.pending_spatial_sounds.drain(..));
@@ -450,3 +504,9 @@ impl ScriptEngine {
         result
     }
 }
+
+// Tests split into engine_tests.rs — see that file's header comment — once
+// this file crossed the project's 600-line hard limit (CLAUDE.md).
+#[cfg(test)]
+#[path = "engine_tests.rs"]
+mod tests;

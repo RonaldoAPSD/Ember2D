@@ -9,7 +9,7 @@ use ember2d::editor::EditorState;
 use ember2d::editor::start_screen::StartScreen;
 use ember2d::engine::{Engine, Transition};
 use ember2d::level::LevelData;
-use ember2d::project::{ProjectData, VisualStyle};
+use ember2d::project::{GameplayLoop, ProjectData, VisualStyle};
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -25,15 +25,19 @@ fn main() -> io::Result<()> {
         }
 
         if editor_mode {
-            let editor = if path.is_empty() { EditorState::new("") } 
+            let editor = if path.is_empty() { EditorState::new("") }
             else { match EditorState::load(&path) { Ok(e) => e, Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); } } };
             let project_dir = Path::new(&path).parent().unwrap_or(Path::new("."));
+            // The editor has no time model of its own (D6) — only the project's
+            // sprite mode applies here. `gameplay_loop` is captured separately
+            // and only takes effect once the editor actually enters play mode.
+            let mut play_gameplay_loop = GameplayLoop::RealTime;
             if let Ok(proj) = ProjectData::load(&project_dir.to_string_lossy()) {
-                if proj.visual_style == VisualStyle::Sprites2D { engine.renderer.set_sprite_mode(true); } 
+                if proj.visual_style == VisualStyle::Sprites2D { engine.renderer.set_sprite_mode(true); }
                 else { engine.renderer.set_sprite_mode(false); }
-                engine.gameplay_loop = proj.gameplay_loop;
+                play_gameplay_loop = proj.gameplay_loop;
             }
-            run_editor_app(&mut engine, editor)?;
+            run_editor_app(&mut engine, editor, play_gameplay_loop)?;
         } else if !path.is_empty() {
             let data = match LevelData::load(&path) { Ok(d) => d, Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); } };
             let project_dir = Path::new(&path).parent().unwrap_or(Path::new("."));
@@ -49,6 +53,10 @@ fn main() -> io::Result<()> {
     } else {
         loop {
             engine.reset_world();
+            // The start screen is chrome, not gameplay — it always runs
+            // realtime (D6), same as the editor. This also undoes whatever
+            // `run_editor_app` last set while play mode was active.
+            engine.gameplay_loop = GameplayLoop::RealTime;
             engine.push_state(Box::new(StartScreen::new()));
 
             match engine.run()? {
@@ -56,12 +64,13 @@ fn main() -> io::Result<()> {
                     engine.pop_state(); // Pop start screen
                     if let Ok(editor) = EditorState::new_from_result(res) {
                         let folder = editor.project_folder.clone().unwrap_or_else(|| ".".to_string());
+                        let mut play_gameplay_loop = GameplayLoop::RealTime;
                         if let Ok(proj) = ProjectData::load(&folder) {
-                            if proj.visual_style == VisualStyle::Sprites2D { engine.renderer.set_sprite_mode(true); } 
+                            if proj.visual_style == VisualStyle::Sprites2D { engine.renderer.set_sprite_mode(true); }
                             else { engine.renderer.set_sprite_mode(false); }
-                            engine.gameplay_loop = proj.gameplay_loop;
+                            play_gameplay_loop = proj.gameplay_loop;
                         }
-                        if !run_editor_app(&mut engine, editor)? { break; } // Quit from editor
+                        if !run_editor_app(&mut engine, editor, play_gameplay_loop)? { break; } // Quit from editor
                     }
                 }
                 Some(Transition::Quit) | None => break,
