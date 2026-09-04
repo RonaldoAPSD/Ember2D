@@ -6,16 +6,16 @@ Ember2D is a 2D/ASCII game engine and editor in Rust. GPU rendering via `wgpu` w
 `winit` windowing, `font8x8` glyph atlas, `rhai` scripting, `kira` audio, `gilrs` gamepad.
 
 **Current version:** 0.5.0
-**Status:** mid-refactor — read `docs/refactor-plan.md` before writing code.
+**Status:** mid-refactor — read `docs/ember2d-refactor-plan.md` before writing code.
 
 ## Documentation — read before starting work
 
 | Document | Purpose |
 |---|---|
-| `docs/refactor-plan.md` | Phases, architecture decisions, known defects (§3). **Read the phase you're working on before writing any code.** |
-| `docs/scripting-api.md` | The Rhai API. This is the engine's real public contract — treat breaking it like breaking the level format. |
-| `docs/regression.md` | Manual test checklist. Run before declaring a phase done. There are no automated tests until Phase 5. |
-| `docs/archive/roadmap-v0.6.md` | Superseded, kept for detail behind the V0.5.x/V0.6 editor items. |
+| `docs/ember2d-refactor-plan.md` | Phases, architecture decisions, known defects (§3). **Read the phase you're working on before writing any code.** |
+| `docs/ember2d-scripting-api.md` | The Rhai API. This is the engine's real public contract — treat breaking it like breaking the level format. |
+| `docs/ember2d-regression-checklist.md` | Manual test checklist. Run before declaring a phase done. There are no automated tests until Phase 5. |
+| `docs/archive/roadmaptoV0.6.md` | Superseded, kept for detail behind the V0.5.x/V0.6 editor items. |
 
 ## Build & Run
 
@@ -29,7 +29,10 @@ cargo run -- --editor <path/to/level.level>    # Open a level in the editor
 
 - **ECS-ish world** — `src/world.rs`: entities are `u64`, components in `HashMap`s under `src/components/`. Supports parenting via `Transform.parent`.
 - **Renderer** — `src/renderer/`: `wgpu` instanced quads, batching by texture, font atlas built at startup. `RenderBackend` trait with `WgpuBackend`.
-  **Note:** the public draw API is still cell-based (`draw_char(x, y)` in cells). World-space rendering and a real camera arrive in Phase 2.
+  Phase 2 added `src/camera.rs` (`Camera`: world<->screen, zoom, viewport origin) and world-space entry points
+  (`Renderer::draw_char_world`/`draw_texture_world`), plus a `DrawList` sorted by `(space, z, texture)` for batching.
+  `draw_char(x, y)` (cells) still works unchanged — the editor, HUD chrome, and node graph stay screen-space only
+  until Phase 7.
 - **Engine loop** — `src/engine.rs`: `winit` via `pump_events`, fixed-timestep accumulator, state stack (push/pop/pause/resume).
 - **Level format** — RON via `serde`/`ron`, `.level` files. No version field yet (added in Phase 3).
 - **Scripting** — `src/scripting/`: ~95 registered functions. Deferred mutation queue.
@@ -78,11 +81,16 @@ The simulation must be reproducible — replay, save/load, and 2-player netcode 
 
 - **No `HashMap` iteration in simulation code.** Order varies between processes and will desync two machines. Use `BTreeMap` or collect-and-sort by `EntityId`.
 - **No ambient randomness or wall-clock time in game logic.** RNG is world-owned and seeded.
-- **Avoid `sin`/`cos`/`atan2`/`exp`/`powf` in the sim** — platform libm differs. See `docs/refactor-plan.md` §5.2.
+- **Avoid `sin`/`cos`/`atan2`/`exp`/`powf` in the sim** — platform libm differs. See `docs/ember2d-refactor-plan.md` §5.2.
 
 ## Current State
 
-Branch `gemini` is trunk at v0.5.0. `main` is stale at v0.3.4.
+`main` is trunk at v0.5.0 (`gemini` was merged in before this refactor started). Refactor work
+happens on the `claude` branch. Phases 0–2 are done: demo content recovered, the D1–D14 defect
+sweep closed except D7/D11 (deferred to Phases 5/6 by design), and Phase 2's world-space camera
+landed. Phase 3 (sprite/asset model) is next.
 
-Known defects are catalogued in `docs/refactor-plan.md` §3 (D1–D14) and mirrored in
-`docs/regression.md` §14 — check there before assuming something is a new regression.
+Known defects are catalogued in `docs/ember2d-refactor-plan.md` §3 (D1–D14) and mirrored in
+`docs/ember2d-regression-checklist.md` §14 — check there before assuming something is a new
+regression, but note most are already fixed as of the `claude` branch; the plan doc doesn't
+track per-defect status itself, so verify against the actual code/tests if in doubt.
