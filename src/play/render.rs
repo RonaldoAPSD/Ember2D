@@ -47,10 +47,6 @@ pub struct DrawCommand<'w> {
     pub source: &'w SpriteSource,
     pub tint: Color,
     pub size: Option<Vec2>,
-    /// Legacy glyph-cycling override — see `Sprite::frames`'s doc comment.
-    pub frames: &'w [char],
-    pub frame_rate: f32,
-    pub frame_timer: f32,
 }
 
 /// The texture path a command should batch by, or `None` for anything that
@@ -80,7 +76,6 @@ impl<'w> DrawList<'w> {
                 Some(DrawCommand {
                     space: Space::World, z: sp.layer, id, world_pos: pos,
                     source: &sp.source, tint: sp.tint, size: sp.size,
-                    frames: &sp.frames, frame_rate: sp.frame_rate, frame_timer: sp.frame_timer,
                 })
             })
         }).collect();

@@ -5,6 +5,15 @@ use crate::renderer::color::Color;
 use crate::world::EntityId;
 use crate::input::{InputManager, Key};
 
+/// The scripting API's breaking-change generation, returned by
+/// `ctx.api_version()`. See `docs/ember2d-scripting-api.md` §6's changelog
+/// table: v1 is the pre-refactor baseline; v2 is Phase 2 (mouse-world-coord
+/// HUD-row fudge removed, camera zoom added); v3 is this batch of Phase 3
+/// breaking renames (`set_color`→`set_tint`, `set_z_order`→
+/// `set_layer_order`, `set_animation` removed in favor of the clip API).
+/// Bump this alongside the next "Yes" row in that table.
+pub const API_VERSION: i64 = 3;
+
 // ── Console log types (used by editor console panel) ─────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
@@ -59,7 +68,7 @@ pub(super) struct SpawnRequest {
     /// for. `spawn_entity`'s default overload still fills in these exact
     /// same values, so existing scripts see no behavior change; the new
     /// extended overload lets a script set them at spawn time instead of
-    /// having to `set_color`/`set_z_order`/etc. the id on some later frame.
+    /// having to `set_tint`/`set_layer_order`/etc. the id on some later frame.
     pub fg:    Color,
     pub bg:    Color,
     pub z:     i32,
@@ -80,8 +89,28 @@ pub struct ParticleRequest {
 
 // ── Color name ↔ Color enum ───────────────────────────────────────────────────
 
+/// Step 3e: `parse_color` now also reads explicit `"#RRGGBB"` hex values —
+/// `color_to_name` already emits that exact format for `Color::Rgb`, so a
+/// value round-tripped out through `get_color`/etc. and back in through
+/// `set_tint`/etc. survives unchanged. Purely additive: every existing
+/// named-color script keeps working exactly as before.
 pub fn parse_color(name: &str) -> Color {
-    match name.trim() {
+    let trimmed = name.trim();
+    if let Some(hex) = trimmed.strip_prefix('#') {
+        if hex.len() == 6 {
+            if let (Ok(r), Ok(g), Ok(b)) = (
+                u8::from_str_radix(&hex[0..2], 16),
+                u8::from_str_radix(&hex[2..4], 16),
+                u8::from_str_radix(&hex[4..6], 16),
+            ) {
+                return Color::Rgb(r, g, b);
+            }
+        }
+        eprintln!("[script] malformed hex color '{}', defaulting to Reset", trimmed);
+        return Color::Reset;
+    }
+
+    match trimmed {
         "Black"       => Color::Black,
         "DarkRed"     => Color::DarkRed,
         "DarkGreen"   => Color::DarkGreen,
@@ -100,7 +129,7 @@ pub fn parse_color(name: &str) -> Color {
         "White"       => Color::White,
         "Reset"       => Color::Reset,
         _ => {
-            eprintln!("[script] unknown color '{}', defaulting to Reset", name.trim());
+            eprintln!("[script] unknown color '{}', defaulting to Reset", trimmed);
             Color::Reset
         }
     }
@@ -182,5 +211,33 @@ mod tests {
         assert!(held.contains("w"), "held set should use lowercase key names");
         assert!(just_pressed.contains("enter"), "just_pressed set should use lowercase key names");
         assert!(!held.contains("W") && !just_pressed.contains("Enter"), "no capitalized names should leak through");
+    }
+
+    // ── Tests: Step 3e hex color support (ember2d-scripting-api.md §3) ─────────
+
+    #[test]
+    fn parse_color_still_reads_every_named_color_unchanged() {
+        assert_eq!(parse_color("Red"), Color::Red);
+        assert_eq!(parse_color("Reset"), Color::Reset);
+        assert_eq!(parse_color("DarkGray"), Color::DarkGrey, "the Gray/Grey American-spelling alias must still work");
+    }
+
+    #[test]
+    fn parse_color_reads_explicit_hex_values() {
+        assert_eq!(parse_color("#FF8000"), Color::Rgb(0xFF, 0x80, 0x00));
+        assert_eq!(parse_color("#00ff00"), Color::Rgb(0, 255, 0), "hex digits should be case-insensitive");
+        assert_eq!(parse_color("  #112233  "), Color::Rgb(0x11, 0x22, 0x33), "surrounding whitespace must still be trimmed");
+    }
+
+    #[test]
+    fn parse_color_round_trips_through_color_to_name() {
+        let original = Color::Rgb(0x4A, 0x90, 0xE2);
+        assert_eq!(parse_color(&color_to_name(original)), original, "a tint read back out via get_color/color_to_name and back in via set_tint must survive unchanged");
+    }
+
+    #[test]
+    fn parse_color_falls_back_to_reset_on_malformed_hex() {
+        assert_eq!(parse_color("#ZZZZZZ"), Color::Reset);
+        assert_eq!(parse_color("#FFF"), Color::Reset, "only 6-digit RRGGBB is accepted, not the 3-digit shorthand");
     }
 }

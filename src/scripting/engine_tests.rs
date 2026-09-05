@@ -222,12 +222,53 @@ fn a_script_can_configure_the_entity_it_just_spawned_in_the_same_frame() {
     let (world, _log) = run_source("same_frame_setter", r#"
         fn on_update(id, ctx) {
             let e = ctx.spawn_entity("Z", 0.0, 0.0, "thing");
-            ctx.set_z_order(e, 42);
+            ctx.set_layer_order(e, 42);
         }
     "#);
 
     let spawned = world.find_by_tag("thing").expect("spawned entity should exist");
     assert_eq!(world.sprites.get(&spawned).unwrap().layer, 42, "a setter called on the same frame as spawn_entity must not be dropped");
+}
+
+// ── Tests: Step 3e API renames (ember2d-refactor-plan.md Phase 3) ──────────────
+
+#[test]
+fn set_tint_writes_the_same_fields_the_removed_set_color_used_to() {
+    let (world, _log) = run_source("set_tint", r#"
+        fn on_update(id, ctx) {
+            let e = ctx.spawn_entity("Q", 0.0, 0.0, "thing");
+            ctx.set_tint(e, "Cyan", "DarkBlue");
+        }
+    "#);
+
+    let spawned = world.find_by_tag("thing").expect("spawned entity should exist");
+    let sp = world.sprites.get(&spawned).unwrap();
+    let (_, bg) = glyph_and_bg(sp);
+    assert_eq!(sp.tint, Color::Cyan);
+    assert_eq!(bg, Color::DarkBlue);
+}
+
+#[test]
+fn set_tint_accepts_an_explicit_hex_value() {
+    let (world, _log) = run_source("set_tint_hex", r##"
+        fn on_update(id, ctx) {
+            let e = ctx.spawn_entity("Q", 0.0, 0.0, "thing");
+            ctx.set_tint(e, "#4A90E2", "Reset");
+        }
+    "##);
+
+    let spawned = world.find_by_tag("thing").expect("spawned entity should exist");
+    assert_eq!(world.sprites.get(&spawned).unwrap().tint, Color::Rgb(0x4A, 0x90, 0xE2));
+}
+
+#[test]
+fn api_version_reports_the_current_breaking_change_generation() {
+    let (_world, log) = run_source("api_version", r#"
+        fn on_update(id, ctx) { ctx.log(ctx.api_version().to_string()); }
+    "#);
+
+    let msg = log.iter().find(|e| e.level == LogLevel::Info).expect("api_version() should be loggable like any other return value");
+    assert_eq!(msg.text, API_VERSION.to_string());
 }
 
 // ── Tests: Step 3c named animation clips (ember2d-refactor-plan.md Phase 3) ────

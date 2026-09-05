@@ -35,8 +35,8 @@ pub enum SpriteSource {
     Texture { path: String, src: Option<Rect> },
 
     /// A named, script-registered animation clip (Step 3c —
-    /// `ctx.register_clip`). Not constructible yet: nothing produces this
-    /// variant until that step exists to give it meaning.
+    /// `ctx.register_clip` + `ctx.play_clip`/`play_clip_once`, which is what
+    /// actually constructs this variant on an existing sprite).
     Clip { name: String },
 }
 
@@ -60,16 +60,6 @@ pub struct Sprite {
 
     /// When false, this entity is not drawn.
     pub visible: bool,
-
-    /// Legacy glyph-cycling animation override — if not empty, the glyph
-    /// this cycles through replaces whatever `SpriteSource::Glyph::ch`
-    /// would otherwise show. Migrates into Step 3c's `AnimationClip` +
-    /// `Animator`; kept here only until that step lands, so static
-    /// entities (most of a tilemap) can go back to carrying zero
-    /// animation state once it does.
-    pub frames: Vec<char>,
-    pub frame_rate: f32,
-    pub frame_timer: f32,
 }
 
 impl Sprite {
@@ -81,9 +71,6 @@ impl Sprite {
             size: None,
             layer,
             visible: true,
-            frames: Vec::new(),
-            frame_rate: 0.1,
-            frame_timer: 0.0,
         }
     }
 
@@ -95,9 +82,6 @@ impl Sprite {
             size: None,
             layer,
             visible: true,
-            frames: Vec::new(),
-            frame_rate: 0.1,
-            frame_timer: 0.0,
         }
     }
 
@@ -116,13 +100,6 @@ impl Sprite {
     /// Shorthand: glyph + foreground color, transparent background, layer 0.
     pub fn simple(glyph: char, fg: Color) -> Self {
         Sprite::glyph(glyph, fg, Color::Reset, 0)
-    }
-
-    /// Add legacy glyph-cycling animation frames to this sprite.
-    pub fn with_animation(mut self, frames: Vec<char>, rate: f32) -> Self {
-        self.frames = frames;
-        self.frame_rate = rate;
-        self
     }
 
     /// Set the draw layer using the builder pattern.

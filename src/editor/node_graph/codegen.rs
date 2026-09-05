@@ -171,7 +171,7 @@ fn gen_node_stmt(
             if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
         }
         NodeKind::SetZOrder => {
-            out += &format!("{}ctx.set_z_order(id, {});\n", ind, resolve!(0));
+            out += &format!("{}ctx.set_layer_order(id, {});\n", ind, resolve!(0));
             if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
         }
         NodeKind::CancelTimer { name } => {
@@ -187,7 +187,7 @@ fn gen_node_stmt(
             if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
         }
         NodeKind::SetColor => {
-            out += &format!("{}ctx.set_color(id, {}, {});\n", ind, resolve!(0), resolve!(1));
+            out += &format!("{}ctx.set_tint(id, {}, {});\n", ind, resolve!(0), resolve!(1));
             if let Some(&p) = exec_outs.first() { out += &gen_exec_chain(graph, node.id, p, depth, tmp, spawn_vars); }
         }
         NodeKind::DrawBox => {

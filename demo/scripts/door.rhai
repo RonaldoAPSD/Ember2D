@@ -10,9 +10,9 @@ fn on_update(id, ctx) {
 
         // Highlight effect when unlocked
         if (ctx.get_elapsed() * 4.0) % 2.0 < 1.0 {
-            ctx.set_color(id, "Yellow", "Reset");
+            ctx.set_tint(id, "Yellow", "Reset");
         } else {
-            ctx.set_color(id, "White", "Reset");
+            ctx.set_tint(id, "White", "Reset");
         }
     }
 }

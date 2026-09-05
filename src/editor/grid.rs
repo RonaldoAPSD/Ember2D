@@ -183,6 +183,7 @@ impl LevelGrid {
     /// but the renderer in play mode sorts by z_order before drawing anyway.
     pub fn to_level_data(&self) -> LevelData {
         LevelData {
+            version:      crate::level::LEVEL_FORMAT_VERSION,
             name:         self.name.clone(),
             width:        self.width,
             height:       self.height,

@@ -191,8 +191,8 @@
         <p>Returns the entity's foreground and background color names as strings.</p>
     </div>
     <div class="method">
-        <span class="method-name">set_color(id, fg, bg)</span>
-        <p>Sets the foreground and background color. Use color name strings (see <a href="#reference">Reference</a>).</p>
+        <span class="method-name">set_tint(id, fg, bg)</span> <span class="tag">V0.5.1</span>
+        <p>Sets the foreground and background color. Use color name strings, or an explicit <code>"#RRGGBB"</code> hex value (see <a href="#reference">Reference</a>). Renamed from <code>set_color</code> in v0.5.1.</p>
     </div>
     <div class="method">
         <span class="method-name">get_texture(id)</span><span class="ret">→ string</span> <span class="tag">V0.4.9</span>
@@ -203,8 +203,9 @@
         <p>Assigns an image texture for 2D sprite mode. Pass an empty string to clear it and revert to glyph rendering.</p>
     </div>
     <div class="method">
-        <span class="method-name">set_animation(id, frames, rate)</span>
-        <p>Sets an ASCII animation. <code>frames</code> is a string of characters (e.g. <code>"~-~"</code>), <code>rate</code> is frames per second.</p>
+        <span class="method-name">register_clip(name, frames, fps, looping)</span> &nbsp;/&nbsp;
+        <span class="method-name">play_clip(id, name)</span> <span class="tag">V0.5.1</span>
+        <p>Defines a named, reusable ASCII animation clip and plays it on an entity. <code>frames</code> is a string of characters (e.g. <code>"~-~"</code>). Replaces the removed <code>set_animation(id, frames, rate)</code>; see also <code>play_clip_once</code>, <code>stop_clip</code>, <code>set_clip_speed</code>, <code>get_frame</code>/<code>set_frame</code>, and <code>clip_finished(id)</code>.</p>
     </div>
     <div class="method">
         <span class="method-name">is_visible(id)</span><span class="ret">→ bool</span> &nbsp;/&nbsp;
@@ -212,9 +213,9 @@
         <p>Gets or sets whether an entity is rendered. Invisible entities still receive script updates.</p>
     </div>
     <div class="method">
-        <span class="method-name">get_z_order(id)</span><span class="ret">→ int</span> &nbsp;/&nbsp;
-        <span class="method-name">set_z_order(id, z)</span>
-        <p>Gets or sets the rendering sort order. Higher values render on top. Default is <code>0</code>.</p>
+        <span class="method-name">get_layer_order(id)</span><span class="ret">→ int</span> &nbsp;/&nbsp;
+        <span class="method-name">set_layer_order(id, z)</span> <span class="tag">V0.5.1</span>
+        <p>Gets or sets the rendering sort order. Higher values render on top. Default is <code>0</code>. Renamed from <code>get_z_order</code>/<code>set_z_order</code> in v0.5.1.</p>
     </div>
 
     <!-- ── TAGS ───────────────────────────────────────────────────────────── -->

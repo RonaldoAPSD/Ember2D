@@ -66,11 +66,11 @@ impl ScriptCtx {
     pub fn set_glyph(&mut self, id: i64, glyph_str: String) {
         if let Some(ch) = glyph_str.chars().next() { self.inner.borrow_mut().pending_glyphs.push((id, ch)); }
     }
-    pub fn set_color(&mut self, id: i64, fg: String, bg: String) { self.inner.borrow_mut().pending_colors.push((id, fg, bg)); }
-    pub fn set_animation(&mut self, id: i64, frames_str: String, rate: f64) {
-        let frames: Vec<char> = frames_str.chars().collect();
-        self.inner.borrow_mut().pending_animations.push((id, frames, rate as f32));
-    }
+    /// Step 3e: was `set_color`. Still takes color names (`"Red"`) or, since
+    /// `parse_color` now also reads them, explicit `"#RRGGBB"` hex values —
+    /// `color_to_name` already emits that format for `Color::Rgb`, so this
+    /// is a read-side addition, not a new wire format.
+    pub fn set_tint(&mut self, id: i64, fg: String, bg: String) { self.inner.borrow_mut().pending_colors.push((id, fg, bg)); }
 
     pub fn set_texture(&mut self, id: i64, path: String) {
         let p = if path.is_empty() { None } else { Some(path) };
@@ -94,7 +94,7 @@ impl ScriptCtx {
 
     /// Spawn an entity with full control over appearance and collider
     /// (defect D10 — `spawn_entity` used to hardcode all of this).
-    /// `fg`/`bg` are color names as in `set_color`; `z` is draw order;
+    /// `fg`/`bg` are color names as in `set_tint`; `z` is draw order;
     /// `solid` marks a physical obstacle rather than a trigger; `w`/`h` are
     /// the collider size; `layer` is the collision layer (empty = unlabeled,
     /// matching the trigger-layer default from defect D4).
@@ -222,8 +222,10 @@ impl ScriptCtx {
     pub fn set_collider_solid(&mut self, id: i64, solid: bool) { self.inner.borrow_mut().pending_collider_solid.push((id, solid)); }
     pub fn is_visible(&mut self, id: i64) -> bool { self.inner.borrow_mut().visibility.get(&id).copied().unwrap_or(false) }
     pub fn set_visible(&mut self, id: i64, visible: bool) { self.inner.borrow_mut().pending_visibility.push((id, visible)); }
-    pub fn get_z_order(&mut self, id: i64) -> i64 { self.inner.borrow_mut().z_orders.get(&id).copied().unwrap_or(0) as i64 }
-    pub fn set_z_order(&mut self, id: i64, z: i64) { self.inner.borrow_mut().pending_z_order.push((id, z as i32)); }
+    /// Step 3e: was `get_z_order`/`set_z_order` — renamed to match `Sprite`'s
+    /// own field, `layer` (itself renamed from `z_order` in Step 3b).
+    pub fn get_layer_order(&mut self, id: i64) -> i64 { self.inner.borrow_mut().z_orders.get(&id).copied().unwrap_or(0) as i64 }
+    pub fn set_layer_order(&mut self, id: i64, z: i64) { self.inner.borrow_mut().pending_z_order.push((id, z as i32)); }
 
     // 5. Mouse Input
     pub fn get_mouse_x(&mut self) -> f64 { self.inner.borrow_mut().mouse_pos.0 as f64 }
@@ -537,4 +539,12 @@ impl ScriptCtx {
     /// True for exactly the frame a non-looping (or `play_clip_once`)
     /// playback reaches its last frame — see `Animator::just_finished`.
     pub fn clip_finished(&mut self, id: i64) -> bool { self.inner.borrow_mut().clip_finished.contains(&id) }
+
+    // ── Phase 3 Step 3e: API version ─────────────────────────────────────────
+
+    /// The scripting API's breaking-change generation — see
+    /// `docs/ember2d-scripting-api.md` §6's changelog table. Bumped whenever
+    /// a "Yes" lands there; a script (or its author, mid-migration) can
+    /// branch on this instead of guessing from engine version numbers.
+    pub fn api_version(&mut self) -> i64 { API_VERSION }
 }

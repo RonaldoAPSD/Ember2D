@@ -24,7 +24,7 @@ use rand::rngs::SmallRng;
 
 // ── Path resolution ───────────────────────────────────────────────────────────
 
-fn resolve_exit_path(next: &str, current_level_path: &str) -> String {
+pub(crate) fn resolve_exit_path(next: &str, current_level_path: &str) -> String {
     if Path::new(next).is_absolute() || current_level_path.is_empty() {
         return next.to_string();
     }
@@ -359,8 +359,6 @@ impl GameState for PlayState {
             }
         }
 
-        for sprite in world.sprites.values_mut() { if !sprite.frames.is_empty() { sprite.frame_timer += delta_time; } }
-
         // Advance every Animator before scripts run this frame, so
         // `clip_finished(id)` reflects this tick, not last frame's — an
         // entity whose clip has no matching registration (renamed,
@@ -481,12 +479,7 @@ impl GameState for PlayState {
 
             match cmd.source {
                 SpriteSource::Glyph { ch, bg } => {
-                    // Legacy animation override (Step 3c migrates this into
-                    // AnimationClip/Animator) — if present, it replaces
-                    // whichever glyph the source would otherwise show.
-                    let glyph = if cmd.frames.is_empty() { *ch }
-                    else { let idx = (cmd.frame_timer / cmd.frame_rate) as usize % cmd.frames.len(); cmd.frames[idx] };
-                    renderer.draw_char_world(&render_camera, cmd.world_pos, glyph, cmd.tint, *bg);
+                    renderer.draw_char_world(&render_camera, cmd.world_pos, *ch, cmd.tint, *bg);
                 }
                 SpriteSource::Texture { path, src } => {
                     let id = assets.load(path);

@@ -72,8 +72,7 @@ impl ScriptEngine {
         engine.register_fn("set_velocity",    ScriptCtx::set_velocity);
         engine.register_fn("set_position",    ScriptCtx::set_position);
         engine.register_fn("set_glyph",       ScriptCtx::set_glyph);
-        engine.register_fn("set_color",       ScriptCtx::set_color);
-        engine.register_fn("set_animation",   ScriptCtx::set_animation);
+        engine.register_fn("set_tint",        ScriptCtx::set_tint);
         engine.register_fn("set_texture",     ScriptCtx::set_texture);
         engine.register_fn("trigger_turn",    ScriptCtx::trigger_turn);
         engine.register_fn("despawn",         ScriptCtx::despawn);
@@ -111,8 +110,8 @@ impl ScriptEngine {
         engine.register_fn("set_collider_solid", ScriptCtx::set_collider_solid);
         engine.register_fn("is_visible",      ScriptCtx::is_visible);
         engine.register_fn("set_visible",     ScriptCtx::set_visible);
-        engine.register_fn("get_z_order",     ScriptCtx::get_z_order);
-        engine.register_fn("set_z_order",     ScriptCtx::set_z_order);
+        engine.register_fn("get_layer_order", ScriptCtx::get_layer_order);
+        engine.register_fn("set_layer_order", ScriptCtx::set_layer_order);
         engine.register_fn("get_mouse_x",     ScriptCtx::get_mouse_x);
         engine.register_fn("get_mouse_y",     ScriptCtx::get_mouse_y);
         engine.register_fn("mouse_left_pressed", ScriptCtx::mouse_left_pressed);
@@ -168,6 +167,10 @@ impl ScriptEngine {
         engine.register_fn("get_frame",       ScriptCtx::get_frame);
         engine.register_fn("set_frame",       ScriptCtx::set_frame);
         engine.register_fn("clip_finished",   ScriptCtx::clip_finished);
+
+        // Phase 3 Step 3e: lets a script (or its author) detect which
+        // breaking-change generation of the API it's running against.
+        engine.register_fn("api_version",     ScriptCtx::api_version);
 
         use rand::SeedableRng;
         ScriptEngine {
@@ -325,7 +328,7 @@ impl ScriptEngine {
 
         // Spawns are applied first, ahead of every other pending_* queue below:
         // a script that spawns an entity and immediately calls a setter on the
-        // returned id (e.g. `set_z_order`) needs that entity to already exist
+        // returned id (e.g. `set_layer_order`) needs that entity to already exist
         // by the time this pass reaches the setter's queue, or the setter
         // silently no-ops against a nonexistent entity until next frame.
         for req in state.spawn_queue.drain(..) {
@@ -364,7 +367,6 @@ impl ScriptEngine {
         for (id, l) in state.pending_collider_layer.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.layer = l; } }
         for (id, l) in state.pending_collider_locked.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.locked = l; } }
         for (id, m) in state.pending_collider_mask.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.mask = m; } }
-        for (id, f, r) in state.pending_animations.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.frames = f; sp.frame_rate = r; sp.frame_timer = 0.0; } }
         // Clearing (set_texture(id, "") -> None here) has no defined
         // behavior under the SpriteSource model — there's no stored
         // "previous glyph" to revert to, so it's a no-op. Nothing in the

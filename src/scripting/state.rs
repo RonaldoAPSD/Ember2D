@@ -63,7 +63,6 @@ pub(super) struct ScriptState {
     pub(super) pending_parents:    Vec<(i64, i64, bool)>,
     pub(super) pending_glyphs:     Vec<(i64, char)>,
     pub(super) pending_colors:     Vec<(i64, String, String)>,
-    pub(super) pending_animations: Vec<(i64, Vec<char>, f32)>,
     pub(super) pending_textures:   Vec<(i64, Option<String>)>,
     pub(super) pending_hud_draws:  Vec<HudDraw>,
     pub(super) pending_particles:  Vec<ParticleRequest>,
@@ -139,9 +138,7 @@ impl ScriptState {
                 // draw_texture already ignored background entirely.
                 let bg = match &sp.source {
                     SpriteSource::Glyph { ch, bg } => {
-                        let glyph = if sp.frames.is_empty() { *ch }
-                        else { let idx = (sp.frame_timer / sp.frame_rate) as usize % sp.frames.len(); sp.frames[idx] };
-                        glyphs.insert(eid, glyph);
+                        glyphs.insert(eid, *ch);
                         *bg
                     }
                     SpriteSource::Texture { path, .. } => {
@@ -194,7 +191,7 @@ impl ScriptState {
             gamepad_held, gamepad_pressed, gamepad_axes,
             globals, clips, animator_frames, clip_finished, persistent, camera_pos: (camera_pos.x, camera_pos.y), viewport_size,
             pending_velocities: Vec::new(), pending_positions: Vec::new(), pending_parents: Vec::new(),
-            pending_glyphs: Vec::new(), pending_colors: Vec::new(), pending_animations: Vec::new(), pending_textures: Vec::new(),
+            pending_glyphs: Vec::new(), pending_colors: Vec::new(), pending_textures: Vec::new(),
             pending_hud_draws: Vec::new(), pending_particles: Vec::new(), clear_hud: false, despawn_queue: Vec::new(),
             spawn_queue: Vec::new(), pending_level: None, pending_save: None, pending_load: None, pending_logs: Vec::new(),
             pending_sounds: Vec::new(), pending_spatial_sounds: Vec::new(),

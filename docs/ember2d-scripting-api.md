@@ -50,9 +50,14 @@ Everything below is registered and callable today.
 `get_tag(id)` · `set_tag(id,tag)` · `has_tag(id,name)` · `find_by_tag(name)` → id or -1 · `find_all_by_tag(name)` → array · `count_by_tag(name)` · `entity_exists(id)`
 
 ### Appearance
-`get_glyph(id)` · `set_glyph(id,"X")` · `get_color(id)` → `[fg,bg]` · `set_color(id,fg,bg)` · `get_texture(id)` · `set_texture(id,path)` · `set_animation(id,"abc",rate)` · `is_visible(id)` · `set_visible(id,bool)` · `get_z_order(id)` · `set_z_order(id,z)`
+`get_glyph(id)` · `set_glyph(id,"X")` · `get_color(id)` → `[fg,bg]` · `set_tint(id,fg,bg)` · `get_texture(id)` · `set_texture(id,path)` · `is_visible(id)` · `set_visible(id,bool)` · `get_layer_order(id)` · `set_layer_order(id,z)`
 
-Colours are **name strings** (`"Red"`, `"Reset"`). Unknown names silently become `Reset`.
+Colours are **name strings** (`"Red"`, `"Reset"`) or an explicit `"#RRGGBB"` hex value (Step 3e). Unknown names silently become `Reset`.
+
+### Animation clips
+`register_clip(name,"abc",fps,looping)` defines (or redefines) a named clip from a string of glyphs. `play_clip(id,name)` plays it respecting the clip's own `looping` flag; `play_clip_once(id,name)` plays it but always stops on the last frame. `stop_clip(id)` · `set_clip_speed(id,x)` · `get_frame(id)` → int · `set_frame(id,n)` · `clip_finished(id)` → bool, true for exactly the tick a non-looping run reaches its last frame.
+
+> Replaces `set_animation(id,"abc",rate)`, removed in Step 3e — a clip is named and shared, not a bag of fields re-set every call.
 
 ### Entity lifecycle
 `spawn_entity(glyph,x,y,tag)` → id · `despawn(id)`
@@ -121,7 +126,7 @@ Screen space, in cells. Cleared each frame.
 `emit_particles(x,y,glyph,fg)` · `play_sound(path)` · `play_sound_at(path,x,y)` (volume falls off to 20 units) · `play_music(path)` · `stop_music()`
 
 ### Flow
-`load_level(path)` · `save_game(path)` · `load_game(path)` · `trigger_turn()` · `log(msg)` · `get_delta()` · `get_elapsed()` · `get_spawn_point(name)` → `[x,y]` or `[]` · `get_viewport_width()` · `get_viewport_height()`
+`load_level(path)` · `save_game(path)` · `load_game(path)` · `trigger_turn()` · `log(msg)` · `get_delta()` · `get_elapsed()` · `get_spawn_point(name)` → `[x,y]` or `[]` · `get_viewport_width()` · `get_viewport_height()` · `api_version()` → int, this API's breaking-change generation (see §6)
 
 ---
 
@@ -139,7 +144,7 @@ fn on_update(id, ctx) {
     if hit.is_empty() {
         let a = ctx.get_angle_to(id, player);
         ctx.set_velocity(id, a.cos() * 4.0, a.sin() * 4.0);
-        ctx.set_color(id, "Red", "Reset");
+        ctx.set_tint(id, "Red", "Reset");
     } else {
         let path = ctx.get_path(ctx.get_x(id), ctx.get_y(id),
                                 ctx.get_x(player), ctx.get_y(player), ["solid"]);
@@ -148,7 +153,7 @@ fn on_update(id, ctx) {
             ctx.set_velocity(id, (step[0] - ctx.get_x(id)) * 4.0,
                                  (step[1] - ctx.get_y(id)) * 4.0);
         }
-        ctx.set_color(id, "Yellow", "Reset");
+        ctx.set_tint(id, "Yellow", "Reset");
     }
 }
 ```
@@ -194,14 +199,17 @@ fn on_update(id, ctx) {
 | 5 | Scripts emit `Command` values; turn functions replace `trigger_turn` | Yes |
 | 6 | Collision layers become a bitmask, not `String` | Yes |
 
-Add `api_version()` in Phase 1 and bump it at every "yes" above.
+`api_version()` was added in Step 3e (deferred from the original Phase 1 plan) —
+it currently returns `3`: `1` was the pre-refactor baseline, `2` covers Phase 2's
+breaking row above, `3` covers this batch of Phase 3 breaking rows
+(`set_color`/`set_z_order`/`set_animation`). Bump it at every future "yes" above.
 
 ---
 
 ## 7. Planned additions
 
 **Phase 3 — sprites and animation**
-`play_clip(id,name)` · `play_clip_once(id,name)` · `stop_clip(id)` · `set_clip_speed(id,x)` · `get_frame(id)` · `set_frame(id,n)` · `clip_finished(id)` · `set_size(id,w,h)` · `set_rotation(id,rad)` · `set_src_rect(id,x,y,w,h)`
+The clip API (`register_clip`/`play_clip`/`play_clip_once`/`stop_clip`/`set_clip_speed`/`get_frame`/`set_frame`/`clip_finished`) shipped in Step 3c and is documented under §3 "Animation clips" — it's live, not planned. Still outstanding: `set_size(id,w,h)` · `set_rotation(id,rad)` · `set_src_rect(id,x,y,w,h)`.
 
 Clips referenced **by name**, never by atlas coordinates — that's what keeps levels intact when art changes.
 

@@ -1,16 +1,21 @@
 // editor/impl_state.rs — Implementation of non-update/render methods for EditorState.
 
 use std::collections::VecDeque;
+use std::path::Path;
 use crate::engine::Transition;
+use crate::level::LevelData;
+use crate::play::resolve_exit_path;
 use crate::scripting::LogEntry;
 use super::EditorState;
 use super::commands::Command;
+use super::node_graph;
 use super::ui::{ToolKind, ToolbarAction, transform_offset, bresenham};
 use super::panel::PanelId;
 
 impl EditorState {
     pub(super) fn save(&mut self) {
-        let data = self.grid.to_level_data();
+        let mut data = self.grid.to_level_data();
+        self.migrate_graph_sidecars(&mut data);
         match data.save(&self.save_path) {
             Ok(()) => {
                 self.unsaved            = false;
@@ -23,6 +28,49 @@ impl EditorState {
             }
         }
         self.save_palette();
+    }
+
+    /// Level format v2 (Step 3d): for each tile carrying a live node-graph
+    /// (editor-authoring state — see `TileRecord::graph`'s doc comment),
+    /// generate its Rhai source, combine it with whatever `tile.script`
+    /// already pointed to (matching `play/spawn.rs::do_on_start`'s runtime
+    /// combine, just moved to save time), and write the result to a sidecar
+    /// `.rhai` file next to the level file. `tile.script` is repointed at the
+    /// sidecar and `tile.graph` is dropped from the serialized record.
+    ///
+    /// `data` is `self.grid.to_level_data()`'s own fresh clone, so mutating
+    /// it here never touches `self.grid` — the live editor keeps every
+    /// graph fully editable after a save.
+    fn migrate_graph_sidecars(&self, data: &mut LevelData) {
+        let level_path = Path::new(&self.save_path);
+        let dir = level_path.parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let stem = level_path.file_stem().and_then(|s| s.to_str()).unwrap_or("level");
+
+        for tile in &mut data.tiles {
+            let Some(graph) = tile.graph.take() else { continue };
+
+            let mut source = node_graph::generate_graph(&graph);
+            if let Some(ref path) = tile.script {
+                let full = resolve_exit_path(path, &self.save_path);
+                if let Ok(existing) = std::fs::read_to_string(&full) {
+                    source.push('\n');
+                    source.push_str(&existing);
+                }
+            }
+
+            // Keyed by (x, y, layer) — the same tuple `LevelGrid` keys tiles
+            // by — so every graph-bearing tile in the level gets a distinct,
+            // stable sidecar name across repeated saves.
+            let filename = format!("{}_graph_{}_{}_{}.rhai", stem, tile.x, tile.y, tile.layer);
+            let sidecar_path = dir.join(&filename);
+            if let Err(e) = std::fs::write(&sidecar_path, source) {
+                eprintln!("Failed to write graph sidecar '{}': {}", sidecar_path.display(), e);
+                continue;
+            }
+            tile.script = Some(filename);
+        }
     }
 
     pub(super) fn save_palette(&mut self) {
@@ -552,4 +600,53 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::level::TileRecord;
+    use crate::renderer::color::Color;
+
+    /// Step 3d's "done when": a level round-trip where a tile carries a live
+    /// node-graph confirms `graph` never reaches the saved `.level` output
+    /// and the sidecar `.rhai` file actually contains the generated code.
+    #[test]
+    fn graph_migrates_to_a_sidecar_script_and_never_appears_in_saved_output() {
+        let dir = std::env::temp_dir().join("ember2d_test_graph_sidecar");
+        std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+        let level_path = dir.join("test_level.level");
+        let sidecar_path = dir.join("test_level_graph_5_5_1.rhai");
+        let _ = std::fs::remove_file(&level_path);
+        let _ = std::fs::remove_file(&sidecar_path);
+
+        let mut editor = EditorState::new(level_path.to_str().unwrap());
+
+        let mut graph = node_graph::NodeGraph::default();
+        let on_start = graph.add_node(node_graph::NodeKind::OnStart, 0, 0);
+        let log_node = graph.add_node(node_graph::NodeKind::Log, 100, 0);
+        let str_lit  = graph.add_node(node_graph::NodeKind::StringLit { value: "hello from graph".to_string() }, 100, 50);
+        graph.add_edge(on_start, 0, log_node, 0); // OnStart.Out -> Log.In
+        graph.add_edge(str_lit, 0, log_node, 1);  // StringLit.Value -> Log.Msg
+
+        let mut tile = TileRecord::new(5, 5, 1, '#', Color::White, Color::Reset, false, false, "npc");
+        tile.graph = Some(graph);
+        editor.grid.place(5, 5, 1, tile);
+
+        editor.save();
+
+        let saved = std::fs::read_to_string(&level_path).expect("level file must be written");
+        assert!(!saved.contains("graph:"), "a saved level must never carry a `graph` field");
+        assert!(saved.contains("test_level_graph_5_5_1.rhai"), "the tile's script field must point at the sidecar");
+
+        let sidecar = std::fs::read_to_string(&sidecar_path).expect("sidecar script must be written");
+        assert!(sidecar.contains("hello from graph"), "the sidecar must contain the generated Rhai source");
+
+        // Mutating `to_level_data()`'s own clone must never touch the live
+        // grid — the node-graph editor keeps working on the real graph.
+        assert!(editor.grid.get(5, 5, 1).unwrap().graph.is_some());
+
+        let _ = std::fs::remove_file(&level_path);
+        let _ = std::fs::remove_file(&sidecar_path);
+    }
 }

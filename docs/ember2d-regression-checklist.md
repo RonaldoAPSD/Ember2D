@@ -120,7 +120,7 @@ Only until visual scripting is shelved. Afterwards, confirm old levels with grap
 - [ ] Camera follows with lerp and clamps at level edges
 - [ ] Camera shake fires and decays
 - [ ] Particles spawn, move, and expire
-- [ ] Glyph animation cycles (`frames` + `frame_rate`)
+- [ ] Glyph animation clips play (`register_clip` + `play_clip`/`play_clip_once`) — the legacy `Sprite.frames`/`frame_rate` glyph-cycling fields were removed in Step 3e
 - [ ] Texture sprites render when a tile has a texture
 - [ ] HUD: level name, score, position, backend name, FPS
 - [ ] Last 3 log lines render above the bottom bar

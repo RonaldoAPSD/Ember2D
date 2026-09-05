@@ -52,6 +52,13 @@ impl PlayState {
 
             if !tile.tag.is_empty() { world.add_tag(id, Tag::new(&tile.tag)); }
 
+            // Step 3d moved the normal case (a saved level) to save time —
+            // `EditorState::save`'s sidecar migration already dropped `graph`
+            // and repointed `script` at the generated `.rhai` by the time a
+            // saved file reaches here, so this branch is a no-op for it. It
+            // stays live for the one case that never goes through `save`: a
+            // still-unsaved level played via F5/Play preview, where a tile's
+            // graph exists only in the editor's in-memory grid.
             let mut source = String::new();
             if let Some(ref graph) = tile.graph { source = crate::editor::node_graph::generate_graph(graph); }
             if !source.is_empty() {

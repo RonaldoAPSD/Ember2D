@@ -115,7 +115,17 @@ pub struct TileRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_level: Option<String>,
 
-    /// Blueprint-style node graph. Takes priority over `rules` at play time.
+    /// Blueprint-style node graph — editor-authoring state only, never a
+    /// runtime concern. Since Step 3d (`LEVEL_FORMAT_VERSION` 1),
+    /// `EditorState::save`'s sidecar migration generates this graph's Rhai
+    /// once, combines it with whatever `script` already pointed to, writes
+    /// the result to a `.rhai` file beside the level, repoints `script` at
+    /// it, and drops this field before the `TileRecord` is serialized — a
+    /// saved `.level` file never carries a `graph`. It survives here only
+    /// for the live in-memory grid the node-graph editor keeps working on,
+    /// and for a still-unsaved level played via F5 preview (see
+    /// `play/spawn.rs::do_on_start`'s own runtime combine, kept for that
+    /// case).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub graph: Option<crate::editor::node_graph::NodeGraph>,
 
@@ -213,8 +223,23 @@ impl TileRecord {
 /// consumes one to build the World (ECS) that the player runs around in.
 ///
 /// All fields are public so game code can read them without ceremony.
+/// Level file format version. Bumped whenever the on-disk shape or the
+/// meaning of an existing field changes in a way a loader needs to know
+/// about. Version 1 is Phase 3 Step 3d: the node-graph → sidecar-script
+/// migration (see `TileRecord::graph`'s doc comment) — nothing else about
+/// the format changed, so there is no migration logic yet, only the field
+/// itself for future steps to key off of.
+pub const LEVEL_FORMAT_VERSION: u32 = 1;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LevelData {
+    /// Level file format version — see `LEVEL_FORMAT_VERSION`.
+    /// `#[serde(default)]` means every `.level` file saved before this
+    /// field existed loads as version 0, which needs no migration since
+    /// nothing else about the format has changed shape yet.
+    #[serde(default)]
+    pub version: u32,
+
     /// Human-readable level name (shown in the editor title bar).
     pub name: String,
 
@@ -275,6 +300,7 @@ impl LevelData {
     /// (defect D3), not re-rolled on every launch.
     pub fn empty(width: usize, height: usize) -> Self {
         LevelData {
+            version:      LEVEL_FORMAT_VERSION,
             name:         String::from("Untitled"),
             width,
             height,
