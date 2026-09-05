@@ -17,13 +17,12 @@ Branch: `claude` (only branch we ever commit to — never `main`).
 - `cf96c9f` — Phase 3 Steps 3a-3c (texture handles, SpriteSource, animation clips)
 - `df48ad1` — Phase 3 Steps 3d-3e (level format v2 + graph sidecar migration, scripting API breaking renames)
 
-**Phase 4 (de-hardcode play mode) is DONE — all steps 4a–4k complete, but
-NOT YET COMMITTED** — they sit together in the working tree (commits only
-happen when the user explicitly asks; see "Workflow reminder" below). The
-roguelike demo (`roguelike/`, 3 floors + victory) was played start to
-finish by the user and confirmed working. Phase 5 (simulation extraction,
-commands, turn scheduler — see the plan doc) is next whenever work resumes,
-but has not been started or planned out yet.
+**Phase 4 (de-hardcode play mode) is DONE and committed** — steps 4a–4k landed
+across `105604e`, `4857717`, `f04198e`, and `159007e`. The roguelike demo
+(`roguelike/`, 3 floors + victory) was played start to finish by the user and
+confirmed working. Phase 5 (simulation extraction, commands, turn scheduler) is
+now planned in detail at `docs/ember2d-phase5-plan.md` and underway — see that
+file for status, not this one.
 
 ## Phase 4's design changed mid-phase — read this before continuing
 

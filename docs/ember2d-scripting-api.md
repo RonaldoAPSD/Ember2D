@@ -18,10 +18,26 @@ The scripting API is Ember2D's real public contract. Games are written in Rhai, 
 ### Lifecycle
 ```rhai
 fn on_start(id, ctx)
+fn on_input(id, ctx)
 fn on_update(id, ctx)
+fn on_turn(id, ctx)
 fn on_collide(id, other, ctx)
 ```
 All optional. A missing function is not an error.
+
+`on_input` is Step 5e (docs/ember2d-phase5-plan.md) — see "Input" in §3
+below for what it's for and why `on_update` shouldn't read raw keys
+anymore. `on_turn` is Step 5f — see "The command boundary" in §3 for what
+it's for and why `on_update` shouldn't mutate turn-based gameplay state
+anymore either. In a `TurnBased` project, per-step call order is:
+`on_input` (only for a locally-controlled actor awaiting a command) → every
+scripted entity's `on_update` → `on_turn` (only for whichever single actor
+`TurnScheduler` is resolving this step) → `on_collide` (only if a turn was
+actually resolved). `on_update` running *before* `on_turn`, not after, is
+deliberate and load-bearing: `on_update` is where a script's own lazy-init
+typically lives (see `roguelike/scripts/player.rhai`'s header comment), and
+`on_turn` reads that same state — the reverse order would mean a level's
+very first turn reads pre-init values.
 
 ### Deferred mutation
 Writes queue and apply after all scripts run. Consequences:
@@ -114,16 +130,88 @@ The buffer window is ~100–150ms, which also gives you input forgiveness for fr
 
 > Before Phase 1 the behaviour is broken in both directions: a press can fire on several sub-steps in one frame, or be dropped entirely on a light frame (defect D1).
 
+> **Not replay-safe outside `on_input` (Step 5e, docs/ember2d-phase5-plan.md).**
+> `is_held`/`just_pressed` read real engine-side key state, not a recorded
+> command stream — a replay of the same commands won't reproduce the same
+> raw key state on every machine/run. `on_input` is the one place a script
+> should read either function; everywhere else (`on_update`, `on_collide`),
+> read `command_action()`/`command_param()` instead. Both functions stay
+> registered and still work anywhere for compatibility, but only `on_input`
+> gets this guarantee.
+
+**The command boundary.** `on_input` runs once per step and is called only
+for locally-controlled actors — an entity with an `Actor` component whose
+`controller` is `Local` (Step 5f, docs/ember2d-phase5-plan.md; before that
+component existed, in Step 5e, this just meant the player). Inside it,
+translate raw input into an action:
+```rhai
+fn on_input(id, ctx) {
+    if ctx.just_pressed("w") { ctx.submit(id, "move", [0.0, -1.0]); }
+}
+```
+- `submit(actor_id, action, params)` — queues a `Command` for `actor_id`.
+  `action` is a name your own scripts choose and interpret; the engine
+  never looks inside it. Meaningful only inside `on_input`.
+- `command_action()` → the calling entity's command's action this step, or
+  `""` if none was submitted.
+- `command_param(i)` → the `i`-th param (`f64`), or `0.0` if there's no
+  command or the index is out of range.
+
+**`on_turn` reads the command back out and does the actual game-state
+mutation** — move/attack/quaff, whatever your actions mean:
+```rhai
+fn on_turn(id, ctx) {
+    if ctx.command_action() == "move" {
+        let dx = ctx.command_param(0);
+        let dy = ctx.command_param(1);
+        ctx.set_position(id, ctx.get_x(id) + dx, ctx.get_y(id) + dy);
+        ctx.act(100.0); // this turn cost 100 energy — see below
+    }
+}
+```
+Under `TurnScheduler` (Step 5f), `on_turn` runs exactly once, only for
+whichever single actor is currently due — an AI actor's turn always, a
+`Local` actor's only once `on_input` has queued something for it. Turn
+scheduling functions:
+- `act(cost)` — marks this `on_turn` call as having consumed a turn, at
+  `cost` energy (100 is a normal turn under today's `Alternating`-only
+  scheduling — see `scheduler.rs`'s `ALTERNATING_COST`). Replaces the
+  removed `ctx.trigger_turn()`. For a `Local` actor, **not** calling this
+  is how a rejected action (a wall bump, an empty-handed quaff) costs
+  nothing — the same actor is asked again next step instead of the turn
+  advancing. An AI actor's turn always counts whether or not it calls this
+  (a sleeping monster still "used" its turn doing nothing — unconditionally
+  skipping the advance for AI would wedge the scheduler on it forever).
+- `get_turn_number()` → how many turns the local player has completed so
+  far this level. Engine-tracked (not a script global), so unlike the old
+  "turn" global this has no same-pass deferred-write lag to guard against.
+- `get_speed(id)` / `set_speed(id, n)` — an actor's `Actor::speed`.
+  Vestigial today: `TurnScheduler` charges every actor the same flat cost
+  regardless of speed (only `Alternating` scheduling ships) — but a real,
+  honestly-functioning read/write, not a stub, so a future non-`Alternating`
+  mode needs no scripting-API change to start consulting it.
+
+This whole boundary is what makes a recorded/transmitted command stream
+(the eventual replay test, Step 5h; lockstep netcode, Phase 9b) fully
+determine what happens next without real key events at replay time. See
+`roguelike/scripts/player.rhai` for the full pattern, including how it
+handles an action `on_turn` doesn't recognize for the player's current
+state (falls through to "no turn consumed", same as no command at all).
+
 Gamepad: `gp_is_held(pad,btn)` · `gp_just_pressed(pad,btn)` · `gp_axis(pad,axis)`
 
 Mouse: `get_mouse_x()` · `get_mouse_y()` (cells) · `get_mouse_world_x()` · `get_mouse_world_y()` · `mouse_left_pressed()` · `mouse_right_pressed()` · `mouse_left_held()` · `mouse_right_held()`
 
 > `get_mouse_world_y` no longer subtracts a HUD row (Phase 4, Step 4g) — the
-> world now gets the full viewport, and `HUD_TOP_ROWS` (the single constant
-> both this and `Camera::viewport_origin` go through) is `0`. An earlier
-> version of this doc claimed Phase 2 already removed the leak; it hadn't —
-> Phase 2 only centralized the old bare `+1`/`-1` literal into that one
-> constant, without zeroing it.
+> world now gets the full viewport. An earlier version of this doc claimed
+> Phase 2 already removed the leak; it hadn't — Phase 2 only centralized the
+> old bare `+1`/`-1` literal into one constant, `HUD_TOP_ROWS`, without
+> zeroing it. That constant was itself deleted in Phase 5 Step 5a
+> (docs/ember2d-phase5-plan.md) once both its call sites (`Camera::viewport_origin`
+> and this function) had been inert since Step 4g — a purely internal
+> cleanup, not a further behavior change here. **Not replay-safe** — see
+> "Camera" below; `get_mouse_world_x/y` add the mouse's screen position to
+> the camera's, so they inherit the same nondeterminism.
 
 ### Camera
 `get_camera_x()` · `get_camera_y()` · `set_camera(x,y)` · `shake_camera(intensity,duration)`
@@ -132,6 +220,20 @@ Setting the camera overrides follow until cleared. Phase 2 gave the
 internal `Camera` a `zoom` field, but there is still no scripted zoom
 control (no `set_zoom`/`get_zoom`) — nothing here changed as of this
 writing.
+
+> **Not replay-safe** (Step 5d, docs/ember2d-phase5-plan.md). Camera
+> position is presentation, not simulation: `PlayState`'s follow-lerp runs
+> on real wall-clock time (`UpdateContext::frame_delta_time`, not the fixed
+> `delta_time` scripts otherwise see) so it stays visually smooth regardless
+> of the sim's own clock, and that lerp uses `exp()` — a named
+> cross-platform determinism hazard (§5.2 H2, docs/ember2d-refactor-plan.md)
+> since transcendental math isn't guaranteed bit-identical across platform
+> libm implementations. `get_camera_x/y` therefore return a value that can
+> differ between two runs (or two machines) fed identical input — as can
+> `get_mouse_world_x/y` below, which are derived from it. **Don't branch
+> game logic on either.** Nothing in the roguelike does today. Revisit once
+> Phase 6 decides §5.2 H2 (restrict sim math to the reproducible set, ship
+> lookup-table trig, or move to fixed-point).
 
 ### State
 Globals (per level): `set_global` · `get_global` · `has_global` · `remove_global`
@@ -163,7 +265,10 @@ Screen space, in cells. Cleared each frame.
 `emit_particles(x,y,glyph,fg)` · `play_sound(path)` · `play_sound_at(path,x,y)` (volume falls off to 20 units) · `play_music(path)` · `stop_music()`
 
 ### Flow
-`load_level(path)` · `save_game(path)` · `load_game(path)` · `trigger_turn()` · `log(msg)` · `get_delta()` · `get_elapsed()` · `get_spawn_point(name)` → `[x,y]` or `[]` · `get_viewport_width()` · `get_viewport_height()` · `api_version()` → int, this API's breaking-change generation (see §6)
+`load_level(path)` · `save_game(path)` · `load_game(path)` · `log(msg)` · `get_delta()` · `get_elapsed()` · `get_spawn_point(name)` → `[x,y]` or `[]` · `get_viewport_width()` · `get_viewport_height()` · `api_version()` → int, this API's breaking-change generation (see §6)
+
+> `trigger_turn()` was removed in Step 5f (docs/ember2d-phase5-plan.md) —
+> see "The command boundary" above for `ctx.act`, its replacement.
 
 ---
 
@@ -234,14 +339,18 @@ fn on_update(id, ctx) {
 | 3 | `set_texture(path)` → texture handles | Yes |
 | 4 | Player movement, score, HUD move from `play.rs` into scripts | Additive |
 | 4 | Mouse world coords lose the HUD-row fudge (`HUD_TOP_ROWS` → 0, Step 4g) | Yes |
-| 5 | Scripts emit `Command` values; turn functions replace `trigger_turn` | Yes |
+| 5 | Step 5e: `on_input` lifecycle plus `submit`/`command_action`/`command_param`; `is_held`/`just_pressed` no longer replay-safe outside `on_input` | Additive (new functions; existing ones keep working, just lose their replay guarantee outside `on_input`) |
+| 5 | Step 5f: `on_turn` lifecycle plus `act`/`get_turn_number`/`get_speed`/`set_speed`; `trigger_turn` removed | Yes (`trigger_turn` removal) |
 | 6 | Collision layers become a bitmask, not `String` | Yes |
 
 `api_version()` was added in Step 3e (deferred from the original Phase 1 plan) —
-it currently returns `4`: `1` was the pre-refactor baseline, `2` covers Phase 2's
+it currently returns `6`: `1` was the pre-refactor baseline, `2` covers Phase 2's
 row above (informational only — nothing script-visible actually changed), `3`
 covers Phase 3's breaking renames (`set_color`/`set_z_order`/`set_animation`),
-and `4` covers Step 4g's `get_mouse_world_y` change. Bump it at every future
+`4` covers Step 4g's `get_mouse_world_y` change, `5` covers Step 5e's command
+boundary (`on_input`, `submit`, `command_action`, `command_param`), and `6`
+covers Step 5f's turn scheduler (`on_turn`, `act`, `get_turn_number`,
+`get_speed`, `set_speed`, `trigger_turn` removed). Bump it at every future
 "yes" above.
 
 ---
@@ -254,7 +363,7 @@ The clip API (`register_clip`/`play_clip`/`play_clip_once`/`stop_clip`/`set_clip
 Clips referenced **by name**, never by atlas coordinates — that's what keeps levels intact when art changes.
 
 **Phase 5 — turns and animation events**
-`act(cost)` · `end_turn()` · `is_my_turn(id)` · `get_turn_number()` · `get_speed(id)` · `set_speed(id,n)` · `animate_move(id,x,y,dur)` · `animate_flash(id,color,dur)` · `is_animating(id)`
+`act(cost)` · `get_turn_number()` · `get_speed(id)` · `set_speed(id,n)` shipped in Step 5f and are documented under §3 "The command boundary" — live, not planned. Still outstanding: `end_turn()` · `is_my_turn(id)` · `animate_move(id,x,y,dur)` · `animate_flash(id,color,dur)` · `is_animating(id)`.
 
 Costs are simulation time; animation durations are real seconds. Keeping them separate is what allows a "fast-forward animations" setting later without touching balance.
 

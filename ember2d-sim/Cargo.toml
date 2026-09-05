@@ -1,0 +1,27 @@
+# ember2d-sim/Cargo.toml — the deterministic simulation core.
+#
+# No renderer, no window, no input-device crate anywhere in this list —
+# that's the constraint Phase 5 Step 5i's workspace split exists to enforce
+# (docs/ember2d-phase5-plan.md §5.5). `cargo build -p ember2d-sim` succeeding
+# with a dependency tree this short is the actual proof.
+
+[package]
+name    = "ember2d-sim"
+version = "0.5.0"
+edition = "2021"
+
+[dependencies]
+# serde: derives (De)Serialize on every sim-side data type — components,
+# World, level/save data.
+serde = { version = "1", features = ["derive"] }
+
+# ron: the level (.level) and save-file format.
+ron = "0.8"
+
+# rhai: the scripting engine. Pure Rust, no window/GPU dependency of its own.
+rhai = { version = "1", features = ["no_module", "no_closure", "serde"] }
+
+# rand: level seeds (level.rs) and every script random_* call
+# (scripting/engine.rs) — SmallRng only, no OS-entropy dependency at runtime
+# (defect D3, docs/ember2d-refactor-plan.md).
+rand = { version = "0.8", features = ["small_rng"] }

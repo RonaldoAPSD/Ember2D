@@ -1,76 +1,64 @@
-# Cargo.toml — the manifest file for this Rust project.
+# Cargo.toml — workspace root.
 #
-# Every Rust project has one of these. It tells the build tool (Cargo) three things:
-#   1. What this project is called and what version it's on ([package])
-#   2. What other libraries (crates) it depends on ([dependencies])
-#   3. Whether this builds as an executable, a library, or both
+# Phase 5 Step 5i (docs/ember2d-phase5-plan.md §5.5) split the single
+# `ember2d` crate into a workspace:
+#   ember2d-sim     math, color, world, components, level, save, scripting,
+#                   command, scheduler, graph, event — no renderer, window,
+#                   or input-device dependency anywhere in its tree.
+#   ember2d         engine, renderer, input, mouse, gamepad, audio, play,
+#                   project, camera, sim (orchestration; see that module's
+#                   own doc comment for why it's here, not in ember2d-sim)
+#                   → depends on ember2d-sim.
+#   ember2d-editor  the level/script editor → depends on both.
+#   ember2d-app     the thin bin crate (main.rs + app.rs's Editor<->Play
+#                   orchestration) → depends on ember2d and ember2d-editor.
 #
-# Because we have BOTH src/lib.rs AND src/main.rs, Cargo automatically builds:
-#   - A LIBRARY crate ("ember2d") that other projects can depend on
-#   - A BINARY crate (the demo game in main.rs) that links against that library
+# This is a "virtual" workspace manifest — no package of its own here, just
+# the member list and the profile settings below (which Cargo requires to
+# live at the workspace root once there's more than one package).
 
-[package]
-name    = "ember2d"
-version = "0.5.0"
-edition = "2021"
+[workspace]
+resolver = "2"
+members = [
+    "ember2d-sim",
+    "ember2d",
+    "ember2d-editor",
+    "ember2d-app",
+]
 
-[dependencies]
-# winit: opens a real OS window and provides an event loop.
-winit = { version = "0.29" }
+# Dependencies compile at full optimization even in a `cargo run`/`cargo test`
+# debug build; only these crates' own code stays unoptimized (fast
+# incremental builds). Without this, `wgpu` (and its dependency tree —
+# `wgpu-core`, `wgpu-hal`, `naga`) and `rhai`'s interpreter run 5-10x slower
+# than they need to: both do a lot of per-frame CPU-side work (wgpu's
+# resource/hazard tracking and command encoding; Rhai's AST walking on every
+# `on_update`/`on_turn` call) that an unoptimized build makes
+# disproportionately expensive, on top of whatever the game itself is doing
+# — this is a standard, widely-recommended fix for any wgpu-based Rust
+# project's debug performance, not something specific to this codebase.
+# Found live: floor2 (docs/ember2d-phase5-plan.md Step 5f's follow-up) still
+# ran at ~21 fps on capable hardware (RTX 2080, i7-9700K) even after fixing
+# the redundant per-step `ScriptState` snapshot rebuilds — this is the
+# actual dominant cost that fix couldn't touch.
+[profile.dev.package."*"]
+opt-level = 3
 
-# wgpu: cross-platform, safe, pure-rust graphics API.
-wgpu = "0.19"
-
-# bytemuck: for casting vertex data to bytes for GPU upload.
-bytemuck = { version = "1", features = ["derive"] }
-
-# glam: fast linear algebra for 2D/3D math.
-glam = "0.25"
-
-# pollster: for blocking on async WGPU calls.
-pollster = "0.3"
-
-# font8x8: an embedded 8×8-pixel bitmap font covering the ASCII range (0–127).
-font8x8 = "0.2"
-
-# image: for loading PNG/JPG textures.
-image = "0.24"
-
-# serde: Rust's universal serialization framework.
-# The "derive" feature enables #[derive(Serialize, Deserialize)] on any struct or enum,
-# which auto-generates all the boilerplate needed to convert it to/from any serde format.
-serde = { version = "1", features = ["derive"] }
-
-# ron: "Rusty Object Notation" — a human-readable data format designed for Rust's type system.
-# It serializes Rust enums, structs, and tuples in syntax that looks like Rust source code.
-# Unlike JSON, RON supports: comments (//), trailing commas, and unquoted enum variants.
-# We use it as the level file format (.level files are RON under the hood).
-ron = "0.8"
-
-# rhai: an embedded scripting language designed for Rust.
-#
-# Why Rhai instead of Lua?
-#   - Pure Rust: no C compiler or C library needed, builds anywhere Rust does.
-#   - Syntax looks like Rust/JavaScript, so it's familiar from day one.
-#   - Designed for embedding: you register Rust functions and types, scripts call them.
-#   - The script type system maps cleanly to Rust: i64, f32, bool, String.
-#
-# Feature flags we use:
-#   no_module  — disables Rhai's module/import system (we don't need it; saves compile time).
-#   no_closure — disables closures/capture in scripts (we don't need them; saves compile time).
-#
-# Scripts live in .rhai files and define an `on_update(entity_id, ctx)` function
-# called every frame by the engine for entities that have a Script component.
-rhai = { version = "1", features = ["no_module", "no_closure", "serde"] }
-
-# kira: a game-focused audio library with first-class support for looping,
-# fading, and pausing. Pure Rust — no C dependencies, builds on all platforms.
-# "ogg" and "mp3" enable those decoder features via symphonia.
-kira = { version = "0.9", features = ["ogg", "mp3"] }
-
-# rand: random number generation. SmallRng is fast and suitable for games.
-rand = { version = "0.8", features = ["small_rng"] }
-rfd = "0.17.2"
-
-# gilrs: gamepad input support.
-gilrs = "0.10"
+# `[profile.dev.package."*"]` above only ever applies to *dependencies* —
+# Cargo deliberately never lets a package-name override reach a workspace's
+# own member crates, so this project's own code (ScriptState snapshot
+# construction, World iteration, apply_ctx's pending-queue draining —
+# exactly the code the floor2 perf investigation traced the remaining cost
+# to; benchmarking showed ZERO change from the override above, confirming
+# rhai/wgpu weren't actually the bottleneck there) stayed at the default
+# debug `opt-level = 0`: no inlining, no bounds-check elimination, nothing.
+# `opt-level = 1` is the standard middle ground for Rust game dev (see e.g.
+# Bevy's own recommended Cargo config): a large real-world speedup for
+# exactly this kind of allocation/loop-heavy hot code, at a much smaller
+# compile-time cost than full `--release` (opt-level 3 + LTO +
+# codegen-units=1) — incremental `cargo run` builds of just the changed
+# workspace member's own files stay fast. `[profile.dev]` at the workspace
+# root applies to every member crate (ember2d-sim, ember2d, ember2d-editor,
+# ember2d-app all count as "workspace-local," same as the single root crate
+# did before Step 5i's split).
+[profile.dev]
+opt-level = 1

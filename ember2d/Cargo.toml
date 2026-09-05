@@ -1,0 +1,56 @@
+# ember2d/Cargo.toml — the engine crate: rendering, windowing, input
+# devices, audio, and play-mode orchestration on top of `ember2d-sim`.
+
+[package]
+name    = "ember2d"
+version = "0.5.0"
+edition = "2021"
+
+[dependencies]
+ember2d-sim = { path = "../ember2d-sim" }
+
+# winit: opens a real OS window and provides an event loop.
+winit = { version = "0.29" }
+
+# wgpu: cross-platform, safe, pure-rust graphics API.
+wgpu = "0.19"
+
+# bytemuck: for casting vertex data to bytes for GPU upload.
+bytemuck = { version = "1", features = ["derive"] }
+
+# glam: fast linear algebra for 2D/3D math.
+glam = "0.25"
+
+# pollster: for blocking on async WGPU calls.
+pollster = "0.3"
+
+# font8x8: an embedded 8×8-pixel bitmap font covering the ASCII range (0–127).
+font8x8 = "0.2"
+
+# image: for loading PNG/JPG textures.
+image = "0.24"
+
+# serde: (De)Serialize on this crate's own types that round-trip through
+# RON (project.ron, mouse/gamepad button enums).
+serde = { version = "1", features = ["derive"] }
+
+# ron: the project (project.ron) file format.
+ron = "0.8"
+
+# rhai: `PlayState`/`Engine` carry `rhai::Dynamic` globals/persistent maps
+# straight from the scripting engine (ember2d-sim), so this crate needs the
+# type even though the interpreter itself lives in ember2d-sim.
+rhai = { version = "1", features = ["no_module", "no_closure", "serde"] }
+
+# kira: a game-focused audio library with first-class support for looping,
+# fading, and pausing. Pure Rust — no C dependencies, builds on all platforms.
+# "ogg" and "mp3" enable those decoder features via symphonia.
+kira = { version = "0.9", features = ["ogg", "mp3"] }
+
+# rand: this crate's own particle/camera-shake RNG (play.rs) — a separate
+# deterministic stream from ember2d-sim's script RNG (see
+# PLAYSTATE_RNG_SEED_OFFSET in play.rs).
+rand = { version = "0.8", features = ["small_rng"] }
+
+# gilrs: gamepad input support.
+gilrs = "0.10"

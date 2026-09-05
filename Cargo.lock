@@ -640,6 +640,7 @@ name = "ember2d"
 version = "0.5.0"
 dependencies = [
  "bytemuck",
+ "ember2d-sim",
  "font8x8",
  "gilrs",
  "glam 0.25.0",
@@ -647,12 +648,43 @@ dependencies = [
  "kira",
  "pollster 0.3.0",
  "rand",
- "rfd",
  "rhai",
  "ron",
  "serde",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "ember2d-app"
+version = "0.5.0"
+dependencies = [
+ "ember2d",
+ "ember2d-editor",
+ "rhai",
+]
+
+[[package]]
+name = "ember2d-editor"
+version = "0.5.0"
+dependencies = [
+ "ember2d",
+ "ember2d-sim",
+ "rand",
+ "rfd",
+ "rhai",
+ "ron",
+ "serde",
+]
+
+[[package]]
+name = "ember2d-sim"
+version = "0.5.0"
+dependencies = [
+ "rand",
+ "rhai",
+ "ron",
+ "serde",
 ]
 
 [[package]]

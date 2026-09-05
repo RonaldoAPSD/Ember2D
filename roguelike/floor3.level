@@ -1,5 +1,5 @@
 (
-    version: 1,
+    version: 2,
     name: "Floor 3",
     width: 56,
     height: 28,
@@ -9136,6 +9136,9 @@
             tag: "enemy",
             layer: 1,
             script: Some("roguelike/scripts/enemy_rat.rhai"),
+            actor: Some((
+                speed: 100,
+            )),
         ),
         (
             x: 52,
@@ -9876,6 +9879,9 @@
             tag: "boss",
             layer: 1,
             script: Some("roguelike/scripts/enemy_boss.rhai"),
+            actor: Some((
+                speed: 100,
+            )),
         ),
         (
             x: 52,
@@ -11472,6 +11478,9 @@
             tag: "enemy",
             layer: 1,
             script: Some("roguelike/scripts/enemy_rat.rhai"),
+            actor: Some((
+                speed: 100,
+            )),
         ),
         (
             x: 52,
