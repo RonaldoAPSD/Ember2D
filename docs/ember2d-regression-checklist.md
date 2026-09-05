@@ -1,11 +1,19 @@
 # Ember2D — Regression Checklist
 
-**Written against:** `gemini` branch, v0.5.0
-**Purpose:** the definition of "working". Every phase must end with this passing.
+**Written against:** the `claude` branch, mid-Phase-4 (docs/ember2d-refactor-plan.md).
+**Purpose:** the definition of "working" for everything automated tests
+still can't see — editor interactions, visual rendering, and anything
+needing a live window. **Corrected in Step 4k**: Phase 4 added real
+automated tests (`cargo test --lib` — 74 tests — plus `tests/roguelike_*.rs`
+— 19 more, covering combat, turn-cadence, determinism, and level integrity
+headlessly via `TurnHarness`), so this list is no longer the *only* safety
+net the way it was through Phase 3. It's still the right net for anything
+those tests can't reach.
 
-There are no automated tests until Phase 5. This list is the safety net.
-
-**Before first use:** Phase 0 must port `demo/` forward from `main` — it does not exist on `gemini`, and without level files most of this list is untestable.
+**Before first use:** open `roguelike/floor1.level` (or `--editor` it) —
+the original `demo/` this checklist targeted is archived at
+`docs/archive/demo/` (Phase 4; see that folder's own README) and isn't run
+by anything anymore.
 
 Legend: `[ ]` untested · `[✓]` passes · `[✗]` already broken (see §14)
 
@@ -114,24 +122,44 @@ Only until visual scripting is shelved. Afterwards, confirm old levels with grap
 - [ ] Pause menu: Resume, Back to Editor, Quit
 - [ ] Tiles spawn with correct solid/trigger/tag/layer/collider layer
 - [ ] Player spawns at spawn point with configured glyph, tag, texture
-- [ ] WASD/arrows move; diagonals normalised; corridor snapping works
-- [ ] Walls block; corners slide rather than stick
-- [ ] Items/chests collect and increment score
+- [ ] **Corrected in Step 4k**: movement is entirely script-driven as of
+      Phase 4 — `PlayState` itself contains no movement code, no
+      tag-specific strings, no score. `roguelike/`'s own `player.rhai` does
+      turn-gated grid movement (bump-to-attack instead of colliding; no
+      corridor snapping or diagonal normalization — those were
+      realtime-AABB-movement concepts and no longer apply to this demo's
+      grid-based turn model). A different script-driven project could
+      still implement realtime AABB movement itself; the engine no longer
+      assumes either.
+- [ ] Wall bump consumes no turn; a move onto open floor does
+- [ ] Bump-to-attack: walking into a tagged "enemy"/"boss" entity attacks instead of moving, and still consumes a turn
+- [ ] F3 toggles a debug overlay (level name, position, backend, FPS) — off by default, not a permanent bar (Step 4g; matches the standing preference that this kind of info be a toggle, not always-on chrome)
 - [ ] Camera follows with lerp and clamps at level edges
 - [ ] Camera shake fires and decays
 - [ ] Particles spawn, move, and expire
 - [ ] Glyph animation clips play (`register_clip` + `play_clip`/`play_clip_once`) — the legacy `Sprite.frames`/`frame_rate` glyph-cycling fields were removed in Step 3e
 - [ ] Texture sprites render when a tile has a texture
-- [ ] HUD: level name, score, position, backend name, FPS
-- [ ] Last 3 log lines render above the bottom bar
+- [ ] Script-drawn HUD (`ctx.draw_hud`) survives opening the pause menu instead of vanishing (Step 4g fixed a real bug here, catalogued as D16)
+- [ ] Last 3 log lines render at the bottom of the viewport (now full-height as of Step 4g — no bottom bar to sit "above" anymore)
 - [ ] Exit trigger loads the next level; relative paths resolve
 - [ ] Script log transfers to the editor console on exit
 
 ## 12. Turn-based mode
 
+**Corrected in Step 4k: promoted to the primary play-mode section** —
+`roguelike/` is turn-based (`GameplayLoop::TurnBased`), and this is the
+model most of Phase 4's own automated tests (`tests/roguelike_*.rs`)
+already exercise headlessly via `TurnHarness`. This section is for what
+those tests can't see: how it actually *feels* to play.
+
 - [ ] A TurnBased project only advances physics when `trigger_turn` is called
 - [ ] Rendering stays responsive while the world is idle
-- [ ] Scripts still run each frame in turn mode (current behaviour — confirm intended)
+- [ ] Scripts still run each frame in turn mode (current behaviour — confirmed intended: it's what lets a rat's hp/death check and a stairs tile's lock-state update every frame, even between player turns)
+- [ ] One keypress moves the player exactly one cell and advances exactly one turn — no double-moves on a slow frame, no dropped presses on a fast one (automated: `tests/roguelike_floor1.rs`)
+- [ ] Enemies visibly act the frame *after* your turn, not the same frame — should read as "they wait for you," not simultaneous
+- [ ] An asleep enemy (no line of sight yet, Step 4h's amendment) visibly does nothing until it wakes — tinted differently while asleep vs. awake (`DarkRed`/`DarkMagenta` vs `Red`/`Magenta`)
+- [ ] Waiting (Space) and quaffing (Q) both visibly cost a turn, same as moving does
+- [ ] Death screen appears the instant hp reaches 0; R restarts from floor 1
 
 ## 13. Save/load and scripting
 
@@ -145,9 +173,9 @@ Only until visual scripting is shelved. Afterwards, confirm old levels with grap
 - [ ] Mouse and gamepad buttons behave the same as keys
 
 - [ ] `save_game` writes a `.ron`; `load_game` restores world + persistent state
-- [ ] Loading a save resumes at the right level with entities intact
+- [ ] Loading a save resumes at the right level with entities intact — **known gap, see D17**: globals aren't part of `SaveState` and the `is_loading_save` path never re-runs `on_start` scripts, so any per-entity state that lives in globals (most of the roguelike's own combat state — `hp_<id>`, `acted_<id>`, `aware_<id>`) will not survive a save/load round-trip mid-run. Don't fail this item over that specific gap; it's tracked separately.
 - [ ] `on_start`, `on_update`, `on_collide` all fire; missing ones don't error
-- [ ] Per-entity scope persists across frames; removed on despawn
+- [ ] **Corrected in Step 4k** — deleted a wrong item that used to read "Per-entity scope persists across frames; removed on despawn." Rhai does not provide this: a script's own `let` does *not* survive between calls (`CallFnOptions::rewind_scope: true`) — see `ember2d-scripting-api.md`'s "Per-entity scope" section, also corrected this step. What actually needs checking instead: per-entity state kept in globals/persistent (e.g. `"hp_" + id`) survives across frames and is cleaned up on despawn (nothing explicitly clears these keys today, but a despawned entity's id is never reused within a level, so stale keys are harmless, not a leak that matters).
 - [ ] Hot-reload recompiles on file change and logs
 - [ ] Compile errors show the file name; runtime errors log once
 
@@ -177,6 +205,7 @@ Not regressions. Do not chase these.
 | D14 — font atlas and textures use different colour spaces | Phase 1 |
 | D7 — turn mode integrates physics at `dt = 1.0` | Phase 5 |
 | D11 — per-frame clone churn in scripting and collision | Phase 6 |
+| D17 — save/load can't round-trip per-entity script globals mid-run | not scheduled — see plan §3 |
 
 ## 15. Before you start
 

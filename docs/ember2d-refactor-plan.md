@@ -75,6 +75,9 @@ Concrete bugs, not design opinions. Phase 1 clears most of them.
 | D12 | `layer != "locked"` — a magic string gating level exits. | `play.rs` |
 | D13 | Texture sprites bypass viewport culling (`continue` before the bounds check). | `play.rs` |
 | D14 | Colour-space mismatch between font atlas and textures (§2). | `renderer/backend.rs` |
+| D15 | **A genuine runtime error inside `on_update`/`on_start`/`on_collide` is silently swallowed if its message happens to contain "Function not found"** — the check meant to ignore "this optional lifecycle function doesn't exist" (`e.to_string().contains("Function not found")`) can't tell that apart from a real type-mismatch error from a call *inside* a function that does exist, since Rhai reports both as the same error variant with the same substring. No compile error, no log entry, no disabled script — the function just silently stops executing partway through, every call. Found and fixed in Phase 4 (not Phase 1, since nothing before Phase 4 wrote a script with a same-pass lazy-init bug that tripped it) — see `docs/HANDOFF.md`. **Fixed**: match `ErrorFunctionNotFound`'s exact payload against the specific lifecycle function name instead of a substring of the whole error's Display text. | `scripting/engine.rs` |
+| D16 | **A script's `ctx.draw_hud`-drawn HUD vanished the instant the game paused.** `PlayState::render` cleared `ScriptEngine::pending_hud_draws` itself, every frame, regardless of whether a script actually ran that frame — but `PlayState::update` (and therefore the only call site that repopulates the queue) doesn't run once a `PauseMenuState` is pushed on top, while `render` still runs for every stacked state every frame. Found and fixed in Phase 4 Step 4g while deleting the two hardcoded HUD bars — see `docs/HANDOFF.md`. **Fixed**: the clear moved to the start of `ScriptEngine::run_scripts` (the one call site that only fires on a real, unpaused frame) instead of after drawing in `render`. | `play.rs`, `scripting/engine.rs` |
+| D17 | **Save/load cannot round-trip per-entity script state mid-run.** `SaveState` serializes `World` + `persistent`, but not the script engine's `globals` map, and `PlayState::on_start`'s `is_loading_save` branch skips `do_on_start` entirely — it never re-runs any entity's `on_start`. Any per-entity state a script keeps in globals (the roguelike's whole combat model: `hp_<id>`, `acted_<id>`, `aware_<id>`, `atk_turn_<id>`/`atk_dmg_<id>`, plus the level-scoped `turn`/`last_resolved_turn`) is silently lost across a save/load — an enemy would reload at full hp, asleep, and out of turn sync with a `turn` counter that reset to `()`. **Not fixed** — logged per the Phase 4 plan file's own note ("log as a new defect rather than testing it") instead of pretending the regression checklist's save/load item covers this. Not urgent: nothing in the current roguelike demo exercises mid-run save/load (`save_game`/`load_game` are unused by any current script), so nothing observable is broken today — but a future script relying on save/load mid-combat would silently desync. Candidate fix whenever this matters: fold `ScriptEngine`'s globals into `SaveState`, or have the `is_loading_save` path still run `on_start` for every scripted entity. | `save.rs`, `play.rs`, `scripting/engine.rs` |
 
 ---
 
@@ -353,6 +356,47 @@ Move each into scripts — `player_controller.rhai`, `collectible.rhai`, `hud.rh
 - Camera follow becomes a script concern using the Phase 2 camera API.
 
 **Done when:** `PlayState` contains no tag-specific strings, no movement code, no score; the demo plays identically from scripts.
+
+> **Amendment (Step 4k) — what actually happened, kept as historical
+> record rather than rewriting the paragraph above.** This phase's plan
+> assumed retrofitting the existing six-level `demo/` with three new
+> scripts (`player_controller.rhai`/`collectible.rhai`/`hud.rhai`).
+> Auditing `demo/` at the start of Phase 4 found only 2 of its 6 levels had
+> *any* player script attached at all, and Rhai's `no_module` feature means
+> scripts can't share a controller via import — there was no clean way to
+> retrofit the old content. **Decision (user-approved): archive `demo/` to
+> `docs/archive/demo/` and build a new, small, turn-based roguelike
+> (`roguelike/`, three floors + a victory level) from scratch instead**,
+> which doubles as this refactor's first deterministic, scriptable,
+> automated-testable fixture — see `docs/HANDOFF.md`'s Phase 4 section and
+> the full staged design at
+> `C:\Users\ronal\.claude\plans\memoized-discovering-glacier.md` for the
+> complete reasoning. Consequences for the bullets above:
+> - `z_for_tag` → authored `layer` field: done as planned (Step 4a).
+> - Player collider size → `PlayerRecord` field: done as planned (Step 4a),
+>   plus an equivalent `PlayerRecord.layer` field added later (Step 4g)
+>   replacing a hardcoded `Z_PLAYER` constant the same way.
+> - **Camera follow did NOT become a script concern — reversed.**
+>   Follow/lerp/clamp contain no tag strings, no movement code, no score
+>   (the follow target already comes from the authored `camera_follow`
+>   flag) — it's data-driven engine machinery, not game-specific logic.
+>   Scripting it would need two new API calls (`get_level_width/height`)
+>   and would leak `exp()` (§5.2 H2's named cross-platform desync hazard)
+>   into script-visible simulation state for no corresponding benefit.
+>   Camera stays in Rust.
+> - The actual scripts that shipped: `player.rhai`, `pickup.rhai`,
+>   `stairs.rhai`, `enemy_rat.rhai`, `enemy_boss.rhai`, `victory.rhai` — a
+>   different split than `player_controller`/`collectible`/`hud` above,
+>   since Rhai's `no_module` limitation meant one script per *role*, shared
+>   by every tile that plays that role, rather than one script per UI
+>   concern.
+> - **"the demo plays identically from scripts" no longer applies literally**
+>   — there is no longer an "original demo" behavior to match, since `demo/`
+>   was archived rather than reproduced. The done-criterion that still
+>   holds and was verified (`grep` across `src/play.rs`/`src/play/spawn.rs`
+>   at Step 4k): `PlayState` contains no tag-specific strings, no movement
+>   code, no score. The roguelike itself was played start-to-finish by the
+>   user (floor1 → floor2 → floor3 → victory) and confirmed working.
 
 ---
 

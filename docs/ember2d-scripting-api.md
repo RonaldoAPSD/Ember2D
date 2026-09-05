@@ -32,7 +32,31 @@ Writes queue and apply after all scripts run. Consequences:
 This is the foundation Phase 5's command layer builds on.
 
 ### Per-entity scope
-Each entity keeps a persistent `rhai::Scope`. `let` variables at function top level survive between calls. Timers currently live here as `__timer_*` variables.
+**Corrected in Step 4k — this section previously claimed the opposite of
+the truth.** Each entity keeps a persistent `rhai::Scope` object, but a
+script's own `let` declarations do **not** survive between
+`on_start`/`on_update`/`on_collide` calls: `ScriptEngine::call_fn` uses
+Rhai's default `CallFnOptions`, whose `rewind_scope: true` discards
+anything the script itself declared once the call returns (verified
+against the rhai 1.24 source, not just observed behavior). The scope
+persists only as a place the *engine* writes into directly, from outside
+the call, between calls — timers are the one example today (`__timer_*`
+variables, set via `Scope::set_value` from `apply_ctx`, never by a
+script's own `let`).
+
+Any per-entity value a script itself needs to remember across calls must
+go through `ctx.set_global`/`get_global` (level-scoped — resets on every
+level load) or `ctx.set_persistent`/`get_persistent` (survives level
+transitions) instead, keyed per-entity by string concatenation (e.g.
+`"hp_" + id`). See `roguelike/scripts/player.rhai` and `enemy_rat.rhai` for
+this in practice, including the sharp edge that comes with it: **a `get_*`
+never observes a `set_*` from earlier in the same script pass** — every
+write is deferred and only applied after every script has run that frame,
+so a value lazy-initialized this same call still reads back as `()`, not
+the value just set. Guard such reads (an `or_zero()`-style helper, or a
+value computed directly in its own init branch rather than defaulted) —
+see either script's header comment for two real bugs this caused and how
+they were found.
 
 ### `ctx` carries the calling entity
 `ctx.with_entity(id)` means `start_timer` / `timer_done` / `cancel_timer` need no id argument, and `raycast` skips self.
@@ -94,18 +118,31 @@ Gamepad: `gp_is_held(pad,btn)` · `gp_just_pressed(pad,btn)` · `gp_axis(pad,axi
 
 Mouse: `get_mouse_x()` · `get_mouse_y()` (cells) · `get_mouse_world_x()` · `get_mouse_world_y()` · `mouse_left_pressed()` · `mouse_right_pressed()` · `mouse_left_held()` · `mouse_right_held()`
 
-> `get_mouse_world_y` subtracts 1 for the hardcoded HUD row. Phase 2 removes that leak.
+> `get_mouse_world_y` no longer subtracts a HUD row (Phase 4, Step 4g) — the
+> world now gets the full viewport, and `HUD_TOP_ROWS` (the single constant
+> both this and `Camera::viewport_origin` go through) is `0`. An earlier
+> version of this doc claimed Phase 2 already removed the leak; it hadn't —
+> Phase 2 only centralized the old bare `+1`/`-1` literal into that one
+> constant, without zeroing it.
 
 ### Camera
 `get_camera_x()` · `get_camera_y()` · `set_camera(x,y)` · `shake_camera(intensity,duration)`
 
-Setting the camera overrides follow until cleared. Phase 2 adds zoom.
+Setting the camera overrides follow until cleared. Phase 2 gave the
+internal `Camera` a `zoom` field, but there is still no scripted zoom
+control (no `set_zoom`/`get_zoom`) — nothing here changed as of this
+writing.
 
 ### State
 Globals (per level): `set_global` · `get_global` · `has_global` · `remove_global`
 Persistent (across levels): `set_persistent` · `get_persistent` · `has_persistent` · `clear_persistent` · `clear_all_persistent`
 
-> **Defect D2:** `set_persistent` inside `on_start` is silently discarded. Phase 1.
+> **Defect D2 (fixed in Phase 1):** `set_persistent` inside `on_start` used
+> to be silently discarded — `PlayState::on_start` ran `on_start` scripts
+> against a fresh, throwaway `HashMap` instead of the engine's real
+> persistent store. Fixed by threading the real store through
+> `GameState::on_start`'s signature instead; see `tests/persistent_on_start.rs`
+> for the regression test.
 
 ### Timers
 `start_timer(name,seconds)` · `timer_done(name)` · `cancel_timer(name)`
@@ -190,19 +227,22 @@ fn on_update(id, ctx) {
 | 1 | RNG becomes deterministic and world-seeded | No (behaviour only) |
 | 1 | `set_persistent` works in `on_start` | No (fixes a silent failure) |
 | 1 | `spawn_entity` gains colour, layer, collider parameters | Additive |
-| 2 | Mouse world coords lose the HUD-row fudge; camera gains zoom | Yes |
+| 2 | Camera gains zoom (`Camera.zoom` — no scripted control yet) | No |
 | 3 | `set_color` → `set_tint`; colour names → explicit values | Yes |
 | 3 | `set_z_order` → `set_layer_order` | Yes |
 | 3 | `set_animation(chars)` → clip references by name; sheet clips added | Yes |
 | 3 | `set_texture(path)` → texture handles | Yes |
 | 4 | Player movement, score, HUD move from `play.rs` into scripts | Additive |
+| 4 | Mouse world coords lose the HUD-row fudge (`HUD_TOP_ROWS` → 0, Step 4g) | Yes |
 | 5 | Scripts emit `Command` values; turn functions replace `trigger_turn` | Yes |
 | 6 | Collision layers become a bitmask, not `String` | Yes |
 
 `api_version()` was added in Step 3e (deferred from the original Phase 1 plan) —
-it currently returns `3`: `1` was the pre-refactor baseline, `2` covers Phase 2's
-breaking row above, `3` covers this batch of Phase 3 breaking rows
-(`set_color`/`set_z_order`/`set_animation`). Bump it at every future "yes" above.
+it currently returns `4`: `1` was the pre-refactor baseline, `2` covers Phase 2's
+row above (informational only — nothing script-visible actually changed), `3`
+covers Phase 3's breaking renames (`set_color`/`set_z_order`/`set_animation`),
+and `4` covers Step 4g's `get_mouse_world_y` change. Bump it at every future
+"yes" above.
 
 ---
 
@@ -227,5 +267,5 @@ In realtime these are no-ops with sensible defaults, so one script runs under ei
 `FullScriptingAPI.txt` on `main` was a plan, not a record, and went stale. Avoid a repeat:
 
 - Every function gets a signature, argument units, return value including the failure case, and a runnable example.
-- Keep `demo/scripts/api_test.rhai` exercising every function; run it as part of the regression checklist.
 - Undocumented means not shipped.
+- **Corrected in Step 4k**: this used to also say "keep `demo/scripts/api_test.rhai` exercising every function" — that file never existed on any branch, `demo/` is archived as of Phase 4 anyway (see `docs/archive/demo/README.md`), and no all-API smoke script exists today. Logged as future harness work instead, not a maintenance debt on a file that was never real: a script that calls every registered function once and asserts nothing errors would be a good addition whenever Phase 5's headless harness work happens, alongside the roguelike's own combat/level-integrity tests (`tests/roguelike_*.rs`, Step 4j).
