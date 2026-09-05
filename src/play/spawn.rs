@@ -7,21 +7,26 @@ use crate::math::Vec2;
 use crate::scripting::LogEntry;
 use crate::world::World;
 
-use super::{resolve_exit_path, PlayState, Z_PLAYER};
+use super::{resolve_exit_path, PlayState};
 
 impl PlayState {
     pub(super) fn do_on_start(&mut self, world: &mut World, _events: &mut EventBus, viewport_width: usize, viewport_height: usize, persistent: &mut HashMap<String, rhai::Dynamic>) {
-        let mut item_count   = 0u32;
         let mut scripts_ok   = 0u32;
         let mut scripts_fail = 0u32;
 
         for tile in &self.level.tiles {
-            if tile.tag == "spawn" { continue; }
-
             let id = world.spawn();
             world.add_transform(id, Transform::new(tile.x as f32, tile.y as f32));
 
-            let z = Self::z_for_tag(&tile.tag) + (tile.layer as i32 * 10);
+            // Phase 4: was `z_for_tag(&tile.tag) + layer*10` — the per-tag
+            // sub-ordering never actually resolved a real conflict, since
+            // `LevelGrid`'s tiles are keyed by `(x, y, layer)`: two tiles on
+            // the same layer can't occupy the same cell in the first place,
+            // so their relative z never affects what's visibly drawn on top
+            // of what. The layer tiers alone (0/10/20) already keep every
+            // tile between Z_PLAYER's 15, exactly preserving the intended
+            // Background < Main < Player < Foreground stacking.
+            let z = tile.layer as i32 * 10;
             let mut sprite = Sprite::new(tile.glyph, tile.fg, tile.bg, z);
             if let Some(ref path) = tile.texture {
                 let full = resolve_exit_path(path, &self.level.path);
@@ -47,7 +52,6 @@ impl PlayState {
                 col.layer = tile.collider_layer.clone();
                 col.mask = tile.collider_mask.clone();
                 world.add_collider(id, col);
-                if tile.tag == "item" || tile.tag == "chest" { item_count += 1; }
             }
 
             if !tile.tag.is_empty() { world.add_tag(id, Tag::new(&tile.tag)); }
@@ -81,20 +85,22 @@ impl PlayState {
             if let Some(ref path) = tile.next_level { self.exit_targets.insert(id, path.clone()); }
         }
 
-        self.total_items = item_count;
-
         let (sx, sy) = self.level.spawn_point;
         let player = world.spawn();
         world.add_transform(player, Transform::new(sx, sy));
 
         let pr = &self.level.player;
-        let mut p_sprite = Sprite::new(pr.glyph, pr.fg, pr.bg, Z_PLAYER);
+        // Step 4g: was a hardcoded Z_PLAYER constant — now a PlayerRecord
+        // field, editable per project like collider_w/collider_h already are.
+        let mut p_sprite = Sprite::new(pr.glyph, pr.fg, pr.bg, pr.layer);
         if let Some(ref path) = pr.texture {
             let full = resolve_exit_path(path, &self.level.path);
             p_sprite = p_sprite.with_texture(full);
         }
         world.add_sprite(player, p_sprite);
-        let mut p_col = Collider::new(0.75, 0.75);
+        // Phase 4: was a hardcoded Collider::new(0.75, 0.75) — now a
+        // PlayerRecord field, editable per project instead of fixed engine-wide.
+        let mut p_col = Collider::new(pr.collider_w, pr.collider_h);
         p_col.layer = pr.collider_layer.clone(); p_col.mask = pr.collider_mask.clone();
         world.add_collider(player, p_col);
         world.add_tag(player, Tag::new(&pr.tag));
@@ -116,7 +122,8 @@ impl PlayState {
         }
 
         let cam_pos = self.camera_entity.map(|id| world.get_global_position(id)).unwrap_or(Vec2::ZERO);
-        let game_h = (viewport_height as i32 - 2).max(1);
+        // Step 4g: full viewport height — no HUD bars reserving rows anymore.
+        let game_h = (viewport_height as i32).max(1);
         let cam_x = (cam_pos.x - viewport_width as f32 / 2.0).max(0.0).round();
         let cam_y = (cam_pos.y - game_h as f32 / 2.0).max(0.0).round();
 

@@ -200,6 +200,35 @@ impl ScriptEngine {
         }
     }
 
+    /// True only if `err` is Rhai's report that the optional lifecycle
+    /// function `fn_name` ("on_start"/"on_update"/"on_collide") doesn't
+    /// exist in this script at all — the one case every call site below is
+    /// meant to ignore silently.
+    ///
+    /// Defect D15 (docs/ember2d-refactor-plan.md): this used to be
+    /// `e.to_string().contains("Function not found")`, a bare substring
+    /// check on the error's Display output. Rhai reports a genuinely
+    /// missing top-level function as `ErrorFunctionNotFound` whose payload
+    /// is the bare function name (`"on_start"`) — but it reports a failed
+    /// operator or function call *inside* a function that DOES exist as
+    /// the exact same error variant, just with the payload extended to
+    /// `"name (arg, types)"` (see rhai's `gen_fn_call_signature`). Both
+    /// stringify to a message containing "Function not found", so the old
+    /// check silently swallowed genuine runtime errors — e.g. a script
+    /// reading back a value it had just written via set_global/
+    /// set_persistent earlier in the same pass: deferred writes mean that
+    /// read still sees the old value, and an arithmetic op against the
+    /// resulting `()` has no operator overload, which is exactly this
+    /// error shape — wherever that happened, with no log entry, no
+    /// disabled script, nothing: just a function that silently stopped
+    /// executing partway through, every single call. (Found for real
+    /// authoring `roguelike/scripts/player.rhai` — see docs/HANDOFF.md.)
+    /// Matching the error's exact payload instead of a substring of its
+    /// Display text distinguishes the two cases correctly.
+    fn is_missing_optional_fn(err: &rhai::EvalAltResult, fn_name: &str) -> bool {
+        matches!(err, rhai::EvalAltResult::ErrorFunctionNotFound(sig, _) if sig.as_str() == fn_name)
+    }
+
     pub fn run_on_start_all(&mut self, world: &mut World, log: &mut Vec<LogEntry>, extra_spawns: &[(String, f32, f32)], globals: HashMap<String, rhai::Dynamic>, clips: HashMap<String, AnimationClip>, persistent: &mut HashMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, viewport_size: (usize, usize)) -> ScriptUpdateResult {
         let scripted: Vec<(i64, String)> = world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
         let mut ctx_state = ScriptState::from_world(world, 0.0, 0.0, None, None, None, extra_spawns, globals, clips, persistent.clone(), camera_pos, viewport_size);
@@ -218,7 +247,7 @@ impl ScriptEngine {
             let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);
             let entity_ctx = ctx.with_entity(*entity_id);
             if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_start", (*entity_id, entity_ctx)) {
-                if !e.to_string().contains("Function not found") {
+                if !Self::is_missing_optional_fn(&e, "on_start") {
                     log.push(LogEntry::error(format!("on_start '{}': {}", path, e)));
                     self.disabled_scripts.insert(path.clone());
                 }
@@ -229,6 +258,17 @@ impl ScriptEngine {
 
     pub fn run_scripts(&mut self, world: &mut World, _events: &mut EventBus, log: &mut Vec<LogEntry>, delta_time: f32, elapsed: f32, input: Option<&InputManager>, mouse: Option<&crate::mouse::MouseState>, gamepad: Option<&crate::gamepad::GamepadState>, spawns: &[(String, f32, f32)], globals: HashMap<String, rhai::Dynamic>, clips: HashMap<String, AnimationClip>, persistent: &mut HashMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, viewport_size: (usize, usize)) -> ScriptUpdateResult {
         self.check_hot_reload(world, log);
+        // Step 4g: cleared here (once per real frame — `run_scripts` is the
+        // one call site the engine's own `update()` invokes, and it only
+        // fires for the top-of-stack GameState) rather than after drawing
+        // in `PlayState::render`. `render` runs for every stacked state
+        // every frame regardless of pause, but `update` (and therefore
+        // `run_scripts`) does not — clearing in render meant a script's HUD
+        // text vanished the instant a `PauseMenuState` was pushed on top,
+        // since nothing ever refilled the queue while paused. Clearing here
+        // instead means a skipped pass just leaves last frame's draws
+        // rendering unchanged.
+        self.pending_hud_draws.clear();
         let mut ctx_state = ScriptState::from_world(world, delta_time, elapsed, input, mouse, gamepad, spawns, globals, clips, persistent.clone(), camera_pos, viewport_size);
         let scripted: Vec<(i64, String)> = world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
         for (entity_id, _) in &scripted {
@@ -248,7 +288,7 @@ impl ScriptEngine {
             let scope = self.scopes.entry(entity_id as EntityId).or_insert_with(Scope::new);
             let entity_ctx = ctx.with_entity(entity_id);
             if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_update", (entity_id, entity_ctx)) {
-                if !e.to_string().contains("Function not found") {
+                if !Self::is_missing_optional_fn(&e, "on_update") {
                     log.push(LogEntry::error(format!("Runtime '{}': {}", path, e)));
                     self.disabled_scripts.insert(path.clone());
                 }
@@ -280,7 +320,7 @@ impl ScriptEngine {
             let scope = self.scopes.entry(entity_id as EntityId).or_insert_with(Scope::new);
             let entity_ctx = ctx.with_entity(entity_id);
             if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_collide", (entity_id, other_id, entity_ctx)) {
-                if !e.to_string().contains("Function not found") {
+                if !Self::is_missing_optional_fn(&e, "on_collide") {
                     log.push(LogEntry::error(format!("on_collide '{}': {}", path, e)));
                     self.disabled_scripts.insert(path.clone());
                 }

@@ -144,6 +144,38 @@ fn a_script_that_errors_is_disabled_and_stops_being_called() {
     let _ = std::fs::remove_file(&script);
 }
 
+// ── Tests: D15 — a real error inside on_update must not be mistaken for a
+// missing optional lifecycle function (docs/ember2d-refactor-plan.md §3) ──
+// (`e.to_string().contains("Function not found")` couldn't distinguish
+// "on_update doesn't exist in this script" from "some call *inside*
+// on_update genuinely has no matching function/operator" — both produce
+// the identical Rhai error shape, since operators are functions
+// internally. The fix matches ErrorFunctionNotFound's exact payload
+// against the specific lifecycle function name instead of a substring of
+// the whole error's Display text.)
+
+#[test]
+fn a_genuine_function_not_found_error_inside_on_update_is_logged_and_disables_the_script() {
+    let (_world, log) = run_source("undefined_function_call", r#"
+        fn on_update(id, ctx) {
+            this_function_does_not_exist_anywhere(42);
+        }
+    "#);
+    assert!(
+        log.iter().any(|e| e.level == LogLevel::Error),
+        "a genuine \"function not found\" error from a call inside on_update must be logged, not silently swallowed like a missing on_update itself"
+    );
+}
+
+#[test]
+fn a_script_with_no_on_update_function_is_silently_fine() {
+    let (_world, log) = run_source("no_on_update_defined", "// intentionally defines nothing\n");
+    assert!(
+        !log.iter().any(|e| e.level == LogLevel::Error),
+        "a script that simply doesn't define on_update must still be treated as fine, not an error"
+    );
+}
+
 /// Compile `source` to a temp file, attach it to a fresh scripted entity
 /// in a fresh world, and run one update pass. Returns the world (for the
 /// caller to inspect whatever the script spawned) and the log.
@@ -269,6 +301,52 @@ fn api_version_reports_the_current_breaking_change_generation() {
 
     let msg = log.iter().find(|e| e.level == LogLevel::Info).expect("api_version() should be loggable like any other return value");
     assert_eq!(msg.text, API_VERSION.to_string());
+}
+
+// ── Test: Step 4g HUD-survives-pause fix (docs/HANDOFF.md) ─────────────────────
+
+#[test]
+fn pending_hud_draws_are_cleared_at_the_start_of_run_scripts_not_by_the_renderer() {
+    // PlayState::render used to call ScriptEngine::pending_hud_draws.clear()
+    // itself, every frame, regardless of whether a script actually ran that
+    // frame. Since PlayState::update (and therefore run_scripts) only runs
+    // for the top-of-stack GameState, pausing the game (pushing
+    // PauseMenuState on top) meant render kept running and clearing every
+    // frame while nothing ever refilled the queue — a script's own drawn
+    // HUD text vanished the instant the game paused. The fix: clear at the
+    // START of run_scripts instead, so the queue only resets when a real
+    // script pass actually happens.
+    let mut script = std::env::temp_dir();
+    script.push("ember2d_test_hud_persist.rhai");
+    std::fs::write(&script, r#"
+        fn on_update(id, ctx) { ctx.draw_hud(1, 1, "hp: 10", "White", "Reset"); }
+    "#).unwrap();
+    let path = script.to_string_lossy().to_string();
+
+    let mut engine = ScriptEngine::new(1);
+    let mut log = Vec::new();
+    assert!(engine.compile(&path, &mut log));
+
+    let mut world = World::new();
+    let entity = world.spawn();
+    world.add_script(entity, Script::new(&path));
+
+    run_scripts_once(&mut engine, &mut world, &mut log);
+    assert_eq!(engine.pending_hud_draws.len(), 1, "a script's draw_hud call must land in the engine's queue after a real pass");
+
+    // Simulate a paused frame: no run_scripts call at all (PlayState::update
+    // doesn't run for a state that isn't on top of the stack). Nothing else
+    // in this headless test touches the queue, pinning that only
+    // run_scripts itself may clear it.
+    assert_eq!(engine.pending_hud_draws.len(), 1, "skipping a script pass must not clear the queue");
+
+    // A second real pass must reset the queue before repopulating it —
+    // otherwise draws would accumulate across frames instead of reflecting
+    // only the latest pass.
+    run_scripts_once(&mut engine, &mut world, &mut log);
+    assert_eq!(engine.pending_hud_draws.len(), 1, "a fresh pass must clear stale draws before adding this frame's");
+
+    let _ = std::fs::remove_file(&script);
 }
 
 // ── Tests: Step 3c named animation clips (ember2d-refactor-plan.md Phase 3) ────

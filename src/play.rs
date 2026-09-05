@@ -37,21 +37,15 @@ pub(crate) fn resolve_exit_path(next: &str, current_level_path: &str) -> String 
     }
 }
 
-// ── Z-order constants ─────────────────────────────────────────────────────────
-
-const Z_FLOOR:  i32 = 0;
-const Z_ITEM:   i32 = 1;
-const Z_WALL:   i32 = 2;
-const Z_PLAYER: i32 = 15;
-
-const PLAYER_SPEED: f32 = 10.0;
-
-/// Rows reserved for HUD chrome above the playable viewport (currently just
-/// the top status bar). The single source of truth for what used to be a
-/// bare `+1`/`-1` literal hand-duplicated between the render loop and
-/// `get_mouse_world_y` (`scripting/api.rs`) — see `Camera::viewport_origin`,
-/// which both now go through.
-pub const HUD_TOP_ROWS: i32 = 1;
+/// Rows reserved for HUD chrome above the playable viewport. Was `1` (one
+/// row for a hardcoded top status bar); Step 4g deletes both hardcoded HUD
+/// bars in favor of an F3-toggled debug overlay and script-drawn HUD text
+/// (`ctx.draw_hud`), so the world now gets the full viewport and this drops
+/// to `0`. Still the single source of truth `Camera::viewport_origin` and
+/// `get_mouse_world_y` (`scripting/api.rs`) both go through, rather than two
+/// hand-duplicated literals, in case a future HUD design ever needs to
+/// reserve rows again.
+pub const HUD_TOP_ROWS: i32 = 0;
 
 // Draw-list types (Space, DrawCommand, DrawList) and rendering support
 // (in_viewport, sprite_size) live in play/render.rs — see that file's
@@ -141,9 +135,11 @@ pub struct ShakeState {
 
 pub struct PlayState {
     player_id: EntityId,
-    score: u32,
-    total_items: u32,
     fps: f32,
+    /// Toggled by F3. Engine chrome (level name, exact position, backend,
+    /// FPS) is a debug tool switched on during play, not permanent
+    /// always-on UI — see docs/HANDOFF.md's Step 4g.
+    show_debug: bool,
     level: LevelData,
     pending_transition: Option<Transition>,
     script_engine: ScriptEngine,
@@ -190,9 +186,8 @@ impl PlayState {
         let seed = data.seed;
         PlayState {
             player_id:          0,
-            score:              0,
-            total_items:        0,
             fps:                0.0,
+            show_debug:         false,
             level:              data,
             pending_transition: None,
             script_engine:      ScriptEngine::new(seed),
@@ -276,14 +271,6 @@ impl PlayState {
         }
     }
 
-    fn z_for_tag(tag: &str) -> i32 {
-        match tag {
-            "floor" | "water" => Z_FLOOR,
-            "item"  | "chest" | "danger" => Z_ITEM,
-            _                 => Z_WALL,
-        }
-    }
-
     pub fn take_log(&mut self) -> Vec<LogEntry> { std::mem::take(&mut self.script_log) }
 
     fn flush_audio(&mut self) {
@@ -320,7 +307,7 @@ impl GameState for PlayState {
         if !self.is_loading_save {
             self.do_on_start(world, events, viewport_width, viewport_height, persistent);
         } else {
-            if let Some(id) = world.find_by_tag("player") { self.player_id = id; }
+            if let Some(id) = world.find_by_tag(&self.level.player.tag) { self.player_id = id; }
             for (_, script) in &world.scripts { self.script_engine.compile(&script.path, &mut self.script_log); }
             if self.camera_entity.is_none() { self.camera_entity = Some(self.player_id); }
         }
@@ -340,24 +327,7 @@ impl GameState for PlayState {
             return;
         }
 
-        let mut dir = Vec2::ZERO;
-        if input.is_held(Key::Up)    || input.is_held(Key::W) { dir.y -= 1.0; }
-        if input.is_held(Key::Down)  || input.is_held(Key::S) { dir.y += 1.0; }
-        if input.is_held(Key::Left)  || input.is_held(Key::A) { dir.x -= 1.0; }
-        if input.is_held(Key::Right) || input.is_held(Key::D) { dir.x += 1.0; }
-
-        if let Some(tf) = world.transforms.get_mut(&self.player_id) {
-            tf.velocity = dir.normalized() * PLAYER_SPEED;
-            if delta_time > 0.0 {
-                if dir.x != 0.0 && dir.y == 0.0 {
-                    let snap = tf.position.y.round() - tf.position.y;
-                    tf.velocity.y = snap / delta_time;
-                } else if dir.y != 0.0 && dir.x == 0.0 {
-                    let snap = tf.position.x.round() - tf.position.x;
-                    tf.velocity.x = snap / delta_time;
-                }
-            }
-        }
+        if input.just_pressed(Key::F3) { self.show_debug = !self.show_debug; }
 
         // Advance every Animator before scripts run this frame, so
         // `clip_finished(id)` reflects this tick, not last frame's — an
@@ -371,7 +341,11 @@ impl GameState for PlayState {
         let mut target_cam = self.camera_entity.map(|id| world.get_global_position(id)).unwrap_or(Vec2::ZERO);
         if let Some(over) = self.camera_override { target_cam = over; }
 
-        let game_h = (viewport_height as i32 - 2).max(1) as f32;
+        // Step 4g: the world gets the full viewport now — the two
+        // hardcoded HUD bars that used to reserve row 0 and the last row
+        // are gone; engine chrome is a toggleable F3 overlay drawn on top
+        // instead of reserving space.
+        let game_h = (viewport_height as i32).max(1) as f32;
         let half_w = viewport_width as f32 / 2.0;
         let half_h = game_h / 2.0;
 
@@ -409,7 +383,6 @@ impl GameState for PlayState {
 
     fn late_update(&mut self, ctx: UpdateContext) {
         let UpdateContext { world, events, prev_positions, delta_time, elapsed, viewport_width, viewport_height, turn_triggered, persistent, .. } = ctx;
-        let mut to_collect = Vec::new();
         let mut all_pairs = Vec::new();
 
         for event in events.events() {
@@ -423,10 +396,8 @@ impl GameState for PlayState {
             // the layer field's real purpose (collision filtering) for any
             // locked exit tile. `locked` is now its own flag.
             let locked = world.colliders.get(&other).map(|c| c.locked).unwrap_or(false);
-            let other_tag = world.tags.get(&other).map(|t| t.name.as_str());
 
             if solid { world.resolve_solid_collision(self.player_id, other, prev_positions); }
-            else if matches!(other_tag, Some("item") | Some("chest")) { to_collect.push(other); }
             else if let Some(path) = self.exit_targets.get(&other).cloned() {
                 if !locked {
                     let full_path = resolve_exit_path(&path, &self.level.path);
@@ -437,7 +408,6 @@ impl GameState for PlayState {
                 }
             }
         }
-        for id in to_collect { if world.sprites.contains_key(&id) { world.despawn(id); self.score += 1; } }
 
         // self.camera was already refreshed this step by the preceding
         // update() call (see engine.rs's per-step order: update, physics,
@@ -513,18 +483,22 @@ impl GameState for PlayState {
             }
         }
 
-        renderer.draw_rect_filled(0, 0, renderer.width, 1, ' ', Color::Black, Color::DarkBlue);
-        renderer.draw_str(0, 0, &format!(" PLAYING: {}", self.level.name), Color::White, Color::DarkBlue);
-        renderer.draw_str(24, 0, &format!("Items {}/{}", self.score, self.total_items), Color::Yellow, Color::DarkBlue);
-        let pos = world.get_global_position(self.player_id);
-        renderer.draw_str(38, 0, &format!("x:{:.1} y:{:.1}", pos.x, pos.y), Color::Green, Color::DarkBlue);
-        renderer.draw_str(renderer.width.saturating_sub(18), 0, &format!("Mode:{}", renderer.backend_name()), Color::Cyan, Color::DarkBlue);
-        renderer.draw_str(renderer.width.saturating_sub(6), 0, &format!("FPS:{}", self.fps.round()), Color::White, Color::DarkBlue);
+        // Step 4g: engine chrome is an F3-toggled debug overlay, not
+        // permanent always-on bars — the world gets the full viewport, and
+        // gameplay HUD (health, gold, controls hint, etc.) is drawn by
+        // scripts via ctx.draw_hud (the loop below), not hardcoded here.
+        if self.show_debug {
+            let pos = world.get_global_position(self.player_id);
+            renderer.draw_rect_filled(0, 0, renderer.width, 1, ' ', Color::Black, Color::DarkBlue);
+            renderer.draw_str(0, 0, &format!(" DEBUG: {}", self.level.name), Color::White, Color::DarkBlue);
+            renderer.draw_str(38, 0, &format!("x:{:.1} y:{:.1}", pos.x, pos.y), Color::Green, Color::DarkBlue);
+            renderer.draw_str(renderer.width.saturating_sub(18), 0, &format!("Mode:{}", renderer.backend_name()), Color::Cyan, Color::DarkBlue);
+            renderer.draw_str(renderer.width.saturating_sub(6), 0, &format!("FPS:{}", self.fps.round()), Color::White, Color::DarkBlue);
+        }
 
-        renderer.draw_rect_filled(0, renderer.height - 1, renderer.width, 1, ' ', Color::Black, Color::DarkGrey);
-        renderer.draw_str(1, renderer.height - 1, "WASD / Arrows: Move   Esc: Pause", Color::White, Color::DarkGrey);
-
-        // Render last 3 log messages above the bottom bar
+        // Render last 3 log messages at the bottom of the (now full-height)
+        // viewport — used to sit just above the bottom bar; there's no bar
+        // to sit above anymore.
         let log_len = self.script_log.len();
         for i in 0..log_len.min(3) {
             let entry = &self.script_log[log_len - 1 - i];
@@ -533,7 +507,7 @@ impl GameState for PlayState {
                 crate::scripting::LogLevel::Warning => Color::Yellow,
                 crate::scripting::LogLevel::Info => Color::Cyan,
             };
-            renderer.draw_str(1, renderer.height - 2 - i, &entry.text, col, Color::Reset);
+            renderer.draw_str(1, renderer.height - 1 - i, &entry.text, col, Color::Reset);
         }
 
         for hud in &self.script_engine.pending_hud_draws {
@@ -547,7 +521,10 @@ impl GameState for PlayState {
                     crate::ui::Panel::new(*x, *y, *w, *h).with_title(title).with_colors(*fg, *bg).draw(renderer),
             }
         }
-        self.script_engine.pending_hud_draws.clear();
+        // Not cleared here anymore (Step 4g) — see
+        // ScriptEngine::run_scripts's own clear for why: clearing on every
+        // render, regardless of whether a script actually ran that frame,
+        // made a script's drawn HUD vanish the instant the game paused.
     }
 
     fn take_transition(&mut self) -> Option<Transition> { self.pending_transition.take() }

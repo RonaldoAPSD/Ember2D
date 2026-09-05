@@ -7,12 +7,16 @@ use crate::input::{InputManager, Key};
 
 /// The scripting API's breaking-change generation, returned by
 /// `ctx.api_version()`. See `docs/ember2d-scripting-api.md` §6's changelog
-/// table: v1 is the pre-refactor baseline; v2 is Phase 2 (mouse-world-coord
-/// HUD-row fudge removed, camera zoom added); v3 is this batch of Phase 3
-/// breaking renames (`set_color`→`set_tint`, `set_z_order`→
-/// `set_layer_order`, `set_animation` removed in favor of the clip API).
-/// Bump this alongside the next "Yes" row in that table.
-pub const API_VERSION: i64 = 3;
+/// table: v1 is the pre-refactor baseline; v2 is Phase 2 (camera zoom added
+/// — no scripted control yet); v3 is Phase 3's breaking renames
+/// (`set_color`→`set_tint`, `set_z_order`→`set_layer_order`,
+/// `set_animation` removed in favor of the clip API); v4 is Step 4g —
+/// `get_mouse_world_y` stops subtracting a HUD row now that `HUD_TOP_ROWS`
+/// is 0 (an earlier version of this comment claimed that shipped already in
+/// v2; it hadn't — `HUD_TOP_ROWS` only got centralized into one constant
+/// then, never actually zeroed). Bump this alongside the next "Yes" row in
+/// that table.
+pub const API_VERSION: i64 = 4;
 
 // ── Console log types (used by editor console panel) ─────────────────────────
 
@@ -200,8 +204,9 @@ mod tests {
         // both the documented API (ember2d-scripting-api.md §3) and every
         // demo script call ctx.is_held("w") / ctx.just_pressed("enter") in
         // lowercase. The mismatch meant scripts gating on movement/menu keys
-        // silently never matched — e.g. demo/scripts/player.rhai's tutorial
-        // gate never dismissed, which zeroed player velocity every frame.
+        // silently never matched — e.g. the original demo's player script
+        // (docs/archive/demo/scripts/player.rhai) had a tutorial gate that
+        // never dismissed, which zeroed player velocity every frame.
         let mut input = InputManager::new();
         input.handle_pressed(Key::W);
         input.handle_pressed(Key::Enter);

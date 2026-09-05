@@ -16,11 +16,12 @@
 // font atlas, which every glyph implicitly shares) lands adjacent.
 //
 // `layer` from the plan's (space, layer, z, texture) isn't included yet —
-// `Sprite` has no field distinct from `z_order` to sort by, so there's
-// nothing to add without inventing data that doesn't exist. `z_order`
-// already folds in the tile's authored layer (`z_for_tag(tag) + layer*10`,
-// see play/spawn.rs), so this isn't a functional gap, just a naming one
-// Phase 3's sprite model may resolve.
+// `Sprite` has no field distinct from its own `layer` to sort by, so
+// there's nothing to add without inventing data that doesn't exist.
+// `Sprite.layer` already folds in the tile's authored editor layer
+// (`tile.layer as i32 * 10`, see play/spawn.rs — Phase 4 dropped the
+// per-tag sub-ordering `z_for_tag` used to add), so this isn't a
+// functional gap, just a naming one Phase 3's sprite model resolved.
 //
 // Step 2e: commands now carry a real world-space position instead of a
 // pre-subtracted screen col/row — `Space::World` was a lie otherwise

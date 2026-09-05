@@ -165,6 +165,24 @@ pub struct PlayerRecord {
     pub collider_mask: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub texture: Option<String>,
+
+    /// Player hitbox size in world units. Phase 4
+    /// (docs/ember2d-refactor-plan.md): this used to be a `Collider::new(0.75,
+    /// 0.75)` hardcoded in `play/spawn.rs`, regardless of what a project's
+    /// player actually needed. `#[serde(default = "default_player_collider_size")]`
+    /// preserves that exact 0.75 value for every level saved before these
+    /// fields existed.
+    #[serde(default = "default_player_collider_size")]
+    pub collider_w: f32,
+    #[serde(default = "default_player_collider_size")]
+    pub collider_h: f32,
+
+    /// Player draw order. Step 4g: this used to be a hardcoded `Z_PLAYER: i32
+    /// = 15` constant in `play.rs`, same shape as `collider_w`/`collider_h`
+    /// above — `#[serde(default = "default_player_layer")]` preserves that
+    /// exact 15 value for every level saved before this field existed.
+    #[serde(default = "default_player_layer")]
+    pub layer: i32,
 }
 
 fn default_player_glyph() -> char { '@' }
@@ -172,6 +190,8 @@ fn default_player_fg()    -> Color { Color::Green }
 fn default_player_bg()    -> Color { Color::Reset }
 fn default_player_tag()   -> String { "player".to_string() }
 fn bool_true()            -> bool { true }
+fn default_player_collider_size() -> f32 { 0.75 }
+fn default_player_layer() -> i32 { 15 }
 
 impl Default for PlayerRecord {
     fn default() -> Self {
@@ -187,6 +207,9 @@ impl Default for PlayerRecord {
             collider_layer: String::new(),
             collider_mask:  Vec::new(),
             texture:        None,
+            collider_w:     default_player_collider_size(),
+            collider_h:     default_player_collider_size(),
+            layer:          default_player_layer(),
         }
     }
 }
