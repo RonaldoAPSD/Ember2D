@@ -1,0 +1,7 @@
+(
+    name: "Roguelike",
+    visual_style: ClassicASCII,
+    gameplay_loop: TurnBased,
+    start_level: Some("floor1.level"),
+    pixels_per_unit: 8.0,
+)
