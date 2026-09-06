@@ -286,7 +286,14 @@ pub(super) struct ScriptState {
     pub(super) pending_collider_locked: Vec<(i64, bool)>,
     pub(super) pending_collider_mask:  Vec<(i64, Vec<String>)>,
     pub(super) pending_timers:     Vec<(crate::world::EntityId, String, f64)>,
-    pub(super) timers:             HashMap<crate::world::EntityId, HashMap<String, f64>>,
+    /// Phase 6 Step 9 (docs/ember2d-phase6-plan.md): `mem::take`n out of
+    /// `ScriptEngine.timers` at the start of whichever `run_*` method built
+    /// this `ScriptState`, and put back by `apply_ctx` before it returns —
+    /// same round-trip shape `globals`/`clips`/`persistent` already use
+    /// (Step 3), just entirely internal to `ScriptEngine` rather than
+    /// surfacing through `ScriptUpdateResult`. `BTreeMap` outer and inner,
+    /// matching `ScriptEngine.timers`'s own doc comment for why.
+    pub(super) timers:             BTreeMap<crate::world::EntityId, BTreeMap<String, f64>>,
     /// `ctx.submit()`'s write queue (Step 5e, docs/ember2d-phase5-plan.md)
     /// — meaningful only from `on_input`; see `commands`'s own doc comment
     /// for the read side.
@@ -374,7 +381,7 @@ impl ScriptState {
             pending_camera: None, pending_shake: None, pending_visibility: Vec::new(), pending_z_order: Vec::new(), pending_tags: Vec::new(),
             pending_collider_size: Vec::new(), pending_collider_solid: Vec::new(), pending_collider_layer: Vec::new(), pending_collider_mask: Vec::new(),
             pending_collider_locked: Vec::new(),
-            pending_timers: Vec::new(), timers: HashMap::new(),
+            pending_timers: Vec::new(), timers: BTreeMap::new(),
             pending_commands: Vec::new(),
             pending_act_cost: None, pending_speed: Vec::new(),
             pending_animations: Vec::new(),

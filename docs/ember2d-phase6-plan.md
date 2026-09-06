@@ -633,41 +633,409 @@ empty — this fix is entirely inside `play.rs` and its own test file.
 
 ---
 
-## 9. Steps 8–14
+## 9. Step 8 ✅ Done — sweep-and-prune broad phase
 
-Steps 8 (sweep-and-prune broad phase) through 14 (documentation) are planned
-in full detail but not yet started. See the plan file this phase was
-approved from for the complete step-by-step design (sweep-and-prune broad
-phase; timers moving to `ScriptEngine`; `prev_positions` buffer reuse; the
-`entity_ids` bug fix; `atan2` replaced with a rational approximation;
-conditional `DrawList` buffer reuse) — this doc will be updated with a
-"Done — Step N" note and real before/after numbers as each one lands,
-matching how
-`docs/ember2d-phase5-plan.md` and `docs/ember2d-phase5.5-plan.md` record
-their own step-by-step history.
+Replaced `World::detect_collisions`'s pure O(colliders²) pairwise scan
+(~1.45M pair tests at floor2 scale) with a 1D sweep-and-prune: `collidables`
+sorts by `rect.x` once (`sort_unstable_by`, in place — `Rect` and the bit
+fields are all `Copy`, so this adds no allocation), and the inner loop
+`break`s the moment `rect_b.x >= rect_a.right()` — everything sorted further
+right is guaranteed too far away on the x-axis to overlap `a` either.
 
-**Determinism gate, mandatory and non-negotiable for this phase:**
-`cargo test --test replay` run 5× as independent fresh processes,
-individually after Step 8 (sweep-and-prune) — not just once at the end
-(Steps 3 and 7 already had their own 5× gates, recorded in §3 and §8 above).
+**Determinism trap, handled explicitly (not just noted):** sorting by
+position destroys the old loop's emission order (walking `collidables` in
+ascending `EntityId`, since it was originally built from `self.colliders`'s
+`BTreeMap` iteration) — and `on_collide` call order
+(`Simulation::late_step` → `ScriptEngine::run_collisions`) *is* that emission
+order, with real behavioral consequences (two scripts writing the same
+global in one pass last-write-wins on whichever ran later — see
+`player.rhai`'s own header comment). Fixed by collecting every hit as a
+normalized `(min(id_a, id_b), max(id_a, id_b))` pair into a `hits` vec
+without emitting during the sweep, then sorting `hits` (plain tuple `Ord`)
+and only then emitting — this reproduces the old double loop's exact
+emission order byte-for-byte, so `on_collide` sees an identical call
+sequence to before this step. Verified the hard way, not just reasoned
+through: `cargo test --test replay` run 5× as independent fresh processes,
+all passed.
+
+**Measured (release, this machine, before → after — before = a fresh
+Step-7-state baseline re-measured immediately prior to this step, to rule
+out machine drift since Step 7's own numbers were recorded):**
+
+| Level | p50 ms/step (total) | `detect_collisions` p50 | `detect_collisions` share of total |
+|---|---|---|---|
+| synthetic n=500 | 0.626 → 0.498 (-20%) | 0.198 → 0.062 (**-69%**) | 32% → 12% |
+| synthetic n=2000 | 3.454 → 1.808 (-48%) | 2.014 → 0.358 (**-82%**) | 58% → 20% |
+| synthetic n=5000 | 14.591 → 4.065 (-72%) | 10.966 → 0.781 (**-93%**) | 75% → 19% |
+| synthetic n=10000 | 47.426 → 7.893 (**-83%**) | 40.800 → 1.750 (**-96%**) | 86% → 22% |
+| floor1 | 0.507 → 0.464 (-8%) | 0.075 → 0.028 (-63%) | 15% → 6% |
+| floor2 | 4.196 → 1.817 (**-57%**) | 2.707 → 0.300 (**-89%**) | 65% → 17% |
+| floor3 | 1.760 → 1.067 (-39%) | 0.861 → 0.154 (-82%) | 49% → 14% |
+
+`allocs/step` is **exactly unchanged** at every scale (e.g. floor2:
+6,598.4 → 6,598.4) — direct, measured confirmation of the "zero extra
+allocation" design goal, and a useful data point on its own: `detect_collisions`
+was already allocation-free after Step 7's bitmask change, so this step's win
+is purely in *iteration count* (time), the same "time saved, not allocations
+saved" distinction Step 6's write-up drew for a different reason. The
+remaining allocs/step scaling with entity count (synthetic n=500→n=2000 is
+still ~3.18×, unchanged by this step) is now entirely attributable to
+`WorldSnapshot::build` (Step 4's territory) — `detect_collisions` no longer
+contributes to that number at all, at any scale.
+
+**This closes the phase's actual done-when for collision detection**:
+`detect_collisions`'s share of total step time falls sharply at every scale,
+most dramatically at n=10,000 (86% → 22% of the step) — exactly what §1's
+baseline analysis predicted Steps 7+8 together would do.
+
+**Verified:** `cargo build --workspace --examples` clean; `cargo test
+--workspace --lib` clean (`ember2d`: 41, `ember2d-editor`: 1, `ember2d-sim`:
+49 — unchanged counts, this step touches no test-visible surface); all 11
+named integration tests (37 sub-tests) passed; `cargo test --test replay`
+run 5× as independent fresh processes — mandatory for this step — all
+passed; manual smoke test of `roguelike/floor2.level` (background-launched,
+log-inspected, and killed cleanly — no panic). `git diff --stat` confirmed
+the change is scoped to `ember2d-sim/src/world.rs` alone; `ember2d/src/sim.rs`,
+`ember2d/src/engine.rs`, and `ember2d-editor/` are all untouched.
 
 ---
 
-## 10. Documents to update as the phase lands
+## 10. Step 9 ✅ Done — timers move to a real per-entity store
+
+Replaced the five near-identical scope-scan blocks (`run_on_start_all`,
+`run_on_input`, `run_on_turn`, `run_scripts`, `run_collisions`) that used to
+build each pass's `ScriptState.timers` by iterating an entity's Rhai `Scope`
+and pattern-matching `__timer_<name>` variable names out of it by string
+prefix. `ScriptEngine` now owns `timers: BTreeMap<EntityId, BTreeMap<String,
+f64>>` directly, and every call site's block collapses to one line:
+`ctx_state.timers = std::mem::take(&mut self.timers);` — the exact same
+`mem::take`/put-back round-trip Step 3 already established for `globals`/
+`clips`/`persistent`, just entirely internal to `ScriptEngine` (timers never
+surface through `ScriptUpdateResult`, unlike those three, since `Simulation`
+itself has no concept of them). `apply_ctx` (`apply.rs`) puts it back —
+`self.timers = std::mem::take(&mut state.timers);` — right after folding
+`pending_timers` writes into `state.timers` directly (replacing the old
+`scope.set_value(format!("__timer_{}", name), ...)` write) and before
+`state` is dropped.
+
+**Decay** (previously a `scope.iter()` scan + `scope.set_value` per entity,
+once per real step) is now a plain nested `values_mut()` walk over
+`ctx_state.timers` in `run_scripts` — the one call site that already ran
+exactly once per step — since every entry in the map *is* a timer by
+construction now; no more prefix filtering needed to tell timers apart from
+other scope contents, because there is no other scope content sharing this
+map.
+
+**Lifecycle mirrored, not just relocated:** a despawned entity's timers are
+now removed in the same `apply_ctx` loop that already removes its scope
+(`self.timers.remove(&(id as EntityId))`, alongside the pre-existing
+`self.scopes.remove(...)`), and `check_hot_reload`'s per-affected-entity
+scope removal does the same (`self.timers.remove(&id)`) — without both, a
+despawned or hot-reloaded entity's stale timer would leak forever (harmless
+today since ids are never reused within a level, but real dead weight, and
+exactly the class of bug the plan's own "must mirror lifecycle" instruction
+was written to prevent).
+
+**D22 found and logged (not fixed), exactly as the plan called for:**
+tracing `apply_ctx`'s exact sentinel handling — required to move it off
+`self.scopes` correctly — surfaced that `cancel_timer` and a just-consumed
+`timer_done` both resolve to the identical stored value (`-1.0`), which is
+itself still inside `timer_done`'s own "done" range
+(`val <= 0.0 && val > -500.0`). `timer_done` therefore keeps reporting `true`
+on every check after either event, not "once" as previously documented —
+see `docs/ember2d-refactor-plan.md` §3's new D22 entry and
+`docs/ember2d-scripting-api.md`'s corrected Timers section for the full
+mechanism. Not fixed: this is a behavior question outside Step 9's own
+storage-migration scope, and no shipped script (`roguelike/`, `shooter/`)
+calls `start_timer`/`timer_done`/`cancel_timer` at all, so nothing observable
+is broken by it today.
+
+**Also documented (per the plan's explicit instruction, previously true and
+unstated):** timers are lost across `save_game`/`load_game` — `SaveState`
+never carried them before this step and still doesn't after it, since they
+remain purely internal `ScriptEngine` state. Now called out directly in
+`docs/ember2d-scripting-api.md`'s Timers section instead of being an
+undocumented accident of where the state happened to live.
+
+**New test coverage, since nothing shipped exercises timers at all:** three
+tests in a new `ember2d-sim/src/scripting/timer_tests.rs` (split into its own
+sibling file via `#[path]`, matching the `apply.rs`/`api_spatial.rs` pattern
+— `engine_tests.rs` was already at 496/600 lines before this step, which
+would have pushed it to 613) — a timer reports done only once decay carries
+it to zero or below; despawn removes an entity's timers; hot-reload clears
+only the reloaded script's entities' timers, leaving others untouched
+(mirroring `hot_reload_clears_only_the_reloaded_scripts_entities`'s existing
+scope test exactly). Deliberately not tested: `cancel_timer` "preventing"
+`timer_done` from firing — per D22 above, it doesn't, so asserting that
+would just be asserting something false about current behavior.
+
+**Verified:** `cargo build --workspace --examples` clean, zero warnings;
+`cargo test --workspace --lib` clean (`ember2d`: 41, `ember2d-editor`: 1,
+`ember2d-sim`: 52 — three more than Step 8, the new timer tests); all 11
+named integration tests (37 sub-tests) passed; `cargo test --test replay`
+run 2× as independent fresh processes (not the mandatory 5× — this step
+isn't in the phase's list of gated steps, §3/§7/§8 are, and no shipped
+script's behavior can differ since none call any timer function — but a
+sanity check cost little, same reasoning Step 6 gave for its own non-mandatory
+run); manual smoke test of `roguelike/floor2.level` (background-launched,
+log-inspected, killed cleanly — no panic). `git diff --stat` confirmed
+`ember2d/src/sim.rs`, `ember2d/src/engine.rs`, and `ember2d-editor/` all
+stayed untouched.
+
+---
+
+## 11. Step 10 ✅ Done — `prev_positions` buffer reuse
+
+`ember2d::sim::step` used to call `World::snapshot_positions()` — a bare
+`self.transforms.iter().collect()` — once per real step, allocating a fresh
+`HashMap<EntityId, Vec2>` every single call regardless of the level's actual
+entity count staying constant frame to frame (2,570 entries at floor2 scale).
+New `World::snapshot_positions_into(&mut HashMap<EntityId, Vec2>)`
+(`ember2d-sim/src/world.rs`) writes the same content into a caller-owned
+buffer via `clear()` + `extend()` instead — `HashMap::clear()` drops every
+entry but keeps the table's already-allocated capacity, so once the buffer
+has grown to fit the level's entity count (frame one), every later call
+reuses that capacity with zero further allocation.
+
+`sim::step` gained a new `prev_positions: &mut HashMap<EntityId, Vec2>`
+parameter (`ember2d/src/sim.rs`) instead of building its own local; `Engine`
+now owns that buffer as a real field (`prev_positions_buf`,
+`ember2d/src/engine.rs`), initialized once in `Engine::new` and passed by
+`&mut` reference at both of `run()`'s call sites (the realtime accumulator
+loop and the turn-based single-step branch) — so the same allocation
+survives across every frame of a session, not just within one `step` call.
+**`snapshot_positions()` itself is untouched, not replaced** — its other
+three callers (`TurnHarness`, `tests/shooter_arena.rs`, `bench_sim.rs`) each
+call it at most once per test/benchmark run, with nothing to gain from a
+reusable buffer they'd only ever fill a single time.
+
+**`UpdateContext.prev_positions`'s type is unchanged** (`&'a HashMap<EntityId,
+Vec2>`, still a shared reference) — per the plan's own explicit instruction,
+since Phase 5.5's guardrail protected that exact contract and the hand-built
+`UpdateContext`s in `ember2d/src/play/tests.rs` and
+`ember2d/tests/save_load_globals.rs` construct one directly. `step` reborrows
+its new `&mut` parameter as `&*prev_positions` at both `UpdateContext`
+construction sites (`update` and, if the late phase runs, `late_update`) —
+two sequential immutable reborrows of the same `&mut`, not a live conflict.
+
+**Not measurable via `bench_sim`:** that harness lives entirely in
+`ember2d-sim` and duplicates `Simulation::step`'s own sequence directly — it
+never calls `ember2d::sim::step` at all (that function, and this step's
+target, live in the `ember2d` crate, which `bench_sim` doesn't depend on so
+it can build without wgpu/winit — see that example's own header comment).
+Same "this step's payoff isn't in anything the bench is built to see"
+situation Step 6's write-up already noted for its own syscall-throttling
+win — verified instead by code review (the buffer really is a long-lived
+`Engine` field, not a per-call local) plus the full test suite and manual
+smoke tests below.
+
+**Verified:** `cargo build --workspace --examples` clean, zero warnings;
+`cargo test --workspace --lib` clean (unchanged counts — this step touches
+no test-visible surface); all 11 named integration tests (37 sub-tests)
+passed; `cargo test --test replay` run once as a sanity check (not
+mandatory — `TurnHarness` calls `Simulation::step`/`late_step` directly and
+never goes through `ember2d::sim::step` at all, so this step's change is
+structurally invisible to that test); manual smoke test of both
+`roguelike/floor2.level` (play mode) and `cargo run -- --editor
+roguelike/floor1.level` (editor — `sim::step` is the same per-frame pump
+every `GameState` rides, `EditorState` included) — both background-launched,
+log-inspected, killed cleanly, no panic. `git diff --stat` shows exactly the
+expected footprint: `ember2d-sim/src/world.rs` (the new method),
+`ember2d/src/sim.rs` (the new parameter), and `ember2d/src/engine.rs` (the
+new field and its two call sites) — `ember2d-editor/` untouched. Unlike
+Steps 8–9, this step *does* touch `sim.rs`/`engine.rs` by design (that's
+exactly where the allocation this step removes lived).
+
+---
+
+## 12. Step 11 ✅ Done — fix `entity_ids`, don't write the macro
+
+The refactor plan originally asked for a component-registration macro here.
+Rejected, per the phase's own scope table (§0): a macro would contradict
+CLAUDE.md's "deliberate learning artifact" rule, and — this step's own
+finding makes the case concretely — it would have hidden the actual bug just
+as effectively as hand-writing it wrong did, since the one place drift
+happened (`entity_ids`) had zero production callers to ever surface it
+either way.
+
+`World::entity_ids()` (`ember2d-sim/src/world.rs`) unioned only four of the
+world's seven component stores (`transforms`/`sprites`/`colliders`/`tags`),
+silently omitting an entity whose only components are `scripts`/`animators`/
+`actors`. Confirmed via grep that nothing in the workspace calls
+`entity_ids` outside its own test, so this was latent, not an active bug —
+but a real one for the first future caller. Fixed to union all seven.
+
+**Closed the API asymmetry that made the bug possible to write in the first
+place**, not just the one call site: added `add_animator`/`remove_actor`/
+`remove_animator` — `animators`/`actors` were the only two of the seven
+component stores missing a full `add_*`/`remove_*` pair (`scripts` already
+had both; the other four are older and pre-date the `Actor`/`Animator`
+components entirely). Existing call sites that need `Entry`-style
+conditional insertion (e.g. `apply_ctx`'s `play_clip` handling, which must
+preserve an already-playing `Animator`'s state) still use `self.animators`
+directly — this is closing the API gap for the next call site, not migrating
+every existing one, per the phase's own "don't opportunistically refactor"
+rule.
+
+**New checklist comment directly on the `World` struct** — the "readable,
+low-tech version of the macro" the plan called for: six sites (the field
+itself, `World::new()`, `despawn()`, `entity_ids()`, an `add_*` method, a
+`remove_*` method) a new component store must touch, with this step's own
+bug named as the concrete example of what happens when one is missed.
+
+**New regression test** (`world.rs`'s own test module):
+`entity_ids_includes_entities_whose_only_component_is_a_script_animator_or_actor`
+— spawns three entities, each with exactly one of the three previously-missed
+components, and asserts `entity_ids()` lists all three. Pins the fix
+directly rather than trusting the seven-line union by inspection alone.
+
+**Verified:** `cargo build --workspace --examples` clean, zero warnings;
+`cargo test --workspace --lib` clean (`ember2d-sim`: 53 — one more than
+Step 10, the new test); all 11 named integration tests (37 sub-tests)
+passed; `cargo test --test replay` run once as a sanity check (this step
+has zero production callers of the function it changes, so no shipped
+script's behavior can possibly differ, but the check is cheap); manual
+smoke test of `roguelike/floor2.level` (background-launched, log-inspected,
+killed cleanly — no panic). `git diff --stat` confirmed this step's own
+change is scoped entirely to `ember2d-sim/src/world.rs`.
+
+---
+
+## 13. Step 12 ✅ Done — transcendental math (§5.2 H2)
+
+Exhaustive grep across `ember2d-sim/` at the start of this step found
+exactly **one** real transcendental-math call in the whole crate:
+`get_angle_to`'s `atan2`. The refactor plan's own §5.2 H2 section had also
+named `Vec2::normalized` as an offender — checked and found wrong: it's
+`sqrt` plus two divides (already in the safe, IEEE-754-exact category
+`get_distance` was already correctly in), and it has zero callers anywhere
+in the workspace. Corrected directly in `docs/ember2d-refactor-plan.md` §5.2
+(an appended correction, not a rewrite, per this project's own convention)
+rather than left for a future reader to rediscover.
+
+**New `ember2d_sim::math::atan2_approx(y, x)`** replaces the `f64::atan2`
+call inside `get_angle_to` (`scripting/api_spatial.rs`). Built entirely from
+`+ - * /` on `z = y/x` — a well-known minimax rational approximation (Jim
+Shima, 1999), composed with the same sign/quadrant case analysis the real
+`atan2` uses — so every operation is IEEE-754-exact and therefore
+bit-identical on any platform, unlike a platform-libm `atan2` call, which
+carries no such guarantee. Accuracy (~0.01 rad / ~0.6°, verified by a
+298-point sweep test against the real `f64::atan2` across the full circle at
+four different radii, not just asserted by algebra) is invisible for
+`get_angle_to`'s actual use — AI chase/aim direction — and irrelevant to
+gameplay the way it would only matter for precision physics this engine
+doesn't have. `get_distance` was also rewritten, from `.powi(2)` to explicit
+`dx*dx + dy*dy` — not because `powi(2)` was itself unsafe (small-integer
+`powi` is repeated multiplication, never a libm call, so it was already
+exact), but so the exact operation sequence is spelled out directly rather
+than resting on an intrinsic's implementation detail. Deliberately no
+`.mul_add()` anywhere in `atan2_approx` — see that function's own doc
+comment for why a real hardware FMA instruction would reintroduce the exact
+platform-dependence this function exists to remove.
+
+**Zero API break, confirmed and documented, not just asserted:**
+`get_angle_to`'s signature and units are unchanged, and `API_VERSION` stays
+`6`. Along the way, found and corrected a genuinely stale row in
+`docs/ember2d-scripting-api.md` §6's changelog table: it had marked Step 7's
+collision-layer bitmask as "Yes" (breaking) since before Step 7 actually
+shipped — wrong, since that step kept every collider-layer script function's
+signature completely unchanged (a purely internal representation swap, per
+Step 7's own write-up above). Corrected to "No" alongside adding this step's
+own (also non-breaking) row.
+
+**A hazard this fix does *not* close, documented rather than left implicit:**
+a script that takes `get_angle_to`'s now-deterministic result and calls
+Rhai's own `.cos()`/`.sin()` on it reintroduces the identical
+platform-libm nondeterminism one step later, in script space instead of
+engine space — those are Rhai's own registered math functions, calling into
+whatever libm Rhai itself was built against, entirely outside this engine's
+determinism guarantee. Added a note to `docs/ember2d-scripting-api.md`'s
+"Spatial queries" section explaining this and recommending the actual
+deterministic alternative (a direction vector via `get_distance`, no angle
+or trig involved at all), and rewrote §4's chase-the-player example to use
+that pattern instead of `a.cos()`/`a.sin()`.
+
+**Verified:** `cargo build --workspace --examples` clean, zero warnings;
+`cargo test --workspace --lib` clean (`ember2d-sim`: 55 — two more than
+Step 11, `atan2_approx`'s own exact-value and error-bound-sweep tests); all
+11 named integration tests (37 sub-tests) passed; `cargo test --test replay`
+run once as a sanity check — confirmed via grep that **zero shipped scripts
+call `get_angle_to` or `get_distance` at all** (the only hit anywhere in the
+workspace is `docs/archive/demo/scripts/chaser.rhai`, a superseded demo
+nothing runs), so this step's numeric change is structurally incapable of
+affecting any current gameplay or test outcome — the sanity run confirmed
+that rather than assumed it; manual smoke test of `roguelike/floor2.level`
+(background-launched, log-inspected, killed cleanly — no panic). `git diff
+--stat` confirmed this step's own change is scoped to
+`ember2d-sim/src/math.rs` (the new function) and
+`ember2d-sim/src/scripting/api_spatial.rs` (its two call sites) —
+`ember2d-editor/` untouched.
+
+---
+
+## 14. Step 13 ⏭ Skipped — `DrawList` buffer reuse
+
+Explicitly conditional per the plan: "do it only if the manual floor2 FPS
+check after Step 12 hasn't already cleared the target; log the skip
+otherwise." Checked, and it has.
+
+**Measured, not assumed:** launched `roguelike/floor2.level` from a `cargo
+build` (unoptimized-own-code, `opt-level = 1`) debug binary — the same build
+a player actually runs via plain `cargo run`, and the specific build
+configuration the phase's original ~21fps report (docs/ember2d-refactor-plan.md
+§3 D11) was about — pressed F3, and read the in-game debug overlay directly
+via a verified-focused screenshot (confirmed the target window actually had
+focus via `GetForegroundWindow` before and after sending the keypress, after
+an earlier attempt without that check screenshotted an unrelated foreground
+application by mistake). The overlay reported **`FPS:59`**, effectively
+pegged at the engine's own 60fps cap (`engine.rs`'s `TARGET_FPS`
+sleep-limiter, reinforced by `PresentMode::Fifo`/vsync) — meaning total
+per-frame cost (sim + render + present) is comfortably under the ~16.67ms
+budget already, with no visible frame-rate degradation for `DrawList::from_world`
+(the render-side allocation-and-sort Step 13 would have targeted) to still be
+hiding.
+
+**Not re-measured via `bench_sim`:** same reasoning as Steps 10/11's
+render/engine-adjacent work — `DrawList` lives in `ember2d::play::render`,
+which `bench_sim` (an `ember2d-sim`-only harness, by design) cannot reach at
+all.
+
+Logged as skipped, not built: Steps 1–12's cumulative allocation and
+iteration-count reductions (the `WorldSnapshot` diet, zero-snapshot
+collisions, the sweep-and-prune broad phase, and the `[profile.dev]`
+optimization landed earlier in this refactor) already closed the gap this
+step existed to close. If a future, much larger level ever regresses this
+(more than floor2's ~2,570 entities), `DrawList::from_world`
+(`ember2d/src/play/render.rs`) is exactly where to look first — it's
+untouched by anything in this phase and still allocates and sorts a fresh
+`Vec<DrawCommand>` every render frame.
+
+---
+
+## 15. Step 14 — documentation (in progress)
+
+The final documentation pass this phase's own plan calls for. Landing
+incrementally alongside each step already (§3 D11/D19–D22, §5.2 H2, the
+scripting-api and refactor-plan corrections) rather than held entirely for
+the end — see §16 below for what's left.
+
+---
+
+## 16. Documents still to update as the phase closes
 
 - `docs/ember2d-refactor-plan.md` — §3 D11 closed with real numbers once
-  Steps 3–9 land, plus new D21 (hot-reload syscall) and D22
-  (`cancel_timer`/`timer_done` sentinel overlap, logged not fixed) — D19
-  (dropped input during an animation-blocked frame) and D20 (the same
-  animation gate's per-actor fix) already landed, out of sequence with the
-  rest of this phase's numbered steps; see §1.1 and §8.1. §5.2
-  records the transcendental-math decision and corrects the
-  `Vec2::normalized` claim; §5.3/§5.4 record both deferrals; §7 Phase 6
-  rewritten to what shipped.
-- `docs/ember2d-scripting-api.md` — timers' save/load-loss note, collision-layer
-  semantics (31-layer limit, `collision_layers` level field, unregistered-name
-  fallback), a "no API break" §6 changelog row, the `get_angle_to` example
-  rewrite.
+  remaining steps land, plus new D21 (hot-reload syscall, still pending —
+  D22, the timer sentinel overlap, and §5.2's `Vec2::normalized` correction
+  and H2 resolution, already landed at Steps 9 and 12 above) — D19 (dropped
+  input during an animation-blocked frame) and D20 (the same animation
+  gate's per-actor fix) already landed too, out of sequence with the rest of
+  this phase's numbered steps; see §1.1 and §8.1. §5.3/§5.4 record both
+  deferrals; §7 Phase 6 rewritten to what shipped.
+- `docs/ember2d-scripting-api.md` — collision-layer semantics (31-layer
+  limit, `collision_layers` level field, unregistered-name fallback — timers'
+  save/load-loss note, the `timer_done` "not quite once" correction, the
+  `get_angle_to` determinism note, and the "no API break" §6 changelog
+  corrections already landed at Steps 9 and 12 above).
 - `docs/ember2d-regression-checklist.md` — this doc's own §17 (performance
   baseline, updated as steps land); collision-layer save/load checklist item.
 - `docs/HANDOFF.md`, `CLAUDE.md` — updated once the phase closes.

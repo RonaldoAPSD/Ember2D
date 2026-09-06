@@ -20,14 +20,15 @@
 // a later Phase 5 step builds (§5.4 seam 1 in the refactor plan), not that
 // seam itself.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::engine::{GameState, UpdateContext};
 use ember2d_sim::event::EventBus;
 use crate::gamepad::GamepadState;
 use crate::input::InputManager;
 use crate::mouse::MouseState;
-use ember2d_sim::world::World;
+use ember2d_sim::math::Vec2;
+use ember2d_sim::world::{EntityId, World};
 
 /// What a caller needs back after one step.
 pub struct StepResult {
@@ -73,6 +74,15 @@ pub fn step(
     gamepad: &mut GamepadState,
     events: &mut EventBus,
     persistent: &mut BTreeMap<String, rhai::Dynamic>,
+    // Phase 6 Step 10 (docs/ember2d-phase6-plan.md): caller-owned (`Engine`
+    // holds this across frames), instead of this function allocating a fresh
+    // `HashMap` every single call via `World::snapshot_positions()` — at
+    // floor2 scale (2,570 entities) that was a real per-step allocation with
+    // nothing to show for it, since the content is identical in shape every
+    // time, only the positions change. See `World::snapshot_positions_into`'s
+    // own doc comment for why `clear()` (not a fresh map) is what makes this
+    // zero-allocation from the second frame onward.
+    prev_positions: &mut HashMap<EntityId, Vec2>,
     sim_dt: f32,
     frame_dt: f32,
     physics_dt: f32,
@@ -82,7 +92,7 @@ pub fn step(
     gate_late_phase_on_turn: bool,
 ) -> StepResult {
     events.clear();
-    let prev_positions = world.snapshot_positions();
+    world.snapshot_positions_into(prev_positions);
 
     // This step claims whatever presses are sitting in the input buffer —
     // see input::INPUT_BUFFER_WINDOW. A later step (this frame, or a future
@@ -101,7 +111,7 @@ pub fn step(
         mouse: &*mouse,
         gamepad: &*gamepad,
         events: &mut *events,
-        prev_positions: &prev_positions,
+        prev_positions: &*prev_positions,
         delta_time: sim_dt,
         frame_delta_time: frame_dt,
         elapsed,
@@ -133,7 +143,7 @@ pub fn step(
             mouse: &*mouse,
             gamepad: &*gamepad,
             events: &mut *events,
-            prev_positions: &prev_positions,
+            prev_positions: &*prev_positions,
             delta_time: sim_dt,
             frame_delta_time: frame_dt,
             elapsed,

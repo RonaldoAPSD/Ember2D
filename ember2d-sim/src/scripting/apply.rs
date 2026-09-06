@@ -112,7 +112,31 @@ impl ScriptEngine {
 
         let persistent_to_apply: Vec<(String, rhai::Dynamic)> = std::mem::take(&mut state.pending_persistent).into_iter().collect();
         for (k, v) in persistent_to_apply { if v.is_unit() { state.persistent.remove(&k); } else { state.persistent.insert(k, v); } }
-        for (id, name, duration) in state.pending_timers.drain(..) { if let Some(scope) = self.scopes.get_mut(&id) { let key = format!("__timer_{}", name); if duration < -900.0 { scope.set_value(key, -1.0f64); } else { scope.set_value(key, duration); } } }
+        // Phase 6 Step 9 (docs/ember2d-phase6-plan.md): writes straight into
+        // `state.timers` (which holds everything `mem::take`n out of
+        // `self.timers` at the top of whichever `run_*` method built this
+        // pass — see that field's own doc comment) instead of a `__timer_`-
+        // prefixed `Scope` variable. Sentinel handling is unchanged from
+        // before this step: `duration < -900.0` is `timer_done`'s own
+        // "just consumed" marker (-999.0, see `ScriptCtx::timer_done`),
+        // which resets storage to -1.0 — the same value `cancel_timer`
+        // writes directly. **Logged, not fixed, as D22** (docs/ember2d-refactor-plan.md
+        // §3): a cancelled timer and a just-fired one are therefore
+        // indistinguishable in storage, and `timer_done`'s own
+        // `val <= 0.0 && val > -500.0` guard reads -1.0 as "done" again on
+        // every subsequent check — not "once" as documented — until enough
+        // real steps decay it past -500.0 (roughly 8 minutes at 60 steps/s).
+        // Collected into an owned `Vec` first, same reason
+        // `globals_to_apply`/`persistent_to_apply` above are: `state` is a
+        // `RefCell` `RefMut`, so `state.pending_timers.drain(..)` and
+        // `state.timers.entry(...)` can't be live at once — the borrow
+        // checker can't see the two fields are disjoint through the
+        // `DerefMut` boundary the way it can for a plain struct.
+        let pending_timers: Vec<(EntityId, String, f64)> = state.pending_timers.drain(..).collect();
+        for (id, name, duration) in pending_timers {
+            let entry = state.timers.entry(id).or_default();
+            if duration < -900.0 { entry.insert(name, -1.0); } else { entry.insert(name, duration); }
+        }
         // Step 5e: unlike `globals`/`persistent`, commands don't merge with
         // whatever `state.commands` was read from — a fresh set built
         // purely from this pass's `ctx.submit()` calls, keyed by actor id
@@ -128,8 +152,24 @@ impl ScriptEngine {
         // `persistent` take) — together they turn what used to be 18-24
         // full map clones per step into pointer swaps.
         let result = ScriptUpdateResult { pending_level: state.pending_level.take(), pending_save: state.pending_save.take(), pending_load: state.pending_load.take(), globals: std::mem::take(&mut state.globals), clips: std::mem::take(&mut state.clips), persistent: std::mem::take(&mut state.persistent), camera_override: state.pending_camera.take(), shake_state: state.pending_shake.take(), clear_hud: state.clear_hud, particles: state.pending_particles.drain(..).collect(), commands, act_cost, despawned: state.despawn_queue.iter().map(|&id| id as EntityId).collect(), animations: state.pending_animations.drain(..).collect() };
+        // Phase 6 Step 9: the matching half of every call site's own
+        // `ctx_state.timers = std::mem::take(&mut self.timers)` — timers
+        // never surface through `ScriptUpdateResult` (they're purely
+        // internal `ScriptEngine` state, unlike globals/clips/persistent,
+        // which `Simulation` itself owns), so this restore happens here
+        // directly rather than via the caller.
+        self.timers = std::mem::take(&mut state.timers);
         state.clear_hud = false; let despawn_ids = state.despawn_queue.clone(); drop(state);
-        for id in despawn_ids { world.despawn(id as EntityId); self.scopes.remove(&(id as EntityId)); }
+        for id in despawn_ids {
+            world.despawn(id as EntityId);
+            self.scopes.remove(&(id as EntityId));
+            // Step 9: mirrors the scope cleanup above — a despawned entity's
+            // stale timer would otherwise leak forever (harmless, since ids
+            // never get reused within a level, but still dead weight; see
+            // `check_hot_reload`'s matching cleanup for the other lifecycle
+            // event that must clear this).
+            self.timers.remove(&(id as EntityId));
+        }
         result
     }
 }

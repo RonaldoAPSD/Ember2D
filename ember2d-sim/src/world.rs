@@ -24,6 +24,25 @@ pub type EntityId = u64;
 /// two scripts touch the same key in one frame. `BTreeMap` makes every one
 /// of those deterministic (sorted by `EntityId`) for free, without touching
 /// the call sites — see `docs/ember2d-refactor-plan.md` §5.2 H1.
+/// Phase 6 Step 11 (docs/ember2d-phase6-plan.md): a new component store
+/// needs all SIX of these touched to stay correct — the readable, low-tech
+/// version of the "component registration macro" the refactor plan
+/// originally asked for (rejected: it would contradict CLAUDE.md's
+/// "deliberate learning artifact" rule, and the one place this list *was*
+/// out of sync — `entity_ids()`, until this step — had zero production
+/// callers to ever surface the bug, meaning a macro would have hidden it
+/// just as effectively as hand-writing it wrong did).
+///
+/// 1. The field itself, in the `World` struct below.
+/// 2. `World::new()`'s initializer.
+/// 3. `despawn()`'s removal line.
+/// 4. `entity_ids()`'s union — missed for `scripts`/`animators`/`actors`
+///    until this step; see that method's own doc comment for the fix.
+/// 5. An `add_<component>` method, in "Component accessors" below.
+/// 6. A `remove_<component>` method, same section — only if anything ever
+///    needs to remove that component independently of despawning the whole
+///    entity (`animators`/`actors` didn't have one until this step either;
+///    see `add_animator`/`remove_actor`/`remove_animator`'s own comments).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct World {
     /// Counter used to generate unique entity IDs.
@@ -91,6 +110,17 @@ impl World {
     pub fn add_script(&mut self, id: EntityId, s: Script)       { self.scripts.insert(id, s); }
     pub fn remove_script(&mut self, id: EntityId)               { self.scripts.remove(&id); }
     pub fn add_actor(&mut self, id: EntityId, a: Actor)         { self.actors.insert(id, a); }
+    /// Phase 6 Step 11 (docs/ember2d-phase6-plan.md): added for symmetry
+    /// with every other component (see the checklist on `World`'s own doc
+    /// comment) — existing call sites still insert into `self.animators`
+    /// directly where a plain `insert` doesn't fit (e.g. `apply_ctx`'s
+    /// `play_clip` handling, which needs `.entry(id).or_insert_with(...)`
+    /// to preserve an already-playing `Animator`'s state), so this isn't a
+    /// call site migration, just closing the API gap for whoever writes the
+    /// next one.
+    pub fn add_animator(&mut self, id: EntityId, a: Animator)   { self.animators.insert(id, a); }
+    pub fn remove_actor(&mut self, id: EntityId)                { self.actors.remove(&id); }
+    pub fn remove_animator(&mut self, id: EntityId)             { self.animators.remove(&id); }
 
     // ── Hierarchy ─────────────────────────────────────────────────────────
 
@@ -152,14 +182,26 @@ impl World {
     }
 
     /// Sorted ascending — `entity_ids` used to build an intermediate
-    /// `HashSet` purely to de-duplicate across the four component stores,
-    /// which threw away the `BTreeMap` ordering the stores themselves now
+    /// `HashSet` purely to de-duplicate across the component stores, which
+    /// threw away the `BTreeMap` ordering the stores themselves now
     /// guarantee. `BTreeSet` keeps the de-dup and restores the order.
+    ///
+    /// Phase 6 Step 11 (docs/ember2d-phase6-plan.md): this used to union
+    /// only four of the seven stores (`transforms`/`sprites`/`colliders`/
+    /// `tags`), silently omitting an entity whose only components are
+    /// `scripts`/`animators`/`actors` — latent today (grep confirms nothing
+    /// in this workspace calls `entity_ids` outside its own test), but a
+    /// real bug for the first real caller. Fixed to union all seven — see
+    /// the checklist on `World`'s own doc comment above for what a future
+    /// new component store must touch to avoid the same drift.
     pub fn entity_ids(&self) -> Vec<EntityId> {
         let mut ids: std::collections::BTreeSet<EntityId> = self.transforms.keys().copied().collect();
         ids.extend(self.sprites.keys().copied());
         ids.extend(self.colliders.keys().copied());
         ids.extend(self.tags.keys().copied());
+        ids.extend(self.scripts.keys().copied());
+        ids.extend(self.animators.keys().copied());
+        ids.extend(self.actors.keys().copied());
         ids.into_iter().collect()
     }
 
@@ -185,9 +227,37 @@ impl World {
     /// `.contains()` scan. `mask_bits == 0` still means "matches everything"
     /// — see `crate::layers::LayerRegistry::mask_bits`'s doc comment for why
     /// that's the same encoding the old `Vec::is_empty()` check used.
+    ///
+    /// Phase 6 Step 8 (docs/ember2d-phase6-plan.md): sweep-and-prune broad
+    /// phase, replacing the old pure O(colliders²) pairwise scan (~1.45M pair
+    /// tests at floor2 scale). Sorting `collidables` by `rect.x` first means
+    /// the inner loop can `break` the moment `rect_b`'s left edge has moved
+    /// past `rect_a`'s right edge — every entry beyond that point is sorted
+    /// further right still, so none of them can overlap `a` on the x-axis
+    /// either (~1.45M → ~68k pair tests at floor2). Zero extra allocation:
+    /// `collidables` sorts in place, and `Rect`/the bit fields are all `Copy`.
+    ///
+    /// **Determinism trap, not a redundant step:** sorting by `rect.x`
+    /// destroys the old double loop's emission order (walking `collidables`
+    /// in ascending `EntityId`, since it was built from `self.colliders`'s
+    /// `BTreeMap` iteration), and `on_collide` call order
+    /// (`Simulation::late_step` → `ScriptEngine::run_collisions`) is exactly
+    /// that emission order — two scripts writing the same global in one pass
+    /// last-write-wins on whichever ran later (see `player.rhai`'s own header
+    /// comment), so a changed emission order is a real behavior change, not
+    /// a cosmetic one. Fixed by collecting every hit as a normalized
+    /// `(min(id_a, id_b), max(id_a, id_b))` pair into `hits` *without*
+    /// emitting, then sorting `hits` (plain tuple `Ord`, ascending) and only
+    /// *then* emitting — this reproduces the old loop's exact emission order
+    /// (which always had `entity_a` be the lower id, walked in ascending-pair
+    /// order) byte-for-byte, so `on_collide` sees an identical call sequence
+    /// to before this step. This collect-then-sort-then-emit shape looks like
+    /// wasted work next to just emitting inline during the sweep — it isn't:
+    /// the sweep's own discovery order is sorted by position, not by id, and
+    /// only the final sort restores the id-ordered sequence scripts depend on.
     pub fn detect_collisions(&self, events: &mut EventBus) {
         // Build world-space rects for all collidable entities.
-        let collidables: Vec<(EntityId, Rect, u32, u32)> = self
+        let mut collidables: Vec<(EntityId, Rect, u32, u32)> = self
             .colliders
             .keys()
             .filter_map(|&id| {
@@ -198,18 +268,32 @@ impl World {
             })
             .collect();
 
+        collidables.sort_unstable_by(|a, b| {
+            a.1.x.partial_cmp(&b.1.x).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut hits: Vec<(EntityId, EntityId)> = Vec::new();
         for i in 0..collidables.len() {
+            let (id_a, rect_a, layer_a, mask_a) = collidables[i];
             for j in (i + 1)..collidables.len() {
-                let (id_a, rect_a, layer_a, mask_a) = collidables[i];
                 let (id_b, rect_b, layer_b, mask_b) = collidables[j];
+                // Sorted by x ascending: once b's left edge is past a's right
+                // edge, every later entry (sorted further right still) is
+                // too — nothing beyond this point can overlap `a`.
+                if rect_b.x >= rect_a.right() { break; }
 
                 let a_allows_b = mask_a == 0 || (mask_a & layer_b) != 0;
                 let b_allows_a = mask_b == 0 || (mask_b & layer_a) != 0;
 
                 if a_allows_b && b_allows_a && rect_a.intersects(rect_b) {
-                    events.emit(GameEvent::Collision { entity_a: id_a, entity_b: id_b });
+                    hits.push(if id_a < id_b { (id_a, id_b) } else { (id_b, id_a) });
                 }
             }
+        }
+
+        hits.sort_unstable();
+        for (entity_a, entity_b) in hits {
+            events.emit(GameEvent::Collision { entity_a, entity_b });
         }
     }
 
@@ -227,6 +311,26 @@ impl World {
 
     pub fn snapshot_positions(&self) -> HashMap<EntityId, Vec2> {
         self.transforms.iter().map(|(id, tf)| (*id, tf.position)).collect()
+    }
+
+    /// Same content as `snapshot_positions`, written into a caller-owned
+    /// buffer instead of allocating a fresh `HashMap` every call. Phase 6
+    /// Step 10 (docs/ember2d-phase6-plan.md): `ember2d::sim::step` calls
+    /// this once per real frame (`Engine` owns the buffer across frames),
+    /// where a fresh `HashMap::collect()` at floor2 scale (2,570 entities)
+    /// was a real per-step allocation with nothing to show for it — the
+    /// content is identical every time this runs, only the entity
+    /// positions change. `HashMap::clear()` drops every entry but keeps the
+    /// table's allocated capacity, so after the first frame that grows `out`
+    /// to fit the level's entity count, every later call reuses that
+    /// capacity: zero allocation from frame two onward. `snapshot_positions`
+    /// itself stays as-is — this is additive, not a replacement, since its
+    /// other callers (`TurnHarness`, `tests/shooter_arena.rs`,
+    /// `bench_sim.rs`) are one-off per-test/per-benchmark uses with nothing
+    /// to gain from a caller-owned buffer they'd only ever call once anyway.
+    pub fn snapshot_positions_into(&self, out: &mut HashMap<EntityId, Vec2>) {
+        out.clear();
+        out.extend(self.transforms.iter().map(|(id, tf)| (*id, tf.position)));
     }
 
     pub fn rollback_position(&mut self, id: EntityId, snapshot: &HashMap<EntityId, Vec2>) {
@@ -373,5 +477,26 @@ mod tests {
         world.tags.insert(3, crate::components::Tag::new("dup"));
 
         assert_eq!(world.entity_ids(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn entity_ids_includes_entities_whose_only_component_is_a_script_animator_or_actor() {
+        // Phase 6 Step 11 (docs/ember2d-phase6-plan.md): entity_ids() used
+        // to union only transforms/sprites/colliders/tags — an entity with
+        // nothing but a Script, Animator, or Actor component was silently
+        // invisible to it. Pins the fix directly rather than trusting the
+        // union list by inspection alone.
+        let mut world = World::new();
+        let script_only = world.spawn();
+        world.add_script(script_only, crate::components::Script::new("x.rhai"));
+        let animator_only = world.spawn();
+        world.add_animator(animator_only, crate::components::Animator::new("clip"));
+        let actor_only = world.spawn();
+        world.add_actor(actor_only, crate::components::Actor::ai(100));
+
+        let ids = world.entity_ids();
+        assert!(ids.contains(&script_only), "an entity with only a Script component must be listed");
+        assert!(ids.contains(&animator_only), "an entity with only an Animator component must be listed");
+        assert!(ids.contains(&actor_only), "an entity with only an Actor component must be listed");
     }
 }

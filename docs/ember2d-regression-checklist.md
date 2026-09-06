@@ -82,6 +82,12 @@ place to notice if it doesn't.
 - [ ] Attach script path to a tile; set tag; set glyph; set next-level exit
 - [ ] Toggle solid / trigger
 - [ ] Set collider layer and collider mask on a tile and on the player
+- [ ] Save, close, and reopen a level whose tiles use non-default collider
+      layers/masks — layer/mask filtering behavior survives the round trip
+      unchanged (Phase 6 Step 7's bitmask is `#[serde(skip)]` and only
+      recomputed from the saved layer/mask strings on load —
+      `ember2d/tests/collision_layers.rs`'s save→load test is the automated
+      form of this check; this is the manual editor-side cross-check)
 - [ ] Player properties: glyph, tag, script, camera follow, texture
 - [ ] Move player spawn; add named spawn
 - [ ] Text input: typing, backspace, Enter, Escape — for every `TextInputPurpose`
@@ -246,11 +252,13 @@ Not regressions. Do not chase these.
 | D13 — texture sprites skip viewport culling | Phase 1 |
 | D14 — font atlas and textures use different colour spaces | Phase 1 |
 | D7 — turn mode integrates physics at `dt = 1.0` | Phase 5 Step 5f — fixed |
-| D11 — per-frame clone churn in scripting and collision | Phase 6 |
+| D11 — per-frame clone churn in scripting and collision | Phase 6 Steps 3-8 — fixed (floor2: 9.723ms → 1.817ms/step, -81%) |
 | D17 — save/load can't round-trip per-entity script globals mid-run | Phase 5 Step 5c — fixed |
 | D18 — saving a level through the editor scrambles its tile order (`LevelGrid.tiles` is a `HashMap`) | not scheduled — see plan §3 |
 | D19 — a player keypress made while an enemy's move animation plays is silently dropped, not delayed | Phase 6 (out of scope, fixed live) — fixed |
 | D20 — several actors acting in one round each pay their own animation's duration serially, stacking into one long input freeze | Phase 6 (out of scope, fixed live) — fixed |
+| D21 — `check_hot_reload` polled `fs::metadata` once per cached script every single step, including guaranteed-failing node-graph synthetic keys | Phase 6 Step 6 — fixed (throttled to once/30 steps; synthetic keys skipped) |
+| D22 — a cancelled timer and a just-fired one share the same stored sentinel, so `timer_done` keeps reporting `true` for ~8 minutes past either event, not once | Phase 6 Step 9 — found, not fixed; no shipped script calls timer functions |
 
 ## 15. Determinism / replay gate (Phase 5 Step 5h+)
 
@@ -283,21 +291,33 @@ to re-run after any change touching `Simulation::step`/`late_step`,
 `WorldSnapshot`, or `World::detect_collisions`, and compare against the
 baseline table in `docs/ember2d-phase6-plan.md` §1.
 
-- [ ] `cargo run --release -p ember2d-sim --example bench_sim` runs clean
+- [x] `cargo run --release -p ember2d-sim --example bench_sim` runs clean
       (warns loudly if accidentally run in debug)
-- [ ] allocs/step at floor2 has dropped from the ~35,300 baseline (Steps
+- [x] allocs/step at floor2 has dropped from the ~35,300 baseline (Steps
       3/4/5/6/9 land) — not required to hit a specific number, but should be
-      a clear, large drop, not noise
-- [ ] The synthetic n=500 vs. n=2000 allocs/step ratio is closer to 1:1 than
+      a clear, large drop, not noise. **Final: 35,299 → 6,598 (-81%),
+      measured after Step 8** (Steps 9-12 don't touch anything `bench_sim`'s
+      counting allocator would see move — see their own write-ups in
+      `docs/ember2d-phase6-plan.md`).
+- [x] The synthetic n=500 vs. n=2000 allocs/step ratio is closer to 1:1 than
       the ~3.6× baseline, once the non-collision per-step allocation stops
-      scaling with entity count
-- [ ] `detect_collisions`'s share of total step time has fallen sharply at
+      scaling with entity count. **Final: 3.18× after Step 7** (down from
+      3.61× at baseline) — closer to flat but not fully there, since
+      `WorldSnapshot::build` is still `O(entities)` by nature, just far
+      cheaper per entity; the O(colliders²) term that used to dominate that
+      ratio at scale is gone as of Step 8.
+- [x] `detect_collisions`'s share of total step time has fallen sharply at
       every scale after the collision-layer bitmask (Step 7) and
       sweep-and-prune (Step 8) land, most visibly at the 10,000-entity
-      synthetic level
-- [ ] Manual: `cargo run -- roguelike/floor2.level` with the F3 debug
+      synthetic level. **Final: floor2 65% → 17%; n=10,000 synthetic 86% →
+      22%.**
+- [x] Manual: `cargo run -- roguelike/floor2.level` with the F3 debug
       overlay feels smooth (informal cross-check against the bench numbers,
-      not a replacement for them — the bench doesn't see the render path)
+      not a replacement for them — the bench doesn't see the render path).
+      **Confirmed at Step 13's conditional check: F3 overlay read `FPS:59`
+      on an unoptimized-own-code debug build (`cargo build`/`cargo run`),
+      effectively pegged at the engine's 60fps cap — this is what closed
+      Step 13 (`DrawList` buffer reuse) as skipped rather than built.**
 
 ## 18. Before you start
 

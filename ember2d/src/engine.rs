@@ -141,6 +141,16 @@ pub struct Engine {
     /// `SaveState::persistent` gets built from).
     pub persistent: BTreeMap<String, rhai::Dynamic>,
 
+    /// Phase 6 Step 10 (docs/ember2d-phase6-plan.md): the buffer `sim::step`
+    /// snapshots each step's pre-move positions into
+    /// (`World::snapshot_positions_into`), owned here so it survives across
+    /// frames instead of being a fresh `HashMap` allocated inside `step`
+    /// every single call. `HashMap` (not `BTreeMap`) is fine here — this is
+    /// presentation/scratch state consumed entirely within the frame that
+    /// fills it (`UpdateContext::prev_positions`), never iterated in an
+    /// order-sensitive way, unlike sim-side stores.
+    prev_positions_buf: HashMap<EntityId, Vec2>,
+
     state_stack: Vec<Box<dyn GameState>>,
     simulation_accumulator: f32,
 }
@@ -163,6 +173,7 @@ impl Engine {
             width,
             height,
             persistent: BTreeMap::new(),
+            prev_positions_buf: HashMap::new(),
             state_stack: Vec::new(),
             simulation_accumulator: 0.0,
         })
@@ -302,7 +313,7 @@ impl Engine {
                         // runs every step in realtime mode, unconditionally.
                         let result = sim::step(
                             state.as_mut(), &mut self.world, &mut self.input, &mut self.mouse, &mut self.gamepad,
-                            &mut self.events, &mut self.persistent, SIM_DT, SIM_DT, SIM_DT, elapsed,
+                            &mut self.events, &mut self.persistent, &mut self.prev_positions_buf, SIM_DT, SIM_DT, SIM_DT, elapsed,
                             self.width, self.height, false,
                         );
                         if result.should_quit { return Ok(Some(Transition::Quit)); }
@@ -330,7 +341,7 @@ impl Engine {
                     // `ctx.trigger_turn()`).
                     let result = sim::step(
                         state.as_mut(), &mut self.world, &mut self.input, &mut self.mouse, &mut self.gamepad,
-                        &mut self.events, &mut self.persistent, SIM_DT, delta_time, 1.0, elapsed,
+                        &mut self.events, &mut self.persistent, &mut self.prev_positions_buf, SIM_DT, delta_time, 1.0, elapsed,
                         self.width, self.height, true,
                     );
                     if result.should_quit { return Ok(Some(Transition::Quit)); }

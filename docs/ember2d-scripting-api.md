@@ -109,8 +109,51 @@ Colours are **name strings** (`"Red"`, `"Reset"`) or an explicit `"#RRGGBB"` hex
 
 An empty mask means "collide with everything".
 
+> **Layer/mask names resolve to a bitmask internally (Phase 6 Step 7,
+> docs/ember2d-phase6-plan.md), with no script-facing API change** —
+> `get_collider_layer`/`set_collider_layer`/`get_collider_mask`/
+> `set_collider_mask`, and `raycast`/`get_path`'s own `mask` array argument,
+> still take and return plain name strings exactly as before. Semantics
+> worth knowing, since the bitmask has a hard limit a string-based API
+> didn't:
+> - A level's usable layer names are `LevelData.collision_layers: Vec<String>`
+>   (a project/level-authored list, `["solid"]` by default for any level
+>   saved before this field existed). Names are assigned bits **in list
+>   order** — the Nth name gets bit N — not by hashing the name, so two
+>   machines given the same list always agree on the same bits.
+> - **At most 31 layer names per level.** Bit 31 is reserved internally
+>   (`LAYER_UNKNOWN`); a 32nd name has no bit left to claim.
+> - The registry is built once, from `collision_layers`, before any script
+>   runs, and is **never grown at runtime** — a layer name a script sets
+>   that isn't in that list doesn't get a new bit allocated for it.
+> - An empty layer name, or a name not present in `collision_layers`,
+>   resolves to `0` — the same value as "collide with everything" — so an
+>   unregistered-layer collider still matches an empty-mask collider (they
+>   share the value that means "everything"), and an unregistered layer name
+>   is functionally indistinguishable from having no layer at all.
+> - A **mask** naming a layer the registry doesn't recognize behaves
+>   differently from a collider's own unregistered layer: it ORs in
+>   `LAYER_UNKNOWN` instead of contributing `0`, so it matches **nothing**,
+>   not everything — resolving it to `0` would silently turn "filter out
+>   everything except this one (mistyped or not-yet-registered) layer" into
+>   its exact opposite.
+
 ### Spatial queries
 `get_entity_at(x,y)` · `is_solid_at(x,y)` · `find_entities_in_rect(x,y,w,h)` · `get_distance(a,b)` · `get_angle_to(from,to)` (radians)
+
+> **`get_angle_to` is deterministic; a script's own `.cos()`/`.sin()` on its
+> result usually isn't.** As of Phase 6 Step 12 (docs/ember2d-phase6-plan.md,
+> §5.2 H2) `get_angle_to` no longer calls the platform's `atan2` — it uses a
+> rational (`+ - * /` only) approximation instead, accurate to within ~0.01
+> radians (~0.6°), which produces the exact same bits on every platform. But
+> Rhai's own `cos()`/`sin()` functions (what a script would naturally call on
+> the angle this returns to turn it back into a direction) are Rhai's
+> libm, not this engine's — calling them reintroduces the same
+> cross-platform nondeterminism this fix exists to remove, just one step
+> later. **If you need a direction vector, skip the angle entirely**: divide
+> `(get_x(to)-get_x(from), get_y(to)-get_y(from))` by `get_distance(from,to)`
+> — both IEEE-754-exact operations, so the whole computation stays
+> deterministic end to end. See §4's chase example, rewritten this way.
 
 `raycast(x1,y1,x2,y2,mask)` → `[id, hit_x, hit_y]` or `[]`. Finite segment, solids only, skips self.
 
@@ -299,7 +342,31 @@ Persistent (across levels): `set_persistent` · `get_persistent` · `has_persist
 ### Timers
 `start_timer(name,seconds)` · `timer_done(name)` · `cancel_timer(name)`
 
-Per-entity, so names never collide. `timer_done` is true once, then consumes itself.
+Per-entity, so names never collide. Backed by a real per-entity store on
+`ScriptEngine` as of Phase 6 Step 9 (docs/ember2d-phase6-plan.md) — plain
+engine-owned state now, not smuggled through each entity's Rhai `Scope` as
+`__timer_<name>` variables scanned out by string prefix every script pass.
+
+> **Not part of any save.** Timers are lost across `save_game`/`load_game` —
+> true before Step 9 and unchanged by it, just now documented rather than an
+> accident of where the state happened to live. If a script's timer-driven
+> behavior matters across a save/load, track the deadline in
+> `set_persistent`/`get_persistent` yourself (e.g. `ctx.get_elapsed()` plus a
+> duration) instead of relying on `start_timer`.
+
+> **`timer_done` is not quite "true once, then consumes itself."** Corrected
+> in Step 9, since tracing the exact sentinel path found it isn't: a
+> cancelled timer (`cancel_timer`) and a just-fired one both resolve to the
+> same internal storage value, which is itself still within the range
+> `timer_done`'s own guard treats as "done" — so the very next check after
+> either event reports `true` again, and keeps doing so until enough real
+> simulation steps decay it past that range (roughly 8 minutes at 60
+> steps/second). Logged as **D22** (docs/ember2d-refactor-plan.md §3), not
+> fixed — no shipped script (`roguelike/`, `shooter/`) calls any of these
+> three functions today, so nothing observable is broken by it. Don't rely
+> on a single `timer_done` check being the last one that ever returns `true`
+> for a given name; a script that cares should track its own "already
+> handled this" flag alongside it.
 
 ### Randomness
 `random_int(min,max)` inclusive · `random_float()` · `random_bool(chance)` · `random_choice(array)`
@@ -334,8 +401,17 @@ fn on_update(id, ctx) {
                           ctx.get_x(player), ctx.get_y(player), []);
 
     if hit.is_empty() {
-        let a = ctx.get_angle_to(id, player);
-        ctx.set_velocity(id, a.cos() * 4.0, a.sin() * 4.0);
+        // A direction vector via get_distance, not an angle via
+        // get_angle_to + .cos()/.sin() — Rhai's own cos()/sin() call into
+        // the HOST's libm and are not covered by the engine's determinism
+        // guarantee, even though get_angle_to itself now is (see the
+        // "Spatial queries" note above). Dividing by get_distance (sqrt
+        // only, IEEE-754-exact) gets the same normalized direction and
+        // stays deterministic end to end.
+        let dist = ctx.get_distance(id, player);
+        let dx = (ctx.get_x(player) - ctx.get_x(id)) / dist;
+        let dy = (ctx.get_y(player) - ctx.get_y(id)) / dist;
+        ctx.set_velocity(id, dx * 4.0, dy * 4.0);
         ctx.set_tint(id, "Red", "Reset");
     } else {
         let path = ctx.get_path(ctx.get_x(id), ctx.get_y(id),
@@ -392,7 +468,14 @@ fn on_update(id, ctx) {
 | 5 | Step 5e: `on_input` lifecycle plus `submit`/`command_action`/`command_param`; `is_held`/`just_pressed` no longer replay-safe outside `on_input` | Additive (new functions; existing ones keep working, just lose their replay guarantee outside `on_input`) |
 | 5 | Step 5f: `on_turn` lifecycle plus `act`/`get_turn_number`/`get_speed`/`set_speed`; `trigger_turn` removed | Yes (`trigger_turn` removal) |
 | 5.5 | `animate_move`/`animate_flash`/`animate_shake`/`is_animating` (the animation queue, Part 3) | Additive — no existing function's behavior changed |
-| 6 | Collision layers become a bitmask, not `String` | Yes |
+| 6 | Collision layers become a bitmask internally (`docs/ember2d-phase6-plan.md` Step 7) | **No** — corrected here from an earlier "Yes" this table carried since before Step 7 actually shipped: `get_collider_layer`/`set_collider_layer`/`get_collider_mask`/`set_collider_mask` and every level file, the editor, and node-graph codegen still speak plain layer-name strings, completely unchanged. The `u32` bitmask is a private, internal representation swap behind those same signatures. |
+| 6 | `get_angle_to`'s `atan2` replaced with a deterministic rational approximation (`docs/ember2d-phase6-plan.md` Step 12, §5.2 H2) | No — same signature, same units (radians), numerically different by up to ~0.01 rad (~0.6°) from the old libm-backed value. See §3's "Spatial queries" note below for why a script converting the result back to a direction via Rhai's own `.cos()`/`.sin()` is a *separate*, still-unresolved determinism hazard this fix does not (and structurally cannot) close. |
+
+**Phase 6 is a zero-API-break phase** — `API_VERSION` stays `6`, unchanged
+since Step 5f. Both rows above are corrections/clarifications, not breaks:
+the collision-layer bitmask never touched a script-facing signature, and the
+`atan2` replacement keeps `get_angle_to`'s exact signature and units, just
+computing the same angle via different (deterministic) arithmetic.
 
 `api_version()` was added in Step 3e (deferred from the original Phase 1 plan) —
 it currently returns `6`: `1` was the pre-refactor baseline, `2` covers Phase 2's

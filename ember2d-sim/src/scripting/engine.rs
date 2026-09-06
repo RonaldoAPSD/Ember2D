@@ -65,6 +65,23 @@ pub struct ScriptEngine {
     /// `scopes` above: `apply.rs`'s `apply_ctx` — a second `impl
     /// ScriptEngine` block in a sibling file — reads it directly.
     pub(super) layers: crate::layers::LayerRegistry,
+    /// Phase 6 Step 9 (docs/ember2d-phase6-plan.md): per-entity timer values,
+    /// now plain engine-owned state instead of being smuggled through each
+    /// entity's Rhai `Scope` as `__timer_<name>` variables scanned out by
+    /// string-prefix every single script pass (five near-identical scan
+    /// blocks, one per `run_*` method below, all deleted by this step).
+    /// `BTreeMap`, not `HashMap` — matches this crate's blanket "no HashMap
+    /// iteration in sim code" rule (CLAUDE.md's Determinism section) even
+    /// though nothing here iterates it in an order-sensitive way today;
+    /// consistent beats "provably safe this one time." Round-trips through
+    /// `ScriptState.timers` via `mem::take`/put-back exactly like
+    /// `globals`/`clips`/`persistent` already do (Step 3) — `apply_ctx`
+    /// (`apply.rs`) is what puts it back. **Not part of `SaveState`:**
+    /// timers are silently lost across a save/load, same as before this
+    /// step (see `docs/ember2d-scripting-api.md`'s Timers section) —
+    /// unchanged behavior, just now documented rather than an accident of
+    /// where the state happened to live.
+    pub(super) timers: BTreeMap<EntityId, BTreeMap<String, f64>>,
     pub pending_hud_draws: Vec<HudDraw>,
     pub pending_sounds:    Vec<String>,
     pub pending_spatial_sounds: Vec<(String, f32, f32)>,
@@ -230,6 +247,7 @@ impl ScriptEngine {
             disabled_scripts: HashSet::new(), rng: Rc::new(RefCell::new(rand::rngs::SmallRng::seed_from_u64(seed))),
             hot_reload_counter: 0,
             layers,
+            timers: BTreeMap::new(),
             pending_hud_draws: Vec::new(), pending_sounds: Vec::new(), pending_spatial_sounds: Vec::new(),
             pending_music: None, stop_music: false,
         }
@@ -286,14 +304,7 @@ impl ScriptEngine {
     pub fn run_on_start_all(&mut self, world: &mut World, log: &mut Vec<LogEntry>, extra_spawns: &[(String, f32, f32)], globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, persistent: &mut BTreeMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, viewport_size: (usize, usize)) -> ScriptUpdateResult {
         let scripted: Vec<(i64, String)> = world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
         let mut ctx_state = ScriptState::from_world(world, &self.layers, 0.0, 0.0, InputSnapshot::default(), MouseSnapshot::default(), GamepadSnapshot::default(), extra_spawns, globals, clips, std::mem::take(persistent), camera_pos, BTreeMap::new(), 0, viewport_size);
-        for (entity_id, _) in &scripted {
-            let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);
-            let mut entity_timers = HashMap::new();
-            for (name, _, val) in scope.iter() {
-                if name.starts_with("__timer_") { if let Ok(f) = val.as_float() { entity_timers.insert(name.to_string().replace("__timer_", ""), f); } }
-            }
-            ctx_state.timers.insert(*entity_id as EntityId, entity_timers);
-        }
+        ctx_state.timers = std::mem::take(&mut self.timers);
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         for (entity_id, path) in &scripted {
             if self.disabled_scripts.contains(path) { continue; }
@@ -325,14 +336,7 @@ impl ScriptEngine {
     pub fn run_on_input(&mut self, world: &mut World, snapshot: Rc<WorldSnapshot>, log: &mut Vec<LogEntry>, actor_id: EntityId, delta_time: f32, elapsed: f32, input: InputSnapshot, mouse: MouseSnapshot, gamepad: GamepadSnapshot, spawns: &[(String, f32, f32)], globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, persistent: &mut BTreeMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, turn_number: i64, viewport_size: (usize, usize)) -> ScriptUpdateResult {
         let path = world.scripts.get(&actor_id).map(|s| s.path.clone());
         let mut ctx_state = ScriptState::from_snapshot(snapshot, world.next_id, delta_time, elapsed, input, mouse, gamepad, spawns, globals, clips, std::mem::take(persistent), camera_pos, BTreeMap::new(), turn_number, viewport_size);
-        if path.is_some() {
-            let scope = self.scopes.entry(actor_id).or_insert_with(Scope::new);
-            let mut entity_timers = HashMap::new();
-            for (name, _, val) in scope.iter() {
-                if name.starts_with("__timer_") { if let Ok(f) = val.as_float() { entity_timers.insert(name.to_string().replace("__timer_", ""), f); } }
-            }
-            ctx_state.timers.insert(actor_id, entity_timers);
-        }
+        ctx_state.timers = std::mem::take(&mut self.timers);
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         if let Some(path) = path {
             if !self.disabled_scripts.contains(&path) {
@@ -363,14 +367,7 @@ impl ScriptEngine {
     pub fn run_on_turn(&mut self, world: &mut World, snapshot: Rc<WorldSnapshot>, log: &mut Vec<LogEntry>, actor_id: EntityId, delta_time: f32, elapsed: f32, spawns: &[(String, f32, f32)], globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, persistent: &mut BTreeMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, commands: BTreeMap<i64, Command>, turn_number: i64, viewport_size: (usize, usize)) -> ScriptUpdateResult {
         let path = world.scripts.get(&actor_id).map(|s| s.path.clone());
         let mut ctx_state = ScriptState::from_snapshot(snapshot, world.next_id, delta_time, elapsed, InputSnapshot::default(), MouseSnapshot::default(), GamepadSnapshot::default(), spawns, globals, clips, std::mem::take(persistent), camera_pos, commands, turn_number, viewport_size);
-        if path.is_some() {
-            let scope = self.scopes.entry(actor_id).or_insert_with(Scope::new);
-            let mut entity_timers = HashMap::new();
-            for (name, _, val) in scope.iter() {
-                if name.starts_with("__timer_") { if let Ok(f) = val.as_float() { entity_timers.insert(name.to_string().replace("__timer_", ""), f); } }
-            }
-            ctx_state.timers.insert(actor_id, entity_timers);
-        }
+        ctx_state.timers = std::mem::take(&mut self.timers);
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         if let Some(path) = path {
             if !self.disabled_scripts.contains(&path) {
@@ -421,17 +418,18 @@ impl ScriptEngine {
         // rendering unchanged.
         self.pending_hud_draws.clear();
         let mut ctx_state = ScriptState::from_snapshot(snapshot, world.next_id, delta_time, elapsed, input, mouse, gamepad, spawns, globals, clips, std::mem::take(persistent), camera_pos, commands, turn_number, viewport_size);
-        let scripted: Vec<(i64, String)> = world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
-        for (entity_id, _) in &scripted {
-            let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);
-            let timer_keys: Vec<String> = scope.iter().filter(|(n, _, _)| n.starts_with("__timer_")).map(|(n, _, _)| n.to_string()).collect();
-            for key in timer_keys { if let Some(val) = scope.get_value::<f64>(&key) { scope.set_value(&key, val - delta_time as f64); } }
-            let mut entity_timers = HashMap::new();
-            for (name, _, val) in scope.iter() {
-                if name.starts_with("__timer_") { if let Ok(f) = val.as_float() { entity_timers.insert(name.to_string().replace("__timer_", ""), f); } }
-            }
-            ctx_state.timers.insert(*entity_id as EntityId, entity_timers);
+        ctx_state.timers = std::mem::take(&mut self.timers);
+        // Decay happens exactly once per real step, here — `run_scripts` is
+        // the one call site the engine's own `update()` invokes unconditionally
+        // (see `check_hot_reload`'s throttle comment above for the same
+        // "exactly once per step" property) — unlike the old scope-scan
+        // version, every entry in this map IS a timer by construction now
+        // (no more `__timer_` prefix filtering needed: this map holds nothing
+        // else), so decaying is a plain nested `values_mut()` walk.
+        for entity_timers in ctx_state.timers.values_mut() {
+            for val in entity_timers.values_mut() { *val -= delta_time as f64; }
         }
+        let scripted: Vec<(i64, String)> = world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         for (entity_id, path) in scripted {
             if self.disabled_scripts.contains(&path) { continue; }
@@ -486,14 +484,7 @@ impl ScriptEngine {
         }
 
         let mut ctx_state = ScriptState::from_world(world, &self.layers, delta_time, elapsed, InputSnapshot::default(), MouseSnapshot::default(), GamepadSnapshot::default(), spawns, globals, clips, std::mem::take(persistent), camera_pos, BTreeMap::new(), 0, viewport_size);
-        for (entity_id, _, _) in &calls {
-            let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);
-            let mut entity_timers = HashMap::new();
-            for (name, _, val) in scope.iter() {
-                if name.starts_with("__timer_") { if let Ok(f) = val.as_float() { entity_timers.insert(name.to_string().replace("__timer_", ""), f); } }
-            }
-            ctx_state.timers.insert(*entity_id as EntityId, entity_timers);
-        }
+        ctx_state.timers = std::mem::take(&mut self.timers);
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         for (entity_id, other_id, path) in calls {
             if self.disabled_scripts.contains(&path) { continue; }
@@ -534,16 +525,24 @@ impl ScriptEngine {
                         // it re-enables here rather than staying dead forever.
                         self.disabled_scripts.remove(&path);
                         // Defect D8: this used to be `self.scopes.clear()`,
-                        // wiping every entity's persistent `let` state (and
-                        // __timer_* vars) whenever ANY script reloaded — not
-                        // just entities running the script that changed.
-                        // Only those entities need a fresh scope; everyone
-                        // else's state must survive untouched.
+                        // wiping every entity's persistent `let` state (and,
+                        // before Step 9, its `__timer_*` vars too) whenever
+                        // ANY script reloaded — not just entities running the
+                        // script that changed. Only those entities need a
+                        // fresh scope; everyone else's state must survive
+                        // untouched.
                         let affected: Vec<EntityId> = world.scripts.iter()
                             .filter(|(_, s)| s.path == path)
                             .map(|(&id, _)| id)
                             .collect();
-                        for id in affected { self.scopes.remove(&id); }
+                        // Phase 6 Step 9 (docs/ember2d-phase6-plan.md): timers
+                        // now live in `self.timers`, not the scope being
+                        // dropped here — must be cleaned up in lockstep with
+                        // it, or a reloaded script's entity inherits a stale
+                        // timer from before the reload (the same leak-on-
+                        // despawn hazard `apply_ctx`'s despawn loop already
+                        // guards against, here on the hot-reload path instead).
+                        for id in affected { self.scopes.remove(&id); self.timers.remove(&id); }
                         log.push(LogEntry::info(format!("Hot-reloaded: {}", path)));
                     }
                     Err(e) => { log.push(LogEntry::error(format!("Reload '{}': {}", path, e))); }
@@ -564,3 +563,11 @@ impl ScriptEngine {
 #[cfg(test)]
 #[path = "engine_tests.rs"]
 mod tests;
+
+// Phase 6 Step 9 (docs/ember2d-phase6-plan.md): timer tests split into their
+// own sibling file rather than appended to engine_tests.rs — that file was
+// already at 496/600 lines before this step's coverage, which would have
+// pushed it to 613. See timer_tests.rs's own header comment.
+#[cfg(test)]
+#[path = "timer_tests.rs"]
+mod timer_tests;

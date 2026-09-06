@@ -25,7 +25,7 @@ cargo run -- <path/to/level.level>             # Play a level directly
 cargo run -- --editor <path/to/level.level>    # Open a level in the editor
 ```
 
-Same commands as always — Phase 5 Step 5i (docs/ember2d-phase5-plan.md §5.5)
+Same commands as always — Phase 5 Step 5i (docs/archive/ember2d-phase5-plan.md §5.5)
 split this into a Cargo **workspace** (see "Workspace layout" below), but
 there's still exactly one bin target (`ember2d-app`, `[[bin]] name =
 "ember2d"`), so plain `cargo run` from the repo root still resolves
@@ -33,7 +33,7 @@ unambiguously and still produces `target/debug/ember2d.exe`.
 
 ## Workspace layout
 
-Four member crates (Phase 5 Step 5i, docs/ember2d-phase5-plan.md §5.5) — see
+Four member crates (Phase 5 Step 5i, docs/archive/ember2d-phase5-plan.md §5.5) — see
 each crate's own `src/lib.rs` for the full reasoning, including the two
 prep gaps that step found beyond what the plan called "mechanical" (a
 `Color` import path most sim-side files never updated after Step 5a moved
@@ -69,7 +69,7 @@ this for the full explanation.
 
 ## Architecture
 
-- **ECS-ish world** — `ember2d-sim/src/world.rs`: entities are `u64`, components in `BTreeMap`s under `ember2d-sim/src/components/` (`HashMap` until Step 5b's determinism pass — docs/ember2d-phase5-plan.md §5.2 H1). Supports parenting via `Transform.parent`.
+- **ECS-ish world** — `ember2d-sim/src/world.rs`: entities are `u64`, components in `BTreeMap`s under `ember2d-sim/src/components/` (`HashMap` until Step 5b's determinism pass — docs/archive/ember2d-phase5-plan.md §5.2 H1). Supports parenting via `Transform.parent`.
 - **Renderer** — `ember2d/src/renderer/`: `wgpu` instanced quads, batching by texture, font atlas built at startup. `RenderBackend` trait with `WgpuBackend`.
   Phase 2 added `ember2d/src/camera.rs` (`Camera`: world<->screen, zoom, viewport origin) and world-space entry points
   (`Renderer::draw_char_world`/`draw_texture_world`), plus a `DrawList` sorted by `(space, z, texture)` for batching.
@@ -134,11 +134,16 @@ The simulation must be reproducible — replay, save/load, and 2-player netcode 
 ## Current State
 
 `main` is trunk at v0.5.0 (`gemini` was merged in before this refactor started). Refactor work
-happens on the `claude` branch. Phases 0–2 are done: demo content recovered, the D1–D14 defect
-sweep closed except D7/D11 (deferred to Phases 5/6 by design), and Phase 2's world-space camera
-landed. Phase 3 (sprite/asset model) is next.
+happens on the `claude` branch. Phases 0–5.5 are done (demo content recovered, the workspace
+split into the four crates above, the turn scheduler, headless `Simulation`, and the animation
+queue all landed). **Phase 6 (performance and data-model hardening) is done** — see
+`docs/ember2d-phase6-plan.md` for the full 14-step account: `roguelike/floor2.level`'s p50
+ms/step dropped ~81% (9.723ms → 1.817ms) via `mem::take`-based snapshot reuse, a
+collision-layer bitmask, and a sweep-and-prune broad phase. Phase 7 (editor viewport
+panelization and chrome) is next — not started. See `docs/HANDOFF.md` for a current
+session-handoff summary.
 
-Known defects are catalogued in `docs/ember2d-refactor-plan.md` §3 (D1–D14) and mirrored in
+Known defects are catalogued in `docs/ember2d-refactor-plan.md` §3 (D1–D22) and mirrored in
 `docs/ember2d-regression-checklist.md` §14 — check there before assuming something is a new
 regression, but note most are already fixed as of the `claude` branch; the plan doc doesn't
 track per-defect status itself, so verify against the actual code/tests if in doubt.

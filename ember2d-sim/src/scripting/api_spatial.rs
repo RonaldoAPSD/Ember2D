@@ -49,17 +49,29 @@ impl ScriptCtx {
         }
         found.into()
     }
+    // Phase 6 Step 12 (docs/ember2d-phase6-plan.md, §5.2 H2): `get_distance`
+    // is rewritten from `.powi(2)` to explicit `dx*dx` — not because `powi`
+    // was itself a determinism hazard (small-integer `powi` is repeated
+    // multiplication, not a libm call, so it was already IEEE-754-exact),
+    // but so the exact operation sequence is spelled out here rather than
+    // resting on an intrinsic's implementation detail. `get_angle_to` is the
+    // real fix: `crate::math::atan2_approx` replaces the platform-libm
+    // `f64::atan2` call this function used to make — see that function's
+    // own doc comment for the full "why" and "how."
     pub fn get_distance(&mut self, id_a: i64, id_b: i64) -> f64 {
         let s = self.inner.borrow_mut();
         match (s.positions.get(&id_a), s.positions.get(&id_b)) {
-            (Some(&(x1, y1)), Some(&(x2, y2))) => (((x2-x1).powi(2) + (y2-y1).powi(2)) as f64).sqrt(),
+            (Some(&(x1, y1)), Some(&(x2, y2))) => {
+                let (dx, dy) = ((x2 - x1) as f64, (y2 - y1) as f64);
+                (dx * dx + dy * dy).sqrt()
+            }
             _ => 0.0
         }
     }
     pub fn get_angle_to(&mut self, from_id: i64, to_id: i64) -> f64 {
         let s = self.inner.borrow_mut();
         match (s.positions.get(&from_id), s.positions.get(&to_id)) {
-            (Some(&(x1, y1)), Some(&(x2, y2))) => ((y2-y1) as f64).atan2((x2-x1) as f64),
+            (Some(&(x1, y1)), Some(&(x2, y2))) => crate::math::atan2_approx((y2 - y1) as f64, (x2 - x1) as f64),
             _ => 0.0
         }
     }

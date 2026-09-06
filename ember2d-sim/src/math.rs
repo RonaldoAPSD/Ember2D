@@ -300,3 +300,137 @@ impl Rect {
         Some(tmin)
     }
 }
+
+// ─────────────────────────── atan2_approx ────────────────────────────────────
+
+/// A deterministic, cross-platform replacement for `f64::atan2` — Phase 6
+/// Step 12 (docs/ember2d-phase6-plan.md, §5.2 H2 in the refactor plan).
+///
+/// WHY THIS EXISTS: `+ - * /` and `sqrt` are IEEE-754-exact, so they produce
+/// identical bits on every platform this engine runs on — `atan2`, `atan`,
+/// `sin`, `cos`, and every other transcendental function are NOT: they come
+/// from the platform's own libm, and different libm implementations (or
+/// even different versions of the same one) are free to round the last bit
+/// differently. Two machines given the same inputs and running the real
+/// `f64::atan2` are not guaranteed to compute the same `f64` — a real
+/// cross-platform desync hazard for lockstep netcode (Phase 9) or a replay
+/// recorded on one machine and checked on another. `ctx.get_angle_to`
+/// (`scripting/api_spatial.rs`) is the one place in this crate that ever
+/// called `atan2` — exhaustive grep at the time this was written found no
+/// other transcendental-math call in `ember2d-sim`, and no shipped script
+/// calls it either, so this single function closes out §5.2 H2 in full.
+///
+/// HOW: a minimax rational approximation of `atan` — a well-known one (Jim
+/// Shima, "A Fast, Accurate Approximation to atan()", 1999), built entirely
+/// from `+ - * /` on `z = y / x` (and its reciprocal-shaped twin for
+/// `|z| >= 1`, to keep the polynomial's argument in the range it was fitted
+/// for) — composed with the same sign/quadrant case analysis the real
+/// `atan2` uses to turn a single `atan` into a full-circle angle. Since
+/// every operation here is `+ - * /`, the result is bit-identical on any
+/// IEEE-754-compliant platform, the same property `sqrt` already has.
+///
+/// ACCURACY: maximum absolute error is documented (and independently
+/// verified by this module's own test, checked against the real
+/// `f64::atan2` at many angles and radii) at approximately 0.01 radians
+/// (~0.6°) — invisible for `get_angle_to`'s actual use (AI chase/aim
+/// direction), and irrelevant to gameplay correctness the way an exact
+/// value would only matter for, say, precision physics this engine doesn't
+/// have.
+///
+/// NOT `mul_add` ANYWHERE below: `f64::mul_add` (fused multiply-add) uses a
+/// real hardware FMA instruction where one exists, computing `a*b+c` with a
+/// single rounding step instead of two separate ones — a different (and,
+/// once again, platform/hardware-dependent) result from writing the
+/// multiply and the add out as separate operations the way this function
+/// does throughout. Rust does not contract `a*b+c` into an FMA on its own
+/// (unlike a C compiler under `-ffast-math`), so simply never calling
+/// `.mul_add()` is sufficient here.
+///
+/// See `docs/ember2d-scripting-api.md`'s "Spatial queries" note for the
+/// hazard this fix does NOT close: a script that takes this deterministic
+/// angle and calls Rhai's own `.cos()`/`.sin()` on it reintroduces the exact
+/// same platform-libm nondeterminism one step later, in script space instead
+/// of engine space.
+pub fn atan2_approx(y: f64, x: f64) -> f64 {
+    use std::f64::consts::{FRAC_PI_2, PI};
+
+    // Checked first, before dividing — 0.0/0.0 would otherwise produce NaN,
+    // and this crate's rule against calling into libm doesn't mean "produce
+    // garbage instead," it means "compute the same real answer a different
+    // way." Matches the real atan2's own documented convention: atan2(0, 0)
+    // is conventionally 0, not an error.
+    if x == 0.0 {
+        if y > 0.0 { return FRAC_PI_2; }
+        if y < 0.0 { return -FRAC_PI_2; }
+        return 0.0;
+    }
+
+    let z = y / x;
+    if z.abs() < 1.0 {
+        // atan(z) for |z| <= 1, where the approximation below was fitted.
+        let atan = z / (1.0 + 0.28 * z * z);
+        if x < 0.0 {
+            if y < 0.0 { return atan - PI; }
+            return atan + PI;
+        }
+        atan
+    } else {
+        // |z| >= 1: the reciprocal identity atan(z) = sign(z)*(pi/2) -
+        // atan(1/z), algebraically simplified so the division stays on `z`
+        // (never `1/z` computed separately) — substituting w = 1/z into the
+        // same rational form above and simplifying gives exactly
+        // `z / (z*z + 0.28)` for the `atan(1/z)` term. The `sign(z)*(pi/2)`
+        // half collapses to a bare `pi/2` here because the y<0 branch below
+        // already applies the same correction the full quadrant case
+        // analysis needs — verified against the real atan2 at all four
+        // quadrants by this module's own test, not just algebra.
+        let atan = FRAC_PI_2 - z / (z * z + 0.28);
+        if y < 0.0 { atan - PI } else { atan }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn atan2_approx_matches_known_exact_values_on_the_axes() {
+        assert_eq!(atan2_approx(0.0, 1.0), 0.0);
+        assert_eq!(atan2_approx(0.0, 0.0), 0.0);
+        assert_eq!(atan2_approx(1.0, 0.0), std::f64::consts::FRAC_PI_2);
+        assert_eq!(atan2_approx(-1.0, 0.0), -std::f64::consts::FRAC_PI_2);
+    }
+
+    #[test]
+    fn atan2_approx_stays_within_the_documented_error_bound_of_the_real_atan2() {
+        // Comparing against the real (libm) atan2 is fine in a TEST — unlike
+        // in sim code, nothing here has to agree bit-for-bit across
+        // machines, only fall within the ~0.01 rad error this specific
+        // approximation is documented to have. 0.015 leaves a little
+        // headroom above that bound rather than testing exactly against it.
+        const TOLERANCE: f64 = 0.015;
+        for deg in (0..360).step_by(3) {
+            let theta = (deg as f64).to_radians();
+            for &r in &[0.1_f64, 1.0, 5.0, 100.0] {
+                let x = r * theta.cos();
+                let y = r * theta.sin();
+                if x.abs() < 1e-9 && y.abs() < 1e-9 { continue; }
+
+                let expected = y.atan2(x);
+                let got = atan2_approx(y, x);
+
+                // Angles wrap at ±π — the shortest angular distance, not a
+                // raw subtraction, which would falsely fail right at the
+                // wrap boundary despite the two angles being nearly identical.
+                let raw_diff = (got - expected).abs();
+                let diff = if raw_diff > std::f64::consts::PI { 2.0 * std::f64::consts::PI - raw_diff } else { raw_diff };
+
+                assert!(
+                    diff < TOLERANCE,
+                    "theta={:.4} r={}: expected {:.6}, got {:.6}, diff {:.6}",
+                    theta, r, expected, got, diff
+                );
+            }
+        }
+    }
+}
