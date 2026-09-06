@@ -20,6 +20,20 @@ use super::api::ScriptCtx;
 // header comment for why it was split out of engine.rs.
 use super::state::{ScriptState, WorldSnapshot};
 
+/// How often `run_scripts` actually invokes `check_hot_reload`, in calls
+/// (one call per simulation step — see `run_scripts`'s own call site).
+/// Phase 6 Step 6 (docs/ember2d-phase6-plan.md): `check_hot_reload` issues
+/// one `fs::metadata` syscall per cached script *every single step* it
+/// runs, real measured cost proportional to script count, not entity
+/// count. A step counter throttles this deterministically — `Instant::now()`
+/// in `ember2d-sim` would be a determinism violation (this crate's own
+/// rule; see CLAUDE.md's Determinism section) since two machines' wall
+/// clocks don't advance in lockstep the way step counts do under replay.
+/// The tradeoff: a live script edit can take up to this many steps (0.5s at
+/// 60 steps/s) to be noticed instead of showing up on the very next one —
+/// an imperceptible delay for the dev-time-only workflow this exists for.
+const HOT_RELOAD_CHECK_INTERVAL: u32 = 30;
+
 pub struct ScriptEngine {
     engine:    Engine,
     ast_cache: HashMap<String, AST>,
@@ -35,6 +49,11 @@ pub struct ScriptEngine {
     /// successfully (see `check_hot_reload`).
     disabled_scripts: HashSet<String>,
     rng:       Rc<RefCell<rand::rngs::SmallRng>>,
+    /// Phase 6 Step 6 (docs/ember2d-phase6-plan.md): counts calls to
+    /// `run_scripts` so hot-reload checking can run every
+    /// `HOT_RELOAD_CHECK_INTERVAL` of them instead of every one — see that
+    /// constant's own doc comment for why a counter, not `Instant::now()`.
+    hot_reload_counter: u32,
     pub pending_hud_draws: Vec<HudDraw>,
     pub pending_sounds:    Vec<String>,
     pub pending_spatial_sounds: Vec<(String, f32, f32)>,
@@ -198,6 +217,7 @@ impl ScriptEngine {
         ScriptEngine {
             engine, ast_cache: HashMap::new(), scopes: HashMap::new(), mod_times: HashMap::new(),
             disabled_scripts: HashSet::new(), rng: Rc::new(RefCell::new(rand::rngs::SmallRng::seed_from_u64(seed))),
+            hot_reload_counter: 0,
             pending_hud_draws: Vec::new(), pending_sounds: Vec::new(), pending_spatial_sounds: Vec::new(),
             pending_music: None, stop_music: false,
         }
@@ -365,7 +385,18 @@ impl ScriptEngine {
     // populated by `World::detect_collisions` and consumed by `late_step`
     // directly; this pass never touched them.
     pub fn run_scripts(&mut self, world: &mut World, snapshot: Rc<WorldSnapshot>, log: &mut Vec<LogEntry>, delta_time: f32, elapsed: f32, input: InputSnapshot, mouse: MouseSnapshot, gamepad: GamepadSnapshot, spawns: &[(String, f32, f32)], globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, persistent: &mut BTreeMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, commands: BTreeMap<i64, Command>, turn_number: i64, viewport_size: (usize, usize)) -> ScriptUpdateResult {
-        self.check_hot_reload(world, log);
+        // Phase 6 Step 6: throttled here, at the one call site (`run_scripts`
+        // runs exactly once per simulation step), rather than inside
+        // `check_hot_reload` itself — that function's own unit test
+        // (`hot_reload_clears_only_the_reloaded_scripts_entities`,
+        // engine_tests.rs) calls it directly and expects it to always check
+        // immediately, so its unconditional behavior stays intact; only
+        // this caller decides how often to actually ask.
+        self.hot_reload_counter += 1;
+        if self.hot_reload_counter >= HOT_RELOAD_CHECK_INTERVAL {
+            self.hot_reload_counter = 0;
+            self.check_hot_reload(world, log);
+        }
         // Step 4g: cleared here (once per real frame — `run_scripts` is the
         // one call site the engine's own `update()` invokes, and it only
         // fires for the top-of-stack GameState) rather than after drawing
@@ -468,7 +499,16 @@ impl ScriptEngine {
     }
 
     fn check_hot_reload(&mut self, world: &World, log: &mut Vec<LogEntry>) {
-        let paths: Vec<String> = self.ast_cache.keys().cloned().collect();
+        // Phase 6 Step 6: `__script_<id>` keys are synthetic — a node
+        // graph's generated Rhai source, cached via `compile_str` under
+        // this key (`Simulation::do_on_start`), never backed by a real file
+        // on disk. `fs::metadata` on one is a guaranteed-failing syscall,
+        // every time, for every graph-scripted tile. Skipping them here
+        // means this loop only ever stats a path that's actually a file.
+        let paths: Vec<String> = self.ast_cache.keys()
+            .filter(|k| !k.starts_with("__script_"))
+            .cloned()
+            .collect();
         for path in paths {
             let Ok(meta) = fs::metadata(&path) else { continue };
             let Ok(t)    = meta.modified()     else { continue };

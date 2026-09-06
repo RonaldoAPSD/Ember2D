@@ -95,6 +95,52 @@ fn hot_reload_clears_only_the_reloaded_scripts_entities() {
     let _ = std::fs::remove_file(&script_b);
 }
 
+// ── Test: Phase 6 Step 6 — check_hot_reload throttled to once every
+// HOT_RELOAD_CHECK_INTERVAL calls to run_scripts (docs/ember2d-phase6-plan.md) ──
+
+#[test]
+fn check_hot_reload_only_runs_once_every_throttle_interval() {
+    let mut script = std::env::temp_dir();
+    script.push("ember2d_test_hot_reload_throttle.rhai");
+    std::fs::write(&script, "fn on_update(id, ctx) {}\n").unwrap();
+    let path = script.to_string_lossy().to_string();
+
+    let mut engine = ScriptEngine::new(42);
+    let mut log = Vec::new();
+    assert!(engine.compile(&path, &mut log));
+
+    let mut world = World::new();
+    let entity = world.spawn();
+    world.add_script(entity, Script::new(&path));
+
+    // Force the cached script to look stale, same trick every other
+    // hot-reload test here uses — an artificially ancient recorded mtime is
+    // guaranteed older than the file's real one.
+    engine.mod_times.insert(path.clone(), std::time::SystemTime::UNIX_EPOCH);
+
+    // Fewer than a full interval's worth of run_scripts calls must NOT
+    // trigger an actual check — the recorded mtime should still read the
+    // artificial UNIX_EPOCH, not the file's real one.
+    for _ in 0..HOT_RELOAD_CHECK_INTERVAL - 1 {
+        run_scripts_once(&mut engine, &mut world, &mut log);
+    }
+    assert_eq!(
+        engine.mod_times.get(&path).copied(),
+        Some(std::time::SystemTime::UNIX_EPOCH),
+        "check_hot_reload must not run before the throttle interval elapses"
+    );
+
+    // The call that crosses the interval boundary must actually check.
+    run_scripts_once(&mut engine, &mut world, &mut log);
+    assert_ne!(
+        engine.mod_times.get(&path).copied(),
+        Some(std::time::SystemTime::UNIX_EPOCH),
+        "check_hot_reload must run once the throttle interval elapses, refreshing the recorded mtime"
+    );
+
+    let _ = std::fs::remove_file(&script);
+}
+
 fn run_scripts_once(engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<LogEntry>) {
     let mut persistent = BTreeMap::new();
     let snapshot = Rc::new(WorldSnapshot::build(world));
@@ -136,6 +182,12 @@ fn a_script_that_errors_is_disabled_and_stops_being_called() {
     std::fs::write(&script, "fn on_update(id, ctx) {}\n").unwrap();
     engine.mod_times.insert(path.clone(), std::time::SystemTime::UNIX_EPOCH);
 
+    // Phase 6 Step 6 (docs/ember2d-phase6-plan.md): `run_scripts` only
+    // actually calls `check_hot_reload` every `HOT_RELOAD_CHECK_INTERVAL`th
+    // call now, not every one — force the counter to the boundary so this
+    // specific call is the one that checks, rather than looping
+    // `HOT_RELOAD_CHECK_INTERVAL` times to get there.
+    engine.hot_reload_counter = HOT_RELOAD_CHECK_INTERVAL - 1;
     run_scripts_once(&mut engine, &mut world, &mut log);
     assert!(!engine.disabled_scripts.contains(&path), "a fixed script must re-enable itself once it hot-reloads successfully");
     let errors_after_fix = log.iter().filter(|e| e.level == LogLevel::Error).count();

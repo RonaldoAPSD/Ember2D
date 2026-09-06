@@ -333,30 +333,105 @@ empty.
 
 ---
 
-## 6. Steps 6–14
+## 6. Step 6 ✅ Done — throttle `check_hot_reload`
 
-Steps 6 (hot-reload throttling) through 14 (documentation) are planned in
+Two independent fixes to the same function, landed together since both are
+about the same wasted `fs::metadata` call:
+
+- **Throttled to once every `HOT_RELOAD_CHECK_INTERVAL` (30) calls to
+  `run_scripts`** (one call per simulation step), via a plain counter on
+  `ScriptEngine`, not `Instant::now()` — wall-clock time in `ember2d-sim`
+  would be a determinism violation (CLAUDE.md's own rule: two machines'
+  clocks don't advance in lockstep under replay/netcode the way step counts
+  do). The throttle lives at the one call site inside `run_scripts`, not
+  inside `check_hot_reload` itself — that function's own existing unit test
+  (`hot_reload_clears_only_the_reloaded_scripts_entities`) calls it directly
+  and expects it to check immediately every time, so its unconditional
+  behavior stays exactly as it was; only the caller now decides how often to
+  ask. Tradeoff: a live script edit can take up to 30 steps (0.5s at 60
+  steps/s) to be noticed instead of the very next one — imperceptible for
+  the dev-time-only workflow this exists for.
+- **`__script_<id>` synthetic keys are skipped entirely.** These are a node
+  graph's generated Rhai source, cached via `compile_str` under that key
+  (`Simulation::do_on_start`), never backed by a real file — every
+  `fs::metadata` call against one was already guaranteed to fail (D20,
+  logged in `docs/ember2d-refactor-plan.md` §3). Filtering them out of the
+  path list checked doesn't just reduce their frequency, it removes them
+  from this loop outright, at every throttle interval, not just most of
+  them.
+
+New test `check_hot_reload_only_runs_once_every_throttle_interval`
+(`engine_tests.rs`) exercises the throttle boundary directly: fewer than 30
+`run_scripts` calls after forcing a script to look stale must leave its
+recorded mtime unchanged (no check ran); the 30th must refresh it (a check
+ran). The existing `a_script_that_errors_is_disabled_and_stops_being_called`
+test had to force `hot_reload_counter` to the boundary before its own
+re-enable-on-fix assertion, since it drives far fewer than 30 calls and
+would otherwise never actually observe a hot-reload under the new throttle.
+
+**Measured:** the exact, unconditional part of this fix is a syscall-count
+argument, not a benchmark one — `check_hot_reload` previously issued one
+`fs::metadata` call per cached script *every single step*; it now issues the
+same calls, but only once every 30 steps: a flat **30× reduction** in that
+syscall's frequency, independent of level size (floor2 alone caches 4
+distinct script paths — `player`/`enemy_rat`/`pickup`/`stairs.rhai` — so this
+is 4 syscalls/step collapsing to 4 syscalls per 30 steps). The `__script_<id>`
+skip is a 100% elimination of a guaranteed-failing call, but applies only to
+node-graph-authored scripts — no shipped level or `bench_sim`'s synthetic
+generator uses `tile.graph`, so neither shows any effect from that half in
+the numbers below; it will matter the moment a level built with the editor's
+visual scripter is played.
+
+`bench_sim`'s allocs/step barely moved (floor2: 8,306 → 8,293, roughly -0.2%)
+— **expected, not a shortfall**: `fs::metadata` is an OS call, not a
+`Vec`/`String` allocation the counting allocator this bench uses would
+necessarily see move at all, so allocation count was never going to be this
+step's signal any more than it was Step 3's (`mem::take` vs. `.clone()`) —
+see that step's own write-up for the same distinction between "wall time
+saved" and "allocations saved." p50 ms/step showed no consistent change
+either direction at any scale, within this machine's usual run-to-run noise
+band — also expected, since one syscall every 30 steps was never going to be
+a measurable fraction of floor2's ~6ms/step budget. This step's payoff is in
+I/O pressure (relevant on a slow or networked filesystem, and simply
+correct — a script's on-disk mtime has no business being polled 60 times a
+second when nothing on disk can plausibly have changed in under a frame),
+not in anything `bench_sim` is built to see.
+
+**Verified:** `cargo build --workspace --examples` and `cargo test
+--workspace --lib` clean across all three crates (`ember2d`: 41,
+`ember2d-editor`: 1, `ember2d-sim`: 42 — one more than Step 5's count, the
+new throttle-boundary test above); all 10 named integration tests (32
+sub-tests) passed; `cargo test --test replay` run 3× as independent fresh
+processes (this step touches no map-ordering or deferred-write machinery —
+a plain per-call counter — so the full 5× mandatory gate wasn't required,
+but a sanity check cost little); manual smoke test of play, editor, and the
+shooter demo. `git diff --stat` on `ember2d/src/sim.rs`,
+`ember2d/src/engine.rs`, `ember2d-editor/` stayed empty.
+
+---
+
+## 8. Steps 7–14
+
+Steps 7 (collision-layer bitmask) through 14 (documentation) are planned in
 full detail but not yet started. See the plan file this phase was approved
-from for the complete step-by-step design (hot-reload throttling; the
-collision-layer bitmask with a private `Collider.layer`/`mask` and
-`LevelData.collision_layers` as the name→bit table; sweep-and-prune broad
-phase; timers moving to `ScriptEngine`; `prev_positions` buffer reuse; the
-`entity_ids` bug fix; `atan2` replaced with a rational approximation;
-conditional `DrawList` buffer reuse) — this doc will be updated with a
-"Done — Step N" note and real before/after numbers as each one lands,
-matching how
+from for the complete step-by-step design (the collision-layer bitmask with
+a private `Collider.layer`/`mask` and `LevelData.collision_layers` as the
+name→bit table; sweep-and-prune broad phase; timers moving to
+`ScriptEngine`; `prev_positions` buffer reuse; the `entity_ids` bug fix;
+`atan2` replaced with a rational approximation; conditional `DrawList`
+buffer reuse) — this doc will be updated with a "Done — Step N" note and
+real before/after numbers as each one lands, matching how
 `docs/ember2d-phase5-plan.md` and `docs/ember2d-phase5.5-plan.md` record
 their own step-by-step history.
 
 **Determinism gate, mandatory and non-negotiable for this phase:**
 `cargo test --test replay` run 5× as independent fresh processes,
-individually after Steps 3, 7, and 8 — not just once at the end. Steps 3
-and 9 in particular touch exactly the map-ordering/deferred-write machinery
-the replay test exists to guard.
+individually after Steps 7 and 8 — not just once at the end (Step 3 already
+had its own 5× gate, recorded in §3 above).
 
 ---
 
-## 7. Documents to update as the phase lands
+## 9. Documents to update as the phase lands
 
 - `docs/ember2d-refactor-plan.md` — §3 D11 closed with real numbers once
   Steps 3–9 land, plus new D20 (hot-reload syscall) and D21
