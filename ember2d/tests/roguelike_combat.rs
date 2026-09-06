@@ -33,12 +33,12 @@ fn bump_attack_kills_a_rat_in_two_hits_and_each_hit_costs_a_turn() {
     let rat_pos = h.world.transforms.get(&rat_id).unwrap().position;
     h.world.transforms.get_mut(&h.player_id()).unwrap().position = Vec2::new(rat_pos.x - 1.0, rat_pos.y);
 
-    let triggered1 = h.turn(Key::D);
+    let triggered1 = h.turn("d");
     assert!(triggered1, "a bump-attack must consume a turn");
     assert_eq!(h.player_pos(), Vec2::new(rat_pos.x - 1.0, rat_pos.y), "attacking must not move the player onto the target's cell");
     assert!(h.world.sprites.contains_key(&rat_id), "one hit (3 dmg) must not kill a 6-hp rat");
 
-    let triggered2 = h.turn(Key::D);
+    let triggered2 = h.turn("d");
     assert!(triggered2, "a second bump-attack must also consume a turn");
     assert!(!h.world.sprites.contains_key(&rat_id), "a second hit must kill the rat (6 hp, 3 dmg/hit)");
 }
@@ -51,7 +51,7 @@ fn a_rat_acts_at_most_once_per_player_turn_even_across_many_idle_frames() {
     // Same open room, several cells away, clear line of sight.
     h.world.transforms.get_mut(&h.player_id()).unwrap().position = Vec2::new(rat_start.x - 3.0, rat_start.y);
 
-    h.turn(Key::Space); // one player round: the rat wakes and takes exactly one step (its own on_turn call within this round)
+    h.turn("space"); // one player round: the rat wakes and takes exactly one step (its own on_turn call within this round)
     let after_one_turn = h.world.transforms.get(&rat_id).map(|t| t.position);
     assert_ne!(after_one_turn, Some(rat_start), "the rat should have moved on its one turn");
 
@@ -85,7 +85,7 @@ fn two_adjacent_rats_each_contribute_their_own_damage_in_the_same_resolve() {
     h.world.transforms.get_mut(&rats[0]).unwrap().position = Vec2::new(player_pos.x - 1.0, player_pos.y);
     h.world.transforms.get_mut(&rats[1]).unwrap().position = Vec2::new(player_pos.x, player_pos.y - 1.0);
 
-    h.turn(Key::Space); // both rats wake (adjacent = trivial line of sight) and land their hit this same round
+    h.turn("space"); // both rats wake (adjacent = trivial line of sight) and land their hit this same round
 
     let hp = h.persistent.get("hp").and_then(|d| d.as_int().ok());
     assert_eq!(
@@ -116,7 +116,7 @@ fn stairs_are_locked_while_the_boss_is_alive_and_unlock_after_it_dies() {
     persistent.insert("turns_taken".into(), rhai::Dynamic::from(0_i64));
     h.persistent = persistent;
 
-    h.turn(Key::Space); // let stairs.rhai's on_update run at least once
+    h.turn("space"); // let stairs.rhai's on_update run at least once
 
     let boss_id = first_id_tagged(&h, "boss");
     let stairs_id = h.world.find_by_tag("stairs").expect("stairs should exist");
@@ -127,12 +127,12 @@ fn stairs_are_locked_while_the_boss_is_alive_and_unlock_after_it_dies() {
 
     // 15 hp, 3 dmg/hit -> dead on the 5th hit.
     for i in 0..5 {
-        let triggered = h.turn(Key::D);
+        let triggered = h.turn("d");
         assert!(triggered, "hit #{} must consume a turn", i + 1);
     }
     assert!(!h.world.sprites.contains_key(&boss_id), "the boss must be dead after 5 hits (15 hp, 3 dmg/hit)");
 
-    h.turn(Key::Space); // give stairs.rhai a turn to notice count_by_tag("boss") == 0
+    h.turn("space"); // give stairs.rhai a turn to notice count_by_tag("boss") == 0
     assert!(!h.world.colliders.get(&stairs_id).unwrap().locked, "stairs must unlock once the boss is dead");
 }
 
@@ -157,8 +157,8 @@ fn identical_input_sequences_produce_identical_state_across_independent_instance
     let mut h2 = TurnHarness::load(FLOOR2);
 
     let sequence = [
-        Key::D, Key::D, Key::D, Key::S, Key::S, Key::A, Key::W,
-        Key::Space, Key::D, Key::S, Key::Space, Key::A, Key::A, Key::W, Key::W,
+        "d", "d", "d", "s", "s", "a", "w",
+        "space", "d", "s", "space", "a", "a", "w", "w",
     ];
     for &key in &sequence {
         h1.turn(key);

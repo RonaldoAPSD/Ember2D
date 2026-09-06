@@ -28,7 +28,7 @@ fn pressing_w_moves_the_player_one_cell_up_and_triggers_a_turn() {
     let mut h = TurnHarness::load(FLOOR1);
     let before = h.player_pos();
 
-    let triggered = h.frame(Some(Key::W));
+    let triggered = h.frame(Some("w"));
 
     assert!(triggered, "a move onto open floor must trigger a turn");
     assert_eq!(h.player_pos(), Vec2::new(before.x, before.y - 1.0), "\"w\" must move the player exactly one cell up (-y)");
@@ -42,7 +42,7 @@ fn walking_into_a_wall_does_not_move_the_player_or_consume_a_turn() {
     // several turns, to keep this test about the wall bump specifically.
     h.world.transforms.get_mut(&h.player_id()).unwrap().position = Vec2::new(2.0, 4.0);
 
-    let triggered = h.frame(Some(Key::A));
+    let triggered = h.frame(Some("a"));
 
     assert!(!triggered, "bumping a wall must not consume a turn — the standard roguelike rule");
     assert_eq!(h.player_pos(), Vec2::new(2.0, 4.0), "a blocked move must not change position at all");
@@ -68,7 +68,7 @@ fn stepping_onto_gold_despawns_it_and_credits_the_player_on_the_same_turn() {
     let gold_id = find_tagged_entity_at(&h.world, "gold", 10.0, 6.0).expect("a gold tile should exist at (10,6)");
     h.world.transforms.get_mut(&h.player_id()).unwrap().position = Vec2::new(9.0, 6.0);
 
-    let triggered = h.frame(Some(Key::D));
+    let triggered = h.frame(Some("d"));
 
     assert!(triggered);
     assert_eq!(h.player_pos(), Vec2::new(10.0, 6.0), "the player should have moved onto the gold's cell");

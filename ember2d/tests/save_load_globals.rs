@@ -67,14 +67,14 @@ fn a_scripts_set_global_survives_a_real_ron_round_trip_through_save_and_load() {
 
     let key = format!("hp_{}", rat_id);
     assert_eq!(
-        play.globals.get(&key).and_then(|d| d.as_int().ok()),
+        play.globals().get(&key).and_then(|d| d.as_int().ok()),
         Some(4),
-        "the script's set_global write must be visible on PlayState.globals after one real frame"
+        "the script's set_global write must be visible on PlayState.globals() after one real frame"
     );
 
     // The actual regression: round-trip through a REAL RON string, not just
     // an in-memory clone — this is what save_game/load_game do.
-    let save = SaveState::new(world.clone(), persistent.clone(), play.globals.clone(), play.clips.clone(), "unused.level".to_string());
+    let save = SaveState::new(world.clone(), persistent.clone(), play.globals().clone(), play.clips().clone(), "unused.level".to_string());
     let ron = save.to_ron().expect("SaveState must serialize");
     let restored = SaveState::from_ron(&ron).expect("SaveState must deserialize");
 
@@ -94,7 +94,7 @@ fn a_scripts_set_global_survives_a_real_ron_round_trip_through_save_and_load() {
         restored.clips.clone(),
     );
     assert_eq!(
-        loaded_play.globals.get(&key).and_then(|d| d.as_int().ok()),
+        loaded_play.globals().get(&key).and_then(|d| d.as_int().ok()),
         Some(4),
         "PlayState::from_save must populate globals from the restored SaveState"
     );

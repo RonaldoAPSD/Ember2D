@@ -29,15 +29,17 @@
 // trait `engine.rs` defines, whose `render()` method needs a GPU-backed
 // `RenderContext`), and real `InputManager`/`MouseState`/`GamepadState`
 // (not their sim-safe snapshots) — because its job is "run one real engine
-// frame," not "advance the simulation by one deterministic step" (that
-// distinction, and the `Simulation::step(dt, &[Command])` a truly sim-side
-// version would need, is exactly what `sim.rs`'s own header comment already
-// flags as future work: "scaffolding toward the real seam, not that seam
-// itself"). Moving it here would mean either dragging `engine`/`input`/
-// `mouse`/`gamepad` into this crate too (defeating the split) or a real
-// redesign of `sim::step` this phase never asked for. It stays in the main
-// `ember2d` crate, alongside the `engine`/`input`/`mouse`/`gamepad` types it
-// already depends on.
+// frame," not "advance the simulation by one deterministic step." That's
+// what `simulation.rs`'s `Simulation` type is, added in Phase 5.5
+// (docs/ember2d-phase5.5-plan.md Part 2) to close the gap this comment used
+// to describe as future work ("scaffolding toward the real seam, not that
+// seam itself") — see that module's own header comment. `sim.rs` stays in
+// the main `ember2d` crate: it's still the generic per-frame pump shared by
+// every `GameState` (`PlayState`, but also the editor and start screen,
+// which genuinely need the raw device types it threads through — moving it
+// here would mean either dragging `engine`/`input`/`mouse`/`gamepad` into
+// this crate too, defeating the split, or a real redesign those two states
+// don't need).
 
 pub mod math;
 pub mod color;
@@ -50,3 +52,4 @@ pub mod command;
 pub mod scheduler;
 pub mod graph;
 pub mod event;
+pub mod simulation;

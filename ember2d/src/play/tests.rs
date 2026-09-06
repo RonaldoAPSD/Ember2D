@@ -7,7 +7,10 @@
 // via `use super::*`.
 
 use super::*;
+use std::collections::HashMap;
 use ember2d_sim::components::{Sprite, Transform};
+use ember2d_sim::event::GameEvent;
+use ember2d_sim::world::EntityId;
 
 // ── Tests: D5 draw order, D13 viewport culling (ember2d-refactor-plan.md §3) ───
 

@@ -2,24 +2,23 @@
 // (docs/ember2d-phase5-plan.md): a recorded input sequence replayed against
 // a fresh simulation with the same seed must produce byte-identical state.
 //
-// WHAT'S "RECORDED" HERE, AND WHY NOT LITERAL `Command` VALUES: the plan's
-// own sketch records `(step_index, Vec<Command>)` and replays those
-// directly, bypassing `on_input` entirely. Doing that for real needs a
-// production API this phase doesn't have — a way to inject a `Command` for
-// a step without going through `on_input`'s own key-to-command translation
-// — and building one now would be new, untested surface area added purely
-// to serve this test, not something Step 5h itself asks for. `on_input` is
-// a pure function of that step's `InputSnapshot` (no wall-clock, no OS
-// RNG), and `TurnHarness::frame`/`turn` are themselves fully deterministic
-// (no real timing involved anywhere) — so replaying the exact same *key*
-// sequence through a fresh `TurnHarness` already exercises the property
-// this test needs to prove: given the same seed and the same externally-
+// WHAT'S "RECORDED" HERE, AND WHY NOT LITERAL `Command` VALUES: this still
+// records key names, not `Command`s, replayed through `on_input`'s own
+// key-to-command translation — deliberately, not for lack of an injection
+// point. Phase 5.5 (docs/ember2d-phase5.5-plan.md Part 2) built the real
+// one: `Simulation::step`'s `StepInput::external_commands`. That seam is
+// tested on its own in `tests/external_commands.rs`, which drives a bare
+// `Simulation` with a hand-built `Command` and nothing else — proving
+// seam 2 actually works. This test's job is different and still worth
+// keeping exactly as it was: `on_input` is a pure function of that step's
+// `InputSnapshot` (no wall-clock, no OS RNG), and `TurnHarness::frame`/`turn`
+// are themselves fully deterministic — so replaying the exact same *key*
+// sequence through a fresh `TurnHarness` exercises the *whole* pipeline
+// (key -> on_input -> Command -> on_turn), not just the part downstream of
+// on_input, proving that given the same seed and the same externally-
 // supplied inputs, the simulation (`TurnScheduler`'s ordering, `on_turn`,
 // direct-write combat, deferred writes, particle/shake RNG) reproduces
-// byte-identical state. A literal command-stream-level replay entry point
-// is real future work — worth building alongside Phase 9's netcode, or
-// Step 5i's workspace split, since that's when something outside a test
-// would actually consume it — not a gap in what this test proves today.
+// byte-identical state end to end.
 //
 // No CI exists to run this in yet — a manual gate. Run it 5x fresh
 // (`cargo test --test replay`, independently, not `--test-threads=1` in one
@@ -58,16 +57,15 @@ const CHECKPOINT_EVERY: usize = 4;
 /// so both tests exercise the same load-bearing path; this one additionally
 /// proves full-state byte-identity (not just position/hp/gold) with
 /// per-checkpoint divergence reporting.
-fn scripted_session() -> Vec<Option<Key>> {
-    use Key::*;
+fn scripted_session() -> Vec<Option<&'static str>> {
     vec![
-        Some(D), Some(D), Some(D), Some(S), Some(S), Some(A), Some(W),
-        Some(Space), Some(D), Some(S), Some(Space), Some(A), Some(A),
-        Some(W), Some(W), None, None, Some(Q), Some(D), Some(D),
+        Some("d"), Some("d"), Some("d"), Some("s"), Some("s"), Some("a"), Some("w"),
+        Some("space"), Some("d"), Some("s"), Some("space"), Some("a"), Some("a"),
+        Some("w"), Some("w"), None, None, Some("q"), Some("d"), Some("d"),
     ]
 }
 
-fn drive(h: &mut TurnHarness, key: Option<Key>) {
+fn drive(h: &mut TurnHarness, key: Option<&str>) {
     match key {
         Some(k) => { h.turn(k); }
         None => { h.frame(None); }
@@ -86,8 +84,8 @@ fn snapshot(h: &TurnHarness) -> String {
     let save = SaveState::new(
         h.world.clone(),
         h.persistent.clone(),
-        h.play.globals.clone(),
-        h.play.clips.clone(),
+        h.sim.globals().clone(),
+        h.sim.clips().clone(),
         "replay-snapshot".to_string(),
     );
     save.to_ron().expect("state must RON-serialize for comparison")

@@ -44,4 +44,4 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --workspace
       - run: cargo test --workspace --lib
-      - run: cargo test --test persistent_on_start --test trigger_collider_layer --test roguelike_floor1 --test roguelike_combat --test roguelike_level_integrity --test save_load_globals --test replay
+      - run: cargo test --test persistent_on_start --test trigger_collider_layer --test roguelike_floor1 --test roguelike_combat --test roguelike_level_integrity --test save_load_globals --test replay --test external_commands
