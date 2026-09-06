@@ -269,7 +269,33 @@ section's checklist changes because of it.
 - [ ] If it fails, the reported checkpoint action number narrows down where
       to look before diffing the full RON dump by hand
 
-## 16. Before you start
+## 17. Performance baseline (Phase 6, docs/ember2d-phase6-plan.md)
+
+`ember2d-sim/examples/bench_sim.rs` — a headless, sim-only benchmark (no
+wgpu/winit/kira in its build), run via
+`cargo run --release -p ember2d-sim --example bench_sim` from the repo root.
+Not a CI gate (shared runners make ms numbers noise) — a manual perf check
+to re-run after any change touching `Simulation::step`/`late_step`,
+`WorldSnapshot`, or `World::detect_collisions`, and compare against the
+baseline table in `docs/ember2d-phase6-plan.md` §1.
+
+- [ ] `cargo run --release -p ember2d-sim --example bench_sim` runs clean
+      (warns loudly if accidentally run in debug)
+- [ ] allocs/step at floor2 has dropped from the ~35,300 baseline (Steps
+      3/4/5/6/9 land) — not required to hit a specific number, but should be
+      a clear, large drop, not noise
+- [ ] The synthetic n=500 vs. n=2000 allocs/step ratio is closer to 1:1 than
+      the ~3.6× baseline, once the non-collision per-step allocation stops
+      scaling with entity count
+- [ ] `detect_collisions`'s share of total step time has fallen sharply at
+      every scale after the collision-layer bitmask (Step 7) and
+      sweep-and-prune (Step 8) land, most visibly at the 10,000-entity
+      synthetic level
+- [ ] Manual: `cargo run -- roguelike/floor2.level` with the F3 debug
+      overlay feels smooth (informal cross-check against the bench numbers,
+      not a replacement for them — the bench doesn't see the render path)
+
+## 18. Before you start
 
 - [ ] Merge/rename so there is one trunk branch
 - [ ] Port `demo/` forward from `main`; confirm all three levels load and play
