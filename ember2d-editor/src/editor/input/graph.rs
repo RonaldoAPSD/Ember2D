@@ -231,8 +231,9 @@ impl EditorState {
             if !graph_snap { return; }
 
             // Check port first
+            let font = self.font.as_mut();
             let hit_port = self.grid.get(gx, gy, self.active_layer).and_then(|t| t.graph.as_ref())
-                .and_then(|g| port_at(g, col, row, self.graph_view_ox, self.graph_view_oy));
+                .and_then(|g| port_at(font, g, col, row, self.graph_view_ox, self.graph_view_oy));
 
             if let Some((nid, dir_idx, dir, kind)) = hit_port {
                 if dir == PortDir::Out {
@@ -255,8 +256,9 @@ impl EditorState {
             }
 
             // Check node
+            let font = self.font.as_mut();
             let hit_node = self.grid.get(gx, gy, self.active_layer).and_then(|t| t.graph.as_ref())
-                .and_then(|g| node_at(g, col, row, self.graph_view_ox, self.graph_view_oy));
+                .and_then(|g| node_at(font, g, col, row, self.graph_view_ox, self.graph_view_oy));
 
             if let Some(nid) = hit_node {
                 self.graph_selected_node = Some(nid);

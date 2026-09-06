@@ -5,23 +5,30 @@
 // crate-root `graph` module (see that module's header comment for why), and
 // this half — which needs the renderer — stayed in `editor`.
 
-use ember2d::renderer::{color::Color, Renderer};
+use ember2d::renderer::{color::Color, Font, Renderer};
 use ember2d_sim::graph::*;
 
 pub const NODE_MIN_W: usize = 20;
 
-pub fn node_size(kind: &NodeKind) -> (usize, usize) {
+/// A node's title text drives its own box width — `Font`-routed (Phase 7
+/// Part 2c, docs/ember2d-phase7-plan.md) so drawing (`draw_node`) and
+/// hit-testing (`node_at`/`port_at`) always agree on `w`, same as before
+/// this conversion: they were never at risk of independently drifting
+/// (defect E5's class) since both call this one function rather than each
+/// recomputing the width themselves — this just changes what the shared
+/// computation is built out of.
+pub fn node_size(font: &mut dyn Font, kind: &NodeKind) -> (usize, usize) {
     let ports = ports_for(kind);
     let (ins, outs) = split_ports(&ports);
     let rows = 1 + ins.len().max(outs.len());
     let rows = rows.max(2);
-    let title_len = kind.title().len() + 4;
+    let title_len = super::ui::cells(font, &kind.title()) + 4;
     let w = title_len.max(NODE_MIN_W);
     (w, rows + 1)
 }
 
-pub fn port_screen_pos(node: &Node, port: &PortSpec, port_dir_idx: usize, view_ox: i32, view_oy: i32) -> Option<(i32, i32)> {
-    let (w, _h) = node_size(&node.kind);
+pub fn port_screen_pos(font: &mut dyn Font, node: &Node, port: &PortSpec, port_dir_idx: usize, view_ox: i32, view_oy: i32) -> Option<(i32, i32)> {
+    let (w, _h) = node_size(font, &node.kind);
     let sx = node.x + view_ox;
     let sy = node.y + view_oy;
     let row = (sy + 1 + port_dir_idx as i32) as i32;
@@ -29,8 +36,8 @@ pub fn port_screen_pos(node: &Node, port: &PortSpec, port_dir_idx: usize, view_o
     Some((col, row))
 }
 
-pub fn draw_node(renderer: &mut Renderer, node: &Node, selected: bool, view_ox: i32, view_oy: i32, screen_w: usize, screen_h: usize) {
-    let (w, h) = node_size(&node.kind);
+pub fn draw_node(renderer: &mut Renderer, font: &mut dyn Font, node: &Node, selected: bool, view_ox: i32, view_oy: i32, screen_w: usize, screen_h: usize) {
+    let (w, h) = node_size(font, &node.kind);
     let sx = node.x + view_ox;
     let sy = node.y + view_oy;
     if sx + w as i32 <= 0 || sy + h as i32 <= 0 || sx >= screen_w as i32 || sy >= screen_h as i32 { return; }
@@ -65,7 +72,7 @@ pub fn draw_node(renderer: &mut Renderer, node: &Node, selected: bool, view_ox: 
         if row >= screen_h { break; }
         let (glyph, glyph_fg) = if spec.kind == PortKind::Exec { ('>', Color::White) } else { ('o', Color::Cyan) };
         let lbl = spec.label;
-        let lbl_len = lbl.len();
+        let lbl_len = super::ui::cells(font, lbl);
         let glyph_col = sx + w - 1;
         let lbl_col = glyph_col.saturating_sub(lbl_len + 1);
         if glyph_col < screen_w { renderer.draw_char(glyph_col, row, glyph, glyph_fg, Color::DarkGrey); }
@@ -116,14 +123,14 @@ pub fn draw_wire(renderer: &mut Renderer, ox: i32, oy: i32, ix: i32, iy: i32, ed
     }
 }
 
-pub fn draw_graph(renderer: &mut Renderer, graph: &NodeGraph, selected_node: Option<NodeId>, connecting: Option<(NodeId, usize)>, mouse_col: usize, mouse_row: usize, view_ox: i32, view_oy: i32, screen_w: usize, screen_h: usize) {
+pub fn draw_graph(renderer: &mut Renderer, font: &mut dyn Font, graph: &NodeGraph, selected_node: Option<NodeId>, connecting: Option<(NodeId, usize)>, mouse_col: usize, mouse_row: usize, view_ox: i32, view_oy: i32, screen_w: usize, screen_h: usize) {
     for y in 0..screen_h { let row: String = std::iter::repeat(' ').take(screen_w).collect(); renderer.draw_str(0, y, &row, Color::DarkGrey, Color::Black); }
     let mut port_positions: Vec<(NodeId, Vec<(i32,i32)>, Vec<(i32,i32)>)> = Vec::new();
     for node in &graph.nodes {
         let ports = ports_for(&node.kind);
         let (ins, outs) = split_ports(&ports);
-        let in_pos: Vec<(i32,i32)> = ins.iter().enumerate().map(|(di, (_, p))| port_screen_pos(node, p, di, view_ox, view_oy).unwrap_or((-1,-1))).collect();
-        let out_pos: Vec<(i32,i32)> = outs.iter().enumerate().map(|(di, (_, p))| port_screen_pos(node, p, di, view_ox, view_oy).unwrap_or((-1,-1))).collect();
+        let in_pos: Vec<(i32,i32)> = ins.iter().enumerate().map(|(di, (_, p))| port_screen_pos(font, node, p, di, view_ox, view_oy).unwrap_or((-1,-1))).collect();
+        let out_pos: Vec<(i32,i32)> = outs.iter().enumerate().map(|(di, (_, p))| port_screen_pos(font, node, p, di, view_ox, view_oy).unwrap_or((-1,-1))).collect();
         port_positions.push((node.id, in_pos, out_pos));
     }
     for (ei, edge) in graph.edges.iter().enumerate() {
@@ -143,7 +150,7 @@ pub fn draw_graph(renderer: &mut Renderer, graph: &NodeGraph, selected_node: Opt
                 // Snap to valid input port
                 let mut target_x = mouse_col as i32;
                 let mut target_y = mouse_row as i32;
-                if let Some((nid, di, dir, _)) = port_at(graph, target_x, target_y, view_ox, view_oy) {
+                if let Some((nid, di, dir, _)) = port_at(font, graph, target_x, target_y, view_ox, view_oy) {
                     if dir == PortDir::In {
                         if let Some((_, in_positions, _)) = port_positions.iter().find(|(id, _, _)| *id == nid) {
                             if let Some(&(sx, sy)) = in_positions.get(di) {
@@ -156,7 +163,7 @@ pub fn draw_graph(renderer: &mut Renderer, graph: &NodeGraph, selected_node: Opt
             }
         }
     }
-    for node in &graph.nodes { let sel = selected_node == Some(node.id); draw_node(renderer, node, sel, view_ox, view_oy, screen_w, screen_h); }
+    for node in &graph.nodes { let sel = selected_node == Some(node.id); draw_node(renderer, font, node, sel, view_ox, view_oy, screen_w, screen_h); }
 }
 
 pub fn draw_palette(renderer: &mut Renderer, scroll: usize, cursor: usize, px: usize, py: usize, _screen_w: usize, screen_h: usize) {
@@ -219,18 +226,18 @@ pub fn palette_make(key: &str) -> Option<NodeKind> {
     })
 }
 
-pub fn node_at(graph: &NodeGraph, col: i32, row: i32, view_ox: i32, view_oy: i32) -> Option<NodeId> {
+pub fn node_at(font: &mut dyn Font, graph: &NodeGraph, col: i32, row: i32, view_ox: i32, view_oy: i32) -> Option<NodeId> {
     for node in graph.nodes.iter().rev() {
-        let (w, h) = node_size(&node.kind);
+        let (w, h) = node_size(font, &node.kind);
         let sx = node.x + view_ox; let sy = node.y + view_oy;
         if col >= sx && col < sx + w as i32 && row >= sy && row < sy + h as i32 { return Some(node.id); }
     }
     None
 }
 
-pub fn port_at(graph: &NodeGraph, col: i32, row: i32, view_ox: i32, view_oy: i32) -> Option<(NodeId, usize, PortDir, PortKind)> {
+pub fn port_at(font: &mut dyn Font, graph: &NodeGraph, col: i32, row: i32, view_ox: i32, view_oy: i32) -> Option<(NodeId, usize, PortDir, PortKind)> {
     for node in &graph.nodes {
-        let (w, _h) = node_size(&node.kind);
+        let (w, _h) = node_size(font, &node.kind);
         let sx = node.x + view_ox; let sy = node.y + view_oy;
         let ports = ports_for(&node.kind);
         let (ins, outs) = split_ports(&ports);

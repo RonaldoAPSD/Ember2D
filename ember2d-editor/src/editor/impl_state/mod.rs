@@ -1,4 +1,11 @@
-// editor/impl_state.rs — Implementation of non-update/render methods for EditorState.
+// editor/impl_state/mod.rs — Implementation of non-update/render methods for EditorState.
+//
+// Split into `mod.rs` + `tests.rs` in Phase 7 Part 1f (docs/ember2d-phase7-plan.md)
+// — this file was already past CLAUDE.md's 600-line hard limit before this
+// phase touched it, and 1f's undo-batching tests would have pushed it well
+// further over. The production code below is unchanged from the single-file
+// version; only the `#[cfg(test)] mod tests { ... }` block moved out to its
+// own file.
 
 use std::collections::VecDeque;
 use std::path::Path;
@@ -84,7 +91,15 @@ impl EditorState {
 
     pub(super) fn mouse_to_grid(&self, cell_x: usize, cell_y: usize) -> Option<(i32, i32)> {
         // 1. Block input if mouse is over any OTHER panel (except Viewport)
-        if let Some(pid) = self.panels.panel_at(cell_x, cell_y) {
+        //    — `panel_at` is pixel-space now (Phase 7 Part 1c,
+        //    docs/ember2d-phase7-plan.md). This function's own callers all
+        //    pass an already cell-quantized `mouse.cell_x`/`cell_y`, so
+        //    reconstructing pixels here (rather than threading the mouse's
+        //    true sub-cell position through every one of those call sites)
+        //    loses nothing: every panel's own rect is still exactly
+        //    cell-aligned as of Part 1c, so this reproduces the identical
+        //    boolean result the old cell-based comparison gave.
+        if let Some(pid) = self.panels.panel_at(cell_x as f32 * ember2d::renderer::CELL_W as f32, cell_y as f32 * ember2d::renderer::CELL_H as f32) {
             if pid != PanelId::Viewport { return None; }
         }
 
@@ -92,14 +107,14 @@ impl EditorState {
         // 2. Localize to canvas space
         if cell_x < l.canvas_x || cell_x >= l.canvas_x + l.canvas_w { return None; }
         if cell_y < l.canvas_y || cell_y >= l.canvas_y + l.canvas_h { return None; }
-        
+
         let local_x = (cell_x - l.canvas_x) as f32;
         let local_y = (cell_y - l.canvas_y) as f32;
 
         // 3. Project to grid coordinates
         let gx = (local_x / self.zoom + self.scroll.0).floor() as i32;
         let gy = (local_y / self.zoom + self.scroll.1).floor() as i32;
-        
+
         Some((gx, gy))
     }
 
@@ -345,7 +360,7 @@ impl EditorState {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
-                    
+
                     if path.is_dir() {
                         dirs.push(format!("/ {} ", name));
                     } else if name.ends_with(".level") {
@@ -356,7 +371,7 @@ impl EditorState {
                         other.push(format!(":: {} ", name));
                     }
                 }
-                
+
                 dirs.sort();
                 other.sort();
                 files.extend(dirs);
@@ -516,141 +531,12 @@ impl EditorState {
             self.console_log.drain(..drain);
         }
     }
-
-    pub(super) fn export_game(&mut self) {
-        let Some(project_path) = self.project_folder.clone() else {
-            self.console_log.push(LogEntry::error("Cannot export: No project folder open."));
-            return;
-        };
-
-        // Ensure current level is saved first
-        self.save();
-
-        #[cfg(debug_assertions)]
-        self.console_log.push(LogEntry::warn(
-            "Exporting a DEBUG build. For a release build run: cargo build --release, then export from target/release/ember2d."
-        ));
-
-        let picked = rfd::FileDialog::new()
-            .set_title("Export Standalone Game - Pick Destination Folder")
-            .pick_folder();
-
-        if let Some(out_dir) = picked {
-            let project_name = std::path::Path::new(&project_path)
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "MyGame".to_string());
-            
-            let export_root = out_dir.join(format!("{}_Export", project_name));
-            if let Err(e) = std::fs::create_dir_all(&export_root) {
-                self.console_log.push(LogEntry::error(format!("Export failed (create dir): {}", e)));
-                return;
-            }
-
-            // 1. Copy executable
-            if let Ok(exe_path) = std::env::current_exe() {
-                let mut target_exe = export_root.join(&project_name);
-                if cfg!(windows) { target_exe.set_extension("exe"); }
-                if let Err(e) = std::fs::copy(&exe_path, &target_exe) {
-                    self.console_log.push(LogEntry::warn(format!("Executable copy failed: {}. You may need to copy it manually.", e)));
-                }
-            }
-
-            // 2. Copy assets (recursive)
-            let asset_folders = ["audio", "scripts"];
-            for folder in asset_folders {
-                let src = std::path::Path::new(&project_path).join(folder);
-                if src.exists() {
-                    let dst = export_root.join(folder);
-                    if let Err(e) = copy_dir_all(&src, &dst) {
-                        self.console_log.push(LogEntry::warn(format!("Failed to copy {}: {}", folder, e)));
-                    }
-                }
-            }
-
-            // 3. Copy project.ron, palette, and all levels
-            if let Ok(entries) = std::fs::read_dir(&project_path) {
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    if p.is_file() {
-                        let name = p.file_name().unwrap().to_string_lossy();
-                        if name == "project.ron" || name.ends_with(".level") || name.ends_with(".palette.ron") {
-                            let _ = std::fs::copy(&p, export_root.join(&*name));
-                        }
-                    }
-                }
-            }
-
-            // 4. Create .standalone marker
-            if let Err(e) = std::fs::write(export_root.join(".standalone"), "") {
-                self.console_log.push(LogEntry::error(format!("Failed to create marker: {}", e)));
-            } else {
-                self.console_log.push(LogEntry::info(format!("SUCCESS: Game exported to {:?}", export_root)));
-                self.panels.show(PanelId::Console);
-            }
-        }
-    }
 }
 
-fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dst)?;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let ty = entry.file_type()?;
-        if ty.is_dir() {
-            copy_dir_all(&entry.path(), &dst.join(entry.file_name()))?;
-        } else {
-            std::fs::copy(entry.path(), dst.join(entry.file_name()))?;
-        }
-    }
-    Ok(())
-}
+// "Export Standalone Game" (`export_game`) lives in its own file — see
+// `export.rs`'s own header comment for why (Phase 7 Part 1f, this file's
+// 600-line budget).
+mod export;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use ember2d_sim::level::TileRecord;
-    use ember2d::renderer::color::Color;
-
-    /// Step 3d's "done when": a level round-trip where a tile carries a live
-    /// node-graph confirms `graph` never reaches the saved `.level` output
-    /// and the sidecar `.rhai` file actually contains the generated code.
-    #[test]
-    fn graph_migrates_to_a_sidecar_script_and_never_appears_in_saved_output() {
-        let dir = std::env::temp_dir().join("ember2d_test_graph_sidecar");
-        std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
-        let level_path = dir.join("test_level.level");
-        let sidecar_path = dir.join("test_level_graph_5_5_1.rhai");
-        let _ = std::fs::remove_file(&level_path);
-        let _ = std::fs::remove_file(&sidecar_path);
-
-        let mut editor = EditorState::new(level_path.to_str().unwrap());
-
-        let mut graph = node_graph::NodeGraph::default();
-        let on_start = graph.add_node(node_graph::NodeKind::OnStart, 0, 0);
-        let log_node = graph.add_node(node_graph::NodeKind::Log, 100, 0);
-        let str_lit  = graph.add_node(node_graph::NodeKind::StringLit { value: "hello from graph".to_string() }, 100, 50);
-        graph.add_edge(on_start, 0, log_node, 0); // OnStart.Out -> Log.In
-        graph.add_edge(str_lit, 0, log_node, 1);  // StringLit.Value -> Log.Msg
-
-        let mut tile = TileRecord::new(5, 5, 1, '#', Color::White, Color::Reset, false, false, "npc");
-        tile.graph = Some(graph);
-        editor.grid.place(5, 5, 1, tile);
-
-        editor.save();
-
-        let saved = std::fs::read_to_string(&level_path).expect("level file must be written");
-        assert!(!saved.contains("graph:"), "a saved level must never carry a `graph` field");
-        assert!(saved.contains("test_level_graph_5_5_1.rhai"), "the tile's script field must point at the sidecar");
-
-        let sidecar = std::fs::read_to_string(&sidecar_path).expect("sidecar script must be written");
-        assert!(sidecar.contains("hello from graph"), "the sidecar must contain the generated Rhai source");
-
-        // Mutating `to_level_data()`'s own clone must never touch the live
-        // grid — the node-graph editor keeps working on the real graph.
-        assert!(editor.grid.get(5, 5, 1).unwrap().graph.is_some());
-
-        let _ = std::fs::remove_file(&level_path);
-        let _ = std::fs::remove_file(&sidecar_path);
-    }
-}
+mod tests;

@@ -52,18 +52,23 @@ pub struct StartScreen {
     pub pending_transition: Option<Transition>,
     last_sw: usize,
     last_sh: usize,
+    /// See `EditorState::font`'s own doc comment (Phase 7 Part 2c,
+    /// docs/ember2d-phase7-plan.md) — same role, separate instance, since
+    /// `StartScreen` has no dependency on `EditorState`.
+    font: Box<dyn ember2d::renderer::Font>,
 }
 
 impl StartScreen {
     pub fn new() -> Self {
         StartScreen {
-            screen: Screen::MainMenu, menu_cursor: 0, name_buf: String::new(), folder_buf: String::new(), 
+            screen: Screen::MainMenu, menu_cursor: 0, name_buf: String::new(), folder_buf: String::new(),
             template_sel: 0, style_sel: 0, loop_sel: 0,
             sel_project: String::new(), sel_project_name: String::new(),
             level_list: Vec::new(), level_cursor: 0, fb_path: std::path::PathBuf::new(), fb_entries: Vec::new(), fb_cursor: 0,
             pending_transition: None,
             last_sw: 80,
             last_sh: 24,
+            font: Box::new(ember2d::renderer::BitmapFont::new()),
         }
     }
 }
@@ -86,17 +91,19 @@ impl GameState for StartScreen {
         self.last_sh = sh;
 
         ctx.renderer.draw_rect_filled(0, 0, sw, sh, ' ', ember2d::renderer::color::Color::Reset, ember2d::renderer::color::Color::Reset);
-        draw_header(ctx.renderer, sw);
+        let auto_folder = self.auto_folder(); // needs &self, so computed before font's &mut self.font borrow starts
+        let font = self.font.as_mut();
+        draw_header(ctx.renderer, font, sw);
         match self.screen {
-            Screen::MainMenu => draw_main_menu(ctx.renderer, sw, sh, ctx.elapsed, self.menu_cursor),
-            Screen::NewName => draw_text_step(ctx.renderer, sw, sh, 1, 5, "Project Name", "Enter a name for your new project:", "This becomes the folder name and appears in the editor title bar.", "Enter: next  |  Esc: back", &self.name_buf),
-            Screen::NewStyle => draw_style_step(ctx.renderer, sw, sh, self.style_sel),
-            Screen::NewLoop => draw_loop_step(ctx.renderer, sw, sh, self.loop_sel),
-            Screen::FolderBrowser => draw_folder_browser(ctx.renderer, sw, sh, &self.fb_path, &self.fb_entries, self.fb_cursor, &self.auto_folder()),
-            Screen::NewFolder => draw_text_step(ctx.renderer, sw, sh, 4, 5, "New Folder", "Enter a name for the new folder:", "A new directory will be created inside the current location.", "Enter: create  |  Esc: cancel", &self.folder_buf),
-            Screen::NewTemplate => draw_template_step(ctx.renderer, sw, sh, self.template_sel),
-            Screen::OpenProject => draw_browser(ctx.renderer, sw, sh, " OPEN PROJECT ", &self.fb_entries, self.fb_cursor, "No projects or folders found.", "Tip: Use [..] to go up or the OS Browser to find your project.", "Up/Down: navigate  |  Enter: open  |  Esc: back", true, &self.fb_path),
-            Screen::LevelPicker => draw_browser(ctx.renderer, sw, sh, &format!(" LEVELS IN: {} ", self.sel_project_name), &self.level_list, self.level_cursor, "No levels found in this project.", "", "Up/Down: navigate  |  Enter: open  |  Esc: back", false, &self.fb_path),
+            Screen::MainMenu => draw_main_menu(ctx.renderer, font, sw, sh, ctx.elapsed, self.menu_cursor),
+            Screen::NewName => draw_text_step(ctx.renderer, font, sw, sh, 1, 5, "Project Name", "Enter a name for your new project:", "This becomes the folder name and appears in the editor title bar.", "Enter: next  |  Esc: back", &self.name_buf),
+            Screen::NewStyle => draw_style_step(ctx.renderer, font, sw, sh, self.style_sel),
+            Screen::NewLoop => draw_loop_step(ctx.renderer, font, sw, sh, self.loop_sel),
+            Screen::FolderBrowser => draw_folder_browser(ctx.renderer, font, sw, sh, &self.fb_path, &self.fb_entries, self.fb_cursor, &auto_folder),
+            Screen::NewFolder => draw_text_step(ctx.renderer, font, sw, sh, 4, 5, "New Folder", "Enter a name for the new folder:", "A new directory will be created inside the current location.", "Enter: create  |  Esc: cancel", &self.folder_buf),
+            Screen::NewTemplate => draw_template_step(ctx.renderer, font, sw, sh, self.template_sel),
+            Screen::OpenProject => draw_browser(ctx.renderer, font, sw, sh, " OPEN PROJECT ", &self.fb_entries, self.fb_cursor, "No projects or folders found.", "Tip: Use [..] to go up or the OS Browser to find your project.", "Up/Down: navigate  |  Enter: open  |  Esc: back", true, &self.fb_path),
+            Screen::LevelPicker => draw_browser(ctx.renderer, font, sw, sh, &format!(" LEVELS IN: {} ", self.sel_project_name), &self.level_list, self.level_cursor, "No levels found in this project.", "", "Up/Down: navigate  |  Enter: open  |  Esc: back", false, &self.fb_path),
         }
     }
 

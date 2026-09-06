@@ -91,7 +91,8 @@ impl EditorState {
             && mouse.cell_x < l.canvas_x + l.canvas_w
             && mouse.cell_y >= (l.canvas_y - 1) // Allow interaction on Viewport title bar (row 2)
             && mouse.cell_y < l.canvas_y + l.canvas_h
-            && !self.panels.is_point_on_panel(mouse.cell_x, mouse.cell_y);
+            // Pixel-space hit test (Phase 7 Part 1c, docs/ember2d-phase7-plan.md).
+            && !self.panels.is_point_on_panel(mouse.pixel_x, mouse.pixel_y);
 
         if on_canvas {
             self.inspected_pos = self.mouse_to_grid(mouse.cell_x, mouse.cell_y);

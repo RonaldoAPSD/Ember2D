@@ -69,7 +69,9 @@ impl EditorState {
             ContextMenuAction::FloatPanel(id) => {
                 let p = self.panels.get_mut(id);
                 p.dock = crate::editor::ui::DockSide::None;
-                p.x = 10; p.y = 10;
+                // Cell (10, 10) in pixels (Phase 7 Part 1c) — was `p.x = 10; p.y = 10;`.
+                p.rect.x = 10.0 * ember2d::renderer::CELL_W as f32;
+                p.rect.y = 10.0 * ember2d::renderer::CELL_H as f32;
             }
             ContextMenuAction::FocusCamera(sel) => {
                 let pos = match sel {

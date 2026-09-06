@@ -21,7 +21,7 @@ use grid::LevelGrid;
 use palette::TilePalette;
 use panel::{PanelId, PanelManager};
 use commands::UndoStack;
-use ui::{Layout, MenuKind, ToolKind};
+use ui::{Layout, MenuKind, ToolKind, UiFrame};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaletteField { Name, Tag, Glyph }
@@ -118,6 +118,19 @@ pub struct EditorState {
     pub(super) pan_anchor:   Option<(usize, usize, i32, i32)>,
     pub(super) scroll_repeat: u32,
     pub(super) panels:      PanelManager,
+    /// One render pass's worth of interactive-widget hit rects (Phase 7
+    /// Part 1d, docs/ember2d-phase7-plan.md) — see `ui/frame.rs`'s header
+    /// comment. Rebuilt every `handle_render` call; read by the FOLLOWING
+    /// frame's `handle_update`/`handle_panel_input`.
+    pub(super) ui_frame:    UiFrame,
+    /// The editor's active text-metrics source (Phase 7 Part 2c,
+    /// docs/ember2d-phase7-plan.md) — a `BitmapFont` today, always; every
+    /// `ui::draw_*`/`graph_ui::*` call that used to compute a position
+    /// from a string's raw `.len()` now goes through `Font::measure`/
+    /// `glyph` on this instead, so a future theme (Part 3) can swap it for
+    /// a `TtfFont` without those call sites changing again. `Box<dyn Font>`
+    /// rather than a concrete `BitmapFont` for exactly that swap.
+    pub(super) font:        Box<dyn ember2d::renderer::Font>,
     pub(super) focused_panel: Option<PanelId>,
     pub(super) show_physics: bool,
     pub(super) show_help:    bool,
@@ -143,6 +156,19 @@ pub struct EditorState {
 
 const DEFAULT_LEVEL_W: usize = 32;
 const DEFAULT_LEVEL_H: usize = 20;
+
+/// Placeholder cell-grid size for `PanelManager`/`Layout` at construction
+/// time, before a real window (and so a real `renderer.width`/`height`)
+/// exists — `EditorState::new` takes only a save path, not a `&Renderer`
+/// (Phase 7 Part 1e, docs/ember2d-phase7-plan.md, E6). Not a guess at the
+/// actual viewport size: `handle_render`'s very first lines unconditionally
+/// call `self.panels.apply_layout(renderer.pixel_width, renderer.pixel_height)`
+/// and rebuild `self.layout` from `renderer.width`/`height`, before any
+/// drawing happens — so whatever this constant is set to is never itself
+/// visible on screen. `80x24` was kept as the value precisely because it
+/// carries no meaning beyond "some placeholder terminal-shaped size."
+const PLACEHOLDER_SCREEN_W: usize = 80;
+const PLACEHOLDER_SCREEN_H: usize = 24;
 
 impl EditorState {
     pub fn new(save_path: &str) -> Self {
@@ -199,7 +225,9 @@ impl EditorState {
             ignore_drag:    false,
             pan_anchor:     None,
             scroll_repeat:  0,
-            panels:       PanelManager::new(80, 24),
+            panels:       PanelManager::new(PLACEHOLDER_SCREEN_W, PLACEHOLDER_SCREEN_H),
+            ui_frame:     UiFrame::new(),
+            font:         Box::new(ember2d::renderer::BitmapFont::new()),
             focused_panel: None,
             show_physics: false,
             show_help:    false,
@@ -219,7 +247,7 @@ impl EditorState {
             color_picker_open: None,
             color_picker_hsv: (0.0, 1.0, 1.0),
             context_menu: None,
-            layout: Layout::new(80, 24),
+            layout: Layout::new(PLACEHOLDER_SCREEN_W, PLACEHOLDER_SCREEN_H),
             zoom: 1.0,
         }
     }

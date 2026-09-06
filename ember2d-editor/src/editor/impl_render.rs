@@ -27,7 +27,7 @@ impl EditorState {
         };
 
         graph_ui::draw_graph(
-            renderer, &graph,
+            renderer, self.font.as_mut(), &graph,
             self.graph_selected_node,
             self.graph_connecting,
             mouse.cell_x, mouse.cell_y,
@@ -101,6 +101,12 @@ impl EditorState {
     pub(super) fn handle_render(&mut self, ctx: RenderContext) {
         let RenderContext { renderer, mouse, .. } = ctx;
 
+        // Phase 7 Part 1d (docs/ember2d-phase7-plan.md): fresh every render
+        // pass, unconditionally — see `ui_frame`'s own doc comment and
+        // `ui/frame.rs`'s header comment for the one-frame lag this implies
+        // and why it's harmless.
+        self.ui_frame.clear();
+
         // Script editor mode
         if self.script_mode {
             self.render_script_mode(renderer);
@@ -114,7 +120,12 @@ impl EditorState {
         }
 
         // Reposition docked panels, then derive canvas bounds for the layout.
-        self.panels.apply_layout(renderer.width, renderer.height);
+        // `apply_layout` works in pixels now (Phase 7 Part 1c,
+        // docs/ember2d-phase7-plan.md) — `pixel_width`/`pixel_height`, not
+        // the cell-count `width`/`height` every other call in this
+        // function still uses. `canvas_bounds` itself stays cell-based
+        // (its own params are unused either way).
+        self.panels.apply_layout(renderer.pixel_width, renderer.pixel_height);
         let (cx, cy, cw, ch) = self.panels.canvas_bounds(renderer.width, renderer.height);
         self.layout = Layout::new(renderer.width, renderer.height).with_canvas(cx, cy, cw, ch);
         self.layout.zoom = self.zoom;
@@ -122,7 +133,7 @@ impl EditorState {
 
         renderer.draw_rect_filled(0, 0, renderer.width, renderer.height, ' ', Color::Reset, Color::Reset);
 
-        ui::draw_menu_toolbar(renderer, self.active_menu, self.active_tool, &layout);
+        ui::draw_menu_toolbar(renderer, self.font.as_mut(), self.active_menu, self.active_tool, &layout, &mut self.ui_frame);
 
 
         // ── Mode resolution ──────────────────────────────────────────────────
@@ -168,7 +179,7 @@ impl EditorState {
             let pcx = panel.content_x();
             let pch = panel.content_h();
             let pcw = panel.content_w();
-            draw_panel_chrome(renderer, panel);
+            draw_panel_chrome(renderer, panel, &mut self.ui_frame);
 
             // Draw tabs if docked
             if panel.dock != DockSide::None {
@@ -184,7 +195,7 @@ impl EditorState {
                         DockSide::Bottom => self.panels.active_bottom,
                         DockSide::None   => None,
                     };
-                    ui::draw_dock_tabs(renderer, panel.x as usize, panel.y as usize, panel.w, &tab_info, active);
+                    ui::draw_dock_tabs(renderer, self.font.as_mut(), panel.cell_x().max(0) as usize, panel.cell_y().max(0) as usize, panel.cell_w(), &tab_info, active, &mut self.ui_frame);
                 }
             }
 
@@ -222,7 +233,7 @@ impl EditorState {
                         let current = grid_cursor.unwrap_or(anchor);
                         ui::draw_line_preview(renderer, anchor, current, self.palette.current().glyph, self.scroll, self.zoom, &layout);
                     } else {
-                        ui::draw_cursor_highlight(renderer, mouse, &self.palette, self.select_mode, self.zoom, &layout);
+                        ui::draw_cursor_highlight(renderer, mouse, &self.palette, self.select_mode, self.scroll, self.zoom, &layout);
                     }
 
                     // Physics overlay — tints solid/trigger tiles.
@@ -244,11 +255,11 @@ impl EditorState {
                     ui::draw_hierarchy(renderer, &self.grid, self.hierarchy_sel, pcx, pcy, pcw, pch);
                 }
                 PanelId::Palette   => {
-                    ui::draw_palette_panel(renderer, &self.palette, mode_label, self.palette_scroll, pcx, pcy, pcw, pch);
+                    ui::draw_palette_panel(renderer, self.font.as_mut(), &self.palette, mode_label, self.palette_scroll, pcx, pcy, pcw, pch, &mut self.ui_frame);
                 }
                 PanelId::Inspector => {
                     ui::draw_inspector(renderer, insp_tile, insp_pos, insp_mode_tag,
-                                       pcx, pcy, pcw, pch);
+                                       pcx, pcy, pcw, pch, &mut self.ui_frame);
                 }
                 PanelId::Console   => {
                     ui::draw_console(renderer, &self.console_log, pcx, pcy, pcw, pch);
@@ -298,7 +309,7 @@ impl EditorState {
                 active_layer:   self.active_layer,
             };
 
-            ui::draw_menu_dropdown(renderer, menu, mouse.cell_x, mouse.cell_y, &menu_state, &layout);
+            ui::draw_menu_dropdown(renderer, menu, mouse.cell_x, mouse.cell_y, &menu_state, &layout, &mut self.ui_frame);
         }
 
         // ── Title bar ─────────────────────────────────────────────────────────
@@ -308,7 +319,7 @@ impl EditorState {
         };
         let title_name = self.save_message.as_deref().unwrap_or(&full_name);
         ui::draw_title_bar(
-            renderer, title_name, self.unsaved,
+            renderer, self.font.as_mut(), title_name, self.unsaved,
             self.undo.len(), self.undo.redo_len(),
             self.scroll, (self.grid.width, self.grid.height),
         );
@@ -362,16 +373,16 @@ impl EditorState {
                 TextInputPurpose::PaletteFgCustom          => "Custom FG Hex (e.g. #FF8C00)",
                 TextInputPurpose::PaletteBgCustom          => "Custom BG Hex (e.g. #222222)",
             };
-            ui::draw_text_input(renderer, prompt, &ti.buffer, &layout);
+            ui::draw_text_input(renderer, self.font.as_mut(), prompt, &ti.buffer, &layout);
         }
 
         // Help screen overlay.
         if self.show_help {
-            ui::draw_help_overlay(renderer, &layout);
+            ui::draw_help_overlay(renderer, self.font.as_mut(), &layout);
         }
 
         if let Some(ref m) = self.modal {
-            ui::draw_confirm_modal(renderer, &m.title, &m.message, &layout);
+            ui::draw_confirm_modal(renderer, self.font.as_mut(), &m.title, &m.message, &layout);
         }
 
         if let Some(ref cm) = self.context_menu {

@@ -5,23 +5,31 @@ use crate::editor::grid::LevelGrid;
 use ember2d_sim::level::TileRecord;
 use super::types::Layout;
 
+/// Width/height of one character cell in pixels, re-exported from
+/// `ember2d::renderer` (Phase 7 Part 1e, docs/ember2d-phase7-plan.md, E2).
+/// `grid_to_pixel` and `draw_scaled_tile` below used to hardcode `8.0`/
+/// `16.0` (and `8`/`16`) independently of every other file that needed the
+/// same constant — see `ui/rect.rs`'s header comment for the full history.
+const CELL_W: f32 = ember2d::renderer::CELL_W as f32;
+const CELL_H: f32 = ember2d::renderer::CELL_H as f32;
+
 pub fn grid_to_pixel(gx: i32, gy: i32, scroll: (f32, f32), zoom: f32, layout: &Layout) -> (i32, i32) {
-    let px = ((gx as f32 - scroll.0) * 8.0 * zoom).round() as i32;
-    let py = ((gy as f32 - scroll.1) * 16.0 * zoom).round() as i32;
-    (px + layout.canvas_x as i32 * 8, py + layout.canvas_y as i32 * 16)
+    let px = ((gx as f32 - scroll.0) * CELL_W * zoom).round() as i32;
+    let py = ((gy as f32 - scroll.1) * CELL_H * zoom).round() as i32;
+    (px + layout.canvas_x as i32 * CELL_W as i32, py + layout.canvas_y as i32 * CELL_H as i32)
 }
 
 pub fn draw_scaled_tile(renderer: &mut Renderer, gx: i32, gy: i32, glyph: char, fg: Color, bg: Color, scroll: (f32, f32), zoom: f32, layout: &Layout) {
     let (px, py) = grid_to_pixel(gx, gy, scroll, zoom, layout);
-    
+
     // ── Performance Skip (Entirely off-screen check) ──────────────────────
-    let cx = layout.canvas_x as i32 * 8;
-    let cy = layout.canvas_y as i32 * 16;
-    let cw = layout.canvas_w as i32 * 8;
-    let ch = layout.canvas_h as i32 * 16;
-    
-    let tw = (8.0 * zoom).ceil() as i32;
-    let th = (16.0 * zoom).ceil() as i32;
+    let cx = layout.canvas_x as i32 * CELL_W as i32;
+    let cy = layout.canvas_y as i32 * CELL_H as i32;
+    let cw = layout.canvas_w as i32 * CELL_W as i32;
+    let ch = layout.canvas_h as i32 * CELL_H as i32;
+
+    let tw = (CELL_W * zoom).ceil() as i32;
+    let th = (CELL_H * zoom).ceil() as i32;
     
     // If the tile is ENTIRELY outside the viewport panel, skip it.
     // If it's partially inside, the hardware scissor will handle the clipping.
@@ -119,24 +127,35 @@ pub fn draw_level_boundary(renderer: &mut Renderer, grid: &LevelGrid, scroll: (f
     draw_scaled_tile(renderer, gw, gh, '+', Color::DarkGrey, Color::Reset, scroll, zoom, layout);
 }
 
-pub fn draw_cursor_highlight(renderer: &mut Renderer, mouse: &ember2d::mouse::MouseState, palette: &crate::editor::palette::TilePalette, select_mode: bool, zoom: f32, layout: &Layout) {
+pub fn draw_cursor_highlight(renderer: &mut Renderer, mouse: &ember2d::mouse::MouseState, palette: &crate::editor::palette::TilePalette, select_mode: bool, scroll: (f32, f32), zoom: f32, layout: &Layout) {
     if !mouse.in_bounds { return; }
     let col = mouse.cell_x;
     let row = mouse.cell_y;
     if col < layout.canvas_x || col >= layout.canvas_x + layout.canvas_w
         || row < layout.canvas_y || row >= layout.canvas_y + layout.canvas_h { return; }
-    
-    // Find grid cell under mouse (inverse of pixel math)
-    let gx = (((col - layout.canvas_x) as f32) / zoom).floor() as i32;
-    let gy = (((row - layout.canvas_y) as f32) / zoom).floor() as i32;
-    
+
+    // Find grid cell under mouse (inverse of pixel math) — must fold in
+    // `scroll` exactly like `impl_state.rs::mouse_to_grid` does, and the
+    // draw call below must use the real `scroll` too (Phase 7 Part 1e,
+    // docs/ember2d-phase7-plan.md, E1). Before this fix the two zeroed
+    // `scroll` out entirely: at whole-number scroll that's indistinguishable
+    // from correct (an integer offset cancels between the inverse and the
+    // draw), but during a smooth pan `scroll` sits at a fractional value —
+    // dropping it made the highlight snap to whichever whole cell the
+    // fraction happened to round toward while every other draw call in this
+    // file (`draw_grid`, the marker, etc.) kept drawing at the true
+    // fractional offset, so the highlight visibly drifted off the tile it
+    // was supposed to be sitting on for the length of the pan.
+    let gx = (((col - layout.canvas_x) as f32) / zoom + scroll.0).floor() as i32;
+    let gy = (((row - layout.canvas_y) as f32) / zoom + scroll.1).floor() as i32;
+
     if select_mode {
         // Correct color for select mode as per plan: stark Dark Blue background for visibility
-        draw_scaled_tile(renderer, gx, gy, '+', Color::Yellow, Color::DarkBlue, (0.0, 0.0), zoom, layout);
+        draw_scaled_tile(renderer, gx, gy, '+', Color::Yellow, Color::DarkBlue, scroll, zoom, layout);
     } else {
         let tile = palette.current();
         // Correct color for paint mode as per plan: stark White background to make it pop
-        draw_scaled_tile(renderer, gx, gy, tile.glyph, tile.fg, Color::White, (0.0, 0.0), zoom, layout);
+        draw_scaled_tile(renderer, gx, gy, tile.glyph, tile.fg, Color::White, scroll, zoom, layout);
     }
 }
 
@@ -152,9 +171,16 @@ pub fn draw_extra_spawns(renderer: &mut Renderer, spawns: &[(String, f32, f32)],
         
         let (px, py) = grid_to_pixel(gx, gy, scroll, zoom, layout);
         let label: String = name.chars().take(3).collect();
-        // Clipping for label
-        let lx = (px / 8) as usize + 1;
-        let ly = (py / 16) as usize;
+        // Clipping for label. The label sits one marker-WIDTH to the right
+        // of the marker glyph, not a flat +1 character cell (Phase 7 Part
+        // 1e, docs/ember2d-phase7-plan.md, E3) — the marker itself is drawn
+        // `CELL_W * zoom` pixels wide (`draw_scaled_tile` scales it), so at
+        // zoom 1.0 that's exactly one cell and the old flat `+1` happened to
+        // match, but at any other zoom the marker's on-screen footprint no
+        // longer lines up with a single character cell and the label ended
+        // up overlapping it instead of sitting beside it.
+        let lx = (px as f32 / CELL_W + zoom).round() as usize;
+        let ly = (py as f32 / CELL_H).round() as usize;
         if lx >= layout.canvas_x && lx < layout.canvas_x + layout.canvas_w && ly >= layout.canvas_y && ly < layout.canvas_y + layout.canvas_h {
             renderer.draw_str(lx, ly, &label, Color::Magenta, Color::Reset);
         }
@@ -271,6 +297,58 @@ pub fn draw_erase_preview(renderer: &mut Renderer, grid_pos: (i32, i32), erase_s
     for dy in -half..=half {
         for dx in -half..=half {
             draw_scaled_tile(renderer, grid_pos.0 + dx, grid_pos.1 + dy, 'X', Color::Red, Color::DarkRed, scroll, zoom, layout);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The exact inverse of `grid_to_pixel`, working in raw sub-cell pixels
+    /// rather than the whole-character-cell units `impl_state.rs::
+    /// mouse_to_grid`/`draw_cursor_highlight` quantize real mouse input to
+    /// first. Kept test-only and separate from those two: they only ever
+    /// need to invert an already-cell-snapped screen position, but pinning
+    /// `grid_to_pixel`'s own forward/inverse relationship (Phase 7 Part 1f,
+    /// docs/ember2d-phase7-plan.md — the test that catches E1) means
+    /// operating on the unquantized pixel value `grid_to_pixel` itself
+    /// returns.
+    fn pixel_to_grid(px: i32, py: i32, scroll: (f32, f32), zoom: f32, layout: &Layout) -> (i32, i32) {
+        let local_x = px as f32 - layout.canvas_x as f32 * CELL_W;
+        let local_y = py as f32 - layout.canvas_y as f32 * CELL_H;
+        let gx = (local_x / (CELL_W * zoom) + scroll.0).floor() as i32;
+        let gy = (local_y / (CELL_H * zoom) + scroll.1).floor() as i32;
+        (gx, gy)
+    }
+
+    #[test]
+    fn grid_to_pixel_round_trips_through_its_own_inverse_across_scroll_zoom_and_canvas_origin() {
+        // E1 was exactly this invariant breaking: `draw_cursor_highlight`
+        // computed its grid cell with one implicit scroll (zero) and drew
+        // with another (the real one), so forward and inverse silently
+        // stopped agreeing at any fractional scroll. This pins that
+        // `grid_to_pixel` and its inverse always agree, across every
+        // combination of scroll, zoom, and canvas origin Part 1 introduced
+        // pixel-space math for.
+        let layouts = [
+            Layout::new(80, 24),
+            Layout::new(80, 24).with_canvas(14, 3, 50, 18), // non-zero canvas origin, e.g. a docked Hierarchy + Inspector layout
+        ];
+        for layout in &layouts {
+            for &zoom in &[0.5f32, 1.0, 2.0, 3.0] {
+                for &scroll in &[(0.0f32, 0.0f32), (5.0, 3.0), (2.5, 7.5), (100.0, 60.0)] {
+                    for &(gx, gy) in &[(0i32, 0i32), (1, 1), (10, 4), (39, 19)] {
+                        let (px, py) = grid_to_pixel(gx, gy, scroll, zoom, layout);
+                        let (gx2, gy2) = pixel_to_grid(px, py, scroll, zoom, layout);
+                        assert_eq!(
+                            (gx, gy), (gx2, gy2),
+                            "round trip failed for zoom={}, scroll={:?}, canvas=({},{})",
+                            zoom, scroll, layout.canvas_x, layout.canvas_y
+                        );
+                    }
+                }
+            }
         }
     }
 }

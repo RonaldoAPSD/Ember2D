@@ -67,4 +67,20 @@ impl Texture {
             pixels: vec![color],
         }
     }
+
+    /// Create a blank `width`x`height` texture with every pixel set to
+    /// `fill` — the CPU-side backing store for Phase 7 Part 2's
+    /// `GlyphAtlas` (docs/ember2d-phase7-plan.md, `renderer/font/atlas.rs`),
+    /// which rasterizes and packs individual glyph bitmaps into it after
+    /// construction. `fill` is typically fully transparent (`0x0000_0000`
+    /// in this crate's byte order — see `Texture::load`'s own comment on
+    /// it), so any region never packed into reads back as empty.
+    pub fn blank(width: u32, height: u32, fill: u32) -> Self {
+        Texture {
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            width,
+            height,
+            pixels: vec![fill; (width as usize) * (height as usize)],
+        }
+    }
 }

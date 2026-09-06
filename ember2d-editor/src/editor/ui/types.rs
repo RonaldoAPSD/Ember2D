@@ -1,5 +1,17 @@
 // editor/ui/types.rs — Shared UI types and Layout struct.
 
+/// Cell-space text metrics for the editor's still-monospace, 8px-per-cell
+/// UI (Phase 7 Part 2c, docs/ember2d-phase7-plan.md) — a thin wrapper over
+/// `Font::measure` that returns whole cells instead of pixels, since every
+/// `ui::draw_*` call site works in cells. Exact under `BitmapFont` (its
+/// own native size, so this reproduces the pre-Part-2c `.len()`
+/// arithmetic bit-for-bit); becomes meaningful the day a caller ever hands
+/// this a `TtfFont` instead. Shared here rather than duplicated per file,
+/// since every `ui/` submodule needs the exact same computation.
+pub fn cells(font: &mut dyn ember2d::renderer::Font, text: &str) -> usize {
+    (font.measure(text, 8.0).0 / 8.0).round() as usize
+}
+
 
 // ── DockSide ──────────────────────────────────────────────────────────────────
 
@@ -68,7 +80,12 @@ pub enum ToolKind {
     Paste,
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+// `Eq, Hash` added in Phase 7 Part 1d (docs/ember2d-phase7-plan.md) so
+// `MenuKind` can be a `WidgetId` field (`ui/frame.rs`) — `WidgetId` itself
+// derives both (matching `PanelId`'s existing derives, which `WidgetId`
+// already depended on) for the same reason `PanelId` does: cheap value
+// equality for `UiFrame::hit`'s comparisons.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum MenuKind { File, Edit, Level, View, Tools, Layers }
 
 pub struct MenuState {

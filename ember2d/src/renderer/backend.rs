@@ -28,6 +28,15 @@ pub trait RenderBackend {
     fn height(&self) -> usize;
     fn set_sprite_mode(&mut self, enabled: bool);
     fn upload_texture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, texture: &Texture);
+    /// Drop `id` from the uploaded-texture cache, so the next
+    /// `upload_texture` call for it re-uploads from scratch instead of
+    /// silently skipping (Phase 7 Part 2d, docs/ember2d-phase7-plan.md) —
+    /// `upload_texture`'s cache check is a permanent "already have it,"
+    /// which is correct for textures loaded once from a file but wrong for
+    /// `GlyphAtlas`'s texture, whose pixels change in place every time a
+    /// new glyph gets rasterized and packed into it. `GlyphAtlas::dirty`
+    /// (via `Font::take_dirty`) tracks when that's happened.
+    fn invalidate_texture(&mut self, id: u64);
     fn set_scissor(&mut self, rect: Option<(u32, u32, u32, u32)>);
     fn set_render_scale(&mut self, scale: f32);
 }
@@ -550,6 +559,10 @@ impl RenderBackend for WgpuBackend {
 
     fn upload_texture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, texture: &Texture) {
         self.upload_texture(device, queue, texture);
+    }
+
+    fn invalidate_texture(&mut self, id: u64) {
+        self.texture_cache.remove(&id);
     }
 
     fn set_render_scale(&mut self, scale: f32) {

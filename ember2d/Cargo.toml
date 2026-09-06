@@ -54,3 +54,7 @@ rand = { version = "0.8", features = ["small_rng"] }
 
 # gilrs: gamepad input support.
 gilrs = "0.10"
+
+# fontdue: pure-rust TTF/OTF rasterizer for Phase 7 Part 2's `TtfFont`
+# (docs/ember2d-phase7-plan.md) — additive per that phase's guardrail (§0.6).
+fontdue = "0.9"

@@ -1,7 +1,9 @@
 // editor/ui/menu.rs — Menu system rendering and logic.
 
-use ember2d::renderer::{color::Color, Renderer};
+use ember2d::renderer::{color::Color, Font, Renderer};
 use super::types::*;
+use super::rect::UiRect;
+use super::frame::{UiFrame, WidgetId};
 
 pub const MENU_W: usize = 22;
 
@@ -93,24 +95,17 @@ pub fn menu_entries(kind: MenuKind) -> Vec<MenuEntry> {
     }
 }
 
-pub fn menu_label_at(col: usize) -> Option<MenuKind> {
-    for &(start, label, kind) in menu_label_defs() {
-        if col >= start && col < start + label.len() {
-            return Some(kind);
-        }
-    }
-    None
-}
-
-pub fn menu_item_at(menu: MenuKind, click_col: usize, click_row: usize, layout: &Layout) -> Option<ToolbarAction> {
-    let start_col = menu_label_col(menu);
-    if click_col < start_col || click_col >= start_col + MENU_W { return None; }
-    let item_idx  = click_row.saturating_sub(layout.toolbar_row + 1);
-    match menu_entries(menu).into_iter().nth(item_idx) {
-        Some(MenuEntry::Item { action, .. }) => Some(action),
-        _ => None,
-    }
-}
+// `menu_label_at`/`menu_item_at` (independent hit-test functions) removed
+// in Phase 7 Part 1d (docs/ember2d-phase7-plan.md) — replaced by
+// `UiFrame::hit` reading `WidgetId::MenuLabel`/`MenuItem` entries
+// `draw_menu_toolbar`/`draw_menu_dropdown` now push at the exact rect they
+// draw. See `ui/frame.rs`'s header comment for why (defect E5). One real
+// fix falls out of this for menu labels specifically: the old
+// `menu_label_at` only covered a label's own text width (`"File"`, 4
+// cells), narrower than the button's actual drawn extent (`" File "`, 6
+// cells, padding included) — the padding cells were visibly part of the
+// button but not clickable. The pushed rect below matches the padded draw
+// call exactly, so the whole visible button is now clickable.
 
 fn menu_checkmark(action: &ToolbarAction, ms: &MenuState) -> char {
     match action {
@@ -138,14 +133,16 @@ fn is_action_enabled(action: &ToolbarAction, ms: &MenuState) -> bool {
     }
 }
 
-pub fn draw_menu_toolbar(renderer: &mut Renderer, active_menu: Option<MenuKind>, active_tool: ToolKind, layout: &Layout) {
+pub fn draw_menu_toolbar(renderer: &mut Renderer, font: &mut dyn Font, active_menu: Option<MenuKind>, active_tool: ToolKind, layout: &Layout, frame: &mut UiFrame) {
     let row = layout.toolbar_row;
     renderer.draw_rect_filled(0, row, renderer.width, 1, ' ', Color::White, Color::DarkGrey);
     for &(col, label, kind) in menu_label_defs() {
         let open = active_menu == Some(kind);
         let (fg, bg) = if open { (Color::Black, Color::Cyan) } else { (Color::White, Color::DarkGrey) };
         let padded = format!(" {} ", label);
-        renderer.draw_str(col.saturating_sub(1), row, &padded, fg, bg);
+        let draw_col = col.saturating_sub(1);
+        renderer.draw_str(draw_col, row, &padded, fg, bg);
+        frame.push(WidgetId::MenuLabel(kind), UiRect::from_cells(draw_col as i32, row as i32, cells(font, &padded), 1));
     }
     let tool_name = match active_tool {
         ToolKind::Paint  => "Paint ",
@@ -158,11 +155,11 @@ pub fn draw_menu_toolbar(renderer: &mut Renderer, active_menu: Option<MenuKind>,
         ToolKind::Paste  => "Paste ",
     };
     let indicator = format!("[ {} ]", tool_name);
-    let col = renderer.width.saturating_sub(indicator.len() + 1);
+    let col = renderer.width.saturating_sub(cells(font, &indicator) + 1);
     renderer.draw_str(col, row, &indicator, Color::Cyan, Color::DarkGrey);
 }
 
-pub fn draw_menu_dropdown(renderer: &mut Renderer, menu: MenuKind, mouse_col: usize, mouse_row: usize, ms: &MenuState, layout: &Layout) {
+pub fn draw_menu_dropdown(renderer: &mut Renderer, menu: MenuKind, mouse_col: usize, mouse_row: usize, ms: &MenuState, layout: &Layout, frame: &mut UiFrame) {
     let start_col = menu_label_col(menu);
     let start_row = layout.toolbar_row + 1;
     let entries   = menu_entries(menu);
@@ -173,6 +170,8 @@ pub fn draw_menu_dropdown(renderer: &mut Renderer, menu: MenuKind, mouse_col: us
             MenuEntry::Sep => {
                 let line: String = std::iter::repeat('-').take(MENU_W).collect();
                 renderer.draw_str(start_col, row, &line, Color::DarkGrey, Color::Black);
+                // No hit pushed — a separator was never clickable (the old
+                // `menu_item_at` returned `None` for a `Sep` row too).
             }
             MenuEntry::Item { label, shortcut, action } => {
                 let hovered = mouse_row == row && mouse_col >= start_col && mouse_col < start_col + MENU_W;
@@ -183,6 +182,14 @@ pub fn draw_menu_dropdown(renderer: &mut Renderer, menu: MenuKind, mouse_col: us
                 else { (Color::White, Color::Black) };
                 let text = format!(" {} {:<11} {} ", check, label, shortcut);
                 renderer.draw_str(start_col, row, &text, fg, bg);
+                // Pushed at the same MENU_W-wide, one-row rect the
+                // background fill above already covers for this row —
+                // matches the old `menu_item_at`'s `start_col..start_col+
+                // MENU_W` extent exactly (that one was never mismatched;
+                // a disabled/greyed item was always still clickable,
+                // no-opping harmlessly downstream — see this file's own
+                // note on `is_action_enabled` being cosmetic only).
+                frame.push(WidgetId::MenuItem(menu, i), UiRect::from_cells(start_col as i32, row as i32, MENU_W, 1));
             }
         }
     }
