@@ -290,7 +290,12 @@ impl TileRecord {
 /// Both are purely additive, `#[serde(default)]` fields — an old level still
 /// loads with `actor: None` everywhere, which plays gracefully (nothing but
 /// the player, itself always eligible, ever takes a turn) rather than hanging.
-pub const LEVEL_FORMAT_VERSION: u32 = 2;
+/// Version 3 is Phase 6 Step 7: `LevelData.collision_layers`
+/// (docs/ember2d-phase6-plan.md). Also purely additive and `#[serde(default)]`
+/// — an old level loads with the one-entry default below, which reproduces
+/// every pre-Step-7 level's actual behavior exactly (see that field's own
+/// doc comment for why).
+pub const LEVEL_FORMAT_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LevelData {
@@ -347,7 +352,31 @@ pub struct LevelData {
     /// seed 0, which is still fully deterministic — just not level-unique.
     #[serde(default)]
     pub seed: u64,
+
+    /// The name<->bit table `crate::layers::LayerRegistry` builds once at
+    /// level load (Phase 6 Step 7, docs/ember2d-phase6-plan.md) — the Nth
+    /// name here (0-indexed) gets bit N; see that module's own doc comment
+    /// for why registration order, not a hash, and why fixed at load rather
+    /// than grown as scripts run.
+    ///
+    /// `#[serde(default = "default_collision_layers")]` (not plain
+    /// `#[serde(default)]`, which would give an empty `Vec`) means every
+    /// `.level` file saved before this field existed loads with `["solid"]`
+    /// — the exact, only layer name any pre-Step-7 level ever actually used
+    /// (`Simulation::do_on_start` has always defaulted an unlabeled solid
+    /// tile's `Collider.layer` to `"solid"`; nothing in this engine's
+    /// shipped content sets a mask at all), so every existing level's
+    /// filtering behavior is reproduced exactly, not just approximated.
+    #[serde(default = "default_collision_layers")]
+    pub collision_layers: Vec<String>,
 }
+
+// pub so ember2d-editor's LevelGrid (which mirrors LevelData's top-level
+// fields rather than wrapping it — same reason project.rs's
+// default_pixels_per_unit is pub) can use this exact default for a
+// freshly-created level instead of a second hardcoded `vec!["solid"...]`
+// literal drifting from this one.
+pub fn default_collision_layers() -> Vec<String> { vec!["solid".to_string()] }
 
 impl LevelData {
     /// Create an empty level with no tiles and the spawn point at (1, 1).
@@ -371,6 +400,7 @@ impl LevelData {
             player:       PlayerRecord::default(),
             path:         String::new(),
             seed:         rand::random(),
+            collision_layers: default_collision_layers(),
         }
     }
 

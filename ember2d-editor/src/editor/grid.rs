@@ -73,6 +73,15 @@ pub struct LevelGrid {
     /// silently re-randomize it; a brand-new grid picks a fresh one, same as
     /// `LevelData::empty`.
     pub seed: u64,
+
+    /// The name<->bit table collision filtering resolves layer names
+    /// against (Phase 6 Step 7, docs/ember2d-phase6-plan.md;
+    /// `LevelData::collision_layers`). Carried through untouched by
+    /// `from_level_data`/`to_level_data`, same as `seed` above — this editor
+    /// has no UI to edit the list yet, so its only job here is to not lose
+    /// it on a save. A brand-new grid gets `LevelData::default_collision_layers()`,
+    /// same one-entry default `LevelData::empty` uses.
+    pub collision_layers: Vec<String>,
 }
 
 impl LevelGrid {
@@ -90,6 +99,7 @@ impl LevelGrid {
             name:         "Untitled".to_string(),
             player:       PlayerRecord::default(),
             seed:         rand::random(),
+            collision_layers: ember2d_sim::level::default_collision_layers(),
         }
     }
 
@@ -193,6 +203,7 @@ impl LevelGrid {
             player:       self.player.clone(),
             path:         String::new(),
             seed:         self.seed,
+            collision_layers: self.collision_layers.clone(),
         }
     }
 
@@ -208,6 +219,7 @@ impl LevelGrid {
         grid.extra_spawns = data.extra_spawns.clone();
         grid.player       = data.player.clone();
         grid.seed         = data.seed;
+        grid.collision_layers = data.collision_layers.clone();
 
         for tile in &data.tiles {
             grid.tiles.insert((tile.x, tile.y, tile.layer), tile.clone());

@@ -9,6 +9,12 @@ use super::*;
 use crate::components::{Animator, Script, Sprite, SpriteSource};
 use crate::color::Color;
 
+/// The one-layer registry every test here that doesn't care about
+/// collision-layer bits (Phase 6 Step 7, docs/ember2d-phase6-plan.md) passes
+/// to `ScriptEngine::new` — mirrors `LevelData::default_collision_layers()`,
+/// the real default a level with no explicit `collision_layers` gets.
+fn test_layers() -> crate::layers::LayerRegistry { crate::layers::LayerRegistry::new(&["solid".to_string()]) }
+
 /// Unwraps a Glyph-sourced sprite's (char, bg) — panics for any other
 /// source, which is correct for these tests since they all spawn glyphs.
 fn glyph_and_bg(sp: &Sprite) -> (char, Color) {
@@ -31,8 +37,8 @@ fn glyph_and_bg(sp: &Sprite) -> (char, Color) {
 #[test]
 fn same_seed_produces_the_same_random_sequence() {
     use rand::Rng;
-    let engine_a = ScriptEngine::new(1234);
-    let engine_b = ScriptEngine::new(1234);
+    let engine_a = ScriptEngine::new(1234, test_layers());
+    let engine_b = ScriptEngine::new(1234, test_layers());
     let seq_a: Vec<u32> = (0..10).map(|_| engine_a.rng.borrow_mut().gen_range(0..1_000_000)).collect();
     let seq_b: Vec<u32> = (0..10).map(|_| engine_b.rng.borrow_mut().gen_range(0..1_000_000)).collect();
     assert_eq!(seq_a, seq_b, "the same seed must produce the same random_* sequence");
@@ -41,8 +47,8 @@ fn same_seed_produces_the_same_random_sequence() {
 #[test]
 fn different_seeds_produce_different_random_sequences() {
     use rand::Rng;
-    let engine_a = ScriptEngine::new(1);
-    let engine_b = ScriptEngine::new(2);
+    let engine_a = ScriptEngine::new(1, test_layers());
+    let engine_b = ScriptEngine::new(2, test_layers());
     let seq_a: Vec<u32> = (0..10).map(|_| engine_a.rng.borrow_mut().gen_range(0..1_000_000)).collect();
     let seq_b: Vec<u32> = (0..10).map(|_| engine_b.rng.borrow_mut().gen_range(0..1_000_000)).collect();
     assert_ne!(seq_a, seq_b, "different seeds should not produce the same sequence");
@@ -61,7 +67,7 @@ fn hot_reload_clears_only_the_reloaded_scripts_entities() {
     let path_a = script_a.to_string_lossy().to_string();
     let path_b = script_b.to_string_lossy().to_string();
 
-    let mut engine = ScriptEngine::new(42);
+    let mut engine = ScriptEngine::new(42, test_layers());
     let mut log = Vec::new();
     assert!(engine.compile(&path_a, &mut log));
     assert!(engine.compile(&path_b, &mut log));
@@ -105,7 +111,7 @@ fn check_hot_reload_only_runs_once_every_throttle_interval() {
     std::fs::write(&script, "fn on_update(id, ctx) {}\n").unwrap();
     let path = script.to_string_lossy().to_string();
 
-    let mut engine = ScriptEngine::new(42);
+    let mut engine = ScriptEngine::new(42, test_layers());
     let mut log = Vec::new();
     assert!(engine.compile(&path, &mut log));
 
@@ -143,7 +149,7 @@ fn check_hot_reload_only_runs_once_every_throttle_interval() {
 
 fn run_scripts_once(engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<LogEntry>) {
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(world));
+    let snapshot = Rc::new(WorldSnapshot::build(world, &engine.layers));
     engine.run_scripts(
         world, snapshot, log, 1.0 / 60.0, 0.0, crate::command::InputSnapshot::default(), crate::command::MouseSnapshot::default(), crate::command::GamepadSnapshot::default(),
         &[], BTreeMap::new(), BTreeMap::new(), &mut persistent, crate::math::Vec2::ZERO, BTreeMap::new(), 0, (80, 24),
@@ -157,7 +163,7 @@ fn a_script_that_errors_is_disabled_and_stops_being_called() {
     std::fs::write(&script, "fn on_update(id, ctx) { throw \"boom\"; }\n").unwrap();
     let path = script.to_string_lossy().to_string();
 
-    let mut engine = ScriptEngine::new(42);
+    let mut engine = ScriptEngine::new(42, test_layers());
     let mut log = Vec::new();
     assert!(engine.compile(&path, &mut log));
 
@@ -241,7 +247,7 @@ fn run_source(name: &str, source: &str) -> (World, Vec<LogEntry>) {
     std::fs::write(&script, source).unwrap();
     let path = script.to_string_lossy().to_string();
 
-    let mut engine = ScriptEngine::new(42);
+    let mut engine = ScriptEngine::new(42, test_layers());
     let mut log = Vec::new();
     assert!(engine.compile(&path, &mut log));
 
@@ -275,7 +281,7 @@ fn spawn_entity_default_overload_keeps_the_legacy_appearance() {
     let col = world.colliders.get(&spawned).unwrap();
     assert!(!col.solid);
     assert_eq!((col.width, col.height), (1.0, 1.0));
-    assert_eq!(col.layer, "");
+    assert_eq!(col.layer(), "");
 }
 
 #[test]
@@ -295,7 +301,7 @@ fn spawn_entity_extended_overload_honors_every_parameter() {
     let col = world.colliders.get(&spawned).unwrap();
     assert!(col.solid);
     assert_eq!((col.width, col.height), (0.5, 0.5));
-    assert_eq!(col.layer, "projectile");
+    assert_eq!(col.layer(), "projectile");
 }
 
 #[test]
@@ -375,7 +381,7 @@ fn pending_hud_draws_are_cleared_at_the_start_of_run_scripts_not_by_the_renderer
     "#).unwrap();
     let path = script.to_string_lossy().to_string();
 
-    let mut engine = ScriptEngine::new(1);
+    let mut engine = ScriptEngine::new(1, test_layers());
     let mut log = Vec::new();
     assert!(engine.compile(&path, &mut log));
 
@@ -413,7 +419,7 @@ fn run_source_with_driver(name: &str, source: &str) -> (World, EntityId, Vec<Log
     std::fs::write(&script, source).unwrap();
     let path = script.to_string_lossy().to_string();
 
-    let mut engine = ScriptEngine::new(42);
+    let mut engine = ScriptEngine::new(42, test_layers());
     let mut log = Vec::new();
     assert!(engine.compile(&path, &mut log));
 
@@ -467,7 +473,7 @@ fn clip_finished_reports_true_for_entities_whose_animator_just_finished_this_tic
     "#).unwrap();
     let path = script.to_string_lossy().to_string();
 
-    let mut engine = ScriptEngine::new(1);
+    let mut engine = ScriptEngine::new(1, test_layers());
     let mut log = Vec::new();
     assert!(engine.compile(&path, &mut log));
 
@@ -479,7 +485,7 @@ fn clip_finished_reports_true_for_entities_whose_animator_just_finished_this_tic
     world.animators.insert(entity, animator);
 
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(&world));
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers));
     let result = engine.run_scripts(
         &mut world, snapshot, &mut log, 1.0 / 60.0, 0.0, crate::command::InputSnapshot::default(), crate::command::MouseSnapshot::default(), crate::command::GamepadSnapshot::default(),
         &[], BTreeMap::new(), BTreeMap::new(), &mut persistent, crate::math::Vec2::ZERO, BTreeMap::new(), 0, (80, 24),

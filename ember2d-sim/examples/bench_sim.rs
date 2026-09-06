@@ -49,6 +49,7 @@ use std::time::{Duration, Instant};
 use ember2d_sim::command::{GamepadSnapshot, InputSnapshot, MouseSnapshot};
 use ember2d_sim::color::Color;
 use ember2d_sim::event::EventBus;
+use ember2d_sim::layers::LayerRegistry;
 use ember2d_sim::level::{ActorRecord, LevelData, TileRecord};
 use ember2d_sim::math::Vec2;
 use ember2d_sim::scripting::WorldSnapshot;
@@ -239,12 +240,12 @@ fn report(label: &str, mut costs: Vec<StepCost>) {
 /// Per-phase attribution (Step 1's spec): clone a world at a representative
 /// mid-run state and time `WorldSnapshot::build`/`detect_collisions`
 /// directly and in isolation. No `Simulation`/engine instrumentation.
-fn bench_phases(world: &World, n_iters: usize) {
+fn bench_phases(world: &World, layers: &LayerRegistry, n_iters: usize) {
     let mut snapshot_times = Vec::with_capacity(n_iters);
     for _ in 0..n_iters {
         let w = world.clone();
         let start = Instant::now();
-        let _snap = WorldSnapshot::build(&w);
+        let _snap = WorldSnapshot::build(&w, layers);
         snapshot_times.push(start.elapsed());
     }
     snapshot_times.sort();
@@ -284,7 +285,7 @@ fn bench_synthetic(n_tiles: usize, n_actors: usize, n_steps: usize) {
     let entity_count = world.transforms.len();
     let costs = run_steps(&mut world, &mut sim, &mut persistent, n_steps, viewport);
     report(&format!("synthetic n={} ({} entities)", n_tiles, entity_count), costs);
-    bench_phases(&world, 20);
+    bench_phases(&world, sim.layers(), 20);
 }
 
 fn bench_real_level(path: &str, n_steps: usize) {
@@ -305,7 +306,7 @@ fn bench_real_level(path: &str, n_steps: usize) {
     let entity_count = world.transforms.len();
     let costs = run_steps(&mut world, &mut sim, &mut persistent, n_steps, viewport);
     report(&format!("{} ({} entities)", path, entity_count), costs);
-    bench_phases(&world, 20);
+    bench_phases(&world, sim.layers(), 20);
 }
 
 fn main() {

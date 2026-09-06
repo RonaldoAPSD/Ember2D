@@ -176,32 +176,53 @@ impl World {
         }
     }
 
+    /// Phase 6 Step 7 (docs/ember2d-phase6-plan.md): `collidables` is fully
+    /// `Copy` now — `(EntityId, Rect, layer_bits: u32, mask_bits: u32)` reads
+    /// straight off each `Collider`'s own pre-resolved bits instead of
+    /// cloning a `String` layer and a `Vec<String>` mask per entity (1,704
+    /// of each at floor2 scale) just to build this list, and the pairwise
+    /// test below is a bitwise AND instead of a string compare / `Vec`
+    /// `.contains()` scan. `mask_bits == 0` still means "matches everything"
+    /// — see `crate::layers::LayerRegistry::mask_bits`'s doc comment for why
+    /// that's the same encoding the old `Vec::is_empty()` check used.
     pub fn detect_collisions(&self, events: &mut EventBus) {
         // Build world-space rects for all collidable entities.
-        let collidables: Vec<(EntityId, Rect, String, Vec<String>)> = self
+        let collidables: Vec<(EntityId, Rect, u32, u32)> = self
             .colliders
             .keys()
             .filter_map(|&id| {
                 if !self.transforms.contains_key(&id) { return None; }
                 let pos = self.get_global_position(id);
                 let col = self.colliders.get(&id).unwrap();
-                Some((id, col.world_rect(pos.x, pos.y), col.layer.clone(), col.mask.clone()))
+                Some((id, col.world_rect(pos.x, pos.y), col.layer_bits(), col.mask_bits()))
             })
             .collect();
 
         for i in 0..collidables.len() {
             for j in (i + 1)..collidables.len() {
-                let (id_a, rect_a, layer_a, mask_a) = &collidables[i];
-                let (id_b, rect_b, layer_b, mask_b) = &collidables[j];
+                let (id_a, rect_a, layer_a, mask_a) = collidables[i];
+                let (id_b, rect_b, layer_b, mask_b) = collidables[j];
 
-                let a_allows_b = mask_a.is_empty() || mask_a.contains(layer_b);
-                let b_allows_a = mask_b.is_empty() || mask_b.contains(layer_a);
+                let a_allows_b = mask_a == 0 || (mask_a & layer_b) != 0;
+                let b_allows_a = mask_b == 0 || (mask_b & layer_a) != 0;
 
-                if a_allows_b && b_allows_a && rect_a.intersects(*rect_b) {
-                    events.emit(GameEvent::Collision { entity_a: *id_a, entity_b: *id_b });
+                if a_allows_b && b_allows_a && rect_a.intersects(rect_b) {
+                    events.emit(GameEvent::Collision { entity_a: id_a, entity_b: id_b });
                 }
             }
         }
+    }
+
+    /// Recompute every `Collider`'s `layer_bits`/`mask_bits` against
+    /// `registry` — needed after loading a saved `World` (`Collider`'s bits
+    /// are `#[serde(skip)]`, so they deserialize as `0`) since the strings
+    /// that DID survive serialization are otherwise never re-resolved. See
+    /// `Collider`'s own header comment (components/collider.rs) for why
+    /// forgetting to call this is the one mistake here with no visible
+    /// symptom — `Simulation::on_start`'s `is_loading_save` branch is the
+    /// one caller.
+    pub fn refresh_collider_bits(&mut self, registry: &crate::layers::LayerRegistry) {
+        for col in self.colliders.values_mut() { col.refresh_bits(registry); }
     }
 
     pub fn snapshot_positions(&self) -> HashMap<EntityId, Vec2> {

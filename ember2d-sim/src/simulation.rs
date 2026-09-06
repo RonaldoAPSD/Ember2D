@@ -30,12 +30,20 @@
 // (`tests/external_commands.rs`); Phase 9's netcode is the eventual other
 // caller.
 
+// `Simulation::do_on_start` lives in `simulation/spawn.rs` — a genuine
+// child module (Rust 2018+'s file+sibling-directory layout: `simulation.rs`
+// and `simulation/` coexist, so `mod spawn;` here resolves to
+// `simulation/spawn.rs`), not a `scripting`-style module-tree sibling. See
+// that file's own header comment for why this one is a child instead.
+mod spawn;
+
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use crate::command::{Command, GamepadSnapshot, InputSnapshot, MouseSnapshot};
-use crate::components::{Actor, AnimationClip, Collider, Controller, Script, Sprite, Tag, Transform};
+use crate::components::{AnimationClip, Controller};
 use crate::event::EventBus;
+use crate::layers::LayerRegistry;
 use crate::level::LevelData;
 use crate::math::Vec2;
 use crate::save::SaveState;
@@ -168,14 +176,24 @@ pub struct Simulation {
     camera_entity: Option<EntityId>,
     exit_targets: HashMap<EntityId, String>,
     is_loading_save: bool,
+    /// Phase 6 Step 7 (docs/ember2d-phase6-plan.md): built once here, from
+    /// `level.collision_layers`, before anything else runs — see
+    /// `crate::layers::LayerRegistry`'s own doc comment for why fixed at
+    /// load and never grown. `ScriptEngine` holds its own independent copy
+    /// (built identically, passed in at `ScriptEngine::new`) rather than
+    /// sharing this one by reference, since threading a reference through
+    /// every `WorldSnapshot`/`ScriptState` constructor would touch far more
+    /// signatures for no real benefit — the registry is at most 31 entries.
+    layers: LayerRegistry,
 }
 
 impl Simulation {
     pub fn new(level: LevelData) -> Self {
         let seed = level.seed;
+        let layers = LayerRegistry::new(&level.collision_layers);
         Simulation {
             level,
-            script_engine: ScriptEngine::new(seed),
+            script_engine: ScriptEngine::new(seed, layers.clone()),
             scheduler: TurnScheduler::new(),
             globals: BTreeMap::new(),
             clips: BTreeMap::new(),
@@ -184,6 +202,7 @@ impl Simulation {
             camera_entity: None,
             exit_targets: HashMap::new(),
             is_loading_save: false,
+            layers,
         }
     }
 
@@ -202,6 +221,12 @@ impl Simulation {
     }
 
     pub fn level(&self) -> &LevelData { &self.level }
+    /// This simulation's layer name<->bit table (Phase 6 Step 7,
+    /// docs/ember2d-phase6-plan.md) — exposed for `bench_sim`'s direct,
+    /// isolated `WorldSnapshot::build` timing, which needs the same
+    /// registry a real step would use without re-deriving it from
+    /// `level().collision_layers` by hand.
+    pub fn layers(&self) -> &LayerRegistry { &self.layers }
     pub fn camera_entity(&self) -> Option<EntityId> { self.camera_entity }
     /// Whose turn is up — lets a caller target `StepInput::external_commands`
     /// at the right actor.
@@ -231,117 +256,12 @@ impl Simulation {
         }
     }
 
-    /// Spawns every tile plus the player, compiles every script, and runs
-    /// `on_start` for all of them. Moved near-verbatim from
-    /// `ember2d::play::spawn::do_on_start`.
-    fn do_on_start(&mut self, world: &mut World, viewport_w: usize, viewport_h: usize, persistent: &mut BTreeMap<String, rhai::Dynamic>, logs: &mut Vec<LogEntry>) {
-        let mut scripts_ok = 0u32;
-        let mut scripts_fail = 0u32;
-
-        for tile in &self.level.tiles {
-            let id = world.spawn();
-            world.add_transform(id, Transform::new(tile.x as f32, tile.y as f32));
-
-            let z = tile.layer as i32 * 10;
-            let mut sprite = Sprite::new(tile.glyph, tile.fg, tile.bg, z);
-            if let Some(ref path) = tile.texture {
-                let full = resolve_exit_path(path, &self.level.path);
-                sprite = sprite.with_texture(full);
-            }
-            world.add_sprite(id, sprite);
-
-            if tile.solid {
-                let mut col = Collider::unit();
-                col.layer = if tile.collider_layer.is_empty() { "solid".to_string() } else { tile.collider_layer.clone() };
-                col.mask = tile.collider_mask.clone();
-                world.add_collider(id, col);
-            } else if tile.trigger {
-                let mut col = Collider::trigger(1.0, 1.0);
-                col.layer = tile.collider_layer.clone();
-                col.mask = tile.collider_mask.clone();
-                world.add_collider(id, col);
-            }
-
-            if !tile.tag.is_empty() { world.add_tag(id, Tag::new(&tile.tag)); }
-            if let Some(ref ar) = tile.actor { world.add_actor(id, Actor::ai(ar.speed)); }
-
-            let mut source = String::new();
-            if let Some(ref graph) = tile.graph { source = crate::graph::generate_graph(graph); }
-            if !source.is_empty() {
-                if let Some(ref path) = tile.script {
-                    let full = resolve_exit_path(path, &self.level.path);
-                    if let Ok(file_src) = std::fs::read_to_string(&full) { source.push('\n'); source.push_str(&file_src); }
-                }
-                let key = format!("__script_{}", id);
-                if self.script_engine.compile_str(&key, &source, logs) { scripts_ok += 1; }
-                else { scripts_fail += 1; }
-                world.add_script(id, Script::new(&key));
-            } else if let Some(script_path) = &tile.script {
-                let full = resolve_exit_path(script_path, &self.level.path);
-                world.add_script(id, Script::new(&full));
-                if self.script_engine.compile(&full, logs) { scripts_ok += 1; }
-                else { scripts_fail += 1; }
-            }
-
-            if tile.camera_follow && self.camera_entity.is_none() { self.camera_entity = Some(id); }
-            if let Some(ref path) = tile.next_level { self.exit_targets.insert(id, path.clone()); }
-        }
-
-        let (sx, sy) = self.level.spawn_point;
-        let player = world.spawn();
-        world.add_transform(player, Transform::new(sx, sy));
-
-        let pr = &self.level.player;
-        let mut p_sprite = Sprite::new(pr.glyph, pr.fg, pr.bg, pr.layer);
-        if let Some(ref path) = pr.texture {
-            let full = resolve_exit_path(path, &self.level.path);
-            p_sprite = p_sprite.with_texture(full);
-        }
-        world.add_sprite(player, p_sprite);
-        let mut p_col = Collider::new(pr.collider_w, pr.collider_h);
-        p_col.layer = pr.collider_layer.clone(); p_col.mask = pr.collider_mask.clone();
-        world.add_collider(player, p_col);
-        world.add_tag(player, Tag::new(&pr.tag));
-        world.add_actor(player, Actor::local(0));
-
-        if let Some(ref script_path) = pr.script.clone() {
-            let full = resolve_exit_path(script_path, &self.level.path);
-            world.add_script(player, Script::new(&full));
-            if self.script_engine.compile(&full, logs) { scripts_ok += 1; }
-            else { scripts_fail += 1; }
-        }
-
-        if pr.camera_follow && self.camera_entity.is_none() { self.camera_entity = Some(player); }
-
-        if scripts_ok + scripts_fail > 0 {
-            let msg = format!("{} script(s) compiled, {} failed", scripts_ok, scripts_fail);
-            if scripts_fail > 0 { logs.push(LogEntry::warn(msg)); }
-            else { logs.push(LogEntry::info(msg)); }
-        }
-
-        let cam_pos = self.camera_entity.map(|id| world.get_global_position(id)).unwrap_or(Vec2::ZERO);
-        let game_h = (viewport_h as i32).max(1);
-        let cam_x = (cam_pos.x - viewport_w as f32 / 2.0).max(0.0).round();
-        let cam_y = (cam_pos.y - game_h as f32 / 2.0).max(0.0).round();
-
-        // Phase 6 Step 3 (docs/ember2d-phase6-plan.md): `mem::take` instead
-        // of `.clone()` — `self.globals`/`self.clips` are about to be
-        // reassigned wholesale by `apply_script_result` right below
-        // regardless (`self.globals = res.globals`), so their pre-call
-        // value never needs to survive alongside a copy. Safe because
-        // nothing reads `self.globals`/`self.clips` in the gap between the
-        // take and that reassignment — see this module's own note on
-        // `apply_script_result` for the invariant this depends on.
-        let globals = std::mem::take(&mut self.globals);
-        let clips = std::mem::take(&mut self.clips);
-        let res = self.script_engine.run_on_start_all(
-            world, logs, &self.level.extra_spawns,
-            globals, clips, persistent, Vec2::new(cam_x, cam_y),
-            (viewport_w, viewport_h),
-        );
-        let mut outcome = StepOutcome::default();
-        self.apply_script_result(world, res, persistent, logs, &mut outcome);
-    }
+    // do_on_start moved to simulation/spawn.rs (Phase 6 Step 7,
+    // docs/ember2d-phase6-plan.md) — this file was at the project's
+    // 600-line hard limit (CLAUDE.md); spawning is the single largest,
+    // most self-contained method here. Pure relocation — see that file's
+    // own header comment for the module-tree mechanics (a genuine child
+    // module, not a scripting-style sibling).
 
     /// Spawns the level (or, on a loaded save, just compiles scripts and
     /// re-derives `camera_entity` — `SaveState` doesn't carry it) and builds
@@ -353,6 +273,18 @@ impl Simulation {
         } else {
             for (_, script) in &world.scripts { self.script_engine.compile(&script.path, &mut logs); }
             if self.camera_entity.is_none() { self.camera_entity = local_player_ids(world).next(); }
+            // Phase 6 Step 7 (docs/ember2d-phase6-plan.md): a loaded save's
+            // `World` round-tripped through serialization, which skips
+            // `Collider::layer_bits`/`mask_bits` (`#[serde(skip)]`) — every
+            // collider's bits are zero at this point even though `layer`/
+            // `mask` themselves survived intact. Without this, every loaded
+            // save would silently stop filtering collisions at all (`mask_bits
+            // == 0` reads as "matches everything," indistinguishable from a
+            // mask that legitimately matched) until something else happened
+            // to rewrite the layer/mask through a script setter. See
+            // `Collider`'s own header comment (components/collider.rs) for
+            // why this is the one mistake here with no visible symptom.
+            world.refresh_collider_bits(&self.layers);
         }
         // Both branches above leave `world.actors` fully populated (spawned
         // fresh, or round-tripped through `World`'s own (de)serialization) —
@@ -385,7 +317,7 @@ impl Simulation {
         // Built once per step, shared (via cheap `Rc::clone`) across
         // on_input/on_update/on_turn below — see `WorldSnapshot`'s own doc
         // comment (scripting/state.rs) for the perf regression this fixes.
-        let world_snapshot = std::rc::Rc::new(WorldSnapshot::build(world));
+        let world_snapshot = std::rc::Rc::new(WorldSnapshot::build(world, &self.layers));
 
         let front = self.scheduler.peek();
         let is_local = front.map(|f| matches!(world.actors.get(&f).map(|a| a.controller), Some(Controller::Local(_)))).unwrap_or(false);

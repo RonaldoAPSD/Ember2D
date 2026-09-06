@@ -224,7 +224,12 @@ fn setting_the_collider_layer_to_the_string_locked_no_longer_blocks_the_exit() {
     play.on_start(&mut world, &mut events, 20, 10, &mut persistent);
 
     let exit_id = world.find_by_tag("exit").expect("exit entity should have spawned");
-    world.colliders.get_mut(&exit_id).unwrap().layer = "locked".to_string();
+    // A throwaway/empty registry is fine here: this test isn't exercising
+    // collision-layer bit resolution at all (Phase 6 Step 7,
+    // docs/ember2d-phase6-plan.md) — the entire point is that the STRING
+    // "locked" must be meaningless to the exit-gating logic now, no matter
+    // what it resolves to.
+    world.colliders.get_mut(&exit_id).unwrap().set_layer(&ember2d_sim::layers::LayerRegistry::default(), "locked");
 
     let transition = collide_player_with_exit(&mut play, &mut world, exit_id);
     assert!(matches!(transition, Some(Transition::ToPlay(_))), "the layer name \"locked\" must be meaningless now — only Collider::locked gates the exit");

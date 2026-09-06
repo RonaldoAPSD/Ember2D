@@ -38,7 +38,7 @@ impl ScriptEngine {
             if !req.tag.is_empty() { world.add_tag(id, Tag::new(&req.tag)); }
             let mut col = Collider::new(req.w, req.h);
             col.solid = req.solid;
-            col.layer = req.layer;
+            col.set_layer(&self.layers, req.layer);
             world.add_collider(id, col);
         }
 
@@ -64,9 +64,9 @@ impl ScriptEngine {
         for (id, t) in state.pending_tags.drain(..) { world.add_tag(id as EntityId, Tag::new(&t)); }
         for (id, w, h) in state.pending_collider_size.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.width = w; col.height = h; } }
         for (id, s) in state.pending_collider_solid.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.solid = s; } }
-        for (id, l) in state.pending_collider_layer.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.layer = l; } }
+        for (id, l) in state.pending_collider_layer.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.set_layer(&self.layers, l); } }
         for (id, l) in state.pending_collider_locked.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.locked = l; } }
-        for (id, m) in state.pending_collider_mask.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.mask = m; } }
+        for (id, m) in state.pending_collider_mask.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.set_mask(&self.layers, m); } }
         for (id, speed) in state.pending_speed.drain(..) { if let Some(actor) = world.actors.get_mut(&(id as EntityId)) { actor.speed = speed; } }
         // Clearing (set_texture(id, "") -> None here) has no defined
         // behavior under the SpriteSource model — there's no stored

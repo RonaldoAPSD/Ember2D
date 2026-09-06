@@ -20,7 +20,7 @@ impl ScriptCtx {
     // 3. Spatial Queries
     pub fn get_entity_at(&mut self, x: f64, y: f64) -> i64 {
         let s = self.inner.borrow_mut();
-        for (&id, &(w, h, _, _, _, _)) in &s.colliders {
+        for (&id, &(w, h, _, _, _, _, _)) in &s.colliders {
             if let Some(&(px, py)) = s.positions.get(&id) {
                 if x >= px as f64 && x < (px + w) as f64 && y >= py as f64 && y < (py + h) as f64 { return id; }
             }
@@ -29,7 +29,7 @@ impl ScriptCtx {
     }
     pub fn is_solid_at(&mut self, x: f64, y: f64) -> bool {
         let s = self.inner.borrow_mut();
-        for (&id, &(w, h, solid, _, _, _)) in &s.colliders {
+        for (&id, &(w, h, solid, _, _, _, _)) in &s.colliders {
             if !solid { continue; }
             if let Some(&(px, py)) = s.positions.get(&id) {
                 if x >= px as f64 && x < (px + w) as f64 && y >= py as f64 && y < (py + h) as f64 { return true; }
@@ -41,7 +41,7 @@ impl ScriptCtx {
         let s = self.inner.borrow_mut();
         let mut found = Vec::new();
         let r1 = crate::math::Rect::new(x as f32, y as f32, w as f32, h as f32);
-        for (&id, &(cw, ch, _, _, _, _)) in &s.colliders {
+        for (&id, &(cw, ch, _, _, _, _, _)) in &s.colliders {
             if let Some(&(px, py)) = s.positions.get(&id) {
                 let r2 = crate::math::Rect::new(px, py, cw, ch);
                 if r1.intersects(r2) { found.push(Dynamic::from(id)); }
@@ -76,15 +76,21 @@ impl ScriptCtx {
         let dx = (x2 - x1) as f32;
         let dy = (y2 - y1) as f32;
 
+        // Phase 6 Step 7 (docs/ember2d-phase6-plan.md): the incoming mask
+        // array is folded to bits ONCE, here, rather than compared as
+        // strings against every candidate inside the loop below —
+        // `mask_bits` encodes "hits everything" as `0`, same as an empty
+        // array did before (`LayerRegistry::mask_bits`'s own doc comment).
         let mask_vec: Vec<String> = mask.into_iter().map(|d| d.to_string()).collect();
+        let mask_bits = s.layers.mask_bits(&mask_vec);
 
         let mut closest_id = -1i64;
         let mut closest_t = 1.0f32; // normalized distance [0, 1] along the segment
 
-        for (&id, &(w, h, solid, ref layer, ref _entity_mask, _)) in &s.colliders {
+        for (&id, &(w, h, solid, _, _, _, layer_bits)) in &s.colliders {
             if id == self.entity_id { continue; } // Don't hit self
             if !solid { continue; }
-            if !mask_vec.is_empty() && !mask_vec.contains(layer) { continue; }
+            if mask_bits != 0 && (mask_bits & layer_bits) == 0 { continue; }
 
             if let Some(&(px, py)) = s.positions.get(&id) {
                 let rect = crate::math::Rect::new(px, py, w, h);
@@ -118,7 +124,12 @@ impl ScriptCtx {
 
         if start_x == target_x && start_y == target_y { return Array::new(); }
 
+        // Phase 6 Step 7 (docs/ember2d-phase6-plan.md): folded to bits ONCE
+        // here, before A* even starts, rather than re-compared as strings
+        // against every collider on every one of the (up to 2000 * 4)
+        // neighbor checks below — see `raycast`'s matching comment above.
         let mask_vec: Vec<String> = mask.into_iter().map(|d| d.to_string()).collect();
+        let mask_bits = s.layers.mask_bits(&mask_vec);
 
         use std::collections::{BinaryHeap, HashMap};
         use std::cmp::Ordering;
@@ -160,11 +171,12 @@ impl ScriptCtx {
 
                 // Check collision at (nx, ny)
                 let mut blocked = false;
-                for (&id, &(w, h, solid, ref layer, ref _entity_mask, _)) in &s.colliders {
+                for (&id, &(w, h, solid, _, _, _, layer_bits)) in &s.colliders {
                     if !solid { continue; }
-                    // If mask is empty, ALL solids block.
-                    // If mask is NOT empty, only solids with layers in the mask block.
-                    if !mask_vec.is_empty() && !mask_vec.contains(layer) { continue; }
+                    // If mask is empty (mask_bits == 0), ALL solids block.
+                    // Otherwise only solids whose own layer bit intersects
+                    // the requested mask block.
+                    if mask_bits != 0 && (mask_bits & layer_bits) == 0 { continue; }
 
                     if let Some(&(px, py)) = s.positions.get(&id) {
                         if nx >= px.round() as i32 && nx < (px + w).round() as i32 &&

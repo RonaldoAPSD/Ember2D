@@ -410,28 +410,200 @@ shooter demo. `git diff --stat` on `ember2d/src/sim.rs`,
 
 ---
 
-## 8. Steps 7–14
+## 8. Step 7 ✅ Done — collision layers become a bitmask
 
-Steps 7 (collision-layer bitmask) through 14 (documentation) are planned in
-full detail but not yet started. See the plan file this phase was approved
-from for the complete step-by-step design (the collision-layer bitmask with
-a private `Collider.layer`/`mask` and `LevelData.collision_layers` as the
-name→bit table; sweep-and-prune broad phase; timers moving to
-`ScriptEngine`; `prev_positions` buffer reuse; the `entity_ids` bug fix;
-`atan2` replaced with a rational approximation; conditional `DrawList`
-buffer reuse) — this doc will be updated with a "Done — Step N" note and
-real before/after numbers as each one lands, matching how
+The phase's largest design item, and the only step so far to touch
+`ember2d-editor/` (explained below — a deliberate, minimal, necessary
+exception to every prior step's "editor untouched" guardrail, not a scope
+drift).
+
+**New `ember2d-sim/src/layers.rs` — `LayerRegistry`.** `u32`, bits 0..30 real
+(assigned by REGISTRATION ORDER — the Nth name in `LevelData.collision_layers`
+gets bit N — not a hash, so two machines given the same list always agree on
+the same bits; see the module's own header comment), bit 31 reserved as
+`LAYER_UNKNOWN`. Built once, from `LevelData.collision_layers`, before
+anything else runs, and **never grown at runtime** — growing it on a script's
+first use of a new name would make bit assignment depend on script execution
+order, which can itself depend on iteration order or (under future Phase 9
+lockstep netcode) which machine got there first: exactly the desync class
+this crate's whole determinism discipline exists to prevent.
+`LevelData.collision_layers: Vec<String>`, `#[serde(default =
+"default_collision_layers")]` → `["solid"]` for every level saved before
+this field existed — the one layer name any pre-Step-7 level ever actually
+used (`Simulation::do_on_start` has always defaulted an unlabeled solid
+tile's layer to `"solid"`; nothing shipped ever set a mask at all), so an old
+level's filtering behavior is reproduced exactly, not approximated.
+`LEVEL_FORMAT_VERSION` 2 → 3, purely additive.
+
+**Semantics, resolved exactly as the plan specified — this is the one part
+of this step where "obviously correct" and "actually correct" diverge:**
+- An empty mask (a `Collider`'s own, or a script's `raycast`/`get_path`
+  argument) resolves to `0` — "matches everything," the same encoding the
+  old `Vec::is_empty()` check used.
+- A `Collider`'s own empty or unregistered layer name resolves to `0` too —
+  deliberately the SAME value as "empty mask," not `LAYER_UNKNOWN`. This is
+  what makes two empty-mask colliders match each other regardless of either
+  one's own layer name (see the corresponding test below).
+- A MASK naming a layer the registry doesn't recognize resolves differently:
+  it ORs in `LAYER_UNKNOWN` instead of contributing `0`. Resolving it to `0`
+  would silently flip "filter out everything except this one (mistyped, or
+  authored-before-registered) layer" into "matches everything" — the exact
+  opposite of what the mask asked for, and a far worse failure mode than
+  matching nothing. `LAYER_UNKNOWN` is never assigned to a real layer and
+  never appears as a `Collider`'s own `layer_bits`, so it can only ever
+  suppress a match, never manufacture a false one.
+
+**`Collider.layer`/`.mask` are private** (user decision, recorded in the
+plan's scope table), with `layer()`/`mask()` readers and `set_layer(&registry,
+name)`/`set_mask(&registry, names)` writers as the only way to change them —
+compiler-enforced sync between a layer/mask STRING (still the serialized
+truth — `.level` files, the editor, node-graph codegen, and every
+script-facing function are all completely unchanged) and its own derived
+`layer_bits`/`mask_bits: u32` (`#[serde(skip)]`, resolved against the
+registry at the moment of the set, never separately). `refresh_bits(&registry)`
+recomputes both from whatever `layer`/`mask` strings already exist — the one
+call `Simulation::on_start`'s `is_loading_save` branch makes on a freshly
+loaded `World`, since a deserialized `Collider`'s bits come back zeroed
+(`#[serde(skip)]`) even though its strings survived intact. **This is the one
+mistake here with no visible symptom** — a `mask_bits` of `0` reads as
+"matches everything," indistinguishable from a mask that legitimately
+matched — which is exactly why `ember2d/tests/collision_layers.rs`'s
+save→load round-trip test is mandatory, not optional, and why it was verified
+the hard way: temporarily commenting out the `refresh_collider_bits` call and
+confirming the round-trip test fails with precisely the predicted symptom
+(`gold` — mask `["enemy"]` — started matching `wall` — layer `"solid"` —
+after a round trip) before restoring the fix.
+
+**`World::detect_collisions`'s `collidables` list is fully `Copy` now** —
+`(EntityId, Rect, layer_bits: u32, mask_bits: u32)`, read straight off each
+`Collider`'s own pre-resolved bits, instead of cloning a `String` layer and a
+`Vec<String>` mask per collidable entity (1,704 of each at floor2 scale) just
+to build the list every step. The pairwise test itself is a bitwise AND
+(`mask_a == 0 || (mask_a & layer_b) != 0`) instead of a string
+equality/`Vec::contains` scan.
+
+**`raycast`/`get_path` fold their incoming Rhai `mask: Array` argument to a
+`u32` ONCE, before their loops** (`api_spatial.rs`) — `WorldSnapshot`'s own
+`colliders` tuple grows one field, `layer_bits: u32`, copied straight off
+each `Collider` at snapshot-build time (no registry needed to build THAT
+part); the snapshot also carries its own cloned `LayerRegistry` (at most 31
+entries, cheap) so these two functions can resolve their OWN argument's bits
+without a second registry threaded through every `ScriptState` constructor.
+Script signatures are completely unchanged — this is purely an internal
+representation swap for two hot, potentially-every-frame AI functions.
+`get_entity_at`/`is_solid_at`/`find_entities_in_rect` don't filter by
+layer/mask at all (confirmed by reading their bodies before touching
+anything), so they needed no change beyond widening a wildcard tuple pattern
+by one element.
+
+**Why `ember2d-editor/` had to change, breaking every prior step's untouched
+guardrail:** `LevelGrid::to_level_data`/`from_level_data` round-trip
+`LevelData` field-by-field (not by wrapping the whole struct), the same
+pattern already established for `seed` when defect D3 added it. Adding a
+required `LevelData.collision_layers` field without mirroring it into
+`LevelGrid` would mean every editor save silently reset any level's layer
+list back to empty — a real correctness bug, not a style nicety, and not
+optional to skip. The change is the minimal mirror of the existing `seed`
+pattern: one field on `LevelGrid`, threaded through `new`/`to_level_data`/
+`from_level_data` (12 lines total) — no editor UI, behavior, or logic
+changed. `default_collision_layers()` (level.rs) was made `pub` for the
+editor to reuse, same reasoning `project.rs`'s `default_pixels_per_unit`
+already documents for itself.
+
+**New `ember2d/tests/collision_layers.rs`** — 5 tests, all against a level
+where every tile shares one cell (so any excluded pair was excluded by
+layer/mask filtering, not geometry): a mask matching a registered layer
+allows a pair; a mask naming only OTHER layers excludes a pair; two
+empty-mask colliders always match regardless of either side's own layer name
+(including an unregistered one); a mask naming an unregistered layer matches
+NOTHING (not everything) despite the collider physically overlapping
+everything; and the mandatory save→load round trip described above, through
+a REAL RON string (`SaveState::to_ron`/`from_ron`, not an in-memory clone —
+`#[serde(skip)]` only actually fires through real (de)serialization),
+verified to fail without the fix before being confirmed to pass with it.
+
+**`simulation.rs` crossed the 600-line hard limit (CLAUDE.md) as a direct
+result of this step and had to be split immediately after.**
+`Simulation::do_on_start` (the single largest, most self-contained method in
+the file — spawning tiles/player/colliders/scripts) moved to
+`ember2d-sim/src/simulation/spawn.rs`, a genuine CHILD module rather than the
+`scripting`-style module-tree sibling `apply.rs`/`api_spatial.rs` used
+earlier this phase: Rust 2018+'s file-plus-sibling-directory layout lets
+`simulation.rs` and `simulation/` coexist, so `mod spawn;` in `simulation.rs`
+resolves to `simulation/spawn.rs` without needing a `simulation/mod.rs`
+rewrite. Being a true descendant (not a sibling-via-shared-parent) meant this
+split needed only one visibility bump in one direction — `do_on_start` itself
+to `pub(super)`, so `simulation.rs`'s own `on_start` can still call it — since
+a child module already sees every private field and method its ancestors
+define, with no bump required the other way. `simulation.rs`: 610 → 510
+lines; `simulation/spawn.rs`: 145 lines. `git diff --stat` confirmed only a
+move (identical body, `resolve_exit_path`/`apply_script_result`/`Collider`
+etc. calls unchanged) plus the six now-unused imports `simulation.rs` no
+longer needed.
+
+**Measured (release, this machine, before → after — before = Step 6's
+numbers):**
+
+| Level | p50 ms/step | allocs/step | bytes/step |
+|---|---|---|---|
+| synthetic n=500 | 0.763 → 0.660 (-13%) | 1,961 → 1,694 (-14%) | — |
+| synthetic n=2000 | 4.527 → 3.984 (-12%) | 6,368 → 5,391 (-15%) | — |
+| synthetic n=5000 | 19.652 → 17.153 (-13%) | 15,197 → 12,806 (-16%) | — |
+| synthetic n=10000 | 65.037 → 57.661 (-11%) | 29,683 → 24,979 (-16%) | — |
+| floor1 | 0.578 → 0.554 (-4%) | 2,085 → 1,863 (-11%) | 331 KB → 310 KB (-6%) |
+| floor2 | 5.901 → 5.120 (**-13%**) | 8,293 → 6,598 (**-20%**) | 1.36 MB → 1.19 MB (-12%) |
+| floor3 | 2.311 → 2.013 (-13%) | 4,946 → 4,027 (-19%) | 773 KB → 671 KB (-11%) |
+
+**Unlike Steps 5/6, this step moved both numbers together, and the
+allocs/step scaling ratio kept improving toward the phase's actual
+done-when:** the synthetic n=500→n=2000 allocs/step ratio fell again, from
+3.39× (after Step 4) to 3.18× now, against a 3.82× entity-count ratio —
+closer to flat, but still not there, because `World::detect_collisions`'s
+loop is still `O(colliders²)` in ITERATION COUNT (Step 8, sweep-and-prune,
+is what fixes that) even though each iteration is now allocation-free.
+`detect_collisions`'s own time at n=10,000 fell from ~57ms to ~49ms (-15%,
+consistent with "same number of pair tests, each one now a bitwise AND
+instead of a string comparison") — a real win, but the O(n²) test count
+itself is unchanged, which is exactly why it's still 85% of that scale's
+total step time.
+
+**Verified:** `cargo build --workspace --examples` clean across all four
+crates (re-run again after the `simulation.rs`/`spawn.rs` split, zero
+warnings either time); `cargo test --workspace --lib` clean (`ember2d`: 41,
+`ember2d-editor`: 1, `ember2d-sim`: 49 — 7 more than Step 6, `layers.rs`'s
+own unit tests); all 11 named integration tests (37 sub-tests, including the
+new `collision_layers`) passed, both before and after the split; `cargo
+test --test replay` run 5× as independent fresh processes — mandatory for
+this step — all passed, then run 5× again after the split for the same
+reason (any file move touching `simulation.rs` gets the full gate, not just
+this step's actual logic change); manual smoke test of play, editor, and the
+shooter demo. `git diff --stat` on `ember2d/src/sim.rs` and
+`ember2d/src/engine.rs` stayed empty; `ember2d-editor/` shows exactly the
+12-line `LevelGrid` mirror described above, and nothing else.
+
+---
+
+## 9. Steps 8–14
+
+Steps 8 (sweep-and-prune broad phase) through 14 (documentation) are planned
+in full detail but not yet started. See the plan file this phase was
+approved from for the complete step-by-step design (sweep-and-prune broad
+phase; timers moving to `ScriptEngine`; `prev_positions` buffer reuse; the
+`entity_ids` bug fix; `atan2` replaced with a rational approximation;
+conditional `DrawList` buffer reuse) — this doc will be updated with a
+"Done — Step N" note and real before/after numbers as each one lands,
+matching how
 `docs/ember2d-phase5-plan.md` and `docs/ember2d-phase5.5-plan.md` record
 their own step-by-step history.
 
 **Determinism gate, mandatory and non-negotiable for this phase:**
 `cargo test --test replay` run 5× as independent fresh processes,
-individually after Steps 7 and 8 — not just once at the end (Step 3 already
-had its own 5× gate, recorded in §3 above).
+individually after Step 8 (sweep-and-prune) — not just once at the end
+(Steps 3 and 7 already had their own 5× gates, recorded in §3 and §8 above).
 
 ---
 
-## 9. Documents to update as the phase lands
+## 10. Documents to update as the phase lands
 
 - `docs/ember2d-refactor-plan.md` — §3 D11 closed with real numbers once
   Steps 3–9 land, plus new D20 (hot-reload syscall) and D21

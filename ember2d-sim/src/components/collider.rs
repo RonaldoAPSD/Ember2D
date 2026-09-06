@@ -27,6 +27,37 @@
 //   and the position comes from the entity's Transform component.
 //   Use `world_rect()` to compute the actual world-space bounding box.
 
+// LAYER/MASK AS A BITMASK (Phase 6 Step 7, docs/ember2d-phase6-plan.md):
+//   `layer`/`mask` below are still the serialized truth — `.level` files,
+//   the editor, node-graph codegen, and every script-facing function
+//   (`get_collider_layer`/`set_collider_layer`/etc.) all still speak plain
+//   strings, unchanged. `layer_bits`/`mask_bits` are a `#[serde(skip)]`
+//   derived cache resolved against a `crate::layers::LayerRegistry` — see
+//   that module's own doc comment for why a registry (not a hash) and why
+//   built once, never grown at runtime. `World::detect_collisions`'s
+//   O(colliders²) pairwise test reads only the bits, never the strings, so
+//   it needs no per-pair string comparison or per-entity `String`/
+//   `Vec<String>` clone.
+//
+//   Both fields are PRIVATE, with `set_layer`/`set_mask` as the only way to
+//   change them — compiler-enforced sync between a `layer`/`mask` string
+//   and its own `layer_bits`/`mask_bits`, so a future call site can't set
+//   one without the other (which is exactly what happened before this
+//   struct existed: nothing stopped `col.layer = x` from leaving stale bits
+//   behind, because there were no bits to leave stale).
+//
+//   Because the bits are `#[serde(skip)]`, deserializing a `Collider` (a
+//   saved game, or `World`'s own `Debug`/test round-trips) leaves them
+//   zeroed — `refresh_bits` recomputes them from the strings that DID
+//   survive serialization. `Simulation::on_start`'s `is_loading_save` path
+//   calls `World::refresh_collider_bits` for exactly this reason; forgetting
+//   it is the one mistake here that fails completely silently (every
+//   collider would just stop filtering, matching-everything-with-mask-zero
+//   being indistinguishable from "the mask matched"), which is why a
+//   save→load→still-filters round trip is a mandatory test
+//   (`ember2d/tests/collision_layers.rs`), not an optional nice-to-have.
+
+use crate::layers::LayerRegistry;
 use crate::math::Rect;
 use serde::{Serialize, Deserialize};
 
@@ -47,11 +78,27 @@ pub struct Collider {
     pub solid: bool,
 
     /// Optional layer name for fine-grained collision filtering in scripts.
-    pub layer: String,
+    /// Private — see this file's header comment. Read via `layer()`, write
+    /// via `set_layer()`.
+    layer: String,
 
     /// Optional collision mask: a list of layer names this collider should
     /// interact with. If empty, it interacts with ALL layers (default).
-    pub mask: Vec<String>,
+    /// Private — see this file's header comment. Read via `mask()`, write
+    /// via `set_mask()`.
+    mask: Vec<String>,
+
+    /// `layer`'s resolved bit, or `0` if `layer` is empty or unregistered —
+    /// see `LayerRegistry::bit_for`. `#[serde(skip)]`: never written to
+    /// disk, always recomputed — see this file's header comment.
+    #[serde(skip)]
+    layer_bits: u32,
+
+    /// `mask`'s resolved bits, or `0` if `mask` is empty ("matches
+    /// everything") — see `LayerRegistry::mask_bits`. `#[serde(skip)]`, same
+    /// reasoning as `layer_bits`.
+    #[serde(skip)]
+    mask_bits: u32,
 
     /// If true, an exit trigger referencing this collider will not fire.
     ///
@@ -67,7 +114,7 @@ pub struct Collider {
 impl Collider {
     /// Create a solid collider with the given dimensions.
     pub fn new(width: f32, height: f32) -> Self {
-        Collider { width, height, solid: true, layer: String::new(), mask: Vec::new(), locked: false }
+        Collider { width, height, solid: true, layer: String::new(), mask: Vec::new(), layer_bits: 0, mask_bits: 0, locked: false }
     }
 
     /// A 1×1 solid collider — the standard size for a single-character entity.
@@ -81,7 +128,7 @@ impl Collider {
     /// Trigger colliders fire Collision events but don't block movement.
     /// Use them for: pickups, damage areas, door triggers, room boundaries.
     pub fn trigger(width: f32, height: f32) -> Self {
-        Collider { width, height, solid: false, layer: String::new(), mask: Vec::new(), locked: false }
+        Collider { width, height, solid: false, layer: String::new(), mask: Vec::new(), layer_bits: 0, mask_bits: 0, locked: false }
     }
 
     /// Compute the world-space bounding Rect for this collider given the
@@ -91,5 +138,39 @@ impl Collider {
     /// For a 1×1 collider at position (5, 3), the rect is (5, 3, 1, 1).
     pub fn world_rect(&self, pos_x: f32, pos_y: f32) -> Rect {
         Rect::new(pos_x, pos_y, self.width, self.height)
+    }
+
+    pub fn layer(&self) -> &str { &self.layer }
+    pub fn mask(&self) -> &[String] { &self.mask }
+    pub fn layer_bits(&self) -> u32 { self.layer_bits }
+    pub fn mask_bits(&self) -> u32 { self.mask_bits }
+
+    /// Set this collider's layer, resolving its bit against `registry` in
+    /// the same call — the only way to change `layer` from outside this
+    /// module, specifically so it's impossible to update the string without
+    /// also updating its bit.
+    pub fn set_layer(&mut self, registry: &LayerRegistry, layer: impl Into<String>) {
+        let layer = layer.into();
+        self.layer_bits = registry.bit_for(&layer);
+        self.layer = layer;
+    }
+
+    /// Set this collider's mask, resolving its bits against `registry` in
+    /// the same call — see `set_layer`'s doc comment for why.
+    pub fn set_mask(&mut self, registry: &LayerRegistry, mask: Vec<String>) {
+        self.mask_bits = registry.mask_bits(&mask);
+        self.mask = mask;
+    }
+
+    /// Recompute `layer_bits`/`mask_bits` from the current `layer`/`mask`
+    /// strings against `registry`, without changing either string. For the
+    /// one case `set_layer`/`set_mask` can't cover: a `Collider` that just
+    /// came out of deserialization, whose bits are zeroed (`#[serde(skip)]`)
+    /// but whose strings are exactly as they were saved. See this file's
+    /// header comment for why forgetting to call this after a load is the
+    /// one mistake here with no visible symptom.
+    pub fn refresh_bits(&mut self, registry: &LayerRegistry) {
+        self.layer_bits = registry.bit_for(&self.layer);
+        self.mask_bits = registry.mask_bits(&self.mask);
     }
 }

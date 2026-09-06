@@ -54,6 +54,17 @@ pub struct ScriptEngine {
     /// `HOT_RELOAD_CHECK_INTERVAL` of them instead of every one — see that
     /// constant's own doc comment for why a counter, not `Instant::now()`.
     hot_reload_counter: u32,
+    /// Phase 6 Step 7 (docs/ember2d-phase6-plan.md): this engine's own copy
+    /// of the level's layer name<->bit table — needed by `apply_ctx`'s
+    /// `set_collider_layer`/`set_collider_mask` handling and by every
+    /// `WorldSnapshot::build` call this file makes. `Simulation` holds an
+    /// independent copy of the same registry (built from the same
+    /// `LevelData.collision_layers`, passed in here at construction) rather
+    /// than this being a shared reference — see `Simulation::layers`'s own
+    /// doc comment for why. `pub(super)` (not private), same reasoning as
+    /// `scopes` above: `apply.rs`'s `apply_ctx` — a second `impl
+    /// ScriptEngine` block in a sibling file — reads it directly.
+    pub(super) layers: crate::layers::LayerRegistry,
     pub pending_hud_draws: Vec<HudDraw>,
     pub pending_sounds:    Vec<String>,
     pub pending_spatial_sounds: Vec<(String, f32, f32)>,
@@ -68,7 +79,7 @@ impl ScriptEngine {
     /// run. Callers should pass the owning level's stored seed so replays
     /// with the same level and inputs are reproducible; this is also the
     /// determinism §5 needs for netcode later.
-    pub fn new(seed: u64) -> Self {
+    pub fn new(seed: u64, layers: crate::layers::LayerRegistry) -> Self {
         let mut engine = Engine::new();
         engine.register_type_with_name::<ScriptCtx>("Ctx");
         engine.register_fn("get_x",           ScriptCtx::get_x);
@@ -218,6 +229,7 @@ impl ScriptEngine {
             engine, ast_cache: HashMap::new(), scopes: HashMap::new(), mod_times: HashMap::new(),
             disabled_scripts: HashSet::new(), rng: Rc::new(RefCell::new(rand::rngs::SmallRng::seed_from_u64(seed))),
             hot_reload_counter: 0,
+            layers,
             pending_hud_draws: Vec::new(), pending_sounds: Vec::new(), pending_spatial_sounds: Vec::new(),
             pending_music: None, stop_music: false,
         }
@@ -273,7 +285,7 @@ impl ScriptEngine {
 
     pub fn run_on_start_all(&mut self, world: &mut World, log: &mut Vec<LogEntry>, extra_spawns: &[(String, f32, f32)], globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, persistent: &mut BTreeMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, viewport_size: (usize, usize)) -> ScriptUpdateResult {
         let scripted: Vec<(i64, String)> = world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
-        let mut ctx_state = ScriptState::from_world(world, 0.0, 0.0, InputSnapshot::default(), MouseSnapshot::default(), GamepadSnapshot::default(), extra_spawns, globals, clips, std::mem::take(persistent), camera_pos, BTreeMap::new(), 0, viewport_size);
+        let mut ctx_state = ScriptState::from_world(world, &self.layers, 0.0, 0.0, InputSnapshot::default(), MouseSnapshot::default(), GamepadSnapshot::default(), extra_spawns, globals, clips, std::mem::take(persistent), camera_pos, BTreeMap::new(), 0, viewport_size);
         for (entity_id, _) in &scripted {
             let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);
             let mut entity_timers = HashMap::new();
@@ -473,7 +485,7 @@ impl ScriptEngine {
             };
         }
 
-        let mut ctx_state = ScriptState::from_world(world, delta_time, elapsed, InputSnapshot::default(), MouseSnapshot::default(), GamepadSnapshot::default(), spawns, globals, clips, std::mem::take(persistent), camera_pos, BTreeMap::new(), 0, viewport_size);
+        let mut ctx_state = ScriptState::from_world(world, &self.layers, delta_time, elapsed, InputSnapshot::default(), MouseSnapshot::default(), GamepadSnapshot::default(), spawns, globals, clips, std::mem::take(persistent), camera_pos, BTreeMap::new(), 0, viewport_size);
         for (entity_id, _, _) in &calls {
             let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);
             let mut entity_timers = HashMap::new();

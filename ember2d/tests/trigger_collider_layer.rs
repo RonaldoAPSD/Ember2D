@@ -20,7 +20,7 @@ fn trigger_tile_without_collider_layer_stays_unlabeled() {
     let item_id = world.find_by_tag("item").expect("item entity should have spawned");
     let collider = world.colliders.get(&item_id).expect("item should have a trigger collider");
     assert!(!collider.solid, "item tile should be a non-solid trigger");
-    assert_eq!(collider.layer, "", "an unlabeled trigger must not default to the \"solid\" layer");
+    assert_eq!(collider.layer(), "", "an unlabeled trigger must not default to the \"solid\" layer");
 }
 
 #[test]
@@ -38,5 +38,5 @@ fn solid_tile_without_collider_layer_still_defaults_to_solid() {
     let wall_id = world.find_by_tag("wall").expect("wall entity should have spawned");
     let collider = world.colliders.get(&wall_id).expect("wall should have a solid collider");
     assert!(collider.solid);
-    assert_eq!(collider.layer, "solid", "an unlabeled solid tile should still default to the \"solid\" layer");
+    assert_eq!(collider.layer(), "solid", "an unlabeled solid tile should still default to the \"solid\" layer");
 }

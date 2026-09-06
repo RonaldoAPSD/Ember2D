@@ -58,8 +58,24 @@ pub struct WorldSnapshot {
     pub(super) positions:        BTreeMap<i64, (f32, f32)>,
     pub(super) velocities:       HashMap<i64, (f32, f32)>,
     pub(super) parents:          HashMap<i64, i64>,
-    /// (width, height, solid, layer, mask, locked)
-    pub(super) colliders:        BTreeMap<i64, (f32, f32, bool, String, Vec<String>, bool)>,
+    /// (width, height, solid, layer, mask, locked, layer_bits). `layer_bits`
+    /// (Phase 6 Step 7, docs/ember2d-phase6-plan.md) is copied straight off
+    /// each `Collider`'s own pre-resolved bit — this snapshot needs no
+    /// `LayerRegistry` access to build it, only to read one back out. It
+    /// backs `raycast`/`get_path`'s mask filtering (`api_spatial.rs`);
+    /// `mask_bits` is deliberately NOT carried here, since nothing reads a
+    /// snapshotted collider's own mask — the pairwise mask test lives in
+    /// `World::detect_collisions`, against `World`'s real `Collider`s
+    /// directly, not this snapshot.
+    pub(super) colliders:        BTreeMap<i64, (f32, f32, bool, String, Vec<String>, bool, u32)>,
+    /// This snapshot's own copy of the level's layer name<->bit table
+    /// (Phase 6 Step 7) — what `raycast`/`get_path` fold their incoming
+    /// Rhai `mask: Array` argument against, once per call, instead of a
+    /// per-candidate string comparison. See `crate::layers::LayerRegistry`'s
+    /// own doc comment; cheap to clone in (at most 31 entries), so this
+    /// snapshot owns it rather than sharing a reference that would need its
+    /// own lifetime threaded through every `ScriptState` constructor.
+    pub(super) layers:           crate::layers::LayerRegistry,
     /// Phase 6 Step 4 (docs/ember2d-phase6-plan.md): one `Rc<str>` per
     /// tagged entity, shared (by cheap `Rc::clone` — a refcount bump, not an
     /// allocation) into this map, `tag_to_id`, and `tag_to_ids` below,
@@ -98,7 +114,7 @@ pub struct WorldSnapshot {
 }
 
 impl WorldSnapshot {
-    pub fn build(world: &World) -> Self {
+    pub fn build(world: &World, layers: &crate::layers::LayerRegistry) -> Self {
         // Phase 6 Step 4 (docs/ember2d-phase6-plan.md): pre-sized against
         // `World`'s own store lengths rather than growing by reallocation —
         // every one of these maps ends up with at most that many entries
@@ -149,7 +165,7 @@ impl WorldSnapshot {
                 z_orders.insert(eid, sp.layer);
             }
         }
-        for (id, col) in &world.colliders { colliders.insert(*id as i64, (col.width, col.height, col.solid, col.layer.clone(), col.mask.clone(), col.locked)); }
+        for (id, col) in &world.colliders { colliders.insert(*id as i64, (col.width, col.height, col.solid, col.layer().to_string(), col.mask().to_vec(), col.locked, col.layer_bits())); }
         let mut actor_speeds = HashMap::with_capacity(world.actors.len());
         for (id, actor) in &world.actors { actor_speeds.insert(*id as i64, actor.speed); }
         for (id, tag) in &world.tags {
@@ -175,6 +191,7 @@ impl WorldSnapshot {
         WorldSnapshot {
             positions, velocities, parents, colliders, tags, glyphs, colors, textures,
             tag_to_id, tag_to_ids, visibility, z_orders, animator_frames, clip_finished, actor_speeds,
+            layers: layers.clone(),
         }
     }
 }
@@ -297,8 +314,9 @@ impl ScriptState {
     /// the way it did for `on_input`/`on_update`/`on_turn` (see
     /// `WorldSnapshot`'s own doc comment). Frequent callers should build a
     /// `WorldSnapshot` once and call `from_snapshot` instead.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn from_world(
-        world: &World, delta_time: f32, elapsed: f32,
+        world: &World, layers: &crate::layers::LayerRegistry, delta_time: f32, elapsed: f32,
         input: InputSnapshot, mouse: MouseSnapshot, gamepad: GamepadSnapshot,
         spawns: &[(String, f32, f32)], globals: BTreeMap<String, rhai::Dynamic>,
         clips: BTreeMap<String, AnimationClip>,
@@ -307,7 +325,7 @@ impl ScriptState {
         viewport_size: (usize, usize),
     ) -> Self {
         Self::from_snapshot(
-            Rc::new(WorldSnapshot::build(world)), world.next_id,
+            Rc::new(WorldSnapshot::build(world, layers)), world.next_id,
             delta_time, elapsed, input, mouse, gamepad, spawns, globals, clips,
             persistent, camera_pos, commands, turn_number, viewport_size,
         )
