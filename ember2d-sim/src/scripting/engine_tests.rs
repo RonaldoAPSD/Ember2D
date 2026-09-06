@@ -6,7 +6,7 @@
 // with full access to engine.rs's private items via `use super::*`.
 
 use super::*;
-use crate::components::Script;
+use crate::components::{Animator, Script, Sprite, SpriteSource};
 use crate::color::Color;
 
 /// Unwraps a Glyph-sourced sprite's (char, bg) — panics for any other

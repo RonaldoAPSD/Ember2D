@@ -1,0 +1,127 @@
+// scripting/apply.rs — ScriptEngine::apply_ctx: folds one ScriptCtx's
+// pending_* write queues into World (and ScriptEngine's own pending-audio/
+// HUD queues), producing the ScriptUpdateResult a caller (run_on_start_all/
+// run_on_input/run_on_turn/run_scripts/run_collisions, all in engine.rs)
+// applies to its own state.
+//
+// Split into its own file rather than left in engine.rs: engine.rs was at
+// 573/600 lines (CLAUDE.md's hard limit) before this move, and Phase 6
+// (docs/ember2d-phase6-plan.md) edits engine.rs directly across five more
+// steps — a pure relocation now, matching the same second-`impl
+// ScriptEngine`-in-a-sibling-file pattern `api_animation.rs` already
+// established for `ScriptCtx` in Phase 5.5. Nothing here changed behavior,
+// only location.
+
+use std::collections::BTreeMap;
+
+use crate::command::Command;
+use crate::components::{Animator, AnimationClip, Collider, Sprite, SpriteSource, Tag, Transform};
+use crate::world::{EntityId, World};
+
+use super::api::ScriptCtx;
+use super::engine::ScriptEngine;
+use super::types::*;
+
+impl ScriptEngine {
+    pub(super) fn apply_ctx(&mut self, ctx: ScriptCtx, world: &mut World, log: &mut Vec<LogEntry>) -> ScriptUpdateResult {
+        let mut state = ctx.inner.borrow_mut();
+
+        // Spawns are applied first, ahead of every other pending_* queue below:
+        // a script that spawns an entity and immediately calls a setter on the
+        // returned id (e.g. `set_layer_order`) needs that entity to already exist
+        // by the time this pass reaches the setter's queue, or the setter
+        // silently no-ops against a nonexistent entity until next frame.
+        for req in state.spawn_queue.drain(..) {
+            world.next_id = req.id + 1; let id = req.id;
+            world.transforms.insert(id, Transform::new(req.x, req.y));
+            world.sprites.insert(id, Sprite::new(req.glyph, req.fg, req.bg, req.z));
+            if !req.tag.is_empty() { world.add_tag(id, Tag::new(&req.tag)); }
+            let mut col = Collider::new(req.w, req.h);
+            col.solid = req.solid;
+            col.layer = req.layer;
+            world.add_collider(id, col);
+        }
+
+        for &(id, vx, vy) in &state.pending_velocities { if let Some(tf) = world.transforms.get_mut(&(id as EntityId)) { tf.velocity.x = vx; tf.velocity.y = vy; } }
+        for &(id, x, y) in &state.pending_positions { if let Some(tf) = world.transforms.get_mut(&(id as EntityId)) { tf.position.x = x; tf.position.y = y; } }
+        for &(id, pid, keep_world) in &state.pending_parents { let parent = if pid < 0 { None } else { Some(pid as EntityId) }; world.set_parent(id as EntityId, parent, keep_world); }
+        // set_glyph only means something for a Glyph-sourced sprite —
+        // silently does nothing otherwise, same "setters on the wrong kind
+        // of entity are a no-op" convention every other setter here follows.
+        for &(id, ch) in &state.pending_glyphs {
+            if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) {
+                if let SpriteSource::Glyph { ch: c, .. } = &mut sp.source { *c = ch; }
+            }
+        }
+        for (id, f, b) in state.pending_colors.drain(..) {
+            if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) {
+                sp.tint = parse_color(&f);
+                if let SpriteSource::Glyph { bg, .. } = &mut sp.source { *bg = parse_color(&b); }
+            }
+        }
+        for (id, v) in state.pending_visibility.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.visible = v; } }
+        for (id, z) in state.pending_z_order.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.layer = z; } }
+        for (id, t) in state.pending_tags.drain(..) { world.add_tag(id as EntityId, Tag::new(&t)); }
+        for (id, w, h) in state.pending_collider_size.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.width = w; col.height = h; } }
+        for (id, s) in state.pending_collider_solid.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.solid = s; } }
+        for (id, l) in state.pending_collider_layer.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.layer = l; } }
+        for (id, l) in state.pending_collider_locked.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.locked = l; } }
+        for (id, m) in state.pending_collider_mask.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.mask = m; } }
+        for (id, speed) in state.pending_speed.drain(..) { if let Some(actor) = world.actors.get_mut(&(id as EntityId)) { actor.speed = speed; } }
+        // Clearing (set_texture(id, "") -> None here) has no defined
+        // behavior under the SpriteSource model — there's no stored
+        // "previous glyph" to revert to, so it's a no-op. Nothing in the
+        // demo (or any known script) relies on clear-to-glyph; revisit if
+        // real usage needs it.
+        for (id, p) in state.pending_textures.drain(..) {
+            if let Some(path) = p {
+                if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) {
+                    sp.source = SpriteSource::Texture { path, src: None };
+                }
+            }
+        }
+        // play_clip/play_clip_once both (re)point the sprite at the clip by
+        // name AND (re)start its Animator — the two used to be one call
+        // (`set_animation`) before Step 3c split "what to show" from
+        // "where playback is", so this is where they get reunited.
+        for (id, name, oneshot) in state.pending_play_clip.drain(..) {
+            let animator = world.animators.entry(id as EntityId).or_insert_with(|| Animator::new(name.clone()));
+            animator.clip = name.clone();
+            animator.frame = 0;
+            animator.elapsed = 0.0;
+            animator.playing = true;
+            animator.oneshot = oneshot;
+            if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.source = SpriteSource::Clip { name }; }
+        }
+        for id in state.pending_stop_clip.drain(..) { if let Some(a) = world.animators.get_mut(&(id as EntityId)) { a.playing = false; } }
+        for (id, speed) in state.pending_clip_speed.drain(..) { if let Some(a) = world.animators.get_mut(&(id as EntityId)) { a.speed = speed; } }
+        for (id, frame) in state.pending_set_frame.drain(..) { if let Some(a) = world.animators.get_mut(&(id as EntityId)) { a.frame = frame; a.elapsed = 0.0; } }
+        let clip_defs: Vec<(String, AnimationClip)> = state.pending_clip_defs.drain(..).collect();
+        for (name, clip) in clip_defs { state.clips.insert(name, clip); }
+        self.pending_hud_draws.extend(state.pending_hud_draws.drain(..));
+        self.pending_sounds.extend(state.pending_sounds.drain(..));
+        self.pending_spatial_sounds.extend(state.pending_spatial_sounds.drain(..));
+        if state.pending_music.is_some() { self.pending_music = state.pending_music.take(); }
+        if state.stop_music { self.stop_music = true; state.stop_music = false; }
+        for msg in state.pending_logs.drain(..) { log.push(LogEntry::info(msg)); }
+        // `BTreeMap` has no `.drain()` (unlike `HashMap`/`Vec`) — `mem::take`
+        // swaps in an empty map and hands back the old one to iterate, same
+        // effect as drain-then-clear.
+        let globals_to_apply: Vec<(String, rhai::Dynamic)> = std::mem::take(&mut state.pending_globals).into_iter().collect();
+        for (k, v) in globals_to_apply { if v.is_unit() { state.globals.remove(&k); } else { state.globals.insert(k, v); } }
+
+        let persistent_to_apply: Vec<(String, rhai::Dynamic)> = std::mem::take(&mut state.pending_persistent).into_iter().collect();
+        for (k, v) in persistent_to_apply { if v.is_unit() { state.persistent.remove(&k); } else { state.persistent.insert(k, v); } }
+        for (id, name, duration) in state.pending_timers.drain(..) { if let Some(scope) = self.scopes.get_mut(&id) { let key = format!("__timer_{}", name); if duration < -900.0 { scope.set_value(key, -1.0f64); } else { scope.set_value(key, duration); } } }
+        // Step 5e: unlike `globals`/`persistent`, commands don't merge with
+        // whatever `state.commands` was read from — a fresh set built
+        // purely from this pass's `ctx.submit()` calls, keyed by actor id
+        // (see `ScriptUpdateResult::commands`'s doc comment).
+        let commands: BTreeMap<i64, Command> = std::mem::take(&mut state.pending_commands).into_iter().map(|c| (c.actor as i64, c)).collect();
+        let act_cost = state.pending_act_cost.take();
+        let result = ScriptUpdateResult { pending_level: state.pending_level.take(), pending_save: state.pending_save.take(), pending_load: state.pending_load.take(), globals: state.globals.clone(), clips: state.clips.clone(), persistent: state.persistent.clone(), camera_override: state.pending_camera.take(), shake_state: state.pending_shake.take(), clear_hud: state.clear_hud, particles: state.pending_particles.drain(..).collect(), commands, act_cost, despawned: state.despawn_queue.iter().map(|&id| id as EntityId).collect(), animations: state.pending_animations.drain(..).collect() };
+        state.clear_hud = false; let despawn_ids = state.despawn_queue.clone(); drop(state);
+        for id in despawn_ids { world.despawn(id as EntityId); self.scopes.remove(&(id as EntityId)); }
+        result
+    }
+}

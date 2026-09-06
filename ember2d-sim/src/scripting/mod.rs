@@ -3,6 +3,8 @@
 mod types;
 mod api;
 mod api_animation;
+mod api_spatial;
+mod apply;
 mod state;
 mod engine;
 
