@@ -2,6 +2,7 @@
 
 mod types;
 mod api;
+mod api_animation;
 mod state;
 mod engine;
 

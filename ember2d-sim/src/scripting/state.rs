@@ -247,6 +247,10 @@ pub(super) struct ScriptState {
     /// doc comment for what this means and who reads it.
     pub(super) pending_act_cost:   Option<f64>,
     pub(super) pending_speed:      Vec<(i64, u32)>,
+    /// `ctx.animate_move`/`animate_flash`/`animate_shake`'s write queue
+    /// (Phase 5.5 Part 3, docs/ember2d-phase5.5-plan.md) — drained into
+    /// `ScriptUpdateResult::animations`, same shape as `pending_particles`.
+    pub(super) pending_animations: Vec<AnimationEvent>,
 }
 
 impl std::ops::Deref for ScriptState {
@@ -324,6 +328,7 @@ impl ScriptState {
             pending_timers: Vec::new(), timers: HashMap::new(),
             pending_commands: Vec::new(),
             pending_act_cost: None, pending_speed: Vec::new(),
+            pending_animations: Vec::new(),
         }
     }
 }

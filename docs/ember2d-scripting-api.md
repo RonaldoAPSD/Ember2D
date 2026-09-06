@@ -198,6 +198,42 @@ determine what happens next without real key events at replay time. See
 handles an action `on_turn` doesn't recognize for the player's current
 state (falls through to "no turn consumed", same as no command at all).
 
+### Turn animation
+
+`animate_move(id,to_x,to_y,duration)` · `animate_flash(id,color,duration)` ·
+`animate_shake(id,duration)` · `is_animating(id)` — Phase 5.5 Part 3
+(docs/ember2d-phase5.5-plan.md).
+
+Grid/game state has already resolved by the time you call any of these —
+call `set_position`/whatever the real consequence is exactly as before,
+then queue one of these to say what to *show* while real time passes.
+`duration` is **real seconds**, unrelated to a turn's energy cost — a
+100-cost turn might animate for 0.1s or 1.0s with identical game
+consequences, which is what would let a future "fast-forward animations"
+setting exist without touching balance.
+
+**The scheduler will not resolve another turn until every queued animation
+has finished playing.** This is the actual point, not a side effect: skip
+it and an animation is purely decorative while the sim races ahead
+underneath it. Concretely, nothing scripted runs at all — no `on_input`,
+`on_update`, or `on_turn`, for any actor — while at least one animation
+from a previous turn is still draining. `roguelike/scripts/enemy_rat.rhai`
+and `enemy_boss.rhai` call `animate_move` right alongside their own
+`set_position`; the player's own movement is deliberately left
+un-animated, to avoid adding input latency to something that already felt
+instant.
+
+`is_animating(id)` always returns `false` today — a direct consequence of
+the paragraph above: since nothing scripted can run while any animation is
+still in flight, no script is ever in a position to observe one as true.
+It's registered now, not stubbed out or left erroring, so a future
+per-entity (rather than whole-queue) animation gate could make it
+meaningful without a scripting-API change.
+
+In realtime mode these still work the same way, but are usually
+unnecessary — movement there is typically already continuous via velocity,
+so there's rarely a "resolved instantly, now show it" gap to bridge.
+
 Gamepad: `gp_is_held(pad,btn)` · `gp_just_pressed(pad,btn)` · `gp_axis(pad,axis)`
 
 Mouse: `get_mouse_x()` · `get_mouse_y()` (cells) · `get_mouse_world_x()` · `get_mouse_world_y()` · `mouse_left_pressed()` · `mouse_right_pressed()` · `mouse_left_held()` · `mouse_right_held()`
@@ -341,6 +377,7 @@ fn on_update(id, ctx) {
 | 4 | Mouse world coords lose the HUD-row fudge (`HUD_TOP_ROWS` → 0, Step 4g) | Yes |
 | 5 | Step 5e: `on_input` lifecycle plus `submit`/`command_action`/`command_param`; `is_held`/`just_pressed` no longer replay-safe outside `on_input` | Additive (new functions; existing ones keep working, just lose their replay guarantee outside `on_input`) |
 | 5 | Step 5f: `on_turn` lifecycle plus `act`/`get_turn_number`/`get_speed`/`set_speed`; `trigger_turn` removed | Yes (`trigger_turn` removal) |
+| 5.5 | `animate_move`/`animate_flash`/`animate_shake`/`is_animating` (the animation queue, Part 3) | Additive — no existing function's behavior changed |
 | 6 | Collision layers become a bitmask, not `String` | Yes |
 
 `api_version()` was added in Step 3e (deferred from the original Phase 1 plan) —
@@ -363,7 +400,7 @@ The clip API (`register_clip`/`play_clip`/`play_clip_once`/`stop_clip`/`set_clip
 Clips referenced **by name**, never by atlas coordinates — that's what keeps levels intact when art changes.
 
 **Phase 5 — turns and animation events**
-`act(cost)` · `get_turn_number()` · `get_speed(id)` · `set_speed(id,n)` shipped in Step 5f and are documented under §3 "The command boundary" — live, not planned. Still outstanding: `end_turn()` · `is_my_turn(id)` · `animate_move(id,x,y,dur)` · `animate_flash(id,color,dur)` · `is_animating(id)`.
+`act(cost)` · `get_turn_number()` · `get_speed(id)` · `set_speed(id,n)` shipped in Step 5f and are documented under §3 "The command boundary" — live, not planned. `animate_move(id,x,y,dur)` · `animate_flash(id,color,dur)` · `animate_shake(id,dur)` · `is_animating(id)` shipped in Phase 5.5 Part 3 and are documented under §3 "Turn animation" — also live, not planned. Still outstanding: `end_turn()` · `is_my_turn(id)`.
 
 Costs are simulation time; animation durations are real seconds. Keeping them separate is what allows a "fast-forward animations" setting later without touching balance.
 

@@ -198,6 +198,8 @@ this step, not on a script explicitly flagging one.
 - [ ] An asleep enemy (no line of sight yet, Step 4h's amendment) visibly does nothing until it wakes — tinted differently while asleep vs. awake (`DarkRed`/`DarkMagenta` vs `Red`/`Magenta`)
 - [ ] Waiting (Space) and quaffing (Q) both visibly cost a turn, same as moving does
 - [ ] Death screen appears the instant hp reaches 0; R restarts from floor 1
+- [ ] A rat/boss's move visibly slides one cell rather than teleporting (Phase 5.5 Part 3's animation queue, `docs/ember2d-phase5.5-plan.md` — `enemy_rat.rhai`/`enemy_boss.rhai` call `ctx.animate_move` alongside `ctx.set_position`); the player's own movement is deliberately left un-animated (instant, as before) — not a bug if it looks different from an enemy's move
+- [ ] While an enemy's move animation is playing, no further turn advances (no double-move, no enemy acting twice) — automated: `tests/turn_animation.rs`
 
 ## 13. Save/load and scripting
 
@@ -248,9 +250,17 @@ Not regressions. Do not chase these.
 
 ## 15. Determinism / replay gate (Phase 5 Step 5h+)
 
-`tests/replay.rs` is a manual gate, not something CI runs yet (no CI exists —
-docs/ember2d-phase5-plan.md Step 5h) — run it explicitly before trusting a
-Phase 5+ change that touches sim ordering, deferred writes, or RNG.
+**Phase 5.5** (docs/ember2d-phase5.5-plan.md Part 1) added CI
+(`.github/workflows/ci.yml`, `windows-latest` + `ubuntu-latest`) that runs
+`tests/replay.rs` on every push — but only once per OS per push, not the
+5×-independent-fresh-process discipline below. That discipline stays a
+**manual gate**: run it explicitly before trusting a Phase 5+ change that
+touches sim ordering, deferred writes, or RNG — CI alone isn't sufficient
+proof for that class of change. `tests/common/mod.rs`'s `TurnHarness` was
+also rewritten in Phase 5.5 to drive `ember2d_sim::simulation::Simulation`
+directly, with no `InputManager`/`MouseState`/`GamepadState`/winit `Key`
+anywhere in it — a simplification, not a behavior change; nothing in this
+section's checklist changes because of it.
 
 - [ ] `cargo test --test replay` passes as 5 independent fresh process runs
       (not `--test-threads=1` reruns within one process — the point is

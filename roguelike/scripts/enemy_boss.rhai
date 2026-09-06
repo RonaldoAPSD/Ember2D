@@ -77,6 +77,9 @@ fn on_turn(id, ctx) {
         let ty = ey + step_y;
         if (step_x != 0.0 || step_y != 0.0) && !ctx.is_solid_at(tx, ty) {
             ctx.set_position(id, tx, ty);
+            // Phase 5.5 Part 3 (docs/ember2d-phase5.5-plan.md) — see
+            // enemy_rat.rhai's own comment on this same pattern.
+            ctx.animate_move(id, tx, ty, 0.15);
         }
     }
 }

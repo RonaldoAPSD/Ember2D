@@ -220,6 +220,10 @@ impl ScriptCtx {
         self.inner.borrow_mut().pending_particles.push(ParticleRequest { x: x as f32, y: y as f32, glyph, fg: fg_col });
     }
 
+    // Phase 5.5 Part 3's animation-queue methods (animate_move/animate_flash/
+    // animate_shake/is_animating) live in api_animation.rs, a sibling
+    // `impl ScriptCtx` block — see that file's own header comment for why.
+
     // ── V0.4 Extensions ───────────────────────────────────────────────────────
 
     // 1. Shared Global State

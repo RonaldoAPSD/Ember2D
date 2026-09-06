@@ -11,10 +11,12 @@
 // full reasoning — why this split, and why `sim.rs`/`GameState`/
 // `UpdateContext`/the editor are all untouched by it.
 
+mod animation;
 mod render;
 
 use std::collections::BTreeMap;
 
+use animation::{PlayingAnimation, RenderOverrides};
 use crate::camera::Camera;
 use ember2d_sim::components::{AnimationClip, ClipFrames, SpriteSource};
 use crate::engine::{GameState, RenderContext, Transition, UpdateContext};
@@ -146,6 +148,12 @@ pub struct PlayState {
     /// `script_camera_origin` for the one place that reads it back out.
     pub camera: Camera,
     pub particles: Vec<Particle>,
+    /// In-flight visual playback for the animation queue (Phase 5.5 Part 3,
+    /// docs/ember2d-phase5.5-plan.md) — see `apply_outcome` for how a
+    /// script's `ctx.animate_move`/etc. requests land here, `update` for
+    /// how the sim is gated on this being empty, and `render`/`animation.rs`
+    /// for how it's drawn without ever touching `World`.
+    animations: Vec<PlayingAnimation>,
     /// Drives particle velocity/life and camera shake jitter (defect D3).
     /// Seeded once from the level's stored seed and reused for its whole
     /// lifetime — never reallocated from OS entropy per call.
@@ -177,6 +185,7 @@ impl PlayState {
             shake_timer:        0.0,
             camera:             Camera::new(0.0, 0.0), // real dimensions set every update()
             particles:          Vec::new(),
+            animations:         Vec::new(),
             rng:                SmallRng::seed_from_u64(seed.wrapping_add(PLAYSTATE_RNG_SEED_OFFSET)),
             pixels_per_unit:    crate::project::default_pixels_per_unit(),
         }
@@ -239,6 +248,7 @@ impl PlayState {
         }
         if let Some(next) = outcome.pending_level { self.pending_transition = Some(Transition::ToPlay(next)); }
         if let Some(state) = outcome.pending_load { self.pending_transition = Some(Transition::LoadGame(state)); }
+        for ev in outcome.animations { self.animations.push(PlayingAnimation::from_event(ev)); }
         self.script_log.extend(outcome.logs);
     }
 
@@ -333,28 +343,43 @@ impl GameState for PlayState {
         self.camera.viewport_origin = Vec2::ZERO;
         self.camera.zoom = 1.0; // Phase 2 doesn't add a scripted zoom control yet
 
-        let camera_origin = self.script_camera_origin();
-        let input_snapshot = input.snapshot();
-        let mouse_snapshot = mouse.snapshot();
-        let gamepad_snapshot = ctx.gamepad.snapshot();
+        // Phase 5.5 Part 3 (docs/ember2d-phase5.5-plan.md): the scheduler
+        // waits for the animation queue to drain before the sim is allowed
+        // to step again — without this, a script's `ctx.animate_move`/etc.
+        // would be purely decorative, since the *next* turn could already
+        // be resolving underneath it. Draining on `frame_delta_time` (real
+        // wall-clock), not `delta_time` (the fixed sim step), is what makes
+        // an animation last a fixed real-world duration regardless of the
+        // sim's own cadence — same category as the camera lerp/particle
+        // motion above. Camera/particles/audio keep flowing either way
+        // ("letting render frames continue" per the plan) — only stepping
+        // itself is gated.
+        if !self.animations.is_empty() {
+            self.animations.retain_mut(|a| a.advance(frame_delta_time));
+        } else {
+            let camera_origin = self.script_camera_origin();
+            let input_snapshot = input.snapshot();
+            let mouse_snapshot = mouse.snapshot();
+            let gamepad_snapshot = ctx.gamepad.snapshot();
 
-        // No externally-supplied commands from real play — that's the
-        // seam `tests/external_commands.rs` exercises directly against
-        // `Simulation`, not something `PlayState` itself ever needs to feed.
-        let outcome = self.sim.step(world, StepInput {
-            input: &input_snapshot,
-            mouse: mouse_snapshot,
-            gamepad: &gamepad_snapshot,
-            external_commands: &[],
-            camera_origin,
-            sim_dt: delta_time,
-            elapsed,
-            viewport_w: viewport_width,
-            viewport_h: viewport_height,
-        }, persistent);
+            // No externally-supplied commands from real play — that's the
+            // seam `tests/external_commands.rs` exercises directly against
+            // `Simulation`, not something `PlayState` itself ever needs to feed.
+            let outcome = self.sim.step(world, StepInput {
+                input: &input_snapshot,
+                mouse: mouse_snapshot,
+                gamepad: &gamepad_snapshot,
+                external_commands: &[],
+                camera_origin,
+                sim_dt: delta_time,
+                elapsed,
+                viewport_w: viewport_width,
+                viewport_h: viewport_height,
+            }, persistent);
 
-        *turn_triggered = outcome.turn_triggered;
-        self.apply_outcome(outcome);
+            *turn_triggered = outcome.turn_triggered;
+            self.apply_outcome(outcome);
+        }
 
         // Particles are cosmetic and never read back by scripts (same
         // category as the camera lerp/shake above), so they move at real
@@ -393,9 +418,23 @@ impl GameState for PlayState {
             render_camera.position.y += self.rng.gen_range(-intensity..=intensity);
         }
 
+        // Phase 5.5 Part 3: built once from whatever's currently playing so
+        // the loop below can look up a position/tint/shake override per
+        // command without ever touching `World` — grid state has already
+        // resolved (see play/animation.rs's own header comment).
+        let overrides = RenderOverrides::build(&self.animations);
+
         let draw_list = DrawList::from_world(world);
         for cmd in draw_list.commands {
-            let screen = render_camera.world_to_screen(cmd.world_pos);
+            let mut world_pos = overrides.position(cmd.id).unwrap_or(cmd.world_pos);
+            let tint = overrides.tint(cmd.id).unwrap_or(cmd.tint);
+            if let Some(scale) = overrides.shake_scale(cmd.id) {
+                let intensity = animation::SHAKE_INTENSITY * scale;
+                world_pos.x += self.rng.gen_range(-intensity..=intensity);
+                world_pos.y += self.rng.gen_range(-intensity..=intensity);
+            }
+
+            let screen = render_camera.world_to_screen(world_pos);
             let (col, row) = (screen.x.round() as i32, screen.y.round() as i32);
             // Defect D13: the texture branch used to draw and `continue`
             // before this bounds check ran, so textured sprites bypassed
@@ -405,13 +444,13 @@ impl GameState for PlayState {
 
             match cmd.source {
                 SpriteSource::Glyph { ch, bg } => {
-                    renderer.draw_char_world(&render_camera, cmd.world_pos, *ch, cmd.tint, *bg);
+                    renderer.draw_char_world(&render_camera, world_pos, *ch, tint, *bg);
                 }
                 SpriteSource::Texture { path, src } => {
                     let id = assets.load(path);
                     if let Some(t) = assets.get(id) {
                         let size = sprite_size(cmd.size, t.width, t.height, self.pixels_per_unit);
-                        renderer.draw_texture_world(&render_camera, cmd.world_pos, t, size, 0.0, cmd.tint, *src);
+                        renderer.draw_texture_world(&render_camera, world_pos, t, size, 0.0, tint, *src);
                     }
                 }
                 SpriteSource::Clip { name } => {
@@ -420,7 +459,7 @@ impl GameState for PlayState {
                     if let Some(ClipFrames::Glyphs { frames }) = self.sim.clips().get(name).map(|c| &c.frames) {
                         if !frames.is_empty() {
                             let frame = world.animators.get(&cmd.id).map(|a| a.frame).unwrap_or(0) % frames.len();
-                            renderer.draw_char_world(&render_camera, cmd.world_pos, frames[frame], cmd.tint, Color::Reset);
+                            renderer.draw_char_world(&render_camera, world_pos, frames[frame], tint, Color::Reset);
                         }
                     }
                 }

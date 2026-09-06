@@ -186,6 +186,12 @@ impl ScriptEngine {
         engine.register_fn("get_speed",       ScriptCtx::get_speed);
         engine.register_fn("set_speed",       ScriptCtx::set_speed);
 
+        // Phase 5.5 Part 3: the animation queue (docs/ember2d-phase5.5-plan.md).
+        engine.register_fn("animate_move",    ScriptCtx::animate_move);
+        engine.register_fn("animate_flash",   ScriptCtx::animate_flash);
+        engine.register_fn("animate_shake",   ScriptCtx::animate_shake);
+        engine.register_fn("is_animating",    ScriptCtx::is_animating);
+
         use rand::SeedableRng;
         ScriptEngine {
             engine, ast_cache: HashMap::new(), scopes: HashMap::new(), mod_times: HashMap::new(),
@@ -553,7 +559,7 @@ impl ScriptEngine {
         // (see `ScriptUpdateResult::commands`'s doc comment).
         let commands: BTreeMap<i64, Command> = std::mem::take(&mut state.pending_commands).into_iter().map(|c| (c.actor as i64, c)).collect();
         let act_cost = state.pending_act_cost.take();
-        let result = ScriptUpdateResult { pending_level: state.pending_level.take(), pending_save: state.pending_save.take(), pending_load: state.pending_load.take(), globals: state.globals.clone(), clips: state.clips.clone(), persistent: state.persistent.clone(), camera_override: state.pending_camera.take(), shake_state: state.pending_shake.take(), clear_hud: state.clear_hud, particles: state.pending_particles.drain(..).collect(), commands, act_cost, despawned: state.despawn_queue.iter().map(|&id| id as EntityId).collect() };
+        let result = ScriptUpdateResult { pending_level: state.pending_level.take(), pending_save: state.pending_save.take(), pending_load: state.pending_load.take(), globals: state.globals.clone(), clips: state.clips.clone(), persistent: state.persistent.clone(), camera_override: state.pending_camera.take(), shake_state: state.pending_shake.take(), clear_hud: state.clear_hud, particles: state.pending_particles.drain(..).collect(), commands, act_cost, despawned: state.despawn_queue.iter().map(|&id| id as EntityId).collect(), animations: state.pending_animations.drain(..).collect() };
         state.clear_hud = false; let despawn_ids = state.despawn_queue.clone(); drop(state);
         for id in despawn_ids { world.despawn(id as EntityId); self.scopes.remove(&(id as EntityId)); }
         result

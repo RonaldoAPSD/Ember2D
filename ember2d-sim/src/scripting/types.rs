@@ -79,6 +79,29 @@ pub struct ScriptUpdateResult {
     /// despawned actor left in `TurnScheduler`'s queue would otherwise
     /// cycle a dead turn slot forever (harmless, but a leak).
     pub despawned:       Vec<EntityId>,
+    /// Visual events `ctx.animate_move`/`animate_flash`/`animate_shake`
+    /// queued this pass (Phase 5.5 Part 3, docs/ember2d-phase5.5-plan.md).
+    /// `ember2d::play::PlayState` is the only consumer — grid state has
+    /// already resolved by the time this is emitted (a script calls
+    /// `ctx.set_position` for the real move same as always); this is purely
+    /// "here's what to show while the player catches up," played back over
+    /// real frames, never fed back into simulation state.
+    pub animations:      Vec<AnimationEvent>,
+}
+
+/// One visual event a resolved action emitted. Durations are REAL SECONDS,
+/// with no relationship to simulation time — a 100-cost turn may animate
+/// for 0.1s or 1.0s with identical game consequences, since the state this
+/// describes has already resolved in the sim. Keeping durations separate
+/// from simulation cost is what would let a future "fast-forward
+/// animations" setting exist without touching balance (see
+/// `docs/ember2d-scripting-api.md` §7's existing note on this for the
+/// turn-cost/animation-duration split).
+#[derive(Debug, Clone)]
+pub enum AnimationEvent {
+    Move  { entity: EntityId, from: crate::math::Vec2, to: crate::math::Vec2, duration: f32 },
+    Flash { entity: EntityId, color: Color, duration: f32 },
+    Shake { entity: EntityId, duration: f32 },
 }
 
 /// Camera shake request/state — `ctx.shake_camera` queues one, PlayState reads

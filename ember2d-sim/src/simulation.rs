@@ -123,10 +123,16 @@ pub struct StepOutcome {
     pub particles: Vec<crate::scripting::ParticleRequest>,
     pub pending_level: Option<LevelData>,
     pub pending_load: Option<SaveState>,
-    // Phase 6: `logs`/`particles` are a fresh Vec every step — the exact
-    // per-step allocation category D11/Phase 6 exists to reduce. Kept as-is
-    // here to keep this phase's diff readable; revisit with reusable
-    // buffers or `&mut Vec` out-params if profiling ever calls for it.
+    /// Visual events queued this step (Phase 5.5 Part 3,
+    /// docs/ember2d-phase5.5-plan.md) — `ember2d::play::PlayState` drains
+    /// these into its own presentation-side playback queue; `Simulation`
+    /// never reads them back.
+    pub animations: Vec<crate::scripting::AnimationEvent>,
+    // Phase 6: `logs`/`particles`/`animations` are a fresh Vec every call —
+    // the exact per-step allocation category D11/Phase 6 exists to reduce.
+    // Kept as-is here to keep this phase's diff readable; revisit with
+    // reusable buffers or `&mut Vec` out-params if profiling ever calls
+    // for it.
     pub logs: Vec<LogEntry>,
 }
 
@@ -534,5 +540,6 @@ impl Simulation {
         if res.camera_override.is_some() { outcome.camera_override = res.camera_override; }
         if let Some(shake) = res.shake_state { outcome.shake_state = Some(shake); }
         outcome.particles.extend(res.particles);
+        outcome.animations.extend(res.animations);
     }
 }

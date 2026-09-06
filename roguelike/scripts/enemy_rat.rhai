@@ -135,6 +135,12 @@ fn on_turn(id, ctx) {
         // runs) — no separate get_entity_at check needed.
         if (step_x != 0.0 || step_y != 0.0) && !ctx.is_solid_at(tx, ty) {
             ctx.set_position(id, tx, ty);
+            // Phase 5.5 Part 3 (docs/ember2d-phase5.5-plan.md): grid state
+            // above already resolved the real move; this is purely the
+            // visual — a rat now visibly slides one cell instead of
+            // teleporting. 0.15s is short enough not to make combat feel
+            // sluggish (several rats may all move in the same round).
+            ctx.animate_move(id, tx, ty, 0.15);
         }
     }
 }
