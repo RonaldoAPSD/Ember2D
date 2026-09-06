@@ -138,9 +138,14 @@ fn on_turn(id, ctx) {
             // Phase 5.5 Part 3 (docs/ember2d-phase5.5-plan.md): grid state
             // above already resolved the real move; this is purely the
             // visual — a rat now visibly slides one cell instead of
-            // teleporting. 0.15s is short enough not to make combat feel
-            // sluggish (several rats may all move in the same round).
-            ctx.animate_move(id, tx, ty, 0.15);
+            // teleporting. **0.15s turned out too long** (D19,
+            // docs/ember2d-refactor-plan.md §3): the scheduler blocks ALL
+            // stepping while this drains, and several rats acting in one
+            // round each pay their own animation's duration serially (3
+            // rats at 0.15s = 450ms of the player's input going nowhere,
+            // on top of the drop bug D19 also covers). 0.08s still reads as
+            // a slide, not a teleport, at a fraction of the cost.
+            ctx.animate_move(id, tx, ty, 0.08);
         }
     }
 }

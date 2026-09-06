@@ -31,6 +31,103 @@ fn turns(persistent: &BTreeMap<String, rhai::Dynamic>) -> i64 {
     persistent.get("turns").and_then(|d| d.as_int().ok()).unwrap_or(0)
 }
 
+/// Unlike `step` above, takes a *shared* `InputManager` across calls rather
+/// than a fresh one each time — needed to reproduce D19
+/// (docs/ember2d-refactor-plan.md §3), which is specifically about a press
+/// surviving across several calls to `PlayState::update` while the
+/// animation queue drains. Mirrors `ember2d::sim::step`'s real per-frame
+/// sequence closely enough to reproduce the bug: `consume_step()` before
+/// `update`, `decay` after — `PlayState`'s animation gate lives entirely
+/// inside `update`, so a driver that skips either step wouldn't exercise
+/// the actual failure mode (a real frame claims-then-doesn't-necessarily-read
+/// a buffered press).
+fn play_frame(play: &mut PlayState, world: &mut World, input: &mut InputManager, persistent: &mut BTreeMap<String, rhai::Dynamic>) {
+    input.consume_step();
+    let mouse = MouseState::new();
+    let gamepad = GamepadState::new();
+    let mut events = EventBus::new();
+    let prev_positions: HashMap<EntityId, Vec2> = HashMap::new();
+    let mut quit = false;
+    let mut turn_triggered = false;
+    play.update(UpdateContext {
+        world, input, mouse: &mouse, gamepad: &gamepad, events: &mut events,
+        prev_positions: &prev_positions, delta_time: FRAME_DT, frame_delta_time: FRAME_DT,
+        elapsed: 0.0, quit: &mut quit, turn_triggered: &mut turn_triggered,
+        viewport_width: 20, viewport_height: 10, persistent,
+    });
+    input.decay(FRAME_DT);
+}
+
+#[test]
+fn a_key_pressed_while_an_animation_plays_is_not_lost() {
+    // D19 (docs/ember2d-refactor-plan.md §3): a movement key tapped while an
+    // enemy's (or here, the player's own) animation is still draining used
+    // to vanish rather than being honored once the queue emptied, because
+    // `ember2d::sim::step`'s unconditional `consume_step()` claims a
+    // buffered press every real frame regardless of whether `PlayState`
+    // goes on to read it. The player moves itself here (no separate enemy
+    // needed) — the failure mode is identical either way, since it lives in
+    // `PlayState::update`'s own animation-gate branch, not in anything
+    // enemy-specific.
+    let mut script_path = std::env::temp_dir();
+    script_path.push("ember2d_test_d19_buffered_press.rhai");
+    std::fs::write(&script_path, r#"
+        fn on_input(id, ctx) {
+            if ctx.just_pressed("d") { ctx.submit(id, "move", [1.0, 0.0]); }
+        }
+        fn on_turn(id, ctx) {
+            if ctx.command_action() == "move" {
+                let dx = ctx.command_param(0);
+                ctx.set_position(id, ctx.get_x(id) + dx, ctx.get_y(id));
+                ctx.animate_move(id, ctx.get_x(id), ctx.get_y(id), 5.0 / 60.0);
+                ctx.act(100.0);
+            }
+        }
+    "#).expect("write temp script");
+
+    let mut data = LevelData::empty(10, 10);
+    data.player.script = Some(script_path.to_string_lossy().to_string());
+
+    let mut play = PlayState::from_level(data, BTreeMap::new());
+    let mut world = World::new();
+    let mut events = EventBus::new();
+    let mut persistent: BTreeMap<String, rhai::Dynamic> = BTreeMap::new();
+    play.on_start(&mut world, &mut events, 20, 10, &mut persistent);
+    let player_id = world.find_by_tag("player").expect("player should have spawned");
+    let start = world.get_global_position(player_id);
+
+    let mut input = InputManager::new();
+
+    // Frame 1: press "d" — resolves the first move and queues a 5-frame
+    // animation.
+    input.handle_pressed(Key::D);
+    play_frame(&mut play, &mut world, &mut input, &mut persistent);
+    input.handle_released(Key::D);
+    assert_eq!(world.get_global_position(player_id), Vec2::new(start.x + 1.0, start.y), "the first press must move the player one cell");
+
+    // Frame 2: the FIRST blocked frame (animation elapsed 0 < 5/60, still
+    // draining) — tap "d" again right here. Before the D19 fix, this press
+    // would be claimed and discarded by this frame's own `consume_step()`
+    // without ever being read, since `update` takes the animation-blocked
+    // branch and never used to look at input there at all.
+    input.handle_pressed(Key::D);
+    play_frame(&mut play, &mut world, &mut input, &mut persistent);
+    input.handle_released(Key::D);
+
+    // Frames 3-7: drain the remaining animation with no further input.
+    for _ in 0..5 { play_frame(&mut play, &mut world, &mut input, &mut persistent); }
+
+    // The frame-2 press must have survived and been honored once stepping
+    // resumed — the player should now be two cells over, not stuck at one
+    // (which is what D19 looked like: the second tap silently vanished).
+    assert_eq!(
+        world.get_global_position(player_id), Vec2::new(start.x + 2.0, start.y),
+        "a key pressed while the animation queue was draining must not be silently dropped (D19)"
+    );
+
+    let _ = std::fs::remove_file(&script_path);
+}
+
 #[test]
 fn the_scheduler_waits_for_the_animation_queue_to_drain_before_the_next_turn() {
     // The player is the only actor and its own `on_input` submits

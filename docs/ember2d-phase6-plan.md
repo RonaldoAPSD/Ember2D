@@ -117,6 +117,25 @@ Step 7 (bitmask) and Step 8 (sweep-and-prune) and confirm
 `detect_collisions`'s share of total step time falls sharply at every scale,
 most dramatically at n=10,000.
 
+### 1.1 Out-of-band fix landed between Steps 1 and 2: D19
+
+Not part of this phase's planned scope — reported live by the user while
+reviewing Step 1 ("player movement doesn't feel great when the enemy is
+moving") and fixed immediately since it's a real correctness regression
+from Phase 5.5 Part 3, not a design/feel question. See
+`docs/ember2d-refactor-plan.md` §3 D19 for the full mechanism: a player
+keypress made while an enemy's move animation was playing got silently
+dropped (not delayed) by `ember2d::sim::step`'s unconditional
+`consume_step()` call, since `PlayState::update`'s animation-blocked branch
+never read the input it claimed. Fixed by carrying `pressed` sets forward
+across blocked frames in a small `PlayState`-owned buffer. Also reduced
+`enemy_rat.rhai`/`enemy_boss.rhai`'s `animate_move` duration 0.15s → 0.08s,
+since multiple enemies acting in one round each pay their own animation's
+duration serially (the scheduler blocks *all* stepping, including the
+player's next turn, until each one finishes). This step's numbering (D19)
+lands ahead of D20/D21 below, which are still-planned Phase 6 findings, not
+yet logged — a fix found and shipped live jumped the queue.
+
 ---
 
 ## 2. Steps 2–14
@@ -146,8 +165,10 @@ the replay test exists to guard.
 ## 3. Documents to update as the phase lands
 
 - `docs/ember2d-refactor-plan.md` — §3 D11 closed with real numbers once
-  Steps 3–9 land, plus new D19 (hot-reload syscall) and D20
-  (`cancel_timer`/`timer_done` sentinel overlap, logged not fixed); §5.2
+  Steps 3–9 land, plus new D20 (hot-reload syscall) and D21
+  (`cancel_timer`/`timer_done` sentinel overlap, logged not fixed) — D19
+  (dropped input during an animation-blocked frame) already landed, out of
+  sequence with the rest of this phase's numbered steps; see §0 below. §5.2
   records the transcendental-math decision and corrects the
   `Vec2::normalized` claim; §5.3/§5.4 record both deferrals; §7 Phase 6
   rewritten to what shipped.

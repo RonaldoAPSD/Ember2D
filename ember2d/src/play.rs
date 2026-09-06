@@ -14,7 +14,7 @@
 mod animation;
 mod render;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use animation::{PlayingAnimation, RenderOverrides};
 use crate::camera::Camera;
@@ -154,6 +154,20 @@ pub struct PlayState {
     /// how the sim is gated on this being empty, and `render`/`animation.rs`
     /// for how it's drawn without ever touching `World`.
     animations: Vec<PlayingAnimation>,
+    /// Presses/clicks/gamepad-button-presses claimed by `ember2d::sim::step`
+    /// (untouched, generic per-frame pump)'s unconditional `consume_step()`
+    /// calls during a frame where `self.animations` was non-empty and
+    /// `update` never called `Simulation::step` at all — found live (D19,
+    /// docs/ember2d-refactor-plan.md §3) as "player movement feels bad while
+    /// an enemy is animating": `consume_step()` claims and clears a buffered
+    /// press whether or not anything downstream reads it, so a tap made
+    /// mid-animation was silently discarded rather than merely delayed —
+    /// see `update`'s own comment on the fix. Only `pressed` needs carrying
+    /// forward, never `held` (that's live physical state, always correct
+    /// fresh on whichever frame finally reads it).
+    buffered_pressed: BTreeSet<String>,
+    buffered_mouse_pressed: (bool, bool),
+    buffered_gamepad_pressed: HashSet<(usize, String)>,
     /// Drives particle velocity/life and camera shake jitter (defect D3).
     /// Seeded once from the level's stored seed and reused for its whole
     /// lifetime — never reallocated from OS entropy per call.
@@ -186,6 +200,9 @@ impl PlayState {
             camera:             Camera::new(0.0, 0.0), // real dimensions set every update()
             particles:          Vec::new(),
             animations:         Vec::new(),
+            buffered_pressed:   BTreeSet::new(),
+            buffered_mouse_pressed: (false, false),
+            buffered_gamepad_pressed: HashSet::new(),
             rng:                SmallRng::seed_from_u64(seed.wrapping_add(PLAYSTATE_RNG_SEED_OFFSET)),
             pixels_per_unit:    crate::project::default_pixels_per_unit(),
         }
@@ -356,11 +373,36 @@ impl GameState for PlayState {
         // itself is gated.
         if !self.animations.is_empty() {
             self.animations.retain_mut(|a| a.advance(frame_delta_time));
+
+            // Defect D19 (docs/ember2d-refactor-plan.md §3): `ember2d::sim::step`
+            // already called `input`/`mouse`/`gamepad`'s `consume_step()`
+            // *before* this method even ran, unconditionally — that's what
+            // actually claims a buffered press and clears it from the
+            // buffer, whether or not we go on to read it. Left alone, a key
+            // tapped while an enemy's animation is playing would be claimed
+            // here and then never looked at, vanishing instead of merely
+            // waiting — the buffer's whole "survives a frame that ran zero
+            // steps" guarantee (§4.1) didn't anticipate a step that runs but
+            // chooses not to consume input. Folding this frame's
+            // just-pressed sets into our own buffer, merged into the real
+            // step below once the queue drains, restores that guarantee.
+            self.buffered_pressed.extend(input.snapshot().pressed);
+            let ms = mouse.snapshot();
+            self.buffered_mouse_pressed.0 |= ms.pressed.0;
+            self.buffered_mouse_pressed.1 |= ms.pressed.1;
+            self.buffered_gamepad_pressed.extend(ctx.gamepad.snapshot().pressed);
         } else {
             let camera_origin = self.script_camera_origin();
-            let input_snapshot = input.snapshot();
-            let mouse_snapshot = mouse.snapshot();
-            let gamepad_snapshot = ctx.gamepad.snapshot();
+            let mut input_snapshot = input.snapshot();
+            input_snapshot.pressed.extend(std::mem::take(&mut self.buffered_pressed));
+
+            let mut mouse_snapshot = mouse.snapshot();
+            mouse_snapshot.pressed.0 |= self.buffered_mouse_pressed.0;
+            mouse_snapshot.pressed.1 |= self.buffered_mouse_pressed.1;
+            self.buffered_mouse_pressed = (false, false);
+
+            let mut gamepad_snapshot = ctx.gamepad.snapshot();
+            gamepad_snapshot.pressed.extend(std::mem::take(&mut self.buffered_gamepad_pressed));
 
             // No externally-supplied commands from real play — that's the
             // seam `tests/external_commands.rs` exercises directly against
