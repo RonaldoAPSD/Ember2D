@@ -199,8 +199,9 @@ this step, not on a script explicitly flagging one.
 - [ ] Waiting (Space) and quaffing (Q) both visibly cost a turn, same as moving does
 - [ ] Death screen appears the instant hp reaches 0; R restarts from floor 1
 - [ ] A rat/boss's move visibly slides one cell rather than teleporting (Phase 5.5 Part 3's animation queue, `docs/ember2d-phase5.5-plan.md` — `enemy_rat.rhai`/`enemy_boss.rhai` call `ctx.animate_move` alongside `ctx.set_position`); the player's own movement is deliberately left un-animated (instant, as before) — not a bug if it looks different from an enemy's move
-- [ ] While an enemy's move animation is playing, no further turn advances (no double-move, no enemy acting twice) — automated: `tests/turn_animation.rs`
-- [ ] A movement key tapped while an enemy's animation is playing still registers once it's your turn again — it must not need a second press (D19, fixed in Phase 6)
+- [ ] The SAME actor's next turn does not advance while its own move animation is still playing (no double-move, no enemy acting twice on top of itself) — automated: `tests/turn_animation.rs`
+- [ ] A DIFFERENT actor's turn resolves promptly even while another entity's animation is still draining — on floor2 (3 rats), the player should regain control almost immediately after moving, not feel a stall/freeze that scales with enemy count (D20, fixed in Phase 6 — automated: `tests/turn_animation.rs::two_actors_animations_overlap_instead_of_stacking`)
+- [ ] A movement key tapped while the front actor's animation is playing still registers once it's your turn again — it must not need a second press (D19, fixed in Phase 6)
 
 ## 13. Save/load and scripting
 
@@ -249,6 +250,7 @@ Not regressions. Do not chase these.
 | D17 — save/load can't round-trip per-entity script globals mid-run | Phase 5 Step 5c — fixed |
 | D18 — saving a level through the editor scrambles its tile order (`LevelGrid.tiles` is a `HashMap`) | not scheduled — see plan §3 |
 | D19 — a player keypress made while an enemy's move animation plays is silently dropped, not delayed | Phase 6 (out of scope, fixed live) — fixed |
+| D20 — several actors acting in one round each pay their own animation's duration serially, stacking into one long input freeze | Phase 6 (out of scope, fixed live) — fixed |
 
 ## 15. Determinism / replay gate (Phase 5 Step 5h+)
 

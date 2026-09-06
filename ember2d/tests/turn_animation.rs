@@ -5,6 +5,18 @@
 // all — so this test drives a real `PlayState` by hand, the same pattern
 // `ember2d/src/play/tests.rs` already uses for engine-level behavior no
 // harness reaches (see e.g. that file's `collide_player_with_exit`).
+//
+// Defect D20 (docs/ember2d-refactor-plan.md §3) changed what "blocks turn
+// resolution" means: from the WHOLE animation queue (any entity's animation
+// held up EVERY actor's next turn) to PER ACTOR (only the specific actor
+// about to act next needs its own prior animation to have finished). The
+// first two tests below predate that fix and use a single actor throughout
+// (the player animates itself) — under a single actor, per-actor and global
+// gating are indistinguishable, so they keep proving the same safety
+// invariant (an actor can't get a second animation before its first
+// finishes) unchanged. `two_actors_animations_overlap_instead_of_stacking`
+// is D20's own regression test — it needs a SECOND actor to tell the two
+// gating strategies apart at all.
 
 use std::collections::{BTreeMap, HashMap};
 use ember2d::prelude::*;
@@ -182,4 +194,87 @@ fn the_scheduler_waits_for_the_animation_queue_to_drain_before_the_next_turn() {
     assert_eq!(turns(&persistent), 2, "the scheduler must resolve exactly one more turn once the animation queue drains");
 
     let _ = std::fs::remove_file(&script_path);
+}
+
+#[test]
+fn two_actors_animations_overlap_instead_of_stacking() {
+    // D20: an AI actor's own animation must not hold up the PLAYER's next
+    // turn — only the AI actor's own next turn should wait on it. The
+    // player submits "tick" unconditionally and never animates (matching
+    // enemy_rat.rhai's real player.rhai counterpart); the AI actor queues a
+    // 10-frame animation every turn it takes. Under the old whole-queue gate
+    // this test's own final assertions would fail: the player's turn count
+    // would stay stuck at 1 while the AI's animation drains, instead of
+    // advancing to 2 immediately.
+    let mut player_script = std::env::temp_dir();
+    player_script.push("ember2d_test_d20_player.rhai");
+    std::fs::write(&player_script, r#"
+        fn on_input(id, ctx) { ctx.submit(id, "tick", []); }
+        fn on_turn(id, ctx) {
+            let n = ctx.get_persistent("turns");
+            let n = if n == () { 0 } else { n };
+            ctx.set_persistent("turns", n + 1);
+            ctx.act(100.0);
+        }
+    "#).expect("write temp script");
+
+    let mut ai_script = std::env::temp_dir();
+    ai_script.push("ember2d_test_d20_ai.rhai");
+    std::fs::write(&ai_script, r#"
+        fn on_turn(id, ctx) {
+            let n = ctx.get_global("ai_turns");
+            let n = if n == () { 0 } else { n };
+            ctx.set_global("ai_turns", n + 1);
+            ctx.animate_move(id, ctx.get_x(id), ctx.get_y(id), 10.0 / 60.0);
+            ctx.act(100.0);
+        }
+    "#).expect("write temp script");
+
+    let mut data = LevelData::empty(10, 10);
+    data.player.script = Some(player_script.to_string_lossy().to_string());
+    let mut ai_tile = TileRecord::new(3, 3, 1, 'r', Color::Red, Color::Reset, true, false, "ai");
+    ai_tile.script = Some(ai_script.to_string_lossy().to_string());
+    ai_tile.actor = Some(ActorRecord::default());
+    data.tiles.push(ai_tile);
+
+    let mut play = PlayState::from_level(data, BTreeMap::new());
+    let mut world = World::new();
+    let mut events = EventBus::new();
+    let mut persistent: BTreeMap<String, rhai::Dynamic> = BTreeMap::new();
+    play.on_start(&mut world, &mut events, 20, 10, &mut persistent);
+
+    fn ai_turns(play: &PlayState) -> i64 { play.globals().get("ai_turns").and_then(|d| d.as_int().ok()).unwrap_or(0) }
+
+    // Step 1: player's turn (never blocked — it has no animation of its own,
+    // and the scheduler starts with the local actor first).
+    step(&mut play, &mut world, &mut persistent);
+    assert_eq!(turns(&persistent), 1, "the player's first turn must resolve immediately");
+    assert_eq!(ai_turns(&play), 0, "the AI hasn't had a turn yet");
+
+    // Step 2: the AI's turn — resolves and queues its 10-frame animation.
+    step(&mut play, &mut world, &mut persistent);
+    assert_eq!(ai_turns(&play), 1, "the AI's first turn must resolve on its own step, unblocked (nothing animated yet)");
+
+    // Step 3: back to the player. Under the OLD whole-queue gate this would
+    // be blocked (the AI's animation from step 2 is still draining) and
+    // `turns` would stay at 1. Under D20's per-actor gate the player is
+    // never blocked by an animation that isn't its own.
+    step(&mut play, &mut world, &mut persistent);
+    assert_eq!(turns(&persistent), 2, "D20: the player's turn must resolve even while the AI's own animation is still draining");
+
+    // Step 4: the AI's turn comes up again, but its OWN animation from step
+    // 2 (10 frames) has only had 2 real frames pass since (steps 3 and this
+    // one) — it must NOT get a second turn yet. This is the safety
+    // invariant D20 must preserve: an actor can't receive a new animation
+    // before its previous one finishes.
+    step(&mut play, &mut world, &mut persistent);
+    assert_eq!(ai_turns(&play), 1, "the AI's own still-draining animation must still block its own next turn");
+
+    // Drain well past the 10-frame window, stepping throughout so the
+    // now-unblocked AI actually gets to act again.
+    for _ in 0..12 { step(&mut play, &mut world, &mut persistent); }
+    assert_eq!(ai_turns(&play), 2, "the AI's turn must resume once its own animation finishes");
+
+    let _ = std::fs::remove_file(&player_script);
+    let _ = std::fs::remove_file(&ai_script);
 }

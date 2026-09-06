@@ -150,21 +150,29 @@ pub struct PlayState {
     pub particles: Vec<Particle>,
     /// In-flight visual playback for the animation queue (Phase 5.5 Part 3,
     /// docs/ember2d-phase5.5-plan.md) — see `apply_outcome` for how a
-    /// script's `ctx.animate_move`/etc. requests land here, `update` for
-    /// how the sim is gated on this being empty, and `render`/`animation.rs`
-    /// for how it's drawn without ever touching `World`.
+    /// script's `ctx.animate_move`/etc. requests land here, `update` for how
+    /// the sim is gated on this per actor (D20 fix, not globally — see that
+    /// defect's note in docs/ember2d-refactor-plan.md §3), and
+    /// `render`/`animation.rs` for how it's drawn without ever touching
+    /// `World`. Multiple entities' animations coexist here freely and drain
+    /// independently — `apply_outcome` just pushes, never assumes empty.
     animations: Vec<PlayingAnimation>,
     /// Presses/clicks/gamepad-button-presses claimed by `ember2d::sim::step`
     /// (untouched, generic per-frame pump)'s unconditional `consume_step()`
-    /// calls during a frame where `self.animations` was non-empty and
-    /// `update` never called `Simulation::step` at all — found live (D19,
+    /// calls during a frame where the scheduler's front actor still had an
+    /// animation of its own in flight and `update` never called
+    /// `Simulation::step` at all — found live (D19,
     /// docs/ember2d-refactor-plan.md §3) as "player movement feels bad while
     /// an enemy is animating": `consume_step()` claims and clears a buffered
     /// press whether or not anything downstream reads it, so a tap made
     /// mid-animation was silently discarded rather than merely delayed —
     /// see `update`'s own comment on the fix. Only `pressed` needs carrying
     /// forward, never `held` (that's live physical state, always correct
-    /// fresh on whichever frame finally reads it).
+    /// fresh on whichever frame finally reads it). D20's per-actor gate
+    /// (below) made these frames far rarer than they used to be, but not
+    /// impossible — a player holding a direction key fast enough to catch
+    /// up to an enemy still finishing its own previous animation still hits
+    /// this path, so the buffer stays exactly as necessary as it always was.
     buffered_pressed: BTreeSet<String>,
     buffered_mouse_pressed: (bool, bool),
     buffered_gamepad_pressed: HashSet<(usize, String)>,
@@ -360,32 +368,61 @@ impl GameState for PlayState {
         self.camera.viewport_origin = Vec2::ZERO;
         self.camera.zoom = 1.0; // Phase 2 doesn't add a scripted zoom control yet
 
-        // Phase 5.5 Part 3 (docs/ember2d-phase5.5-plan.md): the scheduler
-        // waits for the animation queue to drain before the sim is allowed
-        // to step again — without this, a script's `ctx.animate_move`/etc.
-        // would be purely decorative, since the *next* turn could already
-        // be resolving underneath it. Draining on `frame_delta_time` (real
-        // wall-clock), not `delta_time` (the fixed sim step), is what makes
-        // an animation last a fixed real-world duration regardless of the
-        // sim's own cadence — same category as the camera lerp/particle
-        // motion above. Camera/particles/audio keep flowing either way
-        // ("letting render frames continue" per the plan) — only stepping
-        // itself is gated.
-        if !self.animations.is_empty() {
-            self.animations.retain_mut(|a| a.advance(frame_delta_time));
+        // Phase 5.5 Part 3 (docs/ember2d-phase5.5-plan.md) gated the whole
+        // scheduler on the WHOLE animation queue being empty — no actor's
+        // turn could resolve while ANY entity's animation was still
+        // draining, even one that had nothing to do with whoever was about
+        // to act next. Defect D20 (docs/ember2d-refactor-plan.md §3): with
+        // several actors acting in one round (floor2's 3 rats), that meant
+        // paying every one of their animation durations back to back —
+        // 3×0.08s = up to 240ms of the player's input going nowhere, every
+        // single round, reported live as "movement feels bad when taking
+        // turns with the enemy." Fixed by gating PER ACTOR instead: only the
+        // specific actor about to act next (`current_actor()`) needs its OWN
+        // prior animation to have finished — a different actor's turn
+        // resolves immediately regardless of what's still playing, so their
+        // animations overlap in real time instead of stacking. This still
+        // can't let the same actor receive a second `animate_move` before
+        // its first one finishes (the one thing the old global gate
+        // actually had to prevent, per the Phase 5.5 Part 3 comment this
+        // replaces) — `current_actor()` only changes to a NEW actor once the
+        // current one's turn has fully resolved, so checking "is the actor
+        // *now* at the front still animating" is exactly "has THIS actor's
+        // own most recent animation finished," never anyone else's. The
+        // player's own movement is deliberately never animated (see
+        // `enemy_rat.rhai`'s header comment), so the player is never gated
+        // by this at all — turn resolution resumes the instant it's
+        // genuinely the player's turn again, not after a fixed animation
+        // tax paid on enemies' behalf.
+        //
+        // Draining on `frame_delta_time` (real wall-clock), not `delta_time`
+        // (the fixed sim step), is what makes an animation last a fixed
+        // real-world duration regardless of the sim's own cadence — same
+        // category as the camera lerp/particle motion above. Camera/
+        // particles/audio keep flowing either way ("letting render frames
+        // continue" per the plan) — only stepping itself is gated, and now
+        // only for the one actor it actually needs to wait on.
+        self.animations.retain_mut(|a| a.advance(frame_delta_time));
+        let front_is_animating = self.sim.current_actor()
+            .map(|id| self.animations.iter().any(|a| a.entity == id))
+            .unwrap_or(false);
 
+        if front_is_animating {
             // Defect D19 (docs/ember2d-refactor-plan.md §3): `ember2d::sim::step`
             // already called `input`/`mouse`/`gamepad`'s `consume_step()`
             // *before* this method even ran, unconditionally — that's what
             // actually claims a buffered press and clears it from the
             // buffer, whether or not we go on to read it. Left alone, a key
-            // tapped while an enemy's animation is playing would be claimed
-            // here and then never looked at, vanishing instead of merely
-            // waiting — the buffer's whole "survives a frame that ran zero
-            // steps" guarantee (§4.1) didn't anticipate a step that runs but
-            // chooses not to consume input. Folding this frame's
+            // tapped while the front actor's animation is playing would be
+            // claimed here and then never looked at, vanishing instead of
+            // merely waiting — the buffer's whole "survives a frame that ran
+            // zero steps" guarantee (§4.1) didn't anticipate a step that
+            // runs but chooses not to consume input. Folding this frame's
             // just-pressed sets into our own buffer, merged into the real
-            // step below once the queue drains, restores that guarantee.
+            // step below once this actor's animation drains, restores that
+            // guarantee. D20's per-actor gate made this path far rarer than
+            // it used to be (see this struct's `buffered_pressed` field doc
+            // comment), but not impossible.
             self.buffered_pressed.extend(input.snapshot().pressed);
             let ms = mouse.snapshot();
             self.buffered_mouse_pressed.0 |= ms.pressed.0;

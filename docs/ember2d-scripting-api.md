@@ -212,23 +212,37 @@ then queue one of these to say what to *show* while real time passes.
 consequences, which is what would let a future "fast-forward animations"
 setting exist without touching balance.
 
-**The scheduler will not resolve another turn until every queued animation
-has finished playing.** This is the actual point, not a side effect: skip
-it and an animation is purely decorative while the sim races ahead
-underneath it. Concretely, nothing scripted runs at all — no `on_input`,
-`on_update`, or `on_turn`, for any actor — while at least one animation
-from a previous turn is still draining. `roguelike/scripts/enemy_rat.rhai`
-and `enemy_boss.rhai` call `animate_move` right alongside their own
-`set_position`; the player's own movement is deliberately left
-un-animated, to avoid adding input latency to something that already felt
-instant.
+**An actor's own turn will not resolve again until its own previously
+queued animation has finished playing.** This is the actual point, not a
+side effect: skip it and an animation is purely decorative while the sim
+races ahead underneath it for that same entity. **Corrected in defect D20
+(docs/ember2d-refactor-plan.md §3)** — this used to gate the WHOLE
+scheduler on the WHOLE animation queue (no actor's turn could resolve while
+ANY entity's animation was still draining, even an unrelated one), which
+meant several actors acting in one round each paid their own animation's
+duration serially. The gate is per-actor now: a different actor's turn
+resolves immediately regardless of what's still playing, so their
+animations overlap in real time instead of stacking.
+`roguelike/scripts/enemy_rat.rhai` and `enemy_boss.rhai` call `animate_move`
+right alongside their own `set_position`; the player's own movement is
+deliberately left un-animated, both to avoid adding input latency to
+something that already felt instant, and because it means the player is
+*never* gated by this at all — only an actor that animates itself waits on
+its own animation.
 
-`is_animating(id)` always returns `false` today — a direct consequence of
-the paragraph above: since nothing scripted can run while any animation is
-still in flight, no script is ever in a position to observe one as true.
-It's registered now, not stubbed out or left erroring, so a future
-per-entity (rather than whole-queue) animation gate could make it
-meaningful without a scripting-API change.
+`is_animating(id)` always returns `false` today, but not for the reason an
+earlier version of this doc gave (that nothing scripted could run at all
+while any animation was in flight — no longer true after D20). The real
+reason: this function is registered in `ember2d-sim`, which by design has
+no visibility into `PlayState.animations` — that queue is presentation
+state, owned entirely by the `ember2d` crate, and the sim/presentation
+split this engine maintains means the sim can't see it regardless of how
+fine-grained the gate is. It's registered now, not stubbed out or left
+erroring, so a future revision that threads a per-entity "is animating"
+flag back into the sim's own snapshot could make it meaningful without a
+further scripting-API change — but that's a real design question (what
+should own that state, and does it belong in `WorldSnapshot`), not a small
+fix.
 
 In realtime mode these still work the same way, but are usually
 unnecessary — movement there is typically already continuous via velocity,

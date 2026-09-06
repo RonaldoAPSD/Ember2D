@@ -133,8 +133,10 @@ across blocked frames in a small `PlayState`-owned buffer. Also reduced
 since multiple enemies acting in one round each pay their own animation's
 duration serially (the scheduler blocks *all* stepping, including the
 player's next turn, until each one finishes). This step's numbering (D19)
-lands ahead of D20/D21 below, which are still-planned Phase 6 findings, not
-yet logged — a fix found and shipped live jumped the queue.
+lands ahead of D21/D22 below, which are still-planned Phase 6 findings, not
+yet logged — a fix found and shipped live jumped the queue. (D19's own fix
+turned out incomplete — see §8.1 below for D20, found immediately after
+Step 7 landed, which also jumped the queue.)
 
 ---
 
@@ -354,8 +356,9 @@ about the same wasted `fs::metadata` call:
 - **`__script_<id>` synthetic keys are skipped entirely.** These are a node
   graph's generated Rhai source, cached via `compile_str` under that key
   (`Simulation::do_on_start`), never backed by a real file — every
-  `fs::metadata` call against one was already guaranteed to fail (D20,
-  logged in `docs/ember2d-refactor-plan.md` §3). Filtering them out of the
+  `fs::metadata` call against one was already guaranteed to fail (D21, to be
+  logged in `docs/ember2d-refactor-plan.md` §3 at Step 14's documentation
+  pass). Filtering them out of the
   path list checked doesn't just reduce their frequency, it removes them
   from this loop outright, at every throttle interval, not just most of
   them.
@@ -581,6 +584,53 @@ shooter demo. `git diff --stat` on `ember2d/src/sim.rs` and
 `ember2d/src/engine.rs` stayed empty; `ember2d-editor/` shows exactly the
 12-line `LevelGrid` mirror described above, and nothing else.
 
+### 8.1 Out-of-band fix landed after Step 7: D20
+
+Not part of this phase's planned scope, same as D19 (§1.1 above) — reported
+live immediately after Step 7 landed ("movement in the roguelike demo does
+feel bad again whenever taking turns with the enemy"), investigated, and
+confirmed NOT a Phase 6 regression before being fixed as a standalone
+correctness issue: `play.rs`, `scheduler.rs`, and the enemy scripts were all
+byte-identical to their D19-fixed state, so nothing in Steps 2–7 touched the
+mechanism at all. See `docs/ember2d-refactor-plan.md` §3 D20 for the full
+mechanism — the short version: D19 fixed *dropped* input during an
+animation-blocked frame, but never addressed that the block itself was
+global (the WHOLE animation queue, any entity) rather than per-actor, so N
+enemies acting in one round each still paid their own animation's duration
+serially, stacking into one long freeze (3 rats × 0.08s = up to 240ms every
+round on floor2). Fixed by gating `Simulation::current_actor()` specifically,
+not `self.animations.is_empty()` — a different actor's turn now resolves
+immediately regardless of what else is animating, while the one invariant
+the old gate actually had to protect (an actor can't get a second animation
+before its first finishes) is preserved exactly, since `current_actor()`
+only changes to a new actor once the current one's own turn has fully
+resolved. New test `tests/turn_animation.rs::two_actors_animations_overlap_instead_of_stacking`
+— a two-actor scenario the two Phase-5.5-era single-actor tests in that file
+structurally can't distinguish from the old global gate — verified to fail
+under the old gate before being confirmed to pass under the new one.
+`docs/ember2d-scripting-api.md`'s "Turn animation" section corrected to
+match (the per-actor semantics, and why `is_animating(id)` still can't
+become meaningful — it lives in `ember2d-sim`, which has no visibility into
+`PlayState`'s presentation-only animation queue regardless of gate
+granularity, correcting that section's own prior guess that a finer-grained
+gate alone would be enough).
+
+This step's numbering (D20) lands ahead of D21/D22 below (§6, §9's own
+still-planned findings — hot-reload syscall and the timer sentinel overlap
+— shifted forward by one to make room), same jump-the-queue pattern D19
+itself established.
+
+**Verified:** `cargo build --workspace --examples` and `cargo test
+--workspace --lib` clean; all 11 named integration tests (38 sub-tests —
+one more than Step 7, the new two-actor test) passed; `cargo test --test
+replay` run 5× as independent fresh processes, all passed (presentation-only
+logic — `TurnHarness`/replay bypass `PlayState`'s animation queue entirely —
+so this carries no real determinism risk, but the gate ran anyway); manual
+smoke test of `roguelike/floor2.level` (3 rats) confirming the player no
+longer stalls once multiple rats are chasing. `git diff --stat` on
+`ember2d/src/sim.rs`, `ember2d/src/engine.rs`, `ember2d-editor/` stayed
+empty — this fix is entirely inside `play.rs` and its own test file.
+
 ---
 
 ## 9. Steps 8–14
@@ -606,10 +656,11 @@ individually after Step 8 (sweep-and-prune) — not just once at the end
 ## 10. Documents to update as the phase lands
 
 - `docs/ember2d-refactor-plan.md` — §3 D11 closed with real numbers once
-  Steps 3–9 land, plus new D20 (hot-reload syscall) and D21
+  Steps 3–9 land, plus new D21 (hot-reload syscall) and D22
   (`cancel_timer`/`timer_done` sentinel overlap, logged not fixed) — D19
-  (dropped input during an animation-blocked frame) already landed, out of
-  sequence with the rest of this phase's numbered steps; see §0 below. §5.2
+  (dropped input during an animation-blocked frame) and D20 (the same
+  animation gate's per-actor fix) already landed, out of sequence with the
+  rest of this phase's numbered steps; see §1.1 and §8.1. §5.2
   records the transcendental-math decision and corrects the
   `Vec2::normalized` claim; §5.3/§5.4 record both deferrals; §7 Phase 6
   rewritten to what shipped.
