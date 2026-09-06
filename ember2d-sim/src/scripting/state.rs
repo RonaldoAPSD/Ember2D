@@ -60,12 +60,26 @@ pub struct WorldSnapshot {
     pub(super) parents:          HashMap<i64, i64>,
     /// (width, height, solid, layer, mask, locked)
     pub(super) colliders:        BTreeMap<i64, (f32, f32, bool, String, Vec<String>, bool)>,
-    pub(super) tags:             BTreeMap<i64, String>,
+    /// Phase 6 Step 4 (docs/ember2d-phase6-plan.md): one `Rc<str>` per
+    /// tagged entity, shared (by cheap `Rc::clone` — a refcount bump, not an
+    /// allocation) into this map, `tag_to_id`, and `tag_to_ids` below,
+    /// instead of each of the three doing its own `String::clone()` of the
+    /// same name. `find_by_tag`/`find_all_by_tag`/`count_by_tag` still take
+    /// a plain `String` from Rhai — `Rc<str>: Borrow<str>` (and its `Hash`/
+    /// `Eq`/`Ord` all delegate to `str`'s) is what lets `.get(name.as_str())`
+    /// keep working against a map keyed by `Rc<str>` unchanged.
+    pub(super) tags:             BTreeMap<i64, Rc<str>>,
     pub(super) glyphs:           HashMap<i64, char>,
-    pub(super) colors:           HashMap<i64, (String, String)>,
-    pub(super) textures:         HashMap<i64, String>,
-    pub(super) tag_to_id:        HashMap<String, i64>,
-    pub(super) tag_to_ids:       BTreeMap<String, Vec<i64>>,
+    /// Phase 6 Step 4: stores the tint `Color` values directly rather than
+    /// the name strings `get_color` returns — building this used to run
+    /// `color_to_name` (a `String` allocation) on both fg and bg for every
+    /// sprite whether or not any script ever calls `get_color` on that
+    /// entity. `get_color` (api.rs) now does that conversion itself, on the
+    /// entities that actually ask for it.
+    pub(super) colors:           HashMap<i64, (Color, Color)>,
+    pub(super) textures:         HashMap<i64, Rc<str>>,
+    pub(super) tag_to_id:        HashMap<Rc<str>, i64>,
+    pub(super) tag_to_ids:       BTreeMap<Rc<str>, Vec<i64>>,
     pub(super) visibility:       BTreeMap<i64, bool>,
     pub(super) z_orders:         BTreeMap<i64, i32>,
     /// Read-only per-entity `Animator::frame` snapshot backing `get_frame`.
@@ -85,16 +99,26 @@ pub struct WorldSnapshot {
 
 impl WorldSnapshot {
     pub fn build(world: &World) -> Self {
+        // Phase 6 Step 4 (docs/ember2d-phase6-plan.md): pre-sized against
+        // `World`'s own store lengths rather than growing by reallocation —
+        // every one of these maps ends up with at most that many entries
+        // (`glyphs`/`colors`/`textures`/`visibility`/`z_orders` are subsets
+        // of `world.transforms`; `tag_to_id`/`tag_to_ids` bounded by
+        // `world.tags`, which may have fewer unique names than entries, but
+        // never more), so this is a safe upper bound, not a guess.
+        let n_transforms = world.transforms.len();
+        let n_tags       = world.tags.len();
+
         let mut positions  = BTreeMap::new();
-        let mut velocities = HashMap::new();
+        let mut velocities = HashMap::with_capacity(n_transforms);
         let mut parents    = HashMap::new();
         let mut colliders  = BTreeMap::new();
         let mut tags       = BTreeMap::new();
-        let mut glyphs     = HashMap::new();
-        let mut colors     = HashMap::new();
+        let mut glyphs     = HashMap::with_capacity(n_transforms);
+        let mut colors     = HashMap::with_capacity(n_transforms);
         let mut textures   = HashMap::new();
-        let mut tag_to_id  = HashMap::new();
-        let mut tag_to_ids: BTreeMap<String, Vec<i64>> = BTreeMap::new();
+        let mut tag_to_id  = HashMap::with_capacity(n_tags);
+        let mut tag_to_ids: BTreeMap<Rc<str>, Vec<i64>> = BTreeMap::new();
         let mut visibility = BTreeMap::new();
         let mut z_orders   = BTreeMap::new();
 
@@ -113,28 +137,35 @@ impl WorldSnapshot {
                         *bg
                     }
                     SpriteSource::Texture { path, .. } => {
-                        textures.insert(eid, path.clone());
+                        textures.insert(eid, Rc::from(path.as_str()));
                         Color::Reset
                     }
                     SpriteSource::Clip { .. } => Color::Reset,
                 };
-                colors.insert(eid, (crate::scripting::types::color_to_name(sp.tint), crate::scripting::types::color_to_name(bg)));
+                // Phase 6 Step 4: stored as `Color`, not `color_to_name`'d
+                // here — see this struct's `colors` field doc comment.
+                colors.insert(eid, (sp.tint, bg));
                 visibility.insert(eid, sp.visible);
                 z_orders.insert(eid, sp.layer);
             }
         }
         for (id, col) in &world.colliders { colliders.insert(*id as i64, (col.width, col.height, col.solid, col.layer.clone(), col.mask.clone(), col.locked)); }
-        let mut actor_speeds = HashMap::new();
+        let mut actor_speeds = HashMap::with_capacity(world.actors.len());
         for (id, actor) in &world.actors { actor_speeds.insert(*id as i64, actor.speed); }
         for (id, tag) in &world.tags {
             let eid = *id as i64;
-            tags.insert(eid, tag.name.clone());
-            tag_to_id.entry(tag.name.clone()).or_insert(eid);
-            tag_to_ids.entry(tag.name.clone()).or_default().push(eid);
+            // Phase 6 Step 4: one allocation (`Rc::from`), then two cheap
+            // refcount-bump clones — see this struct's `tags` field doc
+            // comment for why that's safe against `find_by_tag`/etc.'s
+            // `String`-keyed lookups.
+            let name: Rc<str> = Rc::from(tag.name.as_str());
+            tags.insert(eid, name.clone());
+            tag_to_id.entry(name.clone()).or_insert(eid);
+            tag_to_ids.entry(name).or_default().push(eid);
         }
 
         let mut animator_frames = BTreeMap::new();
-        let mut clip_finished = HashSet::new();
+        let mut clip_finished = HashSet::with_capacity(world.animators.len());
         for (id, animator) in &world.animators {
             let eid = *id as i64;
             animator_frames.insert(eid, animator.frame);

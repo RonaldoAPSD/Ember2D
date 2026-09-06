@@ -38,18 +38,26 @@ impl ScriptCtx {
         self.inner.borrow_mut().velocities.get(&id).map(|&(x, y)| vec![Dynamic::from(x as f64), Dynamic::from(y as f64)]).unwrap_or_default().into()
     }
 
-    pub fn get_tag(&mut self, id: i64) -> String { self.inner.borrow_mut().tags.get(&id).cloned().unwrap_or_default() }
+    pub fn get_tag(&mut self, id: i64) -> String { self.inner.borrow_mut().tags.get(&id).map(|t| t.to_string()).unwrap_or_default() }
     pub fn set_tag(&mut self, id: i64, tag: String) { self.inner.borrow_mut().pending_tags.push((id, tag)); }
-    pub fn has_tag(&mut self, id: i64, name: String) -> bool { self.inner.borrow_mut().tags.get(&id).map(|t| t == &name).unwrap_or(false) }
-    
+    pub fn has_tag(&mut self, id: i64, name: String) -> bool { self.inner.borrow_mut().tags.get(&id).map(|t| **t == name).unwrap_or(false) }
+
     pub fn get_glyph(&mut self, id: i64) -> String { self.inner.borrow_mut().glyphs.get(&id).map(|c| c.to_string()).unwrap_or_default() }
+    // Phase 6 Step 4 (docs/ember2d-phase6-plan.md): `colors` stores `Color`
+    // now, not a pre-formatted name string — see `WorldSnapshot::colors`'s
+    // doc comment. `color_to_name` runs here instead, only for whichever
+    // entity a script actually asks about.
     pub fn get_color(&mut self, id: i64) -> Array {
-        self.inner.borrow_mut().colors.get(&id).map(|(fg, bg)| vec![Dynamic::from(fg.clone()), Dynamic::from(bg.clone())]).unwrap_or_default().into()
+        self.inner.borrow_mut().colors.get(&id).map(|&(fg, bg)| vec![Dynamic::from(color_to_name(fg)), Dynamic::from(color_to_name(bg))]).unwrap_or_default().into()
     }
-    pub fn get_texture(&mut self, id: i64) -> String { self.inner.borrow_mut().textures.get(&id).cloned().unwrap_or_default() }
-    pub fn find_by_tag(&mut self, tag: String) -> i64 { self.inner.borrow_mut().tag_to_id.get(&tag).copied().unwrap_or(-1) }
+    pub fn get_texture(&mut self, id: i64) -> String { self.inner.borrow_mut().textures.get(&id).map(|p| p.to_string()).unwrap_or_default() }
+    // `Rc<str>: Borrow<str>` (and its Hash/Eq/Ord delegate to `str`'s) is
+    // what lets these three keep taking a plain Rhai `String` and looking it
+    // up against a map keyed by `Rc<str>` — see `WorldSnapshot::tags`'s doc
+    // comment (Phase 6 Step 4).
+    pub fn find_by_tag(&mut self, tag: String) -> i64 { self.inner.borrow_mut().tag_to_id.get(tag.as_str()).copied().unwrap_or(-1) }
     pub fn find_all_by_tag(&mut self, tag: String) -> Array {
-        self.inner.borrow_mut().tag_to_ids.get(&tag).cloned().unwrap_or_default().into_iter().map(Dynamic::from).collect()
+        self.inner.borrow_mut().tag_to_ids.get(tag.as_str()).cloned().unwrap_or_default().into_iter().map(Dynamic::from).collect()
     }
 
     /// Kept registered for compatibility (Step 5e, docs/ember2d-phase5-plan.md)
@@ -248,7 +256,7 @@ impl ScriptCtx {
 
     // 4. Entity Utility Queries
     pub fn entity_exists(&mut self, id: i64) -> bool { self.inner.borrow_mut().positions.contains_key(&id) }
-    pub fn count_by_tag(&mut self, tag: String) -> i64 { self.inner.borrow_mut().tag_to_ids.get(&tag).map(|v| v.len()).unwrap_or(0) as i64 }
+    pub fn count_by_tag(&mut self, tag: String) -> i64 { self.inner.borrow_mut().tag_to_ids.get(tag.as_str()).map(|v| v.len()).unwrap_or(0) as i64 }
     pub fn get_collider_w(&mut self, id: i64) -> f64 { self.inner.borrow_mut().colliders.get(&id).map(|c| c.0 as f64).unwrap_or(0.0) }
     pub fn get_collider_h(&mut self, id: i64) -> f64 { self.inner.borrow_mut().colliders.get(&id).map(|c| c.1 as f64).unwrap_or(0.0) }
     pub fn set_collider_size(&mut self, id: i64, w: f64, h: f64) { self.inner.borrow_mut().pending_collider_size.push((id, w as f32, h as f32)); }

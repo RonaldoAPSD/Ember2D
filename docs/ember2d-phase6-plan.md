@@ -189,19 +189,97 @@ allocation proportional to entity count" done-when is unaffected either way
 
 ---
 
-## 4. Steps 4–14
+## 4. Step 4 ✅ Done — `WorldSnapshot` allocation diet
 
-Steps 4 (`WorldSnapshot` allocation diet) through 14 (documentation) are
+Three changes to `WorldSnapshot::build`, all in `scripting/state.rs`, none
+touching `scripting/api.rs`'s function signatures (only their bodies — see
+below):
+
+- **`colors: HashMap<i64, (Color, Color)>`, not `(String, String)`.** Building
+  the snapshot used to call `color_to_name` (a `String` allocation) on both fg
+  and bg for *every* sprite, whether or not any script that step ever calls
+  `get_color` on that entity. `get_color` now runs `color_to_name` itself, on
+  read, only for whichever id a script actually asks about.
+- **`tags`/`tag_to_id`/`tag_to_ids` share one `Rc<str>` per tagged entity.**
+  Building used to call `tag.name.clone()` three times per tagged entity (once
+  per map). Now one `Rc::from(tag.name.as_str())` allocation is cloned twice
+  more (an `Rc` clone is a refcount bump, not an allocation) into the other
+  two maps. `find_by_tag`/`find_all_by_tag`/`count_by_tag`/`has_tag`/`get_tag`
+  still take/compare a plain Rhai `String` — `Rc<str>: Borrow<str>` (and its
+  `Hash`/`Eq`/`Ord` all delegate to `str`'s) is what lets a `String`-keyed
+  lookup keep working against a map now keyed by `Rc<str>` with no API change.
+- **`textures: HashMap<i64, Rc<str>>`, not `String`.** Same sharing primitive
+  as tags, applied to the one other per-entity string this snapshot carries.
+- **Pre-sized `HashMap`s** (`velocities`/`glyphs`/`colors` at
+  `world.transforms.len()`, `tag_to_id`/`actor_speeds`/`clip_finished` at
+  their own source stores' lengths) — a safe upper bound in every case, since
+  each is built by iterating that exact store or a subset of it, so this
+  removes the reallocate-and-copy steps a `HashMap` growing from empty would
+  otherwise do.
+
+Deliberately **not** touched: `colliders` (`(f32, f32, bool, String,
+Vec<String>, bool)`, cloning a `String` and a `Vec<String>` per collider) —
+that's Step 7's bitmask, which replaces the `String`/`Vec<String>` layer/mask
+representation outright rather than just changing how they're shared, so
+reworking the sharing here first would be wasted motion.
+
+**Measured (release, this machine, before → after — "before" is Step 3's
+already-landed numbers, the most recent prior baseline):**
+
+| Level | p50 ms/step | allocs/step | bytes/step |
+|---|---|---|---|
+| synthetic n=500 | 1.480 → 1.210 (-18%) | 6,539 → 2,908 (**-56%**) | — |
+| synthetic n=2000 | 6.649 → 6.053 (-9%) | 23,634 → 9,871 (**-58%**) | — |
+| synthetic n=5000 | 22.154 → 21.834 (-1%) | 58,005 → 23,828 (**-59%**) | — |
+| synthetic n=10000 | 67.257 → 68.216 (+1%, noise) | 114,472 → 46,734 (**-59%**) | — |
+| floor1 | 1.558 → 1.164 (-25%) | 10,290 → 3,726 (**-64%**) | 843 KB → 576 KB (-32%) |
+| floor2 | 7.912 → 7.657 (-3%) | 35,220 → 14,596 (**-59%**) | 3.34 MB → 2.34 MB (-30%) |
+| floor3 | 4.430 → 3.520 (-21%) | 21,439 → 8,692 (**-59%**) | 1.83 MB → 1.31 MB (-28%) |
+
+(bytes/step wasn't tracked per-level in Step 3's table, so floor1/2/3's
+"before" bytes column above is Step 1's original baseline, not Step 3's —
+Step 3 touched no allocation this diet doesn't also affect, so that
+comparison is still apples-to-apples.)
+
+**A consistent ~58-59% allocs/step cut across every scale, real but smaller
+time wins, and confirmation the remaining allocation growth is
+collision-driven, not snapshot-driven:**
+`WorldSnapshot::build` itself dropped from 2.199ms to 1.556ms at floor2 (-29%,
+the direct effect of this diet), but floor2's *total* step time only fell 3%
+— `World::detect_collisions`'s O(colliders²) loop (still cloning a `String`
+layer and `Vec<String>` mask per collidable *pair test*, untouched until Step
+7) is now the dominant remaining cost, exactly as Step 1's baseline analysis
+predicted it would become once the snapshot itself got cheap. The synthetic
+n=500→n=2000 allocs/step ratio (the phase's actual done-when signal) moved
+from 3.61× to 3.39×, against a 3.82× entity-count ratio — real progress
+toward "allocs/step stops scaling with entity count," but not there yet,
+because the O(n²) collision phase Step 4 deliberately left alone is still the
+part that scales. Steps 7 (bitmask) and 8 (sweep-and-prune) are what closes
+that remaining gap.
+
+**Verified:** `cargo build --workspace --examples` and `cargo test
+--workspace --lib` (41 passed) both clean; all 10 named integration tests
+(32 sub-tests, including `shooter_arena`) passed; `cargo test --test replay`
+run 5× as independent fresh processes, all passed (this step touches shared
+per-entity state — `Rc<str>` construction order — so the gate applied even
+though nothing here is deferred-write or map-ordering logic in the sense
+Steps 3/9 are). `git diff --stat` on `ember2d/src/sim.rs`,
+`ember2d/src/engine.rs`, `ember2d-editor/` stayed empty throughout.
+
+---
+
+## 5. Steps 5–14
+
+Steps 5 (zero-snapshot `run_collisions`) through 14 (documentation) are
 planned in full detail but not yet started. See the plan file this phase was
-approved from for the complete step-by-step design (the `WorldSnapshot`
-allocation diet; zero-snapshot `run_collisions`; hot-reload throttling; the
-collision-layer bitmask with a private `Collider.layer`/`mask` and
-`LevelData.collision_layers` as the name→bit table; sweep-and-prune broad
-phase; timers moving to `ScriptEngine`; `prev_positions` buffer reuse; the
-`entity_ids` bug fix; `atan2` replaced with a rational approximation;
-conditional `DrawList` buffer reuse) — this doc will be updated with a
-"Done — Step N" note and real before/after numbers as each one lands,
-matching how
+approved from for the complete step-by-step design (zero-snapshot
+`run_collisions`; hot-reload throttling; the collision-layer bitmask with a
+private `Collider.layer`/`mask` and `LevelData.collision_layers` as the
+name→bit table; sweep-and-prune broad phase; timers moving to
+`ScriptEngine`; `prev_positions` buffer reuse; the `entity_ids` bug fix;
+`atan2` replaced with a rational approximation; conditional `DrawList`
+buffer reuse) — this doc will be updated with a "Done — Step N" note and
+real before/after numbers as each one lands, matching how
 `docs/ember2d-phase5-plan.md` and `docs/ember2d-phase5.5-plan.md` record
 their own step-by-step history.
 
