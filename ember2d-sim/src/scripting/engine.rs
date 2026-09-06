@@ -413,6 +413,35 @@ impl ScriptEngine {
             if let Some(p) = scripted_paths.get(&a) { calls.push((a as i64, b as i64, p.clone())); }
             if let Some(p) = scripted_paths.get(&b) { calls.push((b as i64, a as i64, p.clone())); }
         }
+
+        // Phase 6 Step 5 (docs/ember2d-phase6-plan.md): `calls` is built
+        // BEFORE the `WorldSnapshot` a `ScriptState` would carry, specifically
+        // so this can bail out here — with no `on_collide` about to run,
+        // there's nothing for a snapshot to back, and building one is a full
+        // O(entities) pass (`WorldSnapshot::build`'s own doc comment) for a
+        // return value nothing would read. On most turn-resolving steps a
+        // colliding pair doesn't involve a scripted entity at all, so this
+        // is the common case, not an edge case — this is deliberately NOT
+        // done by sharing `step`'s own snapshot instead: `late_step` calls
+        // `resolve_solid_collision` on `world` between building `pairs` and
+        // calling this function, so a snapshot taken before that would carry
+        // stale positions.
+        //
+        // `globals`/`clips`/`persistent` still have to come straight back
+        // out unlanded, exactly what `apply_ctx` would return from a pass
+        // that ran zero scripts — every other field here is that same
+        // pass's quiescent default (nothing spawned, despawned, drawn, or
+        // submitted).
+        if calls.is_empty() {
+            return ScriptUpdateResult {
+                pending_level: None, pending_save: None, pending_load: None,
+                globals, clips, persistent: std::mem::take(persistent),
+                camera_override: None, shake_state: None, clear_hud: false,
+                particles: Vec::new(), commands: BTreeMap::new(), act_cost: None,
+                despawned: Vec::new(), animations: Vec::new(),
+            };
+        }
+
         let mut ctx_state = ScriptState::from_world(world, delta_time, elapsed, InputSnapshot::default(), MouseSnapshot::default(), GamepadSnapshot::default(), spawns, globals, clips, std::mem::take(persistent), camera_pos, BTreeMap::new(), 0, viewport_size);
         for (entity_id, _, _) in &calls {
             let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);

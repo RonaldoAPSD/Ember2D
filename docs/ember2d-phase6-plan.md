@@ -268,18 +268,83 @@ Steps 3/9 are). `git diff --stat` on `ember2d/src/sim.rs`,
 
 ---
 
-## 5. Steps 5–14
+## 5. Step 5 ✅ Done — `run_collisions` builds zero snapshots in the common case
 
-Steps 5 (zero-snapshot `run_collisions`) through 14 (documentation) are
-planned in full detail but not yet started. See the plan file this phase was
-approved from for the complete step-by-step design (zero-snapshot
-`run_collisions`; hot-reload throttling; the collision-layer bitmask with a
-private `Collider.layer`/`mask` and `LevelData.collision_layers` as the
-name→bit table; sweep-and-prune broad phase; timers moving to
-`ScriptEngine`; `prev_positions` buffer reuse; the `entity_ids` bug fix;
-`atan2` replaced with a rational approximation; conditional `DrawList`
-buffer reuse) — this doc will be updated with a "Done — Step N" note and
-real before/after numbers as each one lands, matching how
+`run_collisions` already built its `calls: Vec<(i64, i64, String)>` list
+(which entity/other/script-path triples actually need `on_collide`) *before*
+building a `ScriptState`/`WorldSnapshot` to run them against. If `calls` is
+empty — no colliding pair this step involved a scripted entity — nothing was
+ever going to call `on_collide`, so the snapshot that pass would have built
+is now skipped entirely and the function returns
+`globals`/`clips`/`persistent` straight back out unlanded, exactly what
+`apply_ctx` would produce from a pass that ran zero scripts (every other
+`ScriptUpdateResult` field set to that pass's quiescent default: nothing
+spawned, despawned, drawn, or submitted).
+
+**Deliberately not** done by sharing `step`'s own `WorldSnapshot` (the `Rc`
+Step 5f's fix already threads through `on_input`/`on_update`/`on_turn`):
+`late_step` calls `resolve_solid_collision` directly against `world` between
+building the collision-pair list and calling `run_collisions`, so a snapshot
+taken earlier in the step would hand a colliding script stale positions for
+whichever pairs the solid-resolution pass just moved.
+
+**Measured (release, this machine, before → after — before = Step 4's
+numbers):**
+
+| Level | p50 ms/step | allocs/step | bytes/step |
+|---|---|---|---|
+| synthetic n=500 | 1.210 → 0.789 (-35%) | 2,908 → 1,968 (**-32%**) | — |
+| synthetic n=2000 | 6.053 → 4.064 (-33%) | 9,871 → 6,374 (**-35%**) | — |
+| synthetic n=5000 | 21.834 → 21.174 (-3%) | 23,828 → 15,203 (**-36%**) | — |
+| synthetic n=10000 | 68.216 → 66.263 (-3%) | 46,734 → 29,690 (**-36%**) | — |
+| floor1 | 1.164 → 0.789 (-32%) | 3,726 → 2,095 (**-44%**) | 589 KB → 332 KB (-44%) |
+| floor2 | 7.657 → 6.570 (-14%, ±1ms run-to-run) | 14,596 → 8,306 (**-43%**) | 2.34 MB → 1.36 MB (-42%) |
+| floor3 | 3.520 → 2.717 (-23%) | 8,692 → 4,961 (**-43%**) | 1.31 MB → 774 KB (-42%) |
+
+allocs/step and bytes/step are exact counts (the bench's counting allocator),
+reproducible bit-for-bit across repeated runs — re-measured twice to confirm.
+p50 ms/step is not: floor2 read anywhere from 5.5ms to 7.7ms across separate
+runs, consistent with every prior step's own noise band on this machine: the
+allocation counts are this step's real signal, not the timings.
+
+**A second, larger cut on top of Step 4's, and a data point on why the
+synthetic scale numbers diverge from the shipped-content ones:** at floor1-3
+scale, roughly 40-45% of *all remaining* per-step allocation is a
+`run_collisions` pass that, on a typical step, has nothing to actually run —
+confirming the plan's "most turn-resolving steps have no scripted collide
+pair" assumption directly, now as a number instead of a guess. At n=5,000/
+n=10,000 synthetic scale the *time* win nearly vanishes (-3%) even though the
+*allocation* win holds (-36%): `World::detect_collisions`'s O(colliders²)
+loop so dominates total step time at that scale (85% of it at n=10,000, per
+Step 1's own baseline analysis) that removing an allocation-only pass barely
+moves the total, even though it removes over a third of the allocations.
+Steps 7/8 are what will make that show up in the timing column too.
+
+**Verified:** `cargo build --workspace --examples` and `cargo test
+--workspace --lib` (41 passed, both `ember2d-sim` and `ember2d`) clean; all
+10 named integration tests (32 sub-tests) passed; `cargo test --test replay`
+run 5× as independent fresh processes, all passed — the early-return path
+returns a result provably identical to what the pre-Step-5 code path would
+have produced when `calls` is empty (every field traced above), so this
+carries no real determinism risk, but the gate ran anyway rather than
+asserting that from reasoning alone. `git diff --stat` on
+`ember2d/src/sim.rs`, `ember2d/src/engine.rs`, `ember2d-editor/` stayed
+empty.
+
+---
+
+## 6. Steps 6–14
+
+Steps 6 (hot-reload throttling) through 14 (documentation) are planned in
+full detail but not yet started. See the plan file this phase was approved
+from for the complete step-by-step design (hot-reload throttling; the
+collision-layer bitmask with a private `Collider.layer`/`mask` and
+`LevelData.collision_layers` as the name→bit table; sweep-and-prune broad
+phase; timers moving to `ScriptEngine`; `prev_positions` buffer reuse; the
+`entity_ids` bug fix; `atan2` replaced with a rational approximation;
+conditional `DrawList` buffer reuse) — this doc will be updated with a
+"Done — Step N" note and real before/after numbers as each one lands,
+matching how
 `docs/ember2d-phase5-plan.md` and `docs/ember2d-phase5.5-plan.md` record
 their own step-by-step history.
 
@@ -291,7 +356,7 @@ the replay test exists to guard.
 
 ---
 
-## 3. Documents to update as the phase lands
+## 7. Documents to update as the phase lands
 
 - `docs/ember2d-refactor-plan.md` — §3 D11 closed with real numbers once
   Steps 3–9 land, plus new D20 (hot-reload syscall) and D21
