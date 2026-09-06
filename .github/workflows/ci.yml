@@ -23,14 +23,14 @@
 # docs/ember2d-regression-checklist.md §15 — one run per OS per push is the
 # right initial scope for this workflow. That 5x discipline stays a manual
 # pre-merge gate for anyone touching sim ordering, deferred writes, or RNG.
-# Also not run here: regenerating roguelike/*.level via
-# `cargo run --example gen_roguelike` — that's a content-authoring step, not
-# a build/test gate; the checked-in .level files are what
-# roguelike_level_integrity already asserts against. Same reasoning for
-# ember2d-sim/examples/bench_sim.rs (Phase 6,
+# Also not run here: regenerating the demo levels via
+# `cargo run --example gen_roguelike` / `gen_shooter` — that's a
+# content-authoring step, not a build/test gate; the checked-in .level files
+# are what roguelike_level_integrity and shooter_arena already assert
+# against. Same reasoning for ember2d-sim/examples/bench_sim.rs (Phase 6,
 # docs/ember2d-phase6-plan.md) — a manual perf tool, not something CI times
 # (shared runners make ms numbers noise) — but `--examples` below still
-# builds both so neither can silently bit-rot.
+# builds all three so none can silently bit-rot.
 
 name: CI
 
@@ -48,4 +48,4 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --workspace --examples
       - run: cargo test --workspace --lib
-      - run: cargo test --test persistent_on_start --test trigger_collider_layer --test roguelike_floor1 --test roguelike_combat --test roguelike_level_integrity --test save_load_globals --test replay --test external_commands --test turn_animation
+      - run: cargo test --test persistent_on_start --test trigger_collider_layer --test roguelike_floor1 --test roguelike_combat --test roguelike_level_integrity --test save_load_globals --test replay --test external_commands --test turn_animation --test shooter_arena

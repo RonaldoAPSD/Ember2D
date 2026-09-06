@@ -1,0 +1,7 @@
+(
+    name: "Ember Assault",
+    visual_style: ClassicASCII,
+    gameplay_loop: RealTime,
+    start_level: Some("arena.level"),
+    pixels_per_unit: 8.0,
+)
