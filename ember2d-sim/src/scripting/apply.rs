@@ -119,7 +119,15 @@ impl ScriptEngine {
         // (see `ScriptUpdateResult::commands`'s doc comment).
         let commands: BTreeMap<i64, Command> = std::mem::take(&mut state.pending_commands).into_iter().map(|c| (c.actor as i64, c)).collect();
         let act_cost = state.pending_act_cost.take();
-        let result = ScriptUpdateResult { pending_level: state.pending_level.take(), pending_save: state.pending_save.take(), pending_load: state.pending_load.take(), globals: state.globals.clone(), clips: state.clips.clone(), persistent: state.persistent.clone(), camera_override: state.pending_camera.take(), shake_state: state.pending_shake.take(), clear_hud: state.clear_hud, particles: state.pending_particles.drain(..).collect(), commands, act_cost, despawned: state.despawn_queue.iter().map(|&id| id as EntityId).collect(), animations: state.pending_animations.drain(..).collect() };
+        // Phase 6 Step 3 (docs/ember2d-phase6-plan.md): `mem::take`, not
+        // `.clone()` — `state` (and therefore `state.globals`/`.clips`/
+        // `.persistent`) is dropped a few lines below and never read again,
+        // so there's nothing left to preserve a copy for. This is the
+        // matching half of every call site's own take (`Simulation::step`/
+        // `on_start`/`late_step`, and each `run_*` method's own
+        // `persistent` take) — together they turn what used to be 18-24
+        // full map clones per step into pointer swaps.
+        let result = ScriptUpdateResult { pending_level: state.pending_level.take(), pending_save: state.pending_save.take(), pending_load: state.pending_load.take(), globals: std::mem::take(&mut state.globals), clips: std::mem::take(&mut state.clips), persistent: std::mem::take(&mut state.persistent), camera_override: state.pending_camera.take(), shake_state: state.pending_shake.take(), clear_hud: state.clear_hud, particles: state.pending_particles.drain(..).collect(), commands, act_cost, despawned: state.despawn_queue.iter().map(|&id| id as EntityId).collect(), animations: state.pending_animations.drain(..).collect() };
         state.clear_hud = false; let despawn_ids = state.despawn_queue.clone(); drop(state);
         for id in despawn_ids { world.despawn(id as EntityId); self.scopes.remove(&(id as EntityId)); }
         result

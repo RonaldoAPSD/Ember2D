@@ -138,19 +138,70 @@ yet logged — a fix found and shipped live jumped the queue.
 
 ---
 
-## 2. Steps 2–14
+## 2. Step 2 ✅ Done — split the two over-limit scripting files
 
-Steps 2 (split over-limit scripting files) through 14 (documentation) are
+Pure relocation, no behavior change. `scripting/apply.rs` ← `ScriptEngine::apply_ctx`
+(a second `impl ScriptEngine` block, same pattern `api_animation.rs` established
+in Phase 5.5); `scripting/api_spatial.rs` ← `get_entity_at`/`is_solid_at`/
+`find_entities_in_rect`/`get_distance`/`get_angle_to`/`raycast`/`get_path`
+(a second `impl ScriptCtx` block) — exactly the set this phase's later steps
+modify. `engine.rs`: 573 → 480 lines. `api.rs`: 629 → 453 lines. `git diff
+--stat` confirmed only moves/deletions. Full test suite unchanged.
+
+## 3. Step 3 ✅ Done — `mem::take` instead of cloning globals/clips/persistent
+
+Six conceptual clone-eliminations (globals/clips/persistent, in and out of
+`ScriptState`), spread across every `Simulation` call site that hands them to
+a `run_*` method (`do_on_start`, `step`'s `on_input`/`run_scripts` calls,
+`run_actor_turn`, `late_step`), every `run_*` method's own `persistent.clone()`,
+and `apply_ctx`'s final `ScriptUpdateResult` construction. `run_scripts`'s
+dead `_events: &mut EventBus` parameter also removed (and the `EventBus::new()`
+callers had to allocate just to satisfy it). Added a `debug_assert!` at the
+top of `apply_script_result` checking `self.globals`/`self.clips` are already
+empty — it must always be true now (a preceding take is the only thing that
+gets there), so it fires immediately if a future edit reverts to `.clone()`
+or an early return skips the matching take/restore pair. It did not fire
+across the full test suite.
+
+**Measured (release, this machine, before → after):**
+
+| Level | p50 ms/step | allocs/step |
+|---|---|---|
+| synthetic n=500 | 1.499 → 1.480 (-1%) | 6,632 → 6,539 (-1%) |
+| synthetic n=2000 | 7.141 → 6.649 (-7%) | 23,728 → 23,634 (~0%) |
+| synthetic n=5000 | 25.326 → 22.154 (-13%) | 58,098 → 58,005 (~0%) |
+| synthetic n=10000 | 75.040 → 67.257 (-10%) | 114,566 → 114,472 (~0%) |
+| floor2 | 9.723 → 7.912 (**-19%**) | 35,299 → 35,220 (~0%) |
+
+**A real finding, worth recording plainly rather than letting the earlier
+"watch allocs/step" framing stand uncorrected: this step's win shows up in
+*time*, not allocation *count*.** `globals`/`clips`/`persistent` are small
+maps (tens of entries at most — keyed by things like `"hp_" + id` for a
+handful of actors, not one entry per entity), so their clones were never a
+meaningful share of the allocation total that `WorldSnapshot::build`'s
+per-entity work dominates (that's Step 4's target). But `BTreeMap::clone()`
+does real CPU work — walking and copying every entry — independent of how
+many *allocations* that costs, and a small map still costs real time to
+clone three-to-five times per step. Removing that work cuts floor2's p50 by
+~19% with almost no change to allocs/step. The phase's "no per-frame
+allocation proportional to entity count" done-when is unaffected either way
+— that property was never about this step, it's Steps 4/5/7/8's to establish.
+
+---
+
+## 4. Steps 4–14
+
+Steps 4 (`WorldSnapshot` allocation diet) through 14 (documentation) are
 planned in full detail but not yet started. See the plan file this phase was
-approved from for the complete step-by-step design (`mem::take` instead of
-cloning globals/clips/persistent; the `WorldSnapshot` allocation diet;
-zero-snapshot `run_collisions`; hot-reload throttling; the collision-layer
-bitmask with a private `Collider.layer`/`mask` and `LevelData.collision_layers`
-as the name→bit table; sweep-and-prune broad phase; timers moving to
-`ScriptEngine`; `prev_positions` buffer reuse; the `entity_ids` bug fix;
-`atan2` replaced with a rational approximation; conditional `DrawList`
-buffer reuse) — this doc will be updated with a "Done — Step N" note and
-real before/after numbers as each one lands, matching how
+approved from for the complete step-by-step design (the `WorldSnapshot`
+allocation diet; zero-snapshot `run_collisions`; hot-reload throttling; the
+collision-layer bitmask with a private `Collider.layer`/`mask` and
+`LevelData.collision_layers` as the name→bit table; sweep-and-prune broad
+phase; timers moving to `ScriptEngine`; `prev_positions` buffer reuse; the
+`entity_ids` bug fix; `atan2` replaced with a rational approximation;
+conditional `DrawList` buffer reuse) — this doc will be updated with a
+"Done — Step N" note and real before/after numbers as each one lands,
+matching how
 `docs/ember2d-phase5-plan.md` and `docs/ember2d-phase5.5-plan.md` record
 their own step-by-step history.
 

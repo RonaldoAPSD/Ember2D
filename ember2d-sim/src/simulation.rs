@@ -324,9 +324,19 @@ impl Simulation {
         let cam_x = (cam_pos.x - viewport_w as f32 / 2.0).max(0.0).round();
         let cam_y = (cam_pos.y - game_h as f32 / 2.0).max(0.0).round();
 
+        // Phase 6 Step 3 (docs/ember2d-phase6-plan.md): `mem::take` instead
+        // of `.clone()` — `self.globals`/`self.clips` are about to be
+        // reassigned wholesale by `apply_script_result` right below
+        // regardless (`self.globals = res.globals`), so their pre-call
+        // value never needs to survive alongside a copy. Safe because
+        // nothing reads `self.globals`/`self.clips` in the gap between the
+        // take and that reassignment — see this module's own note on
+        // `apply_script_result` for the invariant this depends on.
+        let globals = std::mem::take(&mut self.globals);
+        let clips = std::mem::take(&mut self.clips);
         let res = self.script_engine.run_on_start_all(
             world, logs, &self.level.extra_spawns,
-            self.globals.clone(), self.clips.clone(), persistent, Vec2::new(cam_x, cam_y),
+            globals, clips, persistent, Vec2::new(cam_x, cam_y),
             (viewport_w, viewport_h),
         );
         let mut outcome = StepOutcome::default();
@@ -382,9 +392,11 @@ impl Simulation {
 
         if let Some(front) = front {
             if is_local {
+                let globals = std::mem::take(&mut self.globals);
+                let clips = std::mem::take(&mut self.clips);
                 let input_res = self.script_engine.run_on_input(
                     world, world_snapshot.clone(), &mut logs, front, sim_dt, elapsed, input_snapshot.clone(),
-                    mouse_snapshot, gamepad_snapshot.clone(), &self.level.extra_spawns, self.globals.clone(), self.clips.clone(),
+                    mouse_snapshot, gamepad_snapshot.clone(), &self.level.extra_spawns, globals, clips,
                     persistent, camera_origin, self.turn_number, (viewport_w, viewport_h),
                 );
                 self.apply_script_result(world, input_res, persistent, &mut logs, &mut outcome);
@@ -397,14 +409,19 @@ impl Simulation {
         // "last write wins" rule `ScriptState::pending_commands` already has.
         for cmd in external_commands { self.commands.insert(cmd.actor as i64, cmd.clone()); }
 
-        // Snapshot here, before the housekeeping pass below overwrites
-        // `self.commands` with its own (always-empty) result —
-        // `ScriptUpdateResult::commands` doesn't accumulate across passes.
-        let turn_commands = self.commands.clone();
+        // `mem::take`, not `.clone()`: the housekeeping pass below always
+        // overwrites `self.commands` with its own (always-empty) result
+        // regardless, so the pre-pass value never needs to survive
+        // alongside a copy — but `turn_commands` itself is still read
+        // twice below (once by run_scripts, once for `run_actor_turn`), so
+        // that second use still needs its own clone.
+        let turn_commands = std::mem::take(&mut self.commands);
 
+        let globals = std::mem::take(&mut self.globals);
+        let clips = std::mem::take(&mut self.clips);
         let res = self.script_engine.run_scripts(
-            world, world_snapshot.clone(), &mut EventBus::new(), &mut logs, sim_dt, elapsed, input_snapshot.clone(), mouse_snapshot, gamepad_snapshot.clone(),
-            &self.level.extra_spawns, self.globals.clone(), self.clips.clone(), persistent, camera_origin,
+            world, world_snapshot.clone(), &mut logs, sim_dt, elapsed, input_snapshot.clone(), mouse_snapshot, gamepad_snapshot.clone(),
+            &self.level.extra_spawns, globals, clips, persistent, camera_origin,
             turn_commands.clone(), self.turn_number, (viewport_w, viewport_h),
         );
         self.apply_script_result(world, res, persistent, &mut logs, &mut outcome);
@@ -429,9 +446,11 @@ impl Simulation {
         sim_dt: f32, elapsed: f32, persistent: &mut BTreeMap<String, rhai::Dynamic>,
         camera_origin: Vec2, viewport_w: usize, viewport_h: usize, logs: &mut Vec<LogEntry>, outcome: &mut StepOutcome,
     ) {
+        let globals = std::mem::take(&mut self.globals);
+        let clips = std::mem::take(&mut self.clips);
         let res = self.script_engine.run_on_turn(
             world, snapshot, logs, actor, sim_dt, elapsed,
-            &self.level.extra_spawns, self.globals.clone(), self.clips.clone(),
+            &self.level.extra_spawns, globals, clips,
             persistent, camera_origin, commands, self.turn_number,
             (viewport_w, viewport_h),
         );
@@ -486,9 +505,11 @@ impl Simulation {
             }
         }
 
+        let globals = std::mem::take(&mut self.globals);
+        let clips = std::mem::take(&mut self.clips);
         let res = self.script_engine.run_collisions(
             world, &all_pairs, &mut logs, sim_dt, elapsed,
-            &self.level.extra_spawns, self.globals.clone(), self.clips.clone(), persistent, camera_origin,
+            &self.level.extra_spawns, globals, clips, persistent, camera_origin,
             (viewport_w, viewport_h),
         );
         self.apply_script_result(world, res, persistent, &mut logs, &mut outcome);
@@ -504,6 +525,18 @@ impl Simulation {
     /// (loaded/written) right here rather than left as raw paths — the
     /// caller only ever sees an already-loaded `LevelData`/`SaveState`.
     fn apply_script_result(&mut self, world: &mut World, res: ScriptUpdateResult, persistent: &mut BTreeMap<String, rhai::Dynamic>, logs: &mut Vec<LogEntry>, outcome: &mut StepOutcome) {
+        // Phase 6 Step 3 (docs/ember2d-phase6-plan.md): every call site
+        // above `mem::take`s `self.globals`/`self.clips` immediately before
+        // its `run_*` call, specifically so this function's own
+        // `self.globals = res.globals` below is a pointer swap rather than
+        // a clone. That means `self.globals`/`self.clips` MUST already be
+        // empty by the time this function runs — if they're not, either a
+        // future caller reverted to `.clone()` (which never empties the
+        // source, so this fires immediately) or a take happened without
+        // its matching call reaching this point (an early return in
+        // between), either of which would otherwise silently duplicate or
+        // permanently lose script state with no visible symptom.
+        debug_assert!(self.globals.is_empty() && self.clips.is_empty(), "apply_script_result called without a preceding mem::take of self.globals/self.clips");
         // A despawned actor must not keep cycling a dead turn slot forever.
         for &id in &res.despawned { self.scheduler.remove(id); }
         if let Some(level_path) = res.pending_level {

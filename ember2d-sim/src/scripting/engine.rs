@@ -9,7 +9,6 @@ use rhai::{Engine, Scope, AST};
 
 use crate::world::{EntityId, World};
 use crate::command::{Command, GamepadSnapshot, InputSnapshot, MouseSnapshot};
-use crate::event::EventBus;
 use crate::components::AnimationClip;
 
 use super::types::*;
@@ -254,7 +253,7 @@ impl ScriptEngine {
 
     pub fn run_on_start_all(&mut self, world: &mut World, log: &mut Vec<LogEntry>, extra_spawns: &[(String, f32, f32)], globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, persistent: &mut BTreeMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, viewport_size: (usize, usize)) -> ScriptUpdateResult {
         let scripted: Vec<(i64, String)> = world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
-        let mut ctx_state = ScriptState::from_world(world, 0.0, 0.0, InputSnapshot::default(), MouseSnapshot::default(), GamepadSnapshot::default(), extra_spawns, globals, clips, persistent.clone(), camera_pos, BTreeMap::new(), 0, viewport_size);
+        let mut ctx_state = ScriptState::from_world(world, 0.0, 0.0, InputSnapshot::default(), MouseSnapshot::default(), GamepadSnapshot::default(), extra_spawns, globals, clips, std::mem::take(persistent), camera_pos, BTreeMap::new(), 0, viewport_size);
         for (entity_id, _) in &scripted {
             let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);
             let mut entity_timers = HashMap::new();
@@ -293,7 +292,7 @@ impl ScriptEngine {
     #[allow(clippy::too_many_arguments)]
     pub fn run_on_input(&mut self, world: &mut World, snapshot: Rc<WorldSnapshot>, log: &mut Vec<LogEntry>, actor_id: EntityId, delta_time: f32, elapsed: f32, input: InputSnapshot, mouse: MouseSnapshot, gamepad: GamepadSnapshot, spawns: &[(String, f32, f32)], globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, persistent: &mut BTreeMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, turn_number: i64, viewport_size: (usize, usize)) -> ScriptUpdateResult {
         let path = world.scripts.get(&actor_id).map(|s| s.path.clone());
-        let mut ctx_state = ScriptState::from_snapshot(snapshot, world.next_id, delta_time, elapsed, input, mouse, gamepad, spawns, globals, clips, persistent.clone(), camera_pos, BTreeMap::new(), turn_number, viewport_size);
+        let mut ctx_state = ScriptState::from_snapshot(snapshot, world.next_id, delta_time, elapsed, input, mouse, gamepad, spawns, globals, clips, std::mem::take(persistent), camera_pos, BTreeMap::new(), turn_number, viewport_size);
         if path.is_some() {
             let scope = self.scopes.entry(actor_id).or_insert_with(Scope::new);
             let mut entity_timers = HashMap::new();
@@ -331,7 +330,7 @@ impl ScriptEngine {
     #[allow(clippy::too_many_arguments)]
     pub fn run_on_turn(&mut self, world: &mut World, snapshot: Rc<WorldSnapshot>, log: &mut Vec<LogEntry>, actor_id: EntityId, delta_time: f32, elapsed: f32, spawns: &[(String, f32, f32)], globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, persistent: &mut BTreeMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, commands: BTreeMap<i64, Command>, turn_number: i64, viewport_size: (usize, usize)) -> ScriptUpdateResult {
         let path = world.scripts.get(&actor_id).map(|s| s.path.clone());
-        let mut ctx_state = ScriptState::from_snapshot(snapshot, world.next_id, delta_time, elapsed, InputSnapshot::default(), MouseSnapshot::default(), GamepadSnapshot::default(), spawns, globals, clips, persistent.clone(), camera_pos, commands, turn_number, viewport_size);
+        let mut ctx_state = ScriptState::from_snapshot(snapshot, world.next_id, delta_time, elapsed, InputSnapshot::default(), MouseSnapshot::default(), GamepadSnapshot::default(), spawns, globals, clips, std::mem::take(persistent), camera_pos, commands, turn_number, viewport_size);
         if path.is_some() {
             let scope = self.scopes.entry(actor_id).or_insert_with(Scope::new);
             let mut entity_timers = HashMap::new();
@@ -359,7 +358,13 @@ impl ScriptEngine {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn run_scripts(&mut self, world: &mut World, snapshot: Rc<WorldSnapshot>, _events: &mut EventBus, log: &mut Vec<LogEntry>, delta_time: f32, elapsed: f32, input: InputSnapshot, mouse: MouseSnapshot, gamepad: GamepadSnapshot, spawns: &[(String, f32, f32)], globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, persistent: &mut BTreeMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, commands: BTreeMap<i64, Command>, turn_number: i64, viewport_size: (usize, usize)) -> ScriptUpdateResult {
+    // Phase 6 Step 3 (docs/ember2d-phase6-plan.md): dropped the `_events:
+    // &mut EventBus` parameter — it was never read (the leading underscore
+    // already said so), so every caller had to allocate a throwaway
+    // `EventBus::new()` just to satisfy the signature. Collision events are
+    // populated by `World::detect_collisions` and consumed by `late_step`
+    // directly; this pass never touched them.
+    pub fn run_scripts(&mut self, world: &mut World, snapshot: Rc<WorldSnapshot>, log: &mut Vec<LogEntry>, delta_time: f32, elapsed: f32, input: InputSnapshot, mouse: MouseSnapshot, gamepad: GamepadSnapshot, spawns: &[(String, f32, f32)], globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, persistent: &mut BTreeMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, commands: BTreeMap<i64, Command>, turn_number: i64, viewport_size: (usize, usize)) -> ScriptUpdateResult {
         self.check_hot_reload(world, log);
         // Step 4g: cleared here (once per real frame — `run_scripts` is the
         // one call site the engine's own `update()` invokes, and it only
@@ -372,7 +377,7 @@ impl ScriptEngine {
         // instead means a skipped pass just leaves last frame's draws
         // rendering unchanged.
         self.pending_hud_draws.clear();
-        let mut ctx_state = ScriptState::from_snapshot(snapshot, world.next_id, delta_time, elapsed, input, mouse, gamepad, spawns, globals, clips, persistent.clone(), camera_pos, commands, turn_number, viewport_size);
+        let mut ctx_state = ScriptState::from_snapshot(snapshot, world.next_id, delta_time, elapsed, input, mouse, gamepad, spawns, globals, clips, std::mem::take(persistent), camera_pos, commands, turn_number, viewport_size);
         let scripted: Vec<(i64, String)> = world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
         for (entity_id, _) in &scripted {
             let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);
@@ -408,7 +413,7 @@ impl ScriptEngine {
             if let Some(p) = scripted_paths.get(&a) { calls.push((a as i64, b as i64, p.clone())); }
             if let Some(p) = scripted_paths.get(&b) { calls.push((b as i64, a as i64, p.clone())); }
         }
-        let mut ctx_state = ScriptState::from_world(world, delta_time, elapsed, InputSnapshot::default(), MouseSnapshot::default(), GamepadSnapshot::default(), spawns, globals, clips, persistent.clone(), camera_pos, BTreeMap::new(), 0, viewport_size);
+        let mut ctx_state = ScriptState::from_world(world, delta_time, elapsed, InputSnapshot::default(), MouseSnapshot::default(), GamepadSnapshot::default(), spawns, globals, clips, std::mem::take(persistent), camera_pos, BTreeMap::new(), 0, viewport_size);
         for (entity_id, _, _) in &calls {
             let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);
             let mut entity_timers = HashMap::new();

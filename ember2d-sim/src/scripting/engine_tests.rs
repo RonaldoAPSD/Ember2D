@@ -96,11 +96,10 @@ fn hot_reload_clears_only_the_reloaded_scripts_entities() {
 }
 
 fn run_scripts_once(engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<LogEntry>) {
-    let mut events = EventBus::new();
     let mut persistent = BTreeMap::new();
     let snapshot = Rc::new(WorldSnapshot::build(world));
     engine.run_scripts(
-        world, snapshot, &mut events, log, 1.0 / 60.0, 0.0, crate::command::InputSnapshot::default(), crate::command::MouseSnapshot::default(), crate::command::GamepadSnapshot::default(),
+        world, snapshot, log, 1.0 / 60.0, 0.0, crate::command::InputSnapshot::default(), crate::command::MouseSnapshot::default(), crate::command::GamepadSnapshot::default(),
         &[], BTreeMap::new(), BTreeMap::new(), &mut persistent, crate::math::Vec2::ZERO, BTreeMap::new(), 0, (80, 24),
     );
 }
@@ -427,11 +426,10 @@ fn clip_finished_reports_true_for_entities_whose_animator_just_finished_this_tic
     animator.just_finished = true;
     world.animators.insert(entity, animator);
 
-    let mut events = EventBus::new();
     let mut persistent = BTreeMap::new();
     let snapshot = Rc::new(WorldSnapshot::build(&world));
     let result = engine.run_scripts(
-        &mut world, snapshot, &mut events, &mut log, 1.0 / 60.0, 0.0, crate::command::InputSnapshot::default(), crate::command::MouseSnapshot::default(), crate::command::GamepadSnapshot::default(),
+        &mut world, snapshot, &mut log, 1.0 / 60.0, 0.0, crate::command::InputSnapshot::default(), crate::command::MouseSnapshot::default(), crate::command::GamepadSnapshot::default(),
         &[], BTreeMap::new(), BTreeMap::new(), &mut persistent, crate::math::Vec2::ZERO, BTreeMap::new(), 0, (80, 24),
     );
 
