@@ -34,7 +34,14 @@ impl EditorState {
                 self.save_message_timer = 0;
             }
         }
-        self.save_palette();
+        // Deliberately does NOT call `self.save_palette()` (7A-8, master
+        // plan §5.1 "Hygiene" — small debts, no defect number of its own):
+        // a level save is a routine, frequent action (Ctrl+S) that
+        // has nothing to do with whether the palette was ever customized —
+        // writing `project.palette.ron` here meant every saved level silently
+        // grew an untracked file next to it even when nothing about the
+        // palette changed. `save_palette()` now only runs from the palette
+        // editor's own explicit "Save & Close" / delete actions.
     }
 
     /// Level format v2 (Step 3d): for each tile carrying a live node-graph

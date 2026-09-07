@@ -222,8 +222,12 @@ impl EditorState {
                 }
             }
             if input.just_pressed(Key::Escape) {
+                // Escape dismisses the palette editor without writing
+                // anything (7A-8, master plan §5.1 "Hygiene") — only the
+                // explicit "Save & Close" button and item-delete above
+                // persist a customized palette to disk.
                 if self.palette_editor_focus.is_some() { self.palette_editor_focus = None; }
-                else { self.palette_editor_open = false; self.save_palette(); }
+                else { self.palette_editor_open = false; }
             }
             return;
         }
