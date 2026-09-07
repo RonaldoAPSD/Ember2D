@@ -263,12 +263,12 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | **Renderer / engine** | | | | |
 | R21 | S2 | Non-integer cell projection: cells stretched unless window is an exact cell multiple; `scale_factor()` width-only; HiDPI mis-sized | `renderer/mod.rs:523-546` (`try_handle_resize`), `renderer/mod.rs:190-192` (`scale_factor`) — locations shifted after 7B-1; original `engine.rs:246`/`backend.rs:328` cites are stale | `[x]` 7B-2 — `compute_layout` floor-divides and letterboxes instead of stretching; `scale` is now DPI-derived (`window.scale_factor().round().max(1.0)`, was a fixed constant); `ScreenMapping` (`origin_px`, per-axis `cell_px`) replaces the width-only `scale_factor()`, consumed by a real wgpu viewport (backend.rs) and by `MouseState::handle_move` |
 | R22 | S4 | `scopes` map is dead state (rhai rewinds scope; timers moved off it) yet maintained by hot-reload and despawn | `scripting/engine.rs` | `[ ]` → 7.5-10 |
-| R23 | S3 | Frame pacing double-throttles (Fifo vsync + `thread::sleep` to 60) | `engine.rs:389-392` | `[ ]` → 7B-4 |
-| R24 | S3 | Key repeat inconsistent: `repeat` flag ignored; letters repeat into text buffer, editing keys never repeat; Ctrl+S pushes "s" | `engine.rs:226-243` | `[ ]` → 7B-4 |
-| R25 | S3 | `GamepadState::poll` ignores `Disconnected`; held buttons stick | `gamepad.rs:131-159` | `[ ]` → 7B-4 |
+| R23 | S3 | Frame pacing double-throttles (Fifo vsync + `thread::sleep` to 60) | `engine.rs:389-392` | `[x]` 7B-4 — the tail-of-loop `thread::sleep(FRAME_DURATION - frame_elapsed)` and its now-unused `TARGET_FPS`/`FRAME_DURATION` constants are gone; `wgpu::PresentMode::Fifo` (renderer/mod.rs) is the sole pacing mechanism now |
+| R24 | S3 | Key repeat inconsistent: `repeat` flag ignored; letters repeat into text buffer, editing keys never repeat; Ctrl+S pushes "s" | `engine.rs:226-243` | `[x]` 7B-4 — `PressBuffer::handle_repeat`/`is_repeating` (new `repeating: HashSet<K>`, separate from `pending`/`consumed`) fed from `KeyEvent::repeat` in `EventPump`; script editor's Up/Down/Left/Right/Tab/Enter/Backspace now check `is_repeating` alongside `just_pressed`; `text_buffer` pushes gated on `!ModifiersState::control_key() && !super_key()` (new `Engine::modifiers` field, updated on `WindowEvent::ModifiersChanged`) so Ctrl+S no longer leaks an "s" |
+| R25 | S3 | `GamepadState::poll` ignores `Disconnected`; held buttons stick | `gamepad.rs:131-159` | `[x]` 7B-4 — `EventType::Disconnected` now calls the new `PressBuffer::retain` to drop every held/pending/consumed/just-released/repeating entry for that `gamepad_id`, plus clears its `axes` entries |
 | R26 | S3 | GPU textures never freed; `AssetManager::clear` doesn't invalidate `texture_cache` | `backend.rs:124` | `[x]` 7B-3 — new `TextureBudget` (LRU + byte budget, `renderer/texture_budget.rs`) plus `AssetManager::clear` now evicts every id it forgets via a new `TextureEvictor` trait `Renderer` implements |
 | R27 | S3 | `draw_text_px` clones the 4 MB atlas `Texture` per call | `renderer/mod.rs:270` | `[x]` 7B-3 — only clones real pixel data when `dirty` or not yet GPU-resident (`WgpuBackend::has_texture`); every other call passes a lightweight placeholder instead |
-| R28 | S3 | Bottom world row never drawn (culled for a HUD bar removed in Phase 4) | `play/render.rs:106-108` | `[ ]` → 7B-4 |
+| R28 | S3 | Bottom world row never drawn (culled for a HUD bar removed in Phase 4) | `play/render.rs:106-108` | `[x]` 7B-4 — removed the trailing `.saturating_sub(1)` on `height` in `in_viewport`; confirmed visually (floor2 screenshot, bottom wall/floor row now renders through to the HUD text row) and via a new regression test |
 | R29 | S3 | `request_adapter`/`request_device` `.expect` → panic with no message on unsupported GPU | `renderer/mod.rs:84, 93` | `[ ]` → 7B-1 |
 | R30 | S3 | Audio: decode from disk on every `play_sound`; new `AudioEngine` per level kills music | `audio.rs:38, 51`; `play.rs:203` | `[ ]` → 7.5-11 |
 | **API and docs** | | | | |
@@ -1137,7 +1137,7 @@ draws. Doing these after the theme lands would mean redoing the theme.
   screenshots and a clean `cargo test --workspace` (233 tests, 0
   failures).
 
-#### `[ ]` 7B-4 — Engine loop and input correctness
+#### `[x]` 7B-4 — Engine loop and input correctness (`77bfd7d`)
 
 - **Why:** R23, R24, R25, R28, and the three duplicated press buffers.
 - **Change:** Pick one pacing mechanism: keep `Fifo` and remove the sleep;
@@ -1155,6 +1155,44 @@ draws. Doing these after the theme lands would mean redoing the theme.
 - **Done when:** holding Backspace in the script editor repeats; unplugging
   a pad releases buttons; floor2's bottom row renders.
 - **Scope:** `ember2d`.
+- **Landed as:** new `press_buffer.rs` (`PressBuffer<K>`: held/pending/
+  consumed/just_released as-is, plus a new `repeating: HashSet<K>` fed by a
+  new `handle_repeat`/`is_repeating` pair — deliberately never touches
+  `pending`, so a repeat can never look like a second `just_pressed`);
+  `InputManager`, `MouseState`, `GamepadState` all now hold one `PressBuffer`
+  field instead of their own five duplicated ones. `EventPump` in
+  `engine.rs` gained: `key_event.repeat` routing (`handle_repeat` instead of
+  `handle_pressed` on repeat; `text_buffer` still fed on repeat, matching
+  how any text editor retypes a held letter); a new `Engine::modifiers`
+  field updated on `WindowEvent::ModifiersChanged`, gating `text_buffer`
+  pushes on `!control_key() && !super_key()` (Alt deliberately excluded —
+  AltGr layouts synthesize printable characters as a Ctrl+Alt chord);
+  `WindowEvent::CursorLeft` sets `mouse.in_bounds = false` (field was
+  already `pub`, no new setter needed); `WindowEvent::Ime(Ime::Commit(text))`
+  feeds `text_buffer` (Enabled/Preedit/Disabled deliberately out of scope —
+  presentation-only). `GamepadState::poll` matches `EventType::Disconnected`
+  and calls a new `PressBuffer::retain` to drop every held/pending/consumed/
+  just-released/repeating/axis entry for that `gamepad_id`. `in_viewport`
+  (play/render.rs) no longer subtracts 1 from `height`; its regression test
+  updated, plus a new test asserting the bottom row is now accepted.
+  `engine.rs`'s tail-of-loop `thread::sleep` and its `TARGET_FPS`/
+  `FRAME_DURATION` constants removed — `PresentMode::Fifo` is the sole
+  pacing mechanism. `script_editor.rs`'s Up/Down/Left/Right/Tab/Enter/
+  Backspace handlers now check `input.is_repeating(key)` alongside
+  `just_pressed` (Delete/Home/End deliberately left as `just_pressed`-only —
+  outside this step's named scope). Verified: full workspace build +
+  `cargo test --workspace` (all green) + `check.ps1` + `cargo fmt --all
+  --check`; visually confirmed floor2's bottom row renders (screenshot);
+  manually confirmed Backspace-repeat in the script editor by synthesizing
+  genuine OS-level repeat key events (back-to-back `WM_KEYDOWN` with the
+  "previous key state" bit set, the same signal a real held key produces —
+  a single synthetic key-down held via `keybd_event` does **not** trigger
+  Windows' own auto-repeat timer, so that naive approach was tried first and
+  correctly showed no repeat, before switching to this). Gamepad-disconnect
+  (R25) was not physically exercised (no controller available in this
+  environment) — covered instead by code review plus `PressBuffer::retain`
+  being the same mechanism the unit tests already exercise for other
+  key types.
 
 #### `[ ]` 7B-5 — Finish Phase 7 Part 2: text actually renders through `Font`
 
