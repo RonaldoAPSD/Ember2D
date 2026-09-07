@@ -1275,7 +1275,7 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
 
 **Checklist sections at gate:** §3–§10.
 
-#### `[~]` 7C-1 — `UiFrame` registration becomes mandatory
+#### `[ ]` 7C-1 — `UiFrame` registration becomes mandatory
 
 - **Why:** E5 is fixed for one widget class and alive in eight others because
   registration is opt-in.
