@@ -1,0 +1,79 @@
+# CI — restored 7A-7 (docs/ember2d-master-plan.md §5.1, R37) from the
+# archived config at `git show e92f223:.github/workflows/ci.yml`, updated
+# for the workspace this repo is now (Phase 5 Step 5i's four-crate split)
+# and the much larger test suite Phases 5-7A added since that config was
+# deleted.
+#
+# Matrix on windows-latest AND ubuntu-latest deliberately, not just the one
+# OS this project is developed on: the whole reason for this crate's
+# Determinism rules (CLAUDE.md) is cross-platform reproducibility for
+# future netcode. Running the same tests on Linux while the only dev
+# machine is Windows is close to free here — none of these tests touch a
+# GPU, a window, or an audio device (`ember2d-sim`'s whole point) — and
+# it's the most direct way to catch a determinism regression (a stray
+# HashMap iteration reintroduced somewhere) that could otherwise sit
+# invisible on one OS for months.
+#
+# `cargo test --workspace` (not the old config's hand-enumerated
+# `--test <name>` list) deliberately doesn't need updating every time a new
+# integration test file is added — the workspace has grown from one crate
+# to four and gained a dozen more test files since the archived config was
+# written; naming them individually here would already be stale.
+#
+# Deliberately NOT run here: the "replay 5x as independent fresh processes"
+# discipline documented in tests/replay.rs's own header and
+# docs/ember2d-regression-checklist.md §15 — 3x per OS per push (below) is
+# the right automated scope for this workflow; that 5x discipline stays a
+# manual pre-merge gate for anyone touching sim ordering, deferred writes,
+# or RNG. Also not run here: regenerating roguelike/*.level or
+# shooter/arena.level via `cargo run --example gen_roguelike`/`gen_shooter`
+# — that's a content-authoring step, not a build/test gate; the checked-in
+# level files are what roguelike_level_integrity.rs already asserts
+# against, including their format version (R8, 7A-4).
+
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - run: cargo build --workspace --examples
+
+      - run: cargo test --workspace
+
+      # 3x as independent fresh processes, not `--test-threads=1` reruns in
+      # one process — the point is catching anything that could only ever
+      # vary *between* processes (a stray HashMap somewhere, OS-entropy
+      # leaking in some other way). Plain `bash` works identically on both
+      # matrix OSes (windows-latest ships Git Bash), unlike a PowerShell
+      # loop, which would need a separate branch for the Linux leg.
+      - name: Replay determinism (3x fresh processes)
+        shell: bash
+        run: |
+          for i in 1 2 3; do
+            echo "--- replay run $i ---"
+            cargo test --test replay
+          done
+
+      # scripts/check.ps1 (7A-6, docs/ember2d-master-plan.md §5.1) on
+      # Windows, its bash twin on Linux — see check.sh's own header for why
+      # it's a hand-kept twin rather than one script both OSes share, and
+      # for the one thing it doesn't check yet (the doc-number check is
+      # PowerShell-only for now).
+      - name: Hygiene checks (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/check.ps1
+      - name: Hygiene checks (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: ./scripts/check.sh

@@ -251,16 +251,22 @@ test failure is a new regression rather than a known, already-tracked one.
 ## 15. Determinism / replay gate (Phase 5 Step 5h+)
 
 **Phase 5.5** (docs/ember2d-phase5.5-plan.md Part 1) added CI
-(`.github/workflows/ci.yml`, `windows-latest` + `ubuntu-latest`) that runs
-`tests/replay.rs` on every push — but only once per OS per push, not the
-5×-independent-fresh-process discipline below. That discipline stays a
-**manual gate**: run it explicitly before trusting a Phase 5+ change that
-touches sim ordering, deferred writes, or RNG — CI alone isn't sufficient
-proof for that class of change. `tests/common/mod.rs`'s `TurnHarness` was
-also rewritten in Phase 5.5 to drive `ember2d_sim::simulation::Simulation`
-directly, with no `InputManager`/`MouseState`/`GamepadState`/winit `Key`
-anywhere in it — a simplification, not a behavior change; nothing in this
-section's checklist changes because of it.
+(`.github/workflows/ci.yml`, `windows-latest` + `ubuntu-latest`) that ran
+`tests/replay.rs` on every push. That config was deleted at some point
+before the 2026-09-06 review (R37) and stayed gone until master plan step
+7A-7 restored it — the current `.github/workflows/ci.yml` runs
+`cargo test --workspace` (which includes `tests/replay.rs` once) and then
+`cargo test --test replay` two more times as independent fresh processes
+(3× total per OS per push), plus `scripts/check.ps1`/`check.sh`. That is
+still short of the 5×-independent-fresh-process discipline below, which
+stays a **manual gate**: run it explicitly before trusting a Phase 5+
+change that touches sim ordering, deferred writes, or RNG — CI's 3× isn't
+sufficient proof for that class of change on its own. `tests/common/mod.rs`'s
+`TurnHarness` was also rewritten in Phase 5.5 to drive
+`ember2d_sim::simulation::Simulation` directly, with no
+`InputManager`/`MouseState`/`GamepadState`/winit `Key` anywhere in it — a
+simplification, not a behavior change; nothing in this section's checklist
+changes because of it.
 
 - [ ] `cargo test --test replay` passes as 5 independent fresh process runs
       (not `--test-threads=1` reruns within one process — the point is

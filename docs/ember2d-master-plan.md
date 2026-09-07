@@ -275,7 +275,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R35 | S3 | `is_collider_locked`/`set_collider_locked` and the 11-arg `spawn_entity` registered but undocumented; API doc says D3/D9 unfixed and timers are scope variables | `ember2d-scripting-api.md` | `[x]` 7A-6 — both documented; D3/D9 marked fixed; §2's "Per-entity scope" timer example rewritten to match Step 9 (nothing writes into scope between calls anymore, R22) |
 | R36 | S3 | HANDOFF/CLAUDE.md/checklist/index.html contradict the tree (test counts, format version, Phase 7 status, CI) | `docs/`, `index.html` | `[x]` 7A-6 — `index.html` already gone (pre-session); CLAUDE.md's format version/function count fixed and its "Current State" narrative replaced with a pointer to §2; checklist's test-count header and §14's defect table replaced with pointers; CI text (§15/§17) deliberately left for 7A-7 per this step's own Change list |
 | **Process** | | | | |
-| R37 | S2 | CI deleted; no cross-platform determinism check exists | `.github/` | `[ ]` → 7A-7 |
+| R37 | S2 | CI deleted; no cross-platform determinism check exists | `.github/` | `[x]` 7A-7 — `.github/workflows/ci.yml` recreated (`windows-latest`+`ubuntu-latest`, see 7A-7's "Landed as" note); CI-green link still pending a push |
 | R38 | S4 | `play.rs` 607 lines (limit 600); `panel/mod.rs` 597 | `ember2d/src/play.rs` | `[x]` moot — the limit itself rose to 750 (§0.4, 2026-09-06, by user direction) after 7A-5 had already pulled `play.rs` back to exactly 600 (debug overlay + HUD-draw dispatch moved to `play/render.rs`); `panel/mod.rs` (597) was never over either limit. No file in the codebase is within 100 lines of 750 as of this row. |
 | R39 | S4 | LICENSE placeholder; no `license`/`repository` in manifests; OFL text not bundled | `LICENSE`, `*/Cargo.toml` | `[ ]` → 7A-8 |
 | R40 | S4 | No tags; `main` 26 commits behind; version 0.5.0 meaningless | git | `[ ]` → 7A-8, §9 |
@@ -653,7 +653,7 @@ testable, and mostly one-file. Expected size: eight commits.
   unchanged, exactly as this step's own Change list asks — left for 7A-7,
   not an oversight.
 
-#### `[ ]` 7A-7 — Restore CI
+#### `[x]` 7A-7 — Restore CI
 
 - **Why:** R37. The determinism programme has never run on a non-Windows
   machine.
@@ -667,6 +667,28 @@ testable, and mostly one-file. Expected size: eight commits.
   local script is the fallback — but record which.
 - **Done when:** a green run on both OSes is linked from §9.
 - **Scope:** `.github/`, `scripts/`.
+- **Landed as:** the archived config's hand-enumerated `--test <name>` list
+  replaced with `cargo test --workspace` (the workspace has grown to four
+  crates and a dozen more integration test files since that config was
+  written; naming them individually would already be stale — see the new
+  file's own header comment). `fail-fast: false` added to the matrix so one
+  OS's failure doesn't hide the other's result. The replay loop runs 2 more
+  fresh-process `cargo test --test replay` invocations after the one
+  already inside `cargo test --workspace`, for 3 total — not the 5× the
+  manual pre-merge discipline (§15 checklist item, `tests/replay.rs`'s own
+  header) uses; recorded as an intentional gap, not an oversight (checklist
+  §15 updated to say so). `scripts/check.ps1`/`check.sh` run OS-conditionally
+  via `runner.os` rather than `shell:`, since `shell: pwsh` is available on
+  both matrix OSes and picking the wrong pairing would silently run the
+  wrong script's rules against the wrong platform. No YAML linter was
+  available in this environment (no `pyyaml`/`js-yaml`/`act` installed) —
+  validated instead by running every command the workflow specifies locally
+  (`cargo build --workspace --examples`, `cargo test --workspace`, the 3×
+  replay loop, both `check.ps1` and `check.sh`) and by careful manual
+  re-reading of the YAML structure; actual CI-green confirmation on both
+  OSes still requires a push, recorded here once that happens (§9's
+  `v0.5.7a` row gets the run link at the Phase 7A gate, not per-step, since
+  §9 tracks CI runs per phase tag).
 
 #### `[ ]` 7A-8 — Hygiene
 
