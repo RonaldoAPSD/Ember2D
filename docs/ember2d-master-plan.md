@@ -279,8 +279,8 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R38 | S4 | `play.rs` 607 lines (limit 600); `panel/mod.rs` 597 | `ember2d/src/play.rs` | `[x]` moot — the limit itself rose to 750 (§0.4, 2026-09-06, by user direction) after 7A-5 had already pulled `play.rs` back to exactly 600 (debug overlay + HUD-draw dispatch moved to `play/render.rs`); `panel/mod.rs` (597) was never over either limit. No file in the codebase is within 100 lines of 750 as of this row. |
 | R39 | S4 | LICENSE placeholder; no `license`/`repository` in manifests; OFL text not bundled | `LICENSE`, `*/Cargo.toml` | `[x]` 7A-8 (`1e6080f`) — see 7A-8's "Landed as" note |
 | R40 | S4 | No tags; `main` 26 commits behind; version 0.5.0 meaningless | git | `[ ]` unresolved by 7A-8 itself — tagging/fast-forwarding `main` happens at the Phase 7A gate (§0.4, §9), after 7A-9; not a 7A-8 commit |
-| R42 | S4 | `scripting/api.rs` grew from 515 to 771 lines (limit 750) — found running `scripts/check.ps1` after 7A-9's `cargo fmt --all` pass; rustfmt's mechanical line-splitting alone pushed it over, no logic changed | `ember2d-sim/src/scripting/api.rs` | `[ ]` unscheduled — needs a sub-module split before the Phase 7A gate (§0.5.3 runs `check.ps1`); out of 7A-9's own "mechanical only" scope |
-| R43 | S4 | `scripting/engine.rs` grew from 591 to 790 lines (limit 750) — same cause as R42, same commit | `ember2d-sim/src/scripting/engine.rs` | `[ ]` unscheduled — needs a sub-module split before the Phase 7A gate (§0.5.3); out of 7A-9's own "mechanical only" scope |
+| R42 | S4 | `scripting/api.rs` grew from 515 to 771 lines (limit 750) — found running `scripts/check.ps1` after 7A-9's `cargo fmt --all` pass; rustfmt's mechanical line-splitting alone pushed it over, no logic changed | `ember2d-sim/src/scripting/api.rs` | `[x]` 7A-10 — everything from the old "V0.4 Extensions" marker through `api_version` moved to a new `api_ext.rs` (third sibling `impl ScriptCtx` block); `api.rs` now 439 lines |
+| R43 | S4 | `scripting/engine.rs` grew from 591 to 790 lines (limit 750) — same cause as R42, same commit | `ember2d-sim/src/scripting/engine.rs` | `[x]` 7A-10 — the ~140-line `register_fn` sequence moved to a new `registry.rs`; `engine.rs` now 684 lines |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -780,6 +780,46 @@ testable, and mostly one-file. Expected size: eight commits.
   here, since a sub-module split is a real content decision, not a
   formatting one. Both need resolving before the Phase 7A gate, which runs
   `scripts/check.ps1` (§0.5.3).
+
+#### `[x]` 7A-10 — Split the two files rustfmt pushed over the line limit (R42/R43) (`1cb616f`)
+
+- **Why:** 7A-9's `cargo fmt --all` (no logic change) alone pushed
+  `ember2d-sim/src/scripting/api.rs` (515→771 by `check.ps1`'s count,
+  515→831 by `wc -l`) and `ember2d-sim/src/scripting/engine.rs`
+  (591→790/819) over the 750-line hard limit (CLAUDE.md, §0.4.4).
+  `scripts/check.ps1` fails on both, which blocks the Phase 7A gate
+  (§0.5.3). R42/R43 (§3.2).
+- **Change:** Mechanical split only, following the pattern this file pair
+  already established (`api_animation.rs`, `api_spatial.rs` — a second
+  `impl ScriptCtx` block in a sibling file). `api.rs`: move everything from
+  its own `── V0.4 Extensions ───` marker through `api_version` (global
+  state, randomness, entity/collider queries, mouse, camera, persistence,
+  HUD/draw utilities, timers, collision layers & masks, V0.5 hierarchy,
+  named animation clips, `api_version`) into a new `api_ext.rs`, a third
+  sibling `impl ScriptCtx` block. `engine.rs`: move the ~140-line
+  `register_fn` sequence out of `ScriptEngine::new` into a new
+  `scripting::registry::register_all(&mut Engine)`, called from `new`.
+  Both are pure code motion — same calls, same order, same comments,
+  nothing renamed or resequenced.
+- **Test:** No new test — no behavior changes. Full existing suite must
+  stay green, and `scripts/check.ps1` must pass (that's the regression this
+  step exists to fix).
+- **Done when:** `scripts/check.ps1` reports zero files over 750 lines;
+  `cargo build --workspace --examples` and `cargo test --workspace` both
+  green.
+- **Scope:** `ember2d-sim` only (`scripting/api.rs`, `scripting/engine.rs`,
+  `scripting/mod.rs`, new `scripting/api_ext.rs`, new
+  `scripting/registry.rs`).
+- **Landed as:** `1cb616f`. `api.rs` 831→439 lines (V0.4 Extensions through
+  `api_version` → `api_ext.rs`, a third sibling `impl ScriptCtx` block);
+  `engine.rs` 819→684 lines (the `register_fn` sequence → `registry.rs`).
+  One file outside the stated scope: `scripts/doc-check.ps1`, which greps
+  `engine.rs` for `register_fn` to check CLAUDE.md's function count — a
+  direct consequence of the split (the calls it counts moved), not an
+  opportunistic addition, so it was fixed in the same commit rather than
+  left broken. `scripts/check.ps1` (zero files over 750, doc-check clean),
+  full workspace build, and full workspace test suite all verified green
+  before and after.
 
 **Phase 7A gate:** §0.5, then tag `v0.5.7a`.
 
