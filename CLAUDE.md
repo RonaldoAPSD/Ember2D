@@ -115,7 +115,7 @@ this for the full explanation.
 
 ## Development Rules
 
-- **File size hard limit:** no `.rs` file may exceed **600 lines**. Split into sub-modules when approaching it.
+- **File size hard limit:** no `.rs` file may exceed **750 lines** (raised from 600, 2026-09-06). Split into sub-modules when approaching it.
 - **One commit per step, one tag per phase** (master plan §0.4, §9). `claude` is the working branch; `main` is fast-forwarded to it at every phase tag and never committed to directly. A large mechanical refactor reviewed as a single diff will not be reviewed at all — Phases 5–7.2 each landed as one squash commit and that is the pattern to stop.
 - **One step at a time.** Implement, build, test, smoke-test, report, wait for confirmation before the next step.
 - **Preserve the comment style.** This codebase is heavily commented as a deliberate learning artifact. When code changes, *rewrite the comment to match* — never delete it, never leave one describing behaviour that no longer exists.

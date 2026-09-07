@@ -69,7 +69,10 @@ Each step is written in the same shape so nothing gets forgotten:
 3. **`claude` is the working branch. `main` is trunk.** At every phase gate,
    fast-forward `main` to `claude` and tag `v0.5.<phase>` (§9). Never commit
    to `main` directly.
-4. **600-line hard limit per `.rs` file.** Enforced by the check script in
+4. **750-line hard limit per `.rs` file** (raised from 600, 2026-09-06, by
+   user direction — 600 had just forced 7A-5's `render_rng` fix into an
+   unplanned mid-step file split, `play.rs` → `play/render.rs`, that
+   wasn't part of that step's own Change list). Enforced by the check script in
    §6.5, not by memory. Split by sibling file or child module; never shrink
    comments to fit.
 5. **Preserve the comment style.** Heavily commented as a learning artifact.
@@ -92,7 +95,7 @@ A phase is done when all of these hold:
 1. `cargo build --workspace --examples` clean; `cargo test --workspace` green.
 2. `cargo clippy --workspace --all-targets` introduces no *new* warnings
    versus the previous gate (count recorded in §9).
-3. `scripts/check.ps1` (§6.5) passes: no `.rs` over 600 lines, no
+3. `scripts/check.ps1` (§6.5) passes: no `.rs` over 750 lines, no
    `std::fs`/`Instant`/`eprintln!` in `ember2d-sim`, doc numbers match.
 4. `cargo test --test replay` passes 3× as fresh processes, locally and in CI
    on both OSes.
@@ -272,7 +275,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R36 | S3 | HANDOFF/CLAUDE.md/checklist/index.html contradict the tree (test counts, format version, Phase 7 status, CI) | `docs/`, `index.html` | `[ ]` → 7A-6 |
 | **Process** | | | | |
 | R37 | S2 | CI deleted; no cross-platform determinism check exists | `.github/` | `[ ]` → 7A-7 |
-| R38 | S4 | `play.rs` 607 lines (limit 600); `panel/mod.rs` 597 | `ember2d/src/play.rs` | `[~]` partially addressed in 7A-5 (by user direction, to avoid 7A-5's own R15 fix pushing play.rs further over): debug overlay + HUD-draw dispatch moved to `play/render.rs`, play.rs now exactly 600. `panel/mod.rs` (597, never over) untouched → 7A-8 for any further split |
+| R38 | S4 | `play.rs` 607 lines (limit 600); `panel/mod.rs` 597 | `ember2d/src/play.rs` | `[x]` moot — the limit itself rose to 750 (§0.4, 2026-09-06, by user direction) after 7A-5 had already pulled `play.rs` back to exactly 600 (debug overlay + HUD-draw dispatch moved to `play/render.rs`); `panel/mod.rs` (597) was never over either limit. No file in the codebase is within 100 lines of 750 as of this row. |
 | R39 | S4 | LICENSE placeholder; no `license`/`repository` in manifests; OFL text not bundled | `LICENSE`, `*/Cargo.toml` | `[ ]` → 7A-8 |
 | R40 | S4 | No tags; `main` 26 commits behind; version 0.5.0 meaningless | git | `[ ]` → 7A-8, §9 |
 
@@ -648,8 +651,12 @@ testable, and mostly one-file. Expected size: eight commits.
 #### `[ ]` 7A-8 — Hygiene
 
 - **Why:** R38–R40 and small debts.
-- **Change:** split `play.rs` (move HUD dispatch + debug overlay into
-  `play/hud.rs`); `.gitignore` gains `*.palette.ron` **or** the palette is
+- **Change:** ~~split `play.rs` (move HUD dispatch + debug overlay into
+  `play/hud.rs`)~~ — already done, into `play/render.rs`, pulled forward
+  during 7A-5 (that step's own "Landed as" note) when the then-600-line
+  limit made its own `render_rng` fix push `play.rs` over; moot now that
+  the limit is 750 (§0.4) and `play.rs` sits at exactly 600 regardless.
+  `.gitignore` gains `*.palette.ron` **or** the palette is
   committed deliberately with roguelike-relevant entries (decide: commit it,
   and make the editor stop auto-writing a palette next to a project unless
   the user saves one); fill in `LICENSE`, add `license = "Apache-2.0"` and
@@ -659,7 +666,7 @@ testable, and mostly one-file. Expected size: eight commits.
   fix the 51 auto-fixable clippy suggestions in `ember2d-editor` and the 21
   in `ember2d-sim` (`cargo clippy --fix`), review the diff, commit
   separately from any logic change.
-- **Done when:** `scripts/check.ps1` reports zero files over 600 lines;
+- **Done when:** `scripts/check.ps1` reports zero files over 750 lines;
   clippy warning count recorded in §9.
 - **Scope:** all crates (mechanical only), repo root.
 
@@ -1395,7 +1402,7 @@ its `Cargo.toml` comment, as today.
 
 ### 6.5 `scripts/check.ps1` (and `check.sh`)
 
-Created in 7A-6, extended as phases add rules. Fails on: any `.rs` over 600
+Created in 7A-6, extended as phases add rules. Fails on: any `.rs` over 750
 lines; `HashMap`/`HashSet` iteration, `std::fs`, `Instant`, `eprintln!` in
 `ember2d-sim` (grep until 7.5-9's clippy config takes over);
 `partial_cmp` in `ember2d-sim`; `cargo tree -p ember2d-sim --depth 1`
