@@ -21,6 +21,55 @@ pub use atlas::GlyphAtlas;
 pub use bitmap::BitmapFont;
 pub use ttf::TtfFont;
 
+/// Which `Font` `ui_font_from_env` picked. `Renderer::draw_str` matches on
+/// this to decide whether it can take the original, byte-for-byte-
+/// unchanged font8x8 fast path (`Bitmap`) or must go through the generic
+/// `Font`-trait `draw_text_px` path instead (`Ttf`) — see that function's
+/// own doc comment (7B-5, docs/ember2d-master-plan.md §5.2) for why those
+/// two aren't interchangeable yet: `BitmapFont`'s `Font` implementation
+/// models a native glyph as a literal 8×8 square, but the dedicated
+/// font8x8 GPU path (`WgpuBackend::draw_char`) has always stretched that
+/// same 8×8 bitmap 2x vertically to fill the 8×16 `CELL_W`×`CELL_H` cell —
+/// routing the default case through `draw_text_px` would render every
+/// glyph visibly smaller than it always has been, which is a real
+/// regression, not a refactor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UiFontKind {
+    Bitmap,
+    Ttf,
+}
+
+/// This process's active UI font, chosen once from the `EMBER_UI_FONT`
+/// debug env var (7B-5, docs/ember2d-master-plan.md §5.2): `"ttf"` selects
+/// the bundled Cascadia Mono `TtfFont` at 16px; anything else (unset,
+/// typo'd, the bundled font somehow failing to parse) falls back to
+/// `BitmapFont` at its native, `CELL_W`-sized 8px. Takes the env var's
+/// value as a plain `Option<&str>` rather than reading
+/// `std::env::var` itself, so tests can exercise both branches directly
+/// instead of mutating process-global env state (racy under `cargo test`'s
+/// parallel test execution) — `ui_font_from_env` below is the real
+/// entry point every non-test caller uses.
+fn ui_font_for(value: Option<&str>) -> (Box<dyn Font>, f32, UiFontKind) {
+    const CASCADIA_MONO: &[u8] = include_bytes!("../../../assets/fonts/CascadiaMono.ttf");
+    const TTF_PX: f32 = 16.0;
+
+    if value == Some("ttf") {
+        match TtfFont::from_bytes(CASCADIA_MONO, 0) {
+            Ok(font) => return (Box::new(font), TTF_PX, UiFontKind::Ttf),
+            Err(e) => eprintln!(
+                "EMBER_UI_FONT=ttf requested but the bundled font failed to parse ({e}) — falling back to BitmapFont"
+            ),
+        }
+    }
+    (Box::new(BitmapFont::new()), super::CELL_W as f32, UiFontKind::Bitmap)
+}
+
+/// See `ui_font_for` — this just supplies it the real `EMBER_UI_FONT`
+/// env var. `Renderer::new` is the one caller.
+pub fn ui_font_from_env() -> (Box<dyn Font>, f32, UiFontKind) {
+    ui_font_for(std::env::var("EMBER_UI_FONT").ok().as_deref())
+}
+
 /// One glyph's atlas placement and pen-advance metrics, resolved for one
 /// specific `(char, px)` request. Deliberately doesn't carry which texture
 /// it came from — that's `Font::texture_id`, since it's the same answer
@@ -283,5 +332,33 @@ mod tests {
     fn truncate_to_width_degrades_to_just_the_marker_when_nothing_else_fits() {
         let mut font = BitmapFont::new();
         assert_eq!(font.truncate_to_width("hello world", 8.0, 1.0), "..");
+    }
+
+    // ── Tests: `ui_font_for` (7B-5, docs/ember2d-master-plan.md §5.2) ──────
+
+    #[test]
+    fn ui_font_for_defaults_to_bitmap_at_cell_w_when_unset() {
+        let (font, px, kind) = ui_font_for(None);
+        assert_eq!(kind, UiFontKind::Bitmap);
+        assert_eq!(px, super::super::CELL_W as f32);
+        assert_eq!(font.texture_id(), BitmapFont::new().texture_id());
+    }
+
+    #[test]
+    fn ui_font_for_falls_back_to_bitmap_for_any_value_other_than_ttf() {
+        let (_, _, kind) = ui_font_for(Some("bitmap"));
+        assert_eq!(kind, UiFontKind::Bitmap, "an unrecognized value must not silently pick ttf");
+        let (_, _, kind) = ui_font_for(Some(""));
+        assert_eq!(kind, UiFontKind::Bitmap);
+    }
+
+    #[test]
+    fn ui_font_for_selects_the_bundled_ttf_font_at_16px() {
+        let (mut font, px, kind) = ui_font_for(Some("ttf"));
+        assert_eq!(kind, UiFontKind::Ttf);
+        assert_eq!(px, 16.0);
+        // A real glyph resolves — confirms the bundled Cascadia Mono bytes
+        // actually parsed, not just that the branch was taken.
+        assert!(font.glyph('A', px).is_some());
     }
 }

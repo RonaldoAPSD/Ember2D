@@ -108,12 +108,25 @@ impl GlyphAtlas {
         ch: char,
         px: f32,
     ) -> Option<GlyphInfo> {
-        let key = (font_id, ch, Self::quantize_px(px));
+        let quantized = Self::quantize_px(px);
+        let key = (font_id, ch, quantized);
         if let Some(info) = self.cache.get(&key) {
             return Some(*info);
         }
 
-        let (metrics, bitmap) = font.rasterize(ch, px);
+        // 7B-5 (docs/ember2d-master-plan.md §5.2): rasterize at the SAME
+        // quantized size the cache is keyed on, not the raw `px` this call
+        // happened to be asked for — two requests that quantize to the
+        // same key (within `quantize_px`'s 0.5px bucket) must be
+        // guaranteed to return the exact same bitmap either way. Using raw
+        // `px` here made that only true by accident: whichever raw value
+        // reached this line FIRST for a given bucket silently became the
+        // one every later, slightly-different raw request for that same
+        // bucket got back from cache — deterministic given a fixed call
+        // sequence, but not given the same cache KEY, which is the actual
+        // contract `quantize_px`'s own doc comment promises.
+        let quantized_px = quantized as f32 / 2.0;
+        let (metrics, bitmap) = font.rasterize(ch, quantized_px);
 
         // Whitespace (and any glyph with no visible ink) has a real
         // advance but nothing to pack — a zero-size `atlas_rect` is a

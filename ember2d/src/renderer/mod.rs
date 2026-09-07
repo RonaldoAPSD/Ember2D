@@ -6,6 +6,9 @@ pub mod color;
 pub mod font;
 pub mod texture;
 
+#[path = "text.rs"]
+mod text;
+
 use std::io;
 use std::sync::Arc;
 use winit::window::Window;
@@ -13,7 +16,7 @@ use winit::window::Window;
 pub use assets::AssetManager;
 pub use backend::WgpuBackend;
 pub use color::{Color, DEFAULT_BG, DEFAULT_FG};
-pub use font::{BitmapFont, Font, GlyphInfo, TtfFont};
+pub use font::{ui_font_from_env, BitmapFont, Font, GlyphInfo, TtfFont, UiFontKind};
 pub use texture::{Texture, TextureId};
 
 // `pub` since Phase 7 Part 1e (docs/ember2d-phase7-plan.md, E2) — the
@@ -133,6 +136,18 @@ pub struct Renderer {
     /// (a 1-element `Vec<u32>`), so callers get an owned copy without a
     /// second `NEXT_ID` allocation.
     white_texture: Texture,
+
+    /// This process's active UI font, the pixel size `draw_str` renders it
+    /// at, and which of the two it is — see `ui_font_from_env`'s own doc
+    /// comment (7B-5, docs/ember2d-master-plan.md §5.2). `Box<dyn Font>`
+    /// rather than a concrete type for the same reason `EditorState::font`
+    /// already is (mod.rs, Phase 7 Part 2c): a caller never branches on
+    /// which implementation it got — except `draw_str` itself, which reads
+    /// `ui_font_kind` (not by downcasting `ui_font`) to pick its draw path;
+    /// see that method's own doc comment for why.
+    ui_font: Box<dyn Font>,
+    ui_font_px: f32,
+    ui_font_kind: UiFontKind,
 }
 
 impl Renderer {
@@ -243,6 +258,7 @@ impl Renderer {
         let pixel_height = height * CELL_H;
 
         let backend = WgpuBackend::new(width, height, &device, &queue, surface_format);
+        let (ui_font, ui_font_px, ui_font_kind) = ui_font_from_env();
 
         Ok(Renderer {
             window,
@@ -258,6 +274,9 @@ impl Renderer {
             config,
             backend,
             white_texture: Texture::solid(0xFFFFFFFF),
+            ui_font,
+            ui_font_px,
+            ui_font_kind,
         })
     }
 
@@ -412,84 +431,6 @@ impl Renderer {
         );
     }
 
-    /// Draw `text` through `font` at `px`, baseline-positioned (Phase 7
-    /// Part 2d, docs/ember2d-phase7-plan.md): `pos` is where the FIRST
-    /// glyph's baseline-left sits, not its top-left corner — "text draws
-    /// from a baseline, not a top-left corner... mixed sizes on one line
-    /// only align correctly on a shared baseline." Built entirely out of
-    /// `draw_texture_px` plus one glyph lookup per character, so it works
-    /// for any `Font` impl without knowing which one it got. Returns the
-    /// total horizontal advance (matches `Font::measure`'s width for the
-    /// same `text`/`px`), so a caller can position what comes next on the
-    /// same baseline.
-    ///
-    /// Two different atlas lifetimes to handle, via `Font::atlas_texture`/
-    /// `take_dirty`: `BitmapFont`'s is baked once into the GPU at startup
-    /// and never changes (`atlas_texture` returns `None` — nothing to
-    /// upload, ever, so a `pixels`-less placeholder `Texture` is fine,
-    /// `upload_texture`'s cache check short-circuits before reading it).
-    /// `TtfFont`'s `GlyphAtlas` texture is real and grows in place as new
-    /// glyphs get rasterized — resolving every glyph in `text` FIRST
-    /// (rather than drawing as each is resolved) means any newly-packed
-    /// glyphs are already in `texture.pixels` before this decides whether
-    /// to invalidate the stale GPU copy and force a fresh upload.
-    ///
-    /// Not yet called from any live editor UI — that's Part 4's restyle.
-    ///
-    /// R27 (7B-3, docs/ember2d-master-plan.md §5.2): used to clone
-    /// `atlas_texture()`'s real `Texture` unconditionally on every call —
-    /// wasteful for a large atlas redrawn every frame, since
-    /// `draw_texture_px`'s own `upload_texture` call only ever reads
-    /// `.pixels` when this id isn't already GPU-resident (or was just
-    /// invalidated below). A lightweight id/width/height-only placeholder
-    /// (same shape `BitmapFont`'s `None` case already used) is a valid
-    /// stand-in on every other call — the overwhelming majority of frames,
-    /// once an atlas has been uploaded at least once.
-    pub fn draw_text_px(
-        &mut self,
-        font: &mut dyn Font,
-        text: &str,
-        pos: ember2d_sim::math::Vec2,
-        px: f32,
-        color: Color,
-    ) -> f32 {
-        let glyphs: Vec<GlyphInfo> = text.chars().filter_map(|ch| font.glyph(ch, px)).collect();
-
-        let dirty = font.take_dirty();
-        let tex_id = font.texture_id();
-        let (tex_w, tex_h) = font.texture_size();
-
-        if dirty {
-            self.backend.invalidate_texture(tex_id.0);
-        }
-        let needs_real_pixels = dirty || !self.backend.has_texture(tex_id.0);
-        let atlas = if needs_real_pixels {
-            font.atlas_texture().cloned().unwrap_or_else(|| Texture {
-                id: tex_id.0,
-                width: tex_w,
-                height: tex_h,
-                pixels: Vec::new(),
-            })
-        } else {
-            Texture { id: tex_id.0, width: tex_w, height: tex_h, pixels: Vec::new() }
-        };
-
-        let mut pen_x = pos.x;
-        for g in glyphs {
-            if g.atlas_rect.w > 0.0 && g.atlas_rect.h > 0.0 {
-                let dest = ember2d_sim::math::Rect::new(
-                    pen_x + g.offset.x,
-                    pos.y + g.offset.y,
-                    g.atlas_rect.w,
-                    g.atlas_rect.h,
-                );
-                self.draw_texture_px(dest, &atlas, Some(g.atlas_rect), color);
-            }
-            pen_x += g.advance;
-        }
-        pen_x - pos.x
-    }
-
     /// Nine-slice: corners drawn 1:1, edges stretched along one axis,
     /// center stretched both ways (Phase 7 Part 1a). `border` is `(left,
     /// top, right, bottom)` — the inset in SOURCE pixels defining each
@@ -508,12 +449,6 @@ impl Renderer {
     ) {
         for (d, s) in nine_slice_quads(dest, texture.width as f32, texture.height as f32, border) {
             self.draw_texture_px(d, texture, Some(s), tint);
-        }
-    }
-
-    pub fn draw_str(&mut self, x: usize, y: usize, s: &str, fg: Color, bg: Color) {
-        for (i, ch) in s.chars().enumerate() {
-            self.draw_char(x.saturating_add(i), y, ch, fg, bg);
         }
     }
 
