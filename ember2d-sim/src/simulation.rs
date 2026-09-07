@@ -173,6 +173,18 @@ pub struct Simulation {
     /// How many turns the local player has completed so far this level —
     /// what `ctx.get_turn_number()` reads.
     turn_number: i64,
+    /// R16 (7A-5, docs/ember2d-master-plan.md): incremented once per `step`
+    /// call, regardless of mode or whether a turn actually resolved —
+    /// `step_count() * sim_dt` is what `ctx.get_elapsed()` reads (via
+    /// `StepInput::elapsed`) instead of the caller's own wall-clock time.
+    /// Unlike `turn_number` (which only counts a LOCAL actor's resolved
+    /// turns, meaningful only in turn-based mode), this counts every call
+    /// uniformly, which is what makes it the right basis for "how much sim
+    /// time has passed" in realtime mode too — see this crate's `CLAUDE.md`
+    /// Determinism section: replaying the same input sequence at a
+    /// different real frame rate must produce the same `get_elapsed()`
+    /// progression, which a wall-clock value can never guarantee.
+    step_count: u64,
     camera_entity: Option<EntityId>,
     exit_targets: HashMap<EntityId, String>,
     is_loading_save: bool,
@@ -207,6 +219,7 @@ impl Simulation {
             clips: BTreeMap::new(),
             commands: BTreeMap::new(),
             turn_number: 0,
+            step_count: 0,
             camera_entity: None,
             exit_targets: HashMap::new(),
             is_loading_save: false,
@@ -250,6 +263,12 @@ impl Simulation {
     /// counterpart to `ctx.get_turn_number()`, and one of the two fields
     /// R7 (7A-3, docs/ember2d-master-plan.md) adds to `SaveState`.
     pub fn turn_number(&self) -> i64 { self.turn_number }
+    /// R16 (7A-5, docs/ember2d-master-plan.md): how many `step` calls have
+    /// completed so far — see `step_count`'s own doc comment for why a
+    /// caller building this step's `StepInput::elapsed` should multiply
+    /// this (read BEFORE calling `step`) by its own fixed timestep instead
+    /// of using wall-clock time.
+    pub fn step_count(&self) -> u64 { self.step_count }
     /// The scheduler's exact (actor, due) state — see
     /// `TurnScheduler::snapshot`'s own doc comment.
     pub fn scheduler_snapshot(&self) -> Vec<(EntityId, u64)> { self.scheduler.snapshot() }
@@ -364,6 +383,10 @@ impl Simulation {
     /// not after) is load-bearing, not arbitrary.
     pub fn step(&mut self, world: &mut World, input: StepInput<'_>, persistent: &mut BTreeMap<String, rhai::Dynamic>) -> StepOutcome {
         let StepInput { input: input_snapshot, mouse: mouse_snapshot, gamepad: gamepad_snapshot, external_commands, camera_origin, sim_dt, elapsed, viewport_w, viewport_h } = input;
+
+        // R16 (7A-5, docs/ember2d-master-plan.md): counts this call — see
+        // `step_count`'s own doc comment.
+        self.step_count += 1;
 
         let mut outcome = StepOutcome::default();
         let mut logs = Vec::new();

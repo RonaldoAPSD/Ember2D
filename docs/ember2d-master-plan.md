@@ -246,8 +246,8 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R12 | S1 | Every printable key since the last prompt floods the next prompt's field | `engine.rs:238`; `editor/input/text.rs:14` | `[x]` 7A-2 — `InputManager::begin_text_capture`/`finish_frame_text_capture`; script editor, palette editor, palette search, and graph param field all migrated off `key_to_char` to `take_text()` |
 | R13 | S2 | Rect/Line/Fill tools skip the `ignore_drag` painting guard | `input/canvas.rs:168-227` | `[x]` 7A-2 — `&& !self.ignore_drag` added to all three |
 | R14 | S2 | Docked script panel: click places cursor but typing fires global shortcuts (S saves, F fills, Z resizes) | `input/panels/file_and_script.rs:105-115`; `input/mod.rs:253` | `[x]` 7A-2 — `EditorFocus` (derived, see 7A-2's "Landed as" note); `handle_shortcuts` returns early unless `Canvas` |
-| R15 | S3 | Render-time camera shake consumes the sim RNG → particle stream frame-rate dependent | `play.rs:269-272, 496-513` | `[ ]` → 7A-5 |
-| R16 | S3 | Wall-clock `elapsed` reaches scripts via `get_elapsed` | `engine.rs:286, 316`; `api.rs:146` | `[ ]` → 7A-5 |
+| R15 | S3 | Render-time camera shake consumes the sim RNG → particle stream frame-rate dependent | `play.rs:269-272, 496-513` | `[x]` 7A-5 — `render_rng` (own stream, seeded `level_seed ^ RENDER_RNG_SEED_OFFSET`) for camera + entity shake jitter; `rng` now only reads at apply_outcome's deterministic per-step cadence |
+| R16 | S3 | Wall-clock `elapsed` reaches scripts via `get_elapsed` | `engine.rs:286, 316`; `api.rs:146` | `[x]` 7A-5 — `Simulation::step_count`, incremented once per `step` call; `PlayState` builds `StepInput::elapsed`/`late_step`'s `elapsed` from it instead of `UpdateContext::elapsed` |
 | R17 | S3 | Filesystem I/O inside `ember2d-sim` (`Path::exists`, `LevelData::load` in `late_step`) | `simulation.rs:66, 432`; `spawn.rs:46, 71, 79` | `[ ]` → 7.5-9 |
 | R18 | S2 | `receive_log` has zero callers; play-mode script errors never reach the editor console | `impl_state/mod.rs:527` | `[ ]` → 7C-7 |
 | R19 | S2 | File › Start Screen orphans an `EditorState` on the state stack | `ember2d-app/src/app.rs:85`; `main.rs:63-67` | `[x]` 7A-2 — both `Transition::ToStart` arms in app.rs pop before returning; `Engine::push_state` debug-asserts depth ≤ 3 |
@@ -272,7 +272,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R36 | S3 | HANDOFF/CLAUDE.md/checklist/index.html contradict the tree (test counts, format version, Phase 7 status, CI) | `docs/`, `index.html` | `[ ]` → 7A-6 |
 | **Process** | | | | |
 | R37 | S2 | CI deleted; no cross-platform determinism check exists | `.github/` | `[ ]` → 7A-7 |
-| R38 | S4 | `play.rs` 607 lines (limit 600); `panel/mod.rs` 597 | `ember2d/src/play.rs` | `[ ]` → 7A-8 |
+| R38 | S4 | `play.rs` 607 lines (limit 600); `panel/mod.rs` 597 | `ember2d/src/play.rs` | `[~]` partially addressed in 7A-5 (by user direction, to avoid 7A-5's own R15 fix pushing play.rs further over): debug overlay + HUD-draw dispatch moved to `play/render.rs`, play.rs now exactly 600. `panel/mod.rs` (597, never over) untouched → 7A-8 for any further split |
 | R39 | S4 | LICENSE placeholder; no `license`/`repository` in manifests; OFL text not bundled | `LICENSE`, `*/Cargo.toml` | `[ ]` → 7A-8 |
 | R40 | S4 | No tags; `main` 26 commits behind; version 0.5.0 meaningless | git | `[ ]` → 7A-8, §9 |
 
@@ -573,7 +573,7 @@ testable, and mostly one-file. Expected size: eight commits.
   "director" tile entirely — `git checkout --` before this step touched
   anything, not part of this step's own diff.
 
-#### `[ ]` 7A-5 — Presentation stops touching sim state
+#### `[x]` 7A-5 — Presentation stops touching sim state (`ccea18c`)
 
 - **Why:** R15, R16.
 - **Change:** `PlayState` gets `render_rng: SmallRng` seeded from the level
@@ -587,6 +587,27 @@ testable, and mostly one-file. Expected size: eight commits.
   SIM_DT` within f32 epsilon.
 - **Done when:** tests pass; `replay.rs` unchanged.
 - **Scope:** `ember2d`, `ember2d-sim` (one accessor).
+- **Landed as:** `Simulation::step_count()` (a plain "how many `step` calls
+  so far" counter), not the sketched `turn_or_step_count()` — `Simulation`
+  has no notion of realtime-vs-turn-based mode to branch on internally, and
+  a single uniform per-call counter is both simpler and exactly what
+  "derives elapsed from step count" (§4.1) asks for; `PlayState` multiplies
+  it by its own `delta_time` (the real fixed timestep already flowing
+  through `UpdateContext`), not a separately-duplicated `SIM_DT` constant.
+  `camera_shake_jitter` was pulled out of `render` into `play/render.rs`
+  specifically so the RNG-split half of this step is unit-testable without
+  a real `Renderer` — the test drives that extracted function directly, so
+  it proves the two streams stay independent when used as intended, but
+  does not exercise `render`'s own one-line call site; a regression there
+  (wiring the wrong field back in) wouldn't be caught without a real
+  render pass, same limitation this file's pre-existing `in_viewport`
+  tests already have. R15's fix pushed `play.rs` from its already-tracked
+  607 lines (R38) to 668; by user direction, a small mechanical slice of
+  7A-8's own planned work (moving the F3 debug overlay and HUD-draw
+  dispatch into `play/render.rs`) was pulled forward to bring it back to
+  exactly 600 rather than leave the violation worse — see R38's updated
+  row. Both new tests verified to actually fail without their respective
+  fix (reverted, confirmed red, restored) before being trusted.
 
 #### `[ ]` 7A-6 — Documentation truth pass
 

@@ -461,3 +461,79 @@ fn sprite_size_natural_size_scales_with_pixels_per_unit() {
     // packs half as many pixels into a world unit.
     assert_eq!(sprite_size(None, 8, 8, 4.0), Vec2::new(2.0, 2.0));
 }
+
+// ── Tests: R15/R16 (7A-5, docs/ember2d-master-plan.md) — presentation
+// stops touching sim state ──────────────────────────────────────────────
+
+#[test]
+fn render_time_shake_jitter_never_touches_the_deterministic_rng_stream() {
+    // Before this fix, camera/entity shake jitter drew from the same
+    // stream `apply_outcome`'s particle spawning does — calling it a
+    // different number of times (i.e. rendering at a different real frame
+    // rate) would desync two otherwise-identical sessions' particle draws.
+    let mut data_a = LevelData::empty(10, 10);
+    data_a.seed = 555;
+    let mut data_b = LevelData::empty(10, 10);
+    data_b.seed = 555;
+
+    let mut a = PlayState::from_level(data_a, BTreeMap::new());
+    let mut b = PlayState::from_level(data_b, BTreeMap::new());
+    for p in [&mut a, &mut b] {
+        p.shake_state = Some(ShakeState { intensity: 2.0, duration: 1.0 });
+        p.shake_timer = 1.0;
+    }
+
+    let _ = camera_shake_jitter(&mut a.render_rng, a.shake_state, a.shake_timer);
+    for _ in 0..5 { let _ = camera_shake_jitter(&mut b.render_rng, b.shake_state, b.shake_timer); }
+
+    let da = a.rng.gen_range(-5.0..5.0f32);
+    let db = b.rng.gen_range(-5.0..5.0f32);
+    assert_eq!(da, db, "drawing shake jitter a different number of times must never change what the deterministic rng stream produces afterward");
+}
+
+#[test]
+fn get_elapsed_derives_from_step_count_not_the_wall_clock_value_passed_in() {
+    let mut script_path = std::env::temp_dir();
+    script_path.push("ember2d_test_get_elapsed_step_count.rhai");
+    std::fs::write(&script_path, r#"
+        fn on_update(id, ctx) { ctx.set_global("elapsed_seen", ctx.get_elapsed()); }
+    "#).expect("write temp script");
+
+    let mut data = LevelData::empty(10, 10);
+    let mut tile = TileRecord::new(2, 2, 1, 'x', Color::White, Color::Reset, false, false, "watcher");
+    tile.script = Some(script_path.to_string_lossy().to_string());
+    data.tiles.push(tile);
+
+    let mut play = PlayState::from_level(data, BTreeMap::new());
+    let mut world = World::new();
+    let mut events = EventBus::new();
+    let mut persistent: BTreeMap<String, rhai::Dynamic> = BTreeMap::new();
+    play.on_start(&mut world, &mut events, 10, 10, &mut persistent);
+
+    const SIM_DT: f32 = 1.0 / 60.0; // mirrors engine.rs's own SIM_DT
+    let steps = 5;
+    for i in 0..steps {
+        let mut input = InputManager::new();
+        let mouse = MouseState::new();
+        let gamepad = GamepadState::new();
+        let prev_positions: HashMap<EntityId, Vec2> = HashMap::new();
+        let mut quit = false;
+        let mut turn_triggered = false;
+        play.update(UpdateContext {
+            world: &mut world, input: &mut input, mouse: &mouse, gamepad: &gamepad,
+            events: &mut events, prev_positions: &prev_positions,
+            delta_time: SIM_DT, frame_delta_time: SIM_DT,
+            // Deliberately garbage, varying "wall-clock" elapsed — if the
+            // fix works the script must never see this value at all.
+            elapsed: 999.0 + i as f32 * 37.0,
+            quit: &mut quit, turn_triggered: &mut turn_triggered,
+            viewport_width: 10, viewport_height: 10, persistent: &mut persistent,
+        });
+    }
+
+    let seen = play.globals().get("elapsed_seen").and_then(|d| d.as_float().ok()).expect("script must have set elapsed_seen") as f32;
+    let expected = (steps - 1) as f32 * SIM_DT;
+    assert!((seen - expected).abs() < 1e-4, "get_elapsed() must derive from step_count * sim_dt ({}), not the wall-clock value passed in; got {}", expected, seen);
+
+    let _ = std::fs::remove_file(&script_path);
+}

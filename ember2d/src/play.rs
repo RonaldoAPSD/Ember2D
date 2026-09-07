@@ -21,14 +21,14 @@ use crate::camera::Camera;
 use ember2d_sim::components::{AnimationClip, ClipFrames, SpriteSource};
 use crate::engine::{GameState, RenderContext, Transition, UpdateContext};
 pub use render::{DrawCommand, DrawList, Space};
-use render::{in_viewport, sprite_size};
+use render::{camera_shake_jitter, draw_debug_overlay, draw_hud_queue, draw_recent_log, in_viewport, sprite_size};
 use ember2d_sim::event::EventBus;
 use crate::input::Key;
 use ember2d_sim::level::LevelData;
 use ember2d_sim::math::Vec2;
 use crate::renderer::color::Color;
 use crate::audio::AudioEngine;
-use ember2d_sim::scripting::{LogEntry, HudDraw};
+use ember2d_sim::scripting::LogEntry;
 use ember2d_sim::simulation::{Simulation, StepInput};
 use ember2d_sim::world::{EntityId, World};
 use rand::{Rng, SeedableRng};
@@ -176,10 +176,16 @@ pub struct PlayState {
     buffered_pressed: BTreeSet<String>,
     buffered_mouse_pressed: (bool, bool),
     buffered_gamepad_pressed: HashSet<(usize, String)>,
-    /// Drives particle velocity/life and camera shake jitter (defect D3).
-    /// Seeded once from the level's stored seed and reused for its whole
-    /// lifetime — never reallocated from OS entropy per call.
+    /// Drives particle velocity/life at spawn time (defect D3) — the one
+    /// draw site here at a deterministic once-per-sim-step cadence
+    /// (`apply_outcome`). Seeded once from the level seed, never
+    /// reallocated from OS entropy. R15 (7A-5): shake jitter used to draw
+    /// from this same stream inside `render` (once per real frame, making
+    /// particle spawns frame-rate dependent) — shake now uses `render_rng`.
     rng: SmallRng,
+    /// R15 (7A-5): shake jitter's own stream, independent of `rng` so
+    /// calling `render` a different number of times never changes `rng`.
+    render_rng: SmallRng,
     /// Source-texture pixels per world unit, for a `Sprite` whose `size` is
     /// `None` (Step 3b). Defaults to `ProjectData::pixels_per_unit`'s own
     /// default (8.0); `set_pixels_per_unit` lets a caller that actually has
@@ -192,6 +198,10 @@ pub struct PlayState {
 /// script randomness and particle/shake randomness are two independent
 /// deterministic streams instead of mirroring each other's sequence.
 const PLAYSTATE_RNG_SEED_OFFSET: u64 = 0x9E3779B97F4A7C15; // splitmix64's golden-ratio constant
+
+/// R15 (7A-5): `render_rng`'s offset — a third independent stream, same
+/// reasoning as `PLAYSTATE_RNG_SEED_OFFSET`.
+const RENDER_RNG_SEED_OFFSET: u64 = 0x2545F4914F6CDD1D;
 
 impl PlayState {
     fn new_with_sim(sim: Simulation, seed: u64) -> Self {
@@ -212,6 +222,7 @@ impl PlayState {
             buffered_mouse_pressed: (false, false),
             buffered_gamepad_pressed: HashSet::new(),
             rng:                SmallRng::seed_from_u64(seed.wrapping_add(PLAYSTATE_RNG_SEED_OFFSET)),
+            render_rng:         SmallRng::seed_from_u64(seed ^ RENDER_RNG_SEED_OFFSET),
             pixels_per_unit:    crate::project::default_pixels_per_unit(),
         }
     }
@@ -303,6 +314,7 @@ impl PlayState {
         let tl = self.camera.top_left();
         Vec2::new(tl.x.round(), tl.y.round())
     }
+
 }
 
 impl GameState for PlayState {
@@ -312,7 +324,8 @@ impl GameState for PlayState {
     }
 
     fn update(&mut self, ctx: UpdateContext) {
-        let UpdateContext { world, input, mouse, delta_time, frame_delta_time, elapsed, viewport_width, viewport_height, turn_triggered, persistent, .. } = ctx;
+        // R16 (7A-5): `ctx.elapsed` deliberately not bound — see sim_elapsed below.
+        let UpdateContext { world, input, mouse, delta_time, frame_delta_time, viewport_width, viewport_height, turn_triggered, persistent, .. } = ctx;
 
         // FPS counter and shake-timer decay are presentation only (the F3
         // debug overlay, the render-time shake jitter) — never read back by
@@ -444,6 +457,8 @@ impl GameState for PlayState {
             // No externally-supplied commands from real play — that's the
             // seam `tests/external_commands.rs` exercises directly against
             // `Simulation`, not something `PlayState` itself ever needs to feed.
+            // R16 (7A-5): step_count is read before this call.
+            let sim_elapsed = self.sim.step_count() as f32 * delta_time;
             let outcome = self.sim.step(world, StepInput {
                 input: &input_snapshot,
                 mouse: mouse_snapshot,
@@ -451,7 +466,7 @@ impl GameState for PlayState {
                 external_commands: &[],
                 camera_origin,
                 sim_dt: delta_time,
-                elapsed,
+                elapsed: sim_elapsed,
                 viewport_w: viewport_width,
                 viewport_h: viewport_height,
             }, persistent);
@@ -470,14 +485,16 @@ impl GameState for PlayState {
     }
 
     fn late_update(&mut self, ctx: UpdateContext) {
-        let UpdateContext { world, events, prev_positions, delta_time, elapsed, viewport_width, viewport_height, persistent, .. } = ctx;
+        // R16 (7A-5): step_count is unchanged since update() ran this step.
+        let UpdateContext { world, events, prev_positions, delta_time, viewport_width, viewport_height, persistent, .. } = ctx;
+        let sim_elapsed = self.sim.step_count() as f32 * delta_time;
 
         // self.camera was already refreshed this step by the preceding
         // update() call (see engine.rs's per-step order: update, physics,
         // collisions, late_update) — no need to recompute it here, just
         // read the same origin update() already used.
         let camera_origin = self.script_camera_origin();
-        let outcome = self.sim.late_step(world, &*events, prev_positions, camera_origin, delta_time, elapsed, viewport_width, viewport_height, persistent);
+        let outcome = self.sim.late_step(world, &*events, prev_positions, camera_origin, delta_time, sim_elapsed, viewport_width, viewport_height, persistent);
         self.apply_outcome(outcome);
         self.flush_audio();
     }
@@ -491,11 +508,9 @@ impl GameState for PlayState {
         // *copy* — self.camera.position must stay the stable, unshaken value
         // flush_audio's distance falloff (and script_camera_origin) read.
         let mut render_camera = self.camera;
-        if let Some(shake) = self.shake_state.filter(|s| s.duration > 0.0) {
-            let intensity = shake.intensity * (self.shake_timer / shake.duration);
-            render_camera.position.x += self.rng.gen_range(-intensity..=intensity);
-            render_camera.position.y += self.rng.gen_range(-intensity..=intensity);
-        }
+        let jitter = camera_shake_jitter(&mut self.render_rng, self.shake_state, self.shake_timer);
+        render_camera.position.x += jitter.x;
+        render_camera.position.y += jitter.y;
 
         // Phase 5.5 Part 3: built once from whatever's currently playing so
         // the loop below can look up a position/tint/shake override per
@@ -509,8 +524,9 @@ impl GameState for PlayState {
             let tint = overrides.tint(cmd.id).unwrap_or(cmd.tint);
             if let Some(scale) = overrides.shake_scale(cmd.id) {
                 let intensity = animation::SHAKE_INTENSITY * scale;
-                world_pos.x += self.rng.gen_range(-intensity..=intensity);
-                world_pos.y += self.rng.gen_range(-intensity..=intensity);
+                // R15 (7A-5): render_rng, not rng.
+                world_pos.x += self.render_rng.gen_range(-intensity..=intensity);
+                world_pos.y += self.render_rng.gen_range(-intensity..=intensity);
             }
 
             let screen = render_camera.world_to_screen(world_pos);
@@ -560,38 +576,15 @@ impl GameState for PlayState {
         // scripts via ctx.draw_hud (the loop below), not hardcoded here.
         if self.show_debug {
             let pos = self.sim.camera_entity().map(|id| world.get_global_position(id)).unwrap_or(Vec2::ZERO);
-            renderer.draw_rect_filled(0, 0, renderer.width, 1, ' ', Color::Black, Color::DarkBlue);
-            renderer.draw_str(0, 0, &format!(" DEBUG: {}", self.sim.level().name), Color::White, Color::DarkBlue);
-            renderer.draw_str(38, 0, &format!("x:{:.1} y:{:.1}", pos.x, pos.y), Color::Green, Color::DarkBlue);
-            renderer.draw_str(renderer.width.saturating_sub(18), 0, &format!("Mode:{}", renderer.backend_name()), Color::Cyan, Color::DarkBlue);
-            renderer.draw_str(renderer.width.saturating_sub(6), 0, &format!("FPS:{}", self.fps.round()), Color::White, Color::DarkBlue);
+            draw_debug_overlay(renderer, &self.sim.level().name, pos, self.fps);
         }
 
         // Render last 3 log messages at the bottom of the (now full-height)
         // viewport — used to sit just above the bottom bar; there's no bar
         // to sit above anymore.
-        let log_len = self.script_log.len();
-        for i in 0..log_len.min(3) {
-            let entry = &self.script_log[log_len - 1 - i];
-            let col = match entry.level {
-                ember2d_sim::scripting::LogLevel::Error => Color::Red,
-                ember2d_sim::scripting::LogLevel::Warning => Color::Yellow,
-                ember2d_sim::scripting::LogLevel::Info => Color::Cyan,
-            };
-            renderer.draw_str(1, renderer.height - 1 - i, &entry.text, col, Color::Reset);
-        }
+        draw_recent_log(renderer, &self.script_log, 3);
 
-        for hud in self.sim.pending_hud_draws() {
-            match hud {
-                HudDraw::Text { x, y, text, fg, bg } => if *x < renderer.width && *y < renderer.height { renderer.draw_str(*x, *y, text, *fg, *bg); }
-                HudDraw::Box { x, y, w, h, fg, bg } => renderer.draw_rect_outline(*x, *y, *w, *h, *fg, *bg),
-                HudDraw::Fill { x, y, w, h, ch, fg, bg } => renderer.draw_rect_filled(*x, *y, *w, *h, *ch, *fg, *bg),
-                HudDraw::Menu { x, y, w, options, selected, fg, bg, sel_fg, sel_bg } =>
-                    crate::ui::Menu::new(*x, *y, *w, options.clone(), *selected).with_colors(*fg, *bg, *sel_fg, *sel_bg).draw(renderer),
-                HudDraw::Panel { x, y, w, h, title, fg, bg } =>
-                    crate::ui::Panel::new(*x, *y, *w, *h).with_title(title).with_colors(*fg, *bg).draw(renderer),
-            }
-        }
+        draw_hud_queue(renderer, self.sim.pending_hud_draws().iter());
         // Not cleared here anymore (Step 4g) — see
         // ScriptEngine::run_scripts's own clear for why: clearing on every
         // render, regardless of whether a script actually ran that frame,
