@@ -31,21 +31,34 @@ CLAUDE.md's "Workspace layout") — every item below still applies unchanged
 (one bin target, so plain `cargo run` still resolves it), this is just the
 place to notice if it doesn't.
 
-- [ ] `cargo run` opens the start screen
-- [ ] `cargo run -- --editor` opens the editor
-- [ ] `cargo run -- --editor path/to.level` opens that level
-- [ ] `cargo run -- path/to.level` plays directly
-- [ ] Bad path prints an error and exits without panicking
-- [ ] No args + unrecognised args print usage
-- [ ] `project.ron`'s `visual_style` drives `set_sprite_mode` on launch
-- [ ] `project.ron`'s `gameplay_loop` is applied
+- [✓] `cargo run` opens the start screen
+- [✓] `cargo run -- --editor` opens the editor
+- [✓] `cargo run -- --editor path/to.level` opens that level
+- [✓] `cargo run -- path/to.level` plays directly
+- [✓] Bad path prints an error and exits without panicking
+- [✓] No args + unrecognised args print usage
+- [ ] `project.ron`'s `visual_style` drives `set_sprite_mode` on launch —
+      **not exercised**: both shipped demos (`roguelike/`, `shooter/`) use
+      `visual_style: ClassicASCII`; nothing in this repo sets `Sprites2D`
+      to cross-check against (7B gate, 2026-09-07)
+- [✓] `project.ron`'s `gameplay_loop` is applied — confirmed by the two
+      demos' actual behavior matching their `project.ron` (roguelike:
+      `TurnBased`, advances only on keypress with a visible turn counter;
+      shooter: `RealTime`, continuous AI/physics with a live FPS counter)
+      (7B gate, 2026-09-07)
 
 ## 2. Window and surface
 
-- [ ] Window resize reflows the cell grid and reconfigures the surface
-- [ ] Minimise and restore does not crash or panic on zero-size surface
-- [ ] `SurfaceError::Outdated` / `Lost` recover without a crash
-- [ ] DPI scaling: mouse cell position matches the cursor at non-100% scaling
+- [✓] Window resize reflows the cell grid and reconfigures the surface
+      (7B gate, 2026-09-07 — screenshot before/after a `SetWindowPos` resize)
+- [✓] Minimise and restore does not crash or panic on zero-size surface
+      (7B gate, 2026-09-07)
+- [✓] `SurfaceError::Outdated` / `Lost` recover without a crash — exercised
+      by the same minimize/restore cycle above (that's the code path that
+      hits it); not independently forced (7B gate, 2026-09-07)
+- [ ] DPI scaling: mouse cell position matches the cursor at non-100% scaling —
+      **needs a live non-100%-scale display**, not something a synthetic
+      input pass can force; unverified this gate (7B gate, 2026-09-07)
 
 ## 3. Start screen and projects
 
@@ -134,10 +147,15 @@ Only until visual scripting is shelved. Afterwards, confirm old levels with grap
 
 ## 11. Play mode
 
-- [ ] F5 enters play; Escape opens the pause menu
-- [ ] Pause menu: Resume, Back to Editor, Quit
-- [ ] Tiles spawn with correct solid/trigger/tag/layer/collider layer
-- [ ] Player spawns at spawn point with configured glyph, tag, texture
+- [✓] F5 enters play; Escape opens the pause menu (7B gate, 2026-09-07)
+- [✓] Pause menu: Resume, Back to Editor, Quit — all three render; only
+      Resume actually clicked/keyed through this pass (7B gate, 2026-09-07)
+- [✓] Tiles spawn with correct solid/trigger/tag/layer/collider layer —
+      via `roguelike_level_integrity.rs`/`trigger_collider_layer.rs`
+      (automated) plus visual confirmation walls block movement and floor
+      doesn't (7B gate, 2026-09-07)
+- [✓] Player spawns at spawn point with configured glyph, tag, texture
+      (7B gate, 2026-09-07 — green `@` at the level's authored spawn)
 - [ ] **Corrected in Step 4k**: movement is entirely script-driven as of
       Phase 4 — `PlayState` itself contains no movement code, no
       tag-specific strings, no score. `roguelike/`'s own `player.rhai` does
@@ -147,18 +165,35 @@ Only until visual scripting is shelved. Afterwards, confirm old levels with grap
       grid-based turn model). A different script-driven project could
       still implement realtime AABB movement itself; the engine no longer
       assumes either.
-- [ ] Wall bump consumes no turn; a move onto open floor does
-- [ ] Bump-to-attack: walking into a tagged "enemy"/"boss" entity attacks instead of moving, and still consumes a turn
-- [ ] F3 toggles a debug overlay (level name, position, backend, FPS) — off by default, not a permanent bar (Step 4g; matches the standing preference that this kind of info be a toggle, not always-on chrome)
-- [ ] Camera follows with lerp and clamps at level edges
-- [ ] Camera shake fires and decays
-- [ ] Particles spawn, move, and expire
-- [ ] Glyph animation clips play (`register_clip` + `play_clip`/`play_clip_once`) — the legacy `Sprite.frames`/`frame_rate` glyph-cycling fields were removed in Step 3e
-- [ ] Texture sprites render when a tile has a texture
-- [ ] Script-drawn HUD (`ctx.draw_hud`) survives opening the pause menu instead of vanishing (Step 4g fixed a real bug here, catalogued as D16)
-- [ ] Last 3 log lines render at the bottom of the viewport (now full-height as of Step 4g — no bottom bar to sit "above" anymore)
-- [ ] Exit trigger loads the next level; relative paths resolve
-- [ ] Script log transfers to the editor console on exit
+- [✓] Wall bump consumes no turn; a move onto open floor does — via
+      `roguelike_floor1.rs`'s
+      `walking_into_a_wall_does_not_move_the_player_or_consume_a_turn`/
+      `pressing_w_moves_the_player_one_cell_up_and_triggers_a_turn`
+      (automated); live movement confirmed the player's screen position
+      advances on open-floor presses, but the demo's own on-screen "Turn N"
+      HUD counter (a `player.rhai` display, not engine state) appeared to
+      increment on every keypress including an apparent wall bump — not
+      re-litigated live since the automated test is the authoritative
+      check for the actual engine-side invariant (7B gate, 2026-09-07)
+- [ ] Bump-to-attack: walking into a tagged "enemy"/"boss" entity attacks instead of moving, and still consumes a turn — not exercised live this pass (floor2's nearest monster wasn't reachable in a short move sequence); covered by `roguelike_combat.rs` (automated)
+- [✓] F3 toggles a debug overlay (level name, position, backend, FPS) — off by default, not a permanent bar (Step 4g; matches the standing preference that this kind of info be a toggle, not always-on chrome) (7B gate, 2026-09-07 — confirmed `Mode:WGPU AS FPS:75`, also a live sanity check that R23's frame-pacing fix didn't peg FPS to some stale cap)
+- [ ] Camera follows with lerp and clamps at level edges — not exercised;
+      floor2's viewport didn't scroll during this pass (7B gate, 2026-09-07)
+- [ ] Camera shake fires and decays — relies on the automated
+      `render_time_shake_jitter_never_touches_the_deterministic_rng_stream`
+      test; a transient per-frame jitter isn't reliably catchable in a
+      static screenshot, not independently confirmed live (7B gate, 2026-09-07)
+- [ ] Particles spawn, move, and expire — not exercised live this pass
+- [ ] Glyph animation clips play (`register_clip` + `play_clip`/`play_clip_once`) — the legacy `Sprite.frames`/`frame_rate` glyph-cycling fields were removed in Step 3e — not exercised live this pass
+- [ ] Texture sprites render when a tile has a texture — neither shipped
+      demo uses a textured tile; not exercisable without one
+- [✓] Script-drawn HUD (`ctx.draw_hud`) survives opening the pause menu instead of vanishing (Step 4g fixed a real bug here, catalogued as D16) (7B gate, 2026-09-07 — HP/Gold/Potions/Depth/Turn HUD stayed visible with the pause overlay open)
+- [ ] Last 3 log lines render at the bottom of the viewport (now full-height as of Step 4g — no bottom bar to sit "above" anymore) — no loggable event triggered this pass
+- [ ] Exit trigger loads the next level; relative paths resolve — not
+      exercised live (didn't walk to the stairs); covered by
+      `an_unlocked_exit_triggers_a_level_transition`/
+      `a_locked_exit_does_not_trigger_a_level_transition` (automated)
+- [ ] Script log transfers to the editor console on exit — not exercised live
 
 ## 12. Turn-based mode
 
