@@ -185,6 +185,12 @@ impl Engine {
         }
         state.on_start(&mut self.world, &mut self.events, self.width, self.height, &mut self.persistent);
         self.state_stack.push(state);
+        // R19 (7A-2, docs/ember2d-master-plan.md): the deepest legitimate
+        // stack today is EditorState -> PlayState -> PauseMenuState (3). A
+        // 4th means something (like the ToStart orphan this step fixes)
+        // failed to pop before pushing again — catch that in debug builds
+        // rather than let the stack grow unboundedly across state changes.
+        debug_assert!(self.state_stack.len() <= 3, "editor state stack depth exceeded 3 ({}) — a Transition handler is missing a pop_state", self.state_stack.len());
     }
 
     pub fn pop_state(&mut self) -> Option<Box<dyn GameState>> {
@@ -267,6 +273,16 @@ impl Engine {
                 _ => {}
             }
         });
+
+        // R12 (7A-2, docs/ember2d-master-plan.md): the other half of
+        // InputManager's text-capture mechanism — see
+        // `text_capture_requested`'s own doc comment (input.rs). Whichever
+        // widget wants this frame's `text_buffer` must have called
+        // `begin_text_capture` during last frame's update (the only point
+        // in the loop before this one that could have); if nothing did,
+        // clear it now rather than let it silently carry into whatever
+        // becomes focused next.
+        self.input.finish_frame_text_capture();
     }
 
     /// Main engine execution loop.

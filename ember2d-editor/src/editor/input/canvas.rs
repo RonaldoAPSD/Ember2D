@@ -165,12 +165,18 @@ impl EditorState {
         if !shift && !alt {
             match self.active_tool {
                 ToolKind::Rect => {
-                    if mouse.left_just_pressed() {
+                    // R13 (7A-2, docs/ember2d-master-plan.md): without the
+                    // `!self.ignore_drag` guard every other paint path in
+                    // this file already uses, a click that dismisses a menu
+                    // or closes a dropdown (which sets `ignore_drag` for
+                    // exactly this reason) also drops a rect anchor or
+                    // stamps one straight onto the canvas underneath it.
+                    if mouse.left_just_pressed() && !self.ignore_drag {
                         if let Some(pos) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
                             self.rect_anchor = Some(pos);
                         }
                     }
-                    if mouse.left_just_released() {
+                    if mouse.left_just_released() && !self.ignore_drag {
                         if let (Some(anchor), Some(current)) = (
                             self.rect_anchor.take(),
                             self.mouse_to_grid(mouse.cell_x, mouse.cell_y),
@@ -194,7 +200,8 @@ impl EditorState {
                     return;
                 }
                 ToolKind::Line => {
-                    if mouse.left_just_pressed() {
+                    // R13: see the matching comment on ToolKind::Rect above.
+                    if mouse.left_just_pressed() && !self.ignore_drag {
                         if let Some(pos) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
                             if self.line_anchor.is_none() {
                                 self.line_anchor = Some(pos);
@@ -214,7 +221,8 @@ impl EditorState {
                     return;
                 }
                 ToolKind::Fill => {
-                    if mouse.left_just_pressed() {
+                    // R13: see the matching comment on ToolKind::Rect above.
+                    if mouse.left_just_pressed() && !self.ignore_drag {
                         if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
                             self.flood_fill(gx, gy);
                         }

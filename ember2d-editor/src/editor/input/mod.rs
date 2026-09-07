@@ -2,6 +2,7 @@
 
 use ember2d::engine::UpdateContext;
 use super::commands::Command;
+use super::panel::PanelId;
 use super::{EditorState, PaletteField};
 
 mod canvas;
@@ -92,7 +93,6 @@ impl EditorState {
         if self.palette_editor_open {
             use ember2d::input::Key;
             use ember2d::renderer::color::Color;
-            use super::helpers::{TEXT_INPUT_KEYS, key_to_char};
 
             let mw = 36usize;
             let mh = 18usize;
@@ -102,17 +102,18 @@ impl EditorState {
             let sel = self.palette_editing_idx;
 
             // 1. Inline Typing Logic
+            // R12 (7A-2, docs/ember2d-master-plan.md): reads the engine's
+            // captured text (`take_text`) instead of the old physical-key +
+            // US-QWERTY `key_to_char` lookup — see script_editor.rs's own
+            // R12 comment for why. `begin_text_capture` only while a field
+            // actually has focus, renewed every such frame.
             if let Some(focus) = self.palette_editor_focus {
-                let shift = input.is_held(Key::LeftShift) || input.is_held(Key::RightShift);
-                for &key in TEXT_INPUT_KEYS {
-                    if input.just_pressed(key) {
-                        if let Some(ch) = key_to_char(key, shift) {
-                            match focus {
-                                PaletteField::Name  => { self.palette.tiles[sel].name.push(ch); self.unsaved = true; }
-                                PaletteField::Tag   => { self.palette.tiles[sel].tag.push(ch);  self.unsaved = true; }
-                                PaletteField::Glyph => { self.palette.tiles[sel].glyph = ch;    self.unsaved = true; }
-                            }
-                        }
+                input.begin_text_capture();
+                for ch in input.take_text().chars() {
+                    match focus {
+                        PaletteField::Name  => { self.palette.tiles[sel].name.push(ch); self.unsaved = true; }
+                        PaletteField::Tag   => { self.palette.tiles[sel].tag.push(ch);  self.unsaved = true; }
+                        PaletteField::Glyph => { self.palette.tiles[sel].glyph = ch;    self.unsaved = true; }
                     }
                 }
                 if input.just_pressed(Key::Backspace) {
@@ -249,10 +250,26 @@ impl EditorState {
             }
         }
 
-        // Script editor mode swallows all input.
+        // Script editor mode (fullscreen) swallows all input unconditionally
+        // — nothing else is visible to click on while it's up.
         if self.script_mode {
             self.handle_script_mode_input(input, mouse);
             return;
+        }
+        // R14 (7A-2, docs/ember2d-master-plan.md): the DOCKED script panel
+        // having focus must swallow keyboard input the same way (typing 's'
+        // used to fire the global Save shortcut instead of being typed) —
+        // but unlike fullscreen mode, other panels are still visible and
+        // clickable, so a click OUTSIDE the script panel's own bounds must
+        // still fall through to `handle_panel_input` below, which is what
+        // reassigns `focused_panel` to whatever was actually clicked.
+        if self.focused_panel == Some(PanelId::ScriptEditor) {
+            let p = self.panels.get(PanelId::ScriptEditor);
+            let click_outside = mouse.left_just_pressed() && !(mouse.in_bounds && p.contains(mouse.pixel_x, mouse.pixel_y));
+            if !click_outside {
+                self.handle_script_mode_input(input, mouse);
+                return;
+            }
         }
 
         // ── Spawn placement modes ─────────────────────────────────────────────
@@ -305,15 +322,10 @@ impl EditorState {
         // ── Text input: Palette Search ───────────────────────────────────────
         if self.palette_search_focused {
             use ember2d::input::Key;
-            use super::helpers::{TEXT_INPUT_KEYS, key_to_char};
-            let shift = input.is_held(Key::LeftShift) || input.is_held(Key::RightShift);
-            for &key in TEXT_INPUT_KEYS {
-                if input.just_pressed(key) {
-                    if let Some(ch) = key_to_char(key, shift) {
-                        self.palette.search.push(ch);
-                    }
-                }
-            }
+            // R12 (7A-2, docs/ember2d-master-plan.md): see script_editor.rs's
+            // own R12 comment for why take_text() replaces key_to_char here.
+            input.begin_text_capture();
+            for ch in input.take_text().chars() { self.palette.search.push(ch); }
             if input.just_pressed(Key::Backspace) { self.palette.search.pop(); }
             if input.just_pressed(Key::Enter) || input.just_pressed(Key::Escape) { self.palette_search_focused = false; }
             if input.just_pressed(Key::Escape) { self.palette.search.clear(); }

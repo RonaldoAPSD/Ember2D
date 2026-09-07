@@ -108,6 +108,21 @@ pub struct InputManager {
     /// Captured text characters from this frame.
     pub text_buffer: String,
 
+    /// R12 (7A-2, docs/ember2d-master-plan.md): set by `begin_text_capture`
+    /// when some focused widget wants this frame's `text_buffer` — checked
+    /// (and reset) by `finish_frame_text_capture`, which `Engine::poll_events`
+    /// calls once per frame. Without this, `text_buffer` had exactly one
+    /// consumer (`take_text`, called only from the level editor's modal text
+    /// prompt) while several OTHER editor surfaces (script editor, palette
+    /// editor, palette search, graph param fields) typed via the older
+    /// `key_to_char`/`just_pressed` path and never touched `text_buffer` at
+    /// all — so every keystroke typed anywhere else silently piled up here,
+    /// unconsumed, until whenever a prompt next opened, which then received
+    /// the entire backlog in one `take_text()` call. Now: no consumer this
+    /// frame means the buffer is wiped before it can carry over to a later,
+    /// unrelated one.
+    text_capture_requested: bool,
+
     /// Set to true when the window is closed or a quit signal is received.
     pub quit_requested: bool,
 }
@@ -121,6 +136,7 @@ impl InputManager {
             consumed:      HashSet::new(),
             just_released: Vec::new(),
             text_buffer:   String::new(),
+            text_capture_requested: false,
             quit_requested: false,
         }
     }
@@ -154,6 +170,27 @@ impl InputManager {
     /// Returns the contents of the text buffer and clears it.
     pub fn take_text(&mut self) -> String {
         std::mem::take(&mut self.text_buffer)
+    }
+
+    /// Called by whichever widget currently wants this frame's captured
+    /// text (a text prompt, the palette editor/search, a graph param field,
+    /// the script editor) — see `text_capture_requested`'s own doc comment.
+    /// Must be called every frame the widget stays focused; it only protects
+    /// the frame it's called in.
+    pub fn begin_text_capture(&mut self) {
+        self.text_capture_requested = true;
+    }
+
+    /// `Engine::poll_events`'s end-of-frame half of the mechanism described
+    /// on `text_capture_requested`: if nothing asked to keep this frame's
+    /// text, wipe it now so it can never carry over into a future,
+    /// unrelated consumer. Either way, the request is one-shot — it must be
+    /// renewed every frame via `begin_text_capture`.
+    pub fn finish_frame_text_capture(&mut self) {
+        if !self.text_capture_requested {
+            self.text_buffer.clear();
+        }
+        self.text_capture_requested = false;
     }
 
     /// Process a key press event.
@@ -321,5 +358,35 @@ mod tests {
         assert!(snap.is_held("w"), "held set should use lowercase key names");
         assert!(snap.just_pressed("enter"), "just_pressed set should use lowercase key names");
         assert!(!snap.is_held("W") && !snap.just_pressed("Enter"), "no capitalized names should leak through");
+    }
+
+    // ── Tests: R12 (7A-2, docs/ember2d-master-plan.md) — text_buffer must
+    // not survive a frame nothing asked to capture it ──────────────────────
+
+    #[test]
+    fn text_buffer_is_cleared_after_a_frame_with_no_capture_request() {
+        let mut input = InputManager::new();
+        input.text_buffer.push_str("stray keystrokes");
+        input.finish_frame_text_capture();
+        assert!(input.text_buffer.is_empty(), "with no begin_text_capture call this frame, leftover text must not survive into a later, unrelated consumer");
+    }
+
+    #[test]
+    fn text_buffer_survives_a_frame_that_requested_capture() {
+        let mut input = InputManager::new();
+        input.text_buffer.push_str("hello");
+        input.begin_text_capture();
+        input.finish_frame_text_capture();
+        assert_eq!(input.text_buffer, "hello", "a widget that called begin_text_capture this frame must still see its text");
+    }
+
+    #[test]
+    fn a_capture_request_does_not_carry_over_to_the_next_frame() {
+        let mut input = InputManager::new();
+        input.begin_text_capture();
+        input.finish_frame_text_capture(); // consumes this frame's request
+        input.text_buffer.push_str("typed after focus moved away");
+        input.finish_frame_text_capture(); // no request renewed this frame
+        assert!(input.text_buffer.is_empty(), "begin_text_capture must be renewed every frame — a stale request from an earlier frame must not protect a later one");
     }
 }

@@ -109,7 +109,12 @@ impl EditorState {
                         self.script_cursor.1 = row_idx;
                         let gutter_w = 4;
                         let col = mouse.cell_x as i32 - p.content_x() as i32 - gutter_w;
-                        self.script_cursor.0 = (col.max(0) as usize).min(self.script_buffer[row_idx].len());
+                        // R11 (7A-2, docs/ember2d-master-plan.md): clamp
+                        // against the CHARACTER count, not the byte length
+                        // — see script_editor.rs's `char_byte_offset` doc
+                        // comment for why a byte-length bound produces an
+                        // out-of-range char index on any multi-byte line.
+                        self.script_cursor.0 = (col.max(0) as usize).min(self.script_buffer[row_idx].chars().count());
                     }
                     return true;
                 }

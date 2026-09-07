@@ -242,16 +242,16 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R9 | S2 | `clear_all_persistent` clears the pending queue, not the store — a no-op | `api.rs:313` | `[x]` 7A-1 — request-a-clear flag on `ScriptState`, applied to the real store in `apply_ctx` |
 | R10 | S3 | `set_tag`/`play_clip` on a missing id create ghost components | `apply.rs:64, 88` | `[x]` 7A-1 — both guarded with `world.transforms.contains_key` |
 | **Editor stability** | | | | |
-| R11 | S1 | Non-ASCII text panics: script editor byte cursor, highlighter char/byte mix, console byte-slice | `input/script_editor.rs:50-150`; `ui/script.rs:61, 91`; `ui/panels/dock.rs:133` | `[ ]` → 7A-2 |
-| R12 | S1 | Every printable key since the last prompt floods the next prompt's field | `engine.rs:238`; `editor/input/text.rs:14` | `[ ]` → 7A-2 |
-| R13 | S2 | Rect/Line/Fill tools skip the `ignore_drag` painting guard | `input/canvas.rs:168-227` | `[ ]` → 7A-2 |
-| R14 | S2 | Docked script panel: click places cursor but typing fires global shortcuts (S saves, F fills, Z resizes) | `input/panels/file_and_script.rs:105-115`; `input/mod.rs:253` | `[ ]` → 7A-2 |
+| R11 | S1 | Non-ASCII text panics: script editor byte cursor, highlighter char/byte mix, console byte-slice | `input/script_editor.rs:50-150`; `ui/script.rs:61, 91`; `ui/panels/dock.rs:133` | `[x]` 7A-2 — cursor mutations convert char index → byte offset via `char_byte_offset`; highlighter builds from `chars`, not `line` byte-slices; console truncates via `chars().take` |
+| R12 | S1 | Every printable key since the last prompt floods the next prompt's field | `engine.rs:238`; `editor/input/text.rs:14` | `[x]` 7A-2 — `InputManager::begin_text_capture`/`finish_frame_text_capture`; script editor, palette editor, palette search, and graph param field all migrated off `key_to_char` to `take_text()` |
+| R13 | S2 | Rect/Line/Fill tools skip the `ignore_drag` painting guard | `input/canvas.rs:168-227` | `[x]` 7A-2 — `&& !self.ignore_drag` added to all three |
+| R14 | S2 | Docked script panel: click places cursor but typing fires global shortcuts (S saves, F fills, Z resizes) | `input/panels/file_and_script.rs:105-115`; `input/mod.rs:253` | `[x]` 7A-2 — `EditorFocus` (derived, see 7A-2's "Landed as" note); `handle_shortcuts` returns early unless `Canvas` |
 | R15 | S3 | Render-time camera shake consumes the sim RNG → particle stream frame-rate dependent | `play.rs:269-272, 496-513` | `[ ]` → 7A-5 |
 | R16 | S3 | Wall-clock `elapsed` reaches scripts via `get_elapsed` | `engine.rs:286, 316`; `api.rs:146` | `[ ]` → 7A-5 |
 | R17 | S3 | Filesystem I/O inside `ember2d-sim` (`Path::exists`, `LevelData::load` in `late_step`) | `simulation.rs:66, 432`; `spawn.rs:46, 71, 79` | `[ ]` → 7.5-9 |
 | R18 | S2 | `receive_log` has zero callers; play-mode script errors never reach the editor console | `impl_state/mod.rs:527` | `[ ]` → 7C-7 |
-| R19 | S2 | File › Start Screen orphans an `EditorState` on the state stack | `ember2d-app/src/app.rs:85`; `main.rs:63-67` | `[ ]` → 7A-2 |
-| R20 | S2 | `TilePalette::current()` indexes `[0]`; empty or out-of-range `selected` from a loaded palette panics | `palette.rs:284`; `text.rs:53, 84`; `input/mod.rs:75, 111` | `[ ]` → 7A-2 |
+| R19 | S2 | File › Start Screen orphans an `EditorState` on the state stack | `ember2d-app/src/app.rs:85`; `main.rs:63-67` | `[x]` 7A-2 — both `Transition::ToStart` arms in app.rs pop before returning; `Engine::push_state` debug-asserts depth ≤ 3 |
+| R20 | S2 | `TilePalette::current()` indexes `[0]`; empty or out-of-range `selected` from a loaded palette panics | `palette.rs:284`; `text.rs:53, 84`; `input/mod.rs:75, 111` | `[x]` 7A-2 — invariant enforced at `TilePalette::load` (reject empty tiles, clamp `selected`); `current()` itself unchanged, see 7A-2's "Landed as" note |
 | **Renderer / engine** | | | | |
 | R21 | S2 | Non-integer cell projection: cells stretched unless window is an exact cell multiple; `scale_factor()` width-only; HiDPI mis-sized | `renderer/mod.rs:381-382`; `backend.rs:328`; `engine.rs:246` | `[ ]` → 7B-2 |
 | R22 | S4 | `scopes` map is dead state (rhai rewinds scope; timers moved off it) yet maintained by hot-reload and despawn | `scripting/engine.rs` | `[ ]` → 7.5-10 |
@@ -422,7 +422,7 @@ testable, and mostly one-file. Expected size: eight commits.
   can't reproduce even on the unmodified tree. Not a regression; the
   recorded baseline is stale for this environment.
 
-#### `[ ]` 7A-2 — Editor panics and input leaks
+#### `[x]` 7A-2 — Editor panics and input leaks (`35d3bbe`)
 
 - **Why:** R11–R14, R19, R20.
 - **Change:**
@@ -456,6 +456,44 @@ testable, and mostly one-file. Expected size: eight commits.
 - **Done when:** tests pass and the regression checklist §8 (script editor)
   passes manually with a non-ASCII file open.
 - **Scope:** `ember2d-editor`, `ember2d` (input.rs, engine.rs), `ember2d-app`.
+- **Landed as:** all six named tests, plus a console-truncation unit test
+  (`draw_console` itself needs a real `Renderer` to call, so the fix was
+  pulled into a small `truncate_chars` helper in `dock.rs` and tested
+  directly). Automated: full workspace build/test green, editor launches
+  and runs 8s with no panic. NOT automated: interactive keyboard/mouse
+  smoke-testing (typing non-ASCII, clicking docked-panel-then-away) — this
+  is a real GUI window this session can't drive; needs a manual pass.
+  Three deviations from the Change list above:
+  - **`EditorFocus`** has only `Canvas`/`ScriptPanel` (not the `Prompt`/`...`
+    the Change list sketches) and is a **derived method** (`focus()`,
+    computed from `script_mode`/`focused_panel`), not a stored field —
+    every OTHER exclusive-input mode (`text_input`, `palette_editor_open`,
+    `palette_search_focused`, `graph_mode`) already returns early from
+    `handle_update` before reaching `handle_panel_input`/`handle_canvas_input`/
+    `handle_shortcuts`, so only the docked script panel actually needed this;
+    a stored field would be a second source of truth to keep in sync with
+    `focused_panel` for no behavioral gain. 7C-4 can swap the internal
+    representation later without touching any `focus()` call site. Also
+    added, beyond R14's literal ask: a click OUTSIDE the docked script
+    panel's own bounds falls through to `handle_panel_input` instead of
+    being swallowed, so focus can still move to another panel with the
+    mouse — an exclusive dispatch copied verbatim from the fullscreen case
+    would otherwise trap focus on the script panel permanently (fullscreen
+    has no OTHER visible panel to click, so this gap doesn't show there).
+  - **`TilePalette::current()` keeps its `&TileDefinition` (non-`Option`)
+    signature** rather than becoming fallible as the Change list asks.
+    `tiles` becoming empty is now provably unreachable (the one deletion
+    path was already guarded at `tiles.len() > 1`; `TilePalette::load` —
+    the only other mutator — now rejects an empty `tiles` outright), so
+    making all ~13 call sites handle a case that can't occur would be
+    defensive noise, not safety.
+  - **`key_to_char`/`TEXT_INPUT_KEYS` were NOT deleted** from `helpers.rs`
+    — `start_screen/logic.rs` (project name / folder name entry) still uses
+    them and is a different `GameState`, out of this step's named scope.
+    `finish_frame_text_capture`'s default-clear already protects against a
+    start-screen keystroke ever reaching a later editor prompt (nothing
+    there calls `begin_text_capture`, so `text_buffer` is wiped every frame
+    it's active), so leaving it unmigrated doesn't reopen R12.
 
 #### `[ ]` 7A-3 — Save/load is a faithful sim round trip
 

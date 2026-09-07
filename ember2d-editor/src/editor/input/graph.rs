@@ -3,11 +3,11 @@
 use ember2d::input::Key;
 use ember2d_sim::graph::PortDir;
 use super::super::EditorState;
-use super::super::helpers::{key_to_char, TEXT_INPUT_KEYS, apply_param_edit, param_default_for};
+use super::super::helpers::{apply_param_edit, param_default_for};
 use super::super::graph_ui::{palette_make, palette_entries, node_at, port_at};
 
 impl EditorState {
-    pub(super) fn update_graph_mode(&mut self, input: &ember2d::input::InputManager, mouse: &ember2d::mouse::MouseState) {
+    pub(super) fn update_graph_mode(&mut self, input: &mut ember2d::input::InputManager, mouse: &ember2d::mouse::MouseState) {
 
         let (gx, gy) = match self.graph_mode { Some(p) => p, None => return };
 
@@ -19,12 +19,10 @@ impl EditorState {
 
         // ── Inline param editing (text input) ─────────────────────────────────
         if let Some((nid, ref mut buf)) = self.graph_editing_param {
-            for &key in TEXT_INPUT_KEYS {
-                if input.just_pressed(key) {
-                    let shift = input.is_held(Key::LeftShift) || input.is_held(Key::RightShift);
-                    if let Some(ch) = key_to_char(key, shift) { buf.push(ch); }
-                }
-            }
+            // R12 (7A-2, docs/ember2d-master-plan.md): see script_editor.rs's
+            // own R12 comment for why take_text() replaces key_to_char here.
+            input.begin_text_capture();
+            for ch in input.take_text().chars() { buf.push(ch); }
             if input.just_pressed(Key::Backspace) { buf.pop(); }
             if input.just_pressed(Key::Enter) {
                 let buf_clone = buf.clone();

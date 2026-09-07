@@ -63,7 +63,17 @@ pub fn run_editor_app(engine: &mut Engine, editor: EditorState, play_gameplay_lo
                             // Loop continues and restores world at top
                         }
                         Some(Transition::ToStart) => {
-                            while engine.state_stack_len() > 1 {
+                            // R19 (7A-2, docs/ember2d-master-plan.md): this
+                            // used to stop at len() > 1, leaving the
+                            // EditorState (pushed once, at the top of this
+                            // function) sitting on the stack under nothing.
+                            // `main.rs`'s own loop then pushes a fresh
+                            // StartScreen on top of that orphan instead of
+                            // onto an empty stack — popping to 0 here is
+                            // what `Engine::run`'s own "stack empty -> Ok(None)"
+                            // contract expects the caller to leave behind
+                            // before pushing a new top-level state.
+                            while engine.state_stack_len() > 0 {
                                 engine.pop_state();
                             }
                             return Ok(true);
@@ -82,7 +92,13 @@ pub fn run_editor_app(engine: &mut Engine, editor: EditorState, play_gameplay_lo
                 // Back under editor control — restore realtime (D6).
                 engine.gameplay_loop = GameplayLoop::RealTime;
             }
-            Transition::ToStart => return Ok(true),
+            // R19 (7A-2, docs/ember2d-master-plan.md): same orphan as the
+            // inner loop's `ToStart` arm above — this is the editor itself
+            // (top of stack, no `PlayState` pushed over it) requesting the
+            // start screen, e.g. via File > Start Screen. Popping it before
+            // returning is what keeps `main.rs`'s next `push_state` landing
+            // on an empty stack instead of stacking a second EditorState.
+            Transition::ToStart => { engine.pop_state(); return Ok(true); }
             Transition::Quit => break,
             _ => {}
         }

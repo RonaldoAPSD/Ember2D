@@ -10,6 +10,10 @@ use super::super::commands::UndoStack;
 impl EditorState {
     pub(super) fn handle_text_input(&mut self, input: &mut ember2d::input::InputManager) {
         if let Some(ref mut ti) = self.text_input {
+            // R12 (7A-2, docs/ember2d-master-plan.md): must be renewed every
+            // frame this prompt stays focused — see `begin_text_capture`'s
+            // own doc comment (ember2d/src/input.rs).
+            input.begin_text_capture();
             // Use the engine's captured text characters first (handles Shift, AltGr, Symbols correctly)
             let captured = input.take_text();
             for ch in captured.chars() {

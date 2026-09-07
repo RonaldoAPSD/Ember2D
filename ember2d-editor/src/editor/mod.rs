@@ -26,6 +26,23 @@ use ui::{Layout, MenuKind, ToolKind, UiFrame};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaletteField { Name, Tag, Glyph }
 
+/// R14 (7A-2, docs/ember2d-master-plan.md): the seed of the fuller `Mode`
+/// enum 7C-4 replaces the boolean-soup dispatch with. Only the two variants
+/// this step actually needs — derived from existing state (`focus()` below)
+/// rather than stored, so there's no new field to keep in sync with
+/// `script_mode`/`focused_panel`; 7C-4 can turn this into real stored state
+/// later without touching any call site that reads `focus()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EditorFocus {
+    /// Nothing has exclusive keyboard focus — panels, canvas tools, and
+    /// global shortcuts all apply normally.
+    Canvas,
+    /// The script editor (fullscreen or docked) owns the keyboard — global
+    /// shortcuts must not fire while it does (R14: typing 's' used to save,
+    /// 'f' used to switch tools, etc., instead of being typed).
+    ScriptPanel,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModalPurpose { ConfirmSwitchLevel { path: String } }
 
@@ -263,7 +280,35 @@ impl EditorState {
     pub(super) fn load_palette(&mut self) {
         if let Some(ref folder) = self.project_folder {
             let path = format!("{}/project.palette.ron", folder);
-            if let Ok(pal) = TilePalette::load(&path) { self.palette = pal; }
+            // R20 (7A-2, docs/ember2d-master-plan.md): only attempt a load
+            // (and only report a failure) when the file actually exists —
+            // a brand-new project with no custom palette yet is the common
+            // case and must stay silent, keeping whatever `EditorState::new`
+            // already set (the built-in default). A file that DOES exist
+            // but fails to parse, or parses with no tiles, previously left
+            // `self.palette` on the built-in default silently too — now it
+            // says so, since `TilePalette::current()` panicking on an empty
+            // palette was reachable only through a malformed file exactly
+            // like this.
+            if std::path::Path::new(&path).exists() {
+                match TilePalette::load(&path) {
+                    Ok(pal) => self.palette = pal,
+                    Err(e) => {
+                        self.console_log.push(LogEntry::error(format!("Palette '{}' invalid ({}) — using defaults", path, e)));
+                        self.palette = TilePalette::default_palette();
+                    }
+                }
+            }
+        }
+    }
+
+    /// R14 (7A-2, docs/ember2d-master-plan.md) — see `EditorFocus`'s own
+    /// doc comment for why this is derived rather than a stored field.
+    pub(crate) fn focus(&self) -> EditorFocus {
+        if self.script_mode || self.focused_panel == Some(PanelId::ScriptEditor) {
+            EditorFocus::ScriptPanel
+        } else {
+            EditorFocus::Canvas
         }
     }
 

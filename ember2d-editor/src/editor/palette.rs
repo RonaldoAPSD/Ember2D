@@ -254,9 +254,23 @@ impl TilePalette {
     }
 
     /// Load a palette from a RON file.
+    ///
+    /// R20 (7A-2, docs/ember2d-master-plan.md): `current()` indexes `tiles`
+    /// with no bounds check beyond a `.get()` fallback to `tiles[0]` — safe
+    /// for an out-of-range `selected` (that fallback still hits a real
+    /// entry) but not for an EMPTY `tiles`, which a hand-edited or corrupted
+    /// RON file could produce. Guaranteeing both invariants here, at the
+    /// one place a palette's data can enter the editor from outside its own
+    /// code, means `current()` never needs to defend against them itself.
     pub fn load(path: &str) -> Result<Self, String> {
         let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        let palette: TilePalette = ron::de::from_str(&content).map_err(|e| e.to_string())?;
+        let mut palette: TilePalette = ron::de::from_str(&content).map_err(|e| e.to_string())?;
+        if palette.tiles.is_empty() {
+            return Err("palette has no tiles".to_string());
+        }
+        if palette.selected >= palette.tiles.len() {
+            palette.selected = 0;
+        }
         Ok(palette)
     }
 

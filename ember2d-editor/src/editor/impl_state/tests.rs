@@ -205,3 +205,61 @@ fn redo_stack_clears_after_a_new_edit() {
     editor.stamp_rect((5, 5), (6, 6)); // a new edit
     assert_eq!(editor.undo.redo_len(), 0, "a new edit must clear the redo stack, matching standard linear undo history");
 }
+
+// ── Test: R11 (7A-2, docs/ember2d-master-plan.md) — script editor cursor
+// must be a character index, not a byte index, at every mutation site ──────
+
+#[test]
+fn script_editor_click_past_a_multibyte_character_then_typing_does_not_panic() {
+    use crate::editor::panel::PanelId;
+
+    let mut editor = EditorState::new("unused.level");
+    editor.script_path = Some("test.rhai".to_string());
+    editor.script_buffer = vec!["a\u{e9}".to_string()]; // "aé": 2 chars, 3 bytes
+    editor.script_cursor = (0, 0);
+    editor.focused_panel = Some(PanelId::ScriptEditor);
+
+    let mut input = ember2d::input::InputManager::new();
+    let mut mouse = ember2d::mouse::MouseState::new();
+
+    // Click past both characters — before R11's fix this clamped against
+    // the line's BYTE length (3), not its character count (2).
+    let p = editor.panels.get(PanelId::ScriptEditor);
+    let gutter_w = 4;
+    mouse.cell_x = p.content_x() + gutter_w + 5;
+    mouse.cell_y = p.content_y() + 1;
+    mouse.in_bounds = true;
+    mouse.handle_pressed(ember2d::mouse::MouseButton::Left);
+    mouse.consume_step();
+
+    editor.handle_script_mode_input(&mut input, &mouse);
+    assert_eq!(editor.script_cursor, (2, 0), "cursor must clamp to the line's 2-character length, not its 3-byte length");
+
+    // Typing at that char-index cursor used to panic outright: `insert`
+    // took the char index as a byte offset into a string whose last
+    // character starts at byte 1, not byte 2.
+    let mouse_idle = ember2d::mouse::MouseState::new();
+    input.text_buffer.push('!');
+    editor.handle_script_mode_input(&mut input, &mouse_idle);
+    assert_eq!(editor.script_buffer[0], "a\u{e9}!");
+    assert_eq!(editor.script_cursor, (3, 0));
+}
+
+// ── Test: R20 (7A-2, docs/ember2d-master-plan.md) — clear_all_persistent's
+// sibling defect for the level editor: an out-of-range `selected` must
+// clamp, not panic, when a palette file loads ─────────────────────────────
+
+#[test]
+fn loading_a_palette_with_an_out_of_range_selected_index_clamps_it() {
+    use crate::editor::palette::TilePalette;
+
+    let dir = std::env::temp_dir().join("ember2d_test_palette_clamp");
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+    let path = dir.join("bad_selected.palette.ron");
+    std::fs::write(&path, r#"(tiles: [(name: "Wall", glyph: '#', fg: White, bg: Reset, solid: true, trigger: false, tag: "")], selected: 99, collapsed: [])"#).unwrap();
+
+    let loaded = TilePalette::load(path.to_str().unwrap()).expect("a palette with a valid (non-empty) tiles list must still load");
+    assert_eq!(loaded.selected, 0, "an out-of-range selected index must clamp rather than leave current() indexing past the end");
+
+    let _ = std::fs::remove_file(&path);
+}

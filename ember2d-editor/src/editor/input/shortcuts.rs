@@ -9,6 +9,12 @@ use super::super::commands::Command;
 
 impl EditorState {
     pub(super) fn handle_shortcuts(&mut self, input: &ember2d::input::InputManager, mouse: &ember2d::mouse::MouseState) {
+        // R14 (7A-2, docs/ember2d-master-plan.md): global shortcuts only
+        // apply when nothing else owns the keyboard — see `EditorFocus`'s
+        // own doc comment. Without this, the docked script panel having
+        // focus never stopped this function from running at all.
+        if self.focus() != super::super::EditorFocus::Canvas { return; }
+
         let shift = input.is_held(Key::LeftShift) || input.is_held(Key::RightShift);
         let ctrl  = input.is_held(Key::LeftCtrl)  || input.is_held(Key::RightCtrl);
 

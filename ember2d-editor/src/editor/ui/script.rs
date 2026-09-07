@@ -34,7 +34,14 @@ pub fn draw_script_editor(renderer: &mut Renderer, path: Option<&str>, buffer: &
         draw_highlighted_rhai(renderer, line_x, row, line, max_line_w, bg_col);
 
         if i == cursor.1 {
-            let cursor_x = line_x + (cursor.0).min(line.len());
+            // R11 (7A-2, docs/ember2d-master-plan.md): `cursor.0` is a
+            // character index (script_editor.rs's own `char_byte_offset`
+            // doc comment) — clamping it against `line.len()` (bytes) let
+            // it land past the line's actual character count on any
+            // multi-byte line, which `chars().nth(cursor.0)` below would
+            // then draw as a space instead of the real character at the
+            // cursor.
+            let cursor_x = line_x + (cursor.0).min(line.chars().count());
             if cursor_x < cx + cw {
                 let char_at_cursor = line.chars().nth(cursor.0).unwrap_or(' ');
                 renderer.draw_char(cursor_x, row, char_at_cursor, Color::Black, Color::Cyan);
@@ -58,7 +65,15 @@ fn draw_highlighted_rhai(renderer: &mut Renderer, x: usize, y: usize, line: &str
 
         // Comments
         if ch == '/' && i + 1 < chars.len() && chars[i+1] == '/' {
-            renderer.draw_str(col, y, &line[i..], Color::Grey, bg);
+            // R11 (7A-2, docs/ember2d-master-plan.md): `i` is an index into
+            // `chars` (a `Vec<char>`), not a byte offset — slicing the
+            // original `line: &str` with it (`&line[i..]`) panicked the
+            // moment any multi-byte character appeared before the `//`.
+            // Building the rest-of-line `String` from `chars` instead is
+            // always char-safe, at the (negligible, once-per-comment)
+            // allocation cost.
+            let rest: String = chars[i..].iter().collect();
+            renderer.draw_str(col, y, &rest, Color::Grey, bg);
             return;
         }
 
@@ -88,10 +103,19 @@ fn draw_highlighted_rhai(renderer: &mut Renderer, x: usize, y: usize, line: &str
             while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
                 i += 1;
             }
-            let word = &line[start..i];
-            let color = if keywords.contains(&word) { Color::Cyan } else { Color::White };
-            renderer.draw_str(col, y, word, color, bg);
-            col += word.len();
+            // R11: same char-index-into-byte-slice bug as the comment case
+            // above — `start`/`i` index `chars`, not `line`'s bytes. Safe
+            // here in practice too (identifiers are ASCII-only by the
+            // `is_ascii_alphanumeric`/`is_ascii_alphabetic` checks above,
+            // so `line[start..i]` would happen to land on char boundaries
+            // whenever it didn't panic outright on an earlier multi-byte
+            // character elsewhere in the line) — built from `chars` anyway
+            // for the same reason as the comment case: don't rely on a
+            // downstream character class to keep an upstream slice safe.
+            let word: String = chars[start..i].iter().collect();
+            let color = if keywords.contains(&word.as_str()) { Color::Cyan } else { Color::White };
+            renderer.draw_str(col, y, &word, color, bg);
+            col += word.chars().count();
             continue;
         }
 

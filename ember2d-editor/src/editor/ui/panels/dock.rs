@@ -130,9 +130,9 @@ pub fn draw_console(renderer: &mut Renderer, log: &[LogEntry], cx: usize, cy: us
             LogLevel::Info    => ("[OK] ", Color::DarkGreen, Color::Black),
         };
         let max_text = cw.saturating_sub(7);
-        let text = if entry.text.len() > max_text { &entry.text[..max_text] } else { &entry.text };
+        let text = truncate_chars(&entry.text, max_text);
         renderer.draw_str(cx,     row, prefix, pfg,         tbg);
-        renderer.draw_str(cx + 6, row, text,   Color::White, tbg);
+        renderer.draw_str(cx + 6, row, &text,  Color::White, tbg);
     }
 }
 
@@ -319,5 +319,29 @@ pub fn draw_file_browser_panel(renderer: &mut Renderer, files: &[String], cursor
         let max_name_w = cw.saturating_sub(8);
         let clipped_name: String = name.chars().take(max_name_w).collect();
         renderer.draw_str(name_x, row, &clipped_name, if is_selected { Color::White } else { Color::White }, bg);
+    }
+}
+
+/// R11 (7A-2, docs/ember2d-master-plan.md): `draw_console`'s own truncation
+/// used to byte-slice (`&entry.text[..max_text]`), which panicked whenever
+/// the cut point landed inside a multi-byte character (an em dash, an
+/// accented letter — anything a script's `ctx.log()` can produce).
+/// `chars()` always cuts on character boundaries. Pulled out to its own
+/// function so the fix has a direct unit test — `draw_console` itself needs
+/// a real `Renderer` to call at all.
+fn truncate_chars(s: &str, max_chars: usize) -> String {
+    s.chars().take(max_chars).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncating_a_line_with_a_wide_character_at_the_cut_point_does_not_panic() {
+        let text = "log: caf\u{e9} temperature \u{2014} rising"; // café ... — rising
+        let truncated = truncate_chars(text, 10);
+        assert_eq!(truncated.chars().count(), 10);
+        assert_eq!(truncated, "log: caf\u{e9} ");
     }
 }
