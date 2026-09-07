@@ -261,7 +261,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R19 | S2 | File › Start Screen orphans an `EditorState` on the state stack | `ember2d-app/src/app.rs:85`; `main.rs:63-67` | `[x]` 7A-2 — both `Transition::ToStart` arms in app.rs pop before returning; `Engine::push_state` debug-asserts depth ≤ 3 |
 | R20 | S2 | `TilePalette::current()` indexes `[0]`; empty or out-of-range `selected` from a loaded palette panics | `palette.rs:284`; `text.rs:53, 84`; `input/mod.rs:75, 111` | `[x]` 7A-2 — invariant enforced at `TilePalette::load` (reject empty tiles, clamp `selected`); `current()` itself unchanged, see 7A-2's "Landed as" note |
 | **Renderer / engine** | | | | |
-| R21 | S2 | Non-integer cell projection: cells stretched unless window is an exact cell multiple; `scale_factor()` width-only; HiDPI mis-sized | `renderer/mod.rs:381-382`; `backend.rs:328`; `engine.rs:246` | `[ ]` → 7B-2 |
+| R21 | S2 | Non-integer cell projection: cells stretched unless window is an exact cell multiple; `scale_factor()` width-only; HiDPI mis-sized | `renderer/mod.rs:523-546` (`try_handle_resize`), `renderer/mod.rs:190-192` (`scale_factor`) — locations shifted after 7B-1; original `engine.rs:246`/`backend.rs:328` cites are stale | `[x]` 7B-2 — `compute_layout` floor-divides and letterboxes instead of stretching; `scale` is now DPI-derived (`window.scale_factor().round().max(1.0)`, was a fixed constant); `ScreenMapping` (`origin_px`, per-axis `cell_px`) replaces the width-only `scale_factor()`, consumed by a real wgpu viewport (backend.rs) and by `MouseState::handle_move` |
 | R22 | S4 | `scopes` map is dead state (rhai rewinds scope; timers moved off it) yet maintained by hot-reload and despawn | `scripting/engine.rs` | `[ ]` → 7.5-10 |
 | R23 | S3 | Frame pacing double-throttles (Fifo vsync + `thread::sleep` to 60) | `engine.rs:389-392` | `[ ]` → 7B-4 |
 | R24 | S3 | Key repeat inconsistent: `repeat` flag ignored; letters repeat into text buffer, editing keys never repeat; Ctrl+S pushes "s" | `engine.rs:226-243` | `[ ]` → 7B-4 |
@@ -287,6 +287,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R43 | S4 | `scripting/engine.rs` grew from 591 to 790 lines (limit 750) — same cause as R42, same commit | `ember2d-sim/src/scripting/engine.rs` | `[x]` 7A-10 — the ~140-line `register_fn` sequence moved to a new `registry.rs`; `engine.rs` now 684 lines |
 | R44 | S2 | Space key never reached any text field — winit reports it as `Key::Named(NamedKey::Space)`, not `Key::Character(" ")`, and `Engine::poll_events` matched only `Character`. Made the built-in script editor (and every other `take_text()` consumer) unable to type a space, which makes writing real Rhai source impossible. Found live during the Phase 7A gate's own manual regression pass (§8, "Type, navigate with cursor keys, scroll") | `ember2d/src/engine.rs:266-275` (before fix) | `[x]` 7A-11 — `Key::logical_key_text` handles `Named(NamedKey::Space)` alongside `Character`; unit-tested directly (no live event loop needed) |
 | R45 | S2 | `ember2d-app`'s `--editor <path>` CLI branch called `EditorState::load` but never set `project_folder` (only the start-screen "Open Project" flow, via `new_from_result`, did) — the level itself rendered fine, but the Files panel showed "(empty folder)" and New Script silently did nothing, since both require `project_folder: Some(_)`. Found live in the same manual regression pass, right after confirming R44's fix | `ember2d-app/src/main.rs:29-56` (before fix) | `[x]` 7A-12 — new `EditorState::open_project_folder` (`pub`, wraps the existing `pub(super) load_palette`/`refresh_project_files`) called from the `--editor <path>` branch, mirroring what `new_from_result` already did for the start-screen path |
+| R46 | S4 | `WindowEvent::MouseWheel`'s `PixelDelta` branch still hardcodes `/ 8.0`/`/ 16.0` — the same class of gap 7B-2 fixed for click position, just for scroll delta instead. Found while fixing R21 (7B-2); not in that step's own Change list (only `backend.rs`/`mouse.rs`'s position-mapping sites were named), and `PixelDelta` scroll events are rare in practice (most mice/touchpads report `LineDelta`), so left as a follow-up rather than expanding 7B-2's scope | `ember2d/src/engine.rs` (`EventPump::window_event`, `MouseWheel` arm) | `[ ]` unscheduled |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -972,7 +973,7 @@ draws. Doing these after the theme lands would mean redoing the theme.
   green, clippy 57 warnings at `--lib` scope (down from 59 pre-step),
   `scripts/check.ps1` clean.
 
-#### `[ ]` 7B-2 — Integer cell projection and HiDPI
+#### `[x]` 7B-2 — Integer cell projection and HiDPI (`2259168`)
 
 - **Why:** R21. Integer UI scale (7D-3) cannot be crisp on a stretched
   projection.
@@ -992,6 +993,53 @@ draws. Doing these after the theme lands would mean redoing the theme.
   exact integer multiple of 8×16; mouse hit-tests land on the drawn cell at
   all four window edges.
 - **Scope:** `ember2d`, `ember2d-editor` (consume `ScreenMapping`).
+- **Landed as:** `ember2d`-only — the editor turned out not to need any
+  changes: it only ever reads `mouse.cell_x`/`cell_y`/`pixel_x`/`pixel_y`
+  (dozens of call sites), never re-derives them, so fixing the one choke
+  point (`MouseState::handle_move`) and its one caller
+  (`EventPump::window_event`'s `CursorMoved` arm, `engine.rs`) was
+  sufficient; `ScreenMapping` never needed to reach `ember2d-editor` at
+  all. `renderer::SCALE` (a fixed `pub const`) removed outright — nothing
+  outside `renderer/mod.rs`/`engine.rs` referenced it (checked directly),
+  so there was no ripple to manage; replaced by `Renderer::scale` (a
+  runtime field, DPI-derived) plus `INITIAL_SCALE_GUESS` (`renderer/mod.rs`,
+  `pub(crate)`) for `WindowInit`'s pre-window sizing guess only.
+  `Renderer::new` also stopped taking `width`/`height` — the real cell grid
+  now derives from the window's own `inner_size()`/`scale_factor()`
+  (`compute_layout`, shared with `try_handle_resize` and the new
+  `handle_scale_factor_changed` via a `recompute_layout` helper), the same
+  "trust the actual window, not a caller's request" principle
+  `try_handle_resize` already used; `Engine::new` reads `renderer.width`/
+  `height` back afterward instead. `backend.rs`'s `render()` gained a real
+  `wgpu` viewport (`RenderPass::set_viewport`, clamped to the physical
+  surface for the pre-existing "window shrunk below the minimum grid"
+  edge case) — scissor rects (independent of viewport in wgpu) now add the
+  letterbox origin on top of the existing per-axis scale. `render_scale`
+  (`WgpuBackend`) became `(f32, f32)` plus a new `render_origin: (f32,
+  f32)`. Backend.rs's two hardcoded `/8.0`/`/16.0` were logical-pixel-to-
+  cell conversions (not physical/DPI math) — fixed by referencing
+  `CELL_W`/`CELL_H` directly rather than routing through `ScreenMapping`,
+  which would have been the wrong tool for a computation `ScreenMapping`
+  has no part in. One follow-up found but not fixed, logged as R46: a
+  third hardcoded `/8.0`/`/16.0` pair in `MouseWheel`'s `PixelDelta` arm,
+  same gap class, outside this step's own Change list.
+
+  `renderer/mod.rs` crossed the 750-line limit adding all of this (923
+  lines) — its test module (already the file's largest section) split
+  into a new `renderer/tests.rs`, same `#[path = "..."]` pattern
+  `scripting/engine.rs` established; 5 new tests added there for
+  `compute_layout`/`ScreenMapping::physical_to_logical`.
+
+  Screenshots: `docs/screenshots/7B-2/after-{editor,shooter}.png` (default
+  window size, pixel-identical to 7B-1's own before/after pair) plus
+  `odd-size-roguelike.png` — the window resized +37×+23 physical pixels
+  past an exact cell multiple via a Win32 `MoveWindow` call, confirming a
+  real black letterbox border appears at the trailing edges instead of
+  every cell stretching (R21's actual bug). Mouse-click accuracy at the
+  letterboxed edges wasn't re-verified interactively this session (no
+  input-injection tool available) — the `physical_to_logical` unit tests
+  pin the math exactly; an interactive click-test at a non-exact window
+  size is worth doing before trusting this at the Phase 7B gate.
 
 #### `[ ]` 7B-3 — Renderer resource hygiene
 
