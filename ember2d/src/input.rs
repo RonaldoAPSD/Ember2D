@@ -203,6 +203,34 @@ impl Key {
             _ => return None,
         })
     }
+
+    /// Text a focused widget's `InputManager::text_buffer` should receive
+    /// for this *logical* key press (`winit::keyboard::Key` — a different
+    /// type from this enum's own physical-key `from_winit` above) — called
+    /// from `Engine::poll_events`.
+    ///
+    /// R44 (docs/ember2d-master-plan.md §5.1, 7A-11): winit classifies
+    /// Space as `Key::Named(NamedKey::Space)`, not `Key::Character(" ")`
+    /// the way every other printable key comes through — `poll_events`
+    /// used to match only `Key::Character`, so a Space press was silently
+    /// dropped before it ever reached `text_buffer`. Every `take_text()`
+    /// consumer (the script editor, palette editor, palette search, graph
+    /// param field) inherited the same gap: none of them could type a
+    /// space, which makes writing actual Rhai source in the built-in
+    /// script editor impossible (found live during the Phase 7A gate's
+    /// manual regression pass, not caught by R11/R12's own 7A-2 tests
+    /// since neither exercised Space specifically). Unit-testable by
+    /// constructing a `winit::keyboard::Key` directly, no live event loop
+    /// needed — same reasoning as `from_winit` above.
+    pub fn logical_key_text(key: &winit::keyboard::Key) -> String {
+        match key {
+            winit::keyboard::Key::Character(text) => {
+                text.chars().filter(|ch| !ch.is_control()).collect()
+            }
+            winit::keyboard::Key::Named(winit::keyboard::NamedKey::Space) => " ".to_string(),
+            _ => String::new(),
+        }
+    }
 }
 
 /// Tracks keyboard state across frames: held, just-pressed, and just-released.
@@ -561,5 +589,39 @@ mod tests {
         input.text_buffer.push_str("typed after focus moved away");
         input.finish_frame_text_capture(); // no request renewed this frame
         assert!(input.text_buffer.is_empty(), "begin_text_capture must be renewed every frame — a stale request from an earlier frame must not protect a later one");
+    }
+
+    // ── Tests: R44 (7A-11, docs/ember2d-master-plan.md) — Space must reach
+    // text_buffer even though winit reports it as a Named key, not a
+    // Character ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn logical_key_text_produces_a_space_for_the_named_space_key() {
+        let key = winit::keyboard::Key::Named(winit::keyboard::NamedKey::Space);
+        assert_eq!(Key::logical_key_text(&key), " ");
+    }
+
+    #[test]
+    fn logical_key_text_passes_through_an_ordinary_character_key() {
+        let key = winit::keyboard::Key::Character("a".into());
+        assert_eq!(Key::logical_key_text(&key), "a");
+    }
+
+    #[test]
+    fn logical_key_text_strips_control_characters_from_a_character_key() {
+        // Some IME/compose sequences can hand back a control character
+        // inside `Key::Character` — filtered here the same way the
+        // original inline match in `Engine::poll_events` always did.
+        let key = winit::keyboard::Key::Character("\u{7}".into());
+        assert_eq!(Key::logical_key_text(&key), "");
+    }
+
+    #[test]
+    fn logical_key_text_is_empty_for_other_named_keys() {
+        // Enter/Backspace/Tab/arrows etc. are handled through their own
+        // physical-key `just_pressed` paths elsewhere (script_editor.rs) —
+        // this function must not also inject them as text.
+        let key = winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter);
+        assert_eq!(Key::logical_key_text(&key), "");
     }
 }

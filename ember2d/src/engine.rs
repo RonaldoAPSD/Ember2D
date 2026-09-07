@@ -264,14 +264,12 @@ impl Engine {
                         }
 
                         // 2. Logical key for text entry (characters, symbols, etc.)
+                        // R44 (7A-11, docs/ember2d-master-plan.md §5.1): was
+                        // `if let Key::Character(text) = ...` only — see
+                        // `logical_key_text`'s own doc comment for why that
+                        // silently dropped every Space press.
                         if key_event.state.is_pressed() {
-                            if let winit::keyboard::Key::Character(text) = &key_event.logical_key {
-                                for ch in text.chars() {
-                                    if !ch.is_control() {
-                                        input.text_buffer.push(ch);
-                                    }
-                                }
-                            }
+                            input.text_buffer.push_str(&Key::logical_key_text(&key_event.logical_key));
                         }
                     }
                     WindowEvent::CursorMoved { position, .. } => {
