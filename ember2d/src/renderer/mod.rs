@@ -24,7 +24,48 @@ pub use texture::{Texture, TextureId};
 // crate for that step.
 pub const CELL_W: usize = 8;
 pub const CELL_H: usize = 16;
-pub const SCALE: usize = 2;
+
+/// 7B-2 (docs/ember2d-master-plan.md §5.2, R21): the fallback initial guess
+/// for `WindowInit`'s requested window size (`engine.rs`), used only before
+/// a window — and therefore a real DPI reading — exists. Every other use of
+/// "how many physical pixels per cell" goes through `Renderer::scale`
+/// (DPI-derived, integer, re-read on `new`/resize/`ScaleFactorChanged`) —
+/// see that field's own doc comment for why a fixed constant was the R21
+/// bug, not the fix.
+pub(crate) const INITIAL_SCALE_GUESS: f32 = 2.0;
+
+/// Physical-pixel <-> cell-space mapping (7B-2, docs/ember2d-master-plan.md
+/// §5.2, R21) — recomputed by `Renderer` on `new`/resize/DPI change,
+/// exposed for `Engine`/`MouseState` to convert a raw physical cursor
+/// position into the cell coordinates `mouse.cell_x`/`cell_y` (and the
+/// pixel-space `mouse.pixel_x`/`pixel_y` the editor's `UiRect`/`UiFrame`
+/// hit-testing already expects) without hardcoding `CELL_W`/`CELL_H`
+/// themselves. Replaces the old single-axis, DPI-blind `scale_factor()`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScreenMapping {
+    /// Top-left of the letterboxed drawable area, in physical pixels. Zero
+    /// unless the window's physical size isn't an exact multiple of
+    /// `cell_px` — the remainder is split evenly on both sides rather than
+    /// stretching every cell to fill it (R21's actual bug).
+    pub origin_px: (f32, f32),
+    /// Physical pixels per cell, per axis: `(CELL_W * scale, CELL_H *
+    /// scale)`. Per-axis (not one shared scalar) because a non-square
+    /// letterboxed remainder can round differently per axis even though
+    /// `scale` itself is uniform.
+    pub cell_px: (f32, f32),
+}
+
+impl ScreenMapping {
+    /// A raw physical cursor position -> the letterbox-origin-relative,
+    /// scale-descaled logical pixel position `MouseState::pixel_x`/`pixel_y`
+    /// store (1 unit = 1 un-scaled `CELL_W`/`CELL_H` pixel, matching the
+    /// editor's own pixel-space UI convention).
+    pub fn physical_to_logical(&self, physical: (f32, f32)) -> (f32, f32) {
+        let scale_x = self.cell_px.0 / CELL_W as f32;
+        let scale_y = self.cell_px.1 / CELL_H as f32;
+        ((physical.0 - self.origin_px.0) / scale_x, (physical.1 - self.origin_px.1) / scale_y)
+    }
+}
 
 /// R29 (7B-1, docs/ember2d-master-plan.md §5.2): shows a native error
 /// dialog then exits — the two `Renderer::new` call sites that used to be
@@ -47,6 +88,18 @@ pub struct Renderer {
     pub height: usize,
     pub pixel_width: usize,
     pub pixel_height: usize,
+
+    /// 7B-2 (docs/ember2d-master-plan.md §5.2, R21): our own integer
+    /// render scale — physical pixels per un-scaled `CELL_W`/`CELL_H`
+    /// pixel. DPI-derived (`window.scale_factor().round().max(1.0)`), not
+    /// a fixed constant, so cells always land on a whole physical pixel
+    /// regardless of the display's actual scale factor; re-read on
+    /// `new`/resize/`ScaleFactorChanged` via `recompute_layout`.
+    scale: f32,
+    /// The current physical<->cell-space mapping — see `ScreenMapping`'s
+    /// own doc comment. Kept in sync with `width`/`height`/`scale` by
+    /// `recompute_layout`; never computed anywhere else.
+    mapping: ScreenMapping,
 
     // WGPU core objects
     surface: wgpu::Surface<'static>,
@@ -74,13 +127,23 @@ impl Renderer {
     /// `WindowBuilder`/direct-from-`EventLoop` window creation entirely; a
     /// window can only be created via `ActiveEventLoop::create_window`
     /// inside a `resumed()` callback. `Engine::new` (`engine.rs`) does that
-    /// creation (title, size, `SCALE` all applied there now) and hands the
-    /// result in here, so this constructor's own job — everything from wgpu
-    /// initialization down — is unchanged.
-    pub fn new(width: usize, height: usize, window: Arc<Window>) -> io::Result<Self> {
-        let pixel_width = width * CELL_W;
-        let pixel_height = height * CELL_H;
-
+    /// creation (title, size, `INITIAL_SCALE_GUESS` all applied there now)
+    /// and hands the result in here, so this constructor's own job —
+    /// everything from wgpu initialization down — is unchanged.
+    ///
+    /// 7B-2 (docs/ember2d-master-plan.md §5.2, R21): no longer takes
+    /// `width`/`height` — the grid size a caller *requested* (what
+    /// `WindowInit` sized the window to ask for) isn't necessarily what
+    /// the window manager or the display's real DPI actually produced.
+    /// Cell width/height/`scale`/`ScreenMapping` are derived from the
+    /// window's own real `inner_size()`/`scale_factor()` instead, via
+    /// `recompute_layout` — the same source of truth `try_handle_resize`
+    /// already used for every resize after the first; this just applies
+    /// it at construction too instead of trusting a caller's guess.
+    /// `Engine::new` reads `renderer.width`/`height` back afterward for
+    /// its own copies rather than the `width`/`height` it originally
+    /// passed to `WindowInit`.
+    pub fn new(window: Arc<Window>) -> io::Result<Self> {
         // ── WGPU Initialization ───────────────────────────────────────────
 
         // 7B-1: InstanceDescriptor no longer implements Default (wgpu 30) —
@@ -155,6 +218,14 @@ impl Renderer {
         };
         surface.configure(&device, &config);
 
+        // 7B-2 (docs/ember2d-master-plan.md §5.2, R21): scale/width/height/
+        // mapping are all derived from the real window here, not trusted
+        // from a caller — see this function's own doc comment.
+        let scale = (window.scale_factor() as f32).round().max(1.0);
+        let (width, height, mapping) = compute_layout(size.width, size.height, scale);
+        let pixel_width = width * CELL_W;
+        let pixel_height = height * CELL_H;
+
         let backend = Box::new(WgpuBackend::new(width, height, &device, &queue, surface_format));
 
         Ok(Renderer {
@@ -163,6 +234,8 @@ impl Renderer {
             height,
             pixel_width,
             pixel_height,
+            scale,
+            mapping,
             surface,
             device,
             queue,
@@ -186,9 +259,12 @@ impl Renderer {
         self.backend.set_sprite_mode(enabled);
     }
 
-    /// Returns the ratio between the window's inner physical width and our internal pixel width.
-    pub fn scale_factor(&self) -> f32 {
-        self.window.inner_size().width as f32 / self.pixel_width as f32
+    /// 7B-2 (docs/ember2d-master-plan.md §5.2, R21): replaces the old
+    /// single-axis, DPI-blind `scale_factor()` (width-only ratio between
+    /// physical size and `pixel_width`) — see `ScreenMapping`'s own doc
+    /// comment for what this carries instead and why.
+    pub fn screen_mapping(&self) -> ScreenMapping {
+        self.mapping
     }
 
     #[cfg(target_os = "windows")]
@@ -493,9 +569,13 @@ impl Renderer {
             }
         };
 
-        // Sync scale factor for scissor clipping
-        let scale = self.scale_factor();
-        self.backend.set_render_scale(scale);
+        // 7B-2 (docs/ember2d-master-plan.md §5.2, R21): per-axis now (was a
+        // single scalar from the old scale_factor()) — scissor rects still
+        // arrive from panels in logical pixels and need both the scale
+        // *and* the letterbox origin to land on the right physical pixels.
+        let scale_x = self.mapping.cell_px.0 / CELL_W as f32;
+        let scale_y = self.mapping.cell_px.1 / CELL_H as f32;
+        self.backend.set_render_scale(scale_x, scale_y, self.mapping.origin_px);
 
         // The actual swapchain texture's own size — the authoritative
         // render-target dimensions wgpu will validate scissor rects against,
@@ -505,12 +585,25 @@ impl Renderer {
         let surface_size = output.texture.size();
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        // 7B-2: the drawable viewport — `cells * CELL * scale` physical
+        // pixels, offset by the letterbox origin — is what actually
+        // constrains drawing now, not "whatever the full surface happens
+        // to be" (R21's stretching bug). `backend.render` clamps this to
+        // the real surface size defensively, same reasoning as its
+        // existing scissor clamp.
+        let viewport_size = (
+            self.width as f32 * self.mapping.cell_px.0,
+            self.height as f32 * self.mapping.cell_px.1,
+        );
+
         self.backend.render(
             &self.device,
             &self.queue,
             &view,
             surface_size.width,
             surface_size.height,
+            self.mapping.origin_px,
+            viewport_size,
         );
 
         // 7B-1: SurfaceTexture::present() replaced by Queue::present() in
@@ -520,30 +613,81 @@ impl Renderer {
         Ok(())
     }
 
+    /// 7B-2 (docs/ember2d-master-plan.md §5.2, R21): shared by
+    /// `try_handle_resize` and `handle_scale_factor_changed` — both need
+    /// the exact same "re-derive everything from the window's current
+    /// physical size and scale" logic, just triggered by different events.
+    /// Returns whether the cell grid (`width`/`height`) actually changed —
+    /// `mapping`/`pixel_width`/`pixel_height` can change (a DPI change at
+    /// the same cell count still moves the letterbox origin) without the
+    /// grid itself changing, which callers that only care about the grid
+    /// (e.g. `Engine::width`/`height`) don't need to react to.
+    fn recompute_layout(&mut self) -> bool {
+        let size = self.window.inner_size();
+        self.scale = (self.window.scale_factor() as f32).round().max(1.0);
+        let (new_w, new_h, mapping) = compute_layout(size.width, size.height, self.scale);
+        self.mapping = mapping;
+        self.pixel_width = new_w * CELL_W;
+        self.pixel_height = new_h * CELL_H;
+
+        if new_w == self.width && new_h == self.height {
+            return false;
+        }
+        self.width = new_w;
+        self.height = new_h;
+        self.backend.resize(new_w, new_h);
+        true
+    }
+
     pub fn try_handle_resize(&mut self) -> bool {
         let size = self.window.inner_size();
         if size.width > 0 && size.height > 0 {
             self.config.width = size.width;
             self.config.height = size.height;
             self.surface.configure(&self.device, &self.config);
-
-            let new_w = ((size.width as usize + (SCALE * CELL_W - 1)) / SCALE / CELL_W).max(20);
-            let new_h = ((size.height as usize + (SCALE * CELL_H - 1)) / SCALE / CELL_H).max(6);
-
-            if new_w == self.width && new_h == self.height {
-                return false;
-            }
-
-            self.width = new_w;
-            self.height = new_h;
-            self.pixel_width = new_w * CELL_W;
-            self.pixel_height = new_h * CELL_H;
-
-            self.backend.resize(new_w, new_h);
-            return true;
+            return self.recompute_layout();
         }
         false
     }
+
+    /// 7B-2 (docs/ember2d-master-plan.md §5.2, R21): called from
+    /// `Engine`'s `WindowEvent::ScaleFactorChanged` handler — e.g. the
+    /// window moved to a monitor with a different DPI scale factor. Unlike
+    /// `try_handle_resize`, the surface itself doesn't necessarily need
+    /// reconfiguring (physical size may be unchanged), just the cell
+    /// grid/mapping derived from it.
+    pub fn handle_scale_factor_changed(&mut self) -> bool {
+        self.recompute_layout()
+    }
+}
+
+/// The cell grid and `ScreenMapping` a window of `physical_w`×`physical_h`
+/// pixels produces at `scale` physical pixels per un-scaled `CELL_W`/
+/// `CELL_H` pixel (7B-2, docs/ember2d-master-plan.md §5.2, R21). Floor
+/// division (not the old ceiling division) plus letterboxing the remainder
+/// is what stops individual cells from stretching to fill whatever's left
+/// over — the actual R21 bug. `.max(20)`/`.max(6)` are the same minimum
+/// grid floor `try_handle_resize` always enforced; if the window is
+/// smaller than that minimum's own physical footprint, the drawable rect
+/// is clamped to the real physical size in `WgpuBackend::render` (same
+/// defensive clamp its scissor-rect handling already does) rather than
+/// asking wgpu for an oversized viewport. A free function, not a method,
+/// so it's testable without a live GPU-backed `Renderer` — same reasoning
+/// as `screen_cell_to_pixel` below.
+fn compute_layout(physical_w: u32, physical_h: u32, scale: f32) -> (usize, usize, ScreenMapping) {
+    let cell_px_w = CELL_W as f32 * scale;
+    let cell_px_h = CELL_H as f32 * scale;
+    let cells_w = ((physical_w as f32 / cell_px_w).floor() as usize).max(20);
+    let cells_h = ((physical_h as f32 / cell_px_h).floor() as usize).max(6);
+    let drawable_w = cells_w as f32 * cell_px_w;
+    let drawable_h = cells_h as f32 * cell_px_h;
+    let origin_x = ((physical_w as f32 - drawable_w) / 2.0).max(0.0);
+    let origin_y = ((physical_h as f32 - drawable_h) / 2.0).max(0.0);
+    (
+        cells_w,
+        cells_h,
+        ScreenMapping { origin_px: (origin_x, origin_y), cell_px: (cell_px_w, cell_px_h) },
+    )
 }
 
 /// Convert a screen-space cell position (as `Camera::world_to_screen`
@@ -615,123 +759,9 @@ fn nine_slice_quads(
     quads
 }
 
+// Tests split into tests.rs (7B-2, docs/ember2d-master-plan.md §5.2) — see
+// that file's own header comment — once this file crossed the project's
+// 750-line hard limit (CLAUDE.md).
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::camera::Camera;
-    use ember2d_sim::math::{Rect, Vec2};
-
-    #[test]
-    fn screen_cell_to_pixel_scales_by_cell_size_and_rounds() {
-        assert_eq!(screen_cell_to_pixel(Vec2::new(0.0, 0.0)), (0, 0));
-        assert_eq!(screen_cell_to_pixel(Vec2::new(1.0, 1.0)), (CELL_W as i32, CELL_H as i32));
-        assert_eq!(screen_cell_to_pixel(Vec2::new(2.5, 3.0)), (20, 48)); // 2.5*8=20, 3.0*16=48
-    }
-
-    #[test]
-    fn camera_position_lands_at_the_viewport_center_in_pixels() {
-        let mut cam = Camera::new(80.0, 24.0);
-        cam.position = Vec2::new(10.0, 5.0);
-        cam.zoom = 1.0;
-
-        let (px, py) = screen_cell_to_pixel(cam.world_to_screen(cam.position));
-        assert_eq!((px, py), ((40 * CELL_W) as i32, (12 * CELL_H) as i32));
-    }
-
-    // ── Tests: Phase 7 Part 1a pixel-space primitives
-    // (docs/ember2d-phase7-plan.md) ─────────────────────────────────────────
-
-    #[test]
-    fn pixel_size_to_cells_divides_by_cell_dimensions() {
-        assert_eq!(pixel_size_to_cells(8.0, 16.0), [1.0, 1.0]);
-        assert_eq!(pixel_size_to_cells(16.0, 32.0), [2.0, 2.0]);
-        assert_eq!(pixel_size_to_cells(4.0, 8.0), [0.5, 0.5]);
-    }
-
-    #[test]
-    fn uv_rect_for_normalizes_a_pixel_sub_rect_to_0_1() {
-        assert_eq!(uv_rect_for(64, 64, Rect::new(0.0, 0.0, 64.0, 64.0)), [0.0, 0.0, 1.0, 1.0]);
-        assert_eq!(uv_rect_for(64, 64, Rect::new(0.0, 0.0, 32.0, 32.0)), [0.0, 0.0, 0.5, 0.5]);
-        assert_eq!(uv_rect_for(100, 50, Rect::new(50.0, 25.0, 50.0, 25.0)), [0.5, 0.5, 0.5, 0.5]);
-    }
-
-    #[test]
-    fn nine_slice_quads_produces_nine_quads_with_the_center_at_index_4() {
-        let dest = Rect::new(10.0, 20.0, 100.0, 60.0);
-        let quads = nine_slice_quads(dest, 30.0, 30.0, (5.0, 5.0, 5.0, 5.0));
-        assert_eq!(quads.len(), 9);
-
-        // Corners keep the exact border size on both source and dest sides
-        // — that's what "1:1, not stretched" means.
-        let (top_left_d, top_left_s) = quads[0];
-        assert_eq!(top_left_d, Rect::new(10.0, 20.0, 5.0, 5.0));
-        assert_eq!(top_left_s, Rect::new(0.0, 0.0, 5.0, 5.0));
-
-        let (bottom_right_d, bottom_right_s) = quads[8];
-        assert_eq!(bottom_right_d, Rect::new(105.0, 75.0, 5.0, 5.0));
-        assert_eq!(bottom_right_s, Rect::new(25.0, 25.0, 5.0, 5.0));
-
-        // The center (index 4) stretches: dest grows to fill the remaining
-        // area, but its source rect stays the texture's own unstretched
-        // middle — that's the actual point of a nine-slice.
-        let (center_d, center_s) = quads[4];
-        assert_eq!(center_d, Rect::new(15.0, 25.0, 90.0, 50.0));
-        assert_eq!(center_s, Rect::new(5.0, 5.0, 20.0, 20.0));
-    }
-
-    #[test]
-    fn nine_slice_quads_with_zero_border_degenerates_to_one_stretched_center() {
-        let dest = Rect::new(0.0, 0.0, 40.0, 20.0);
-        let quads = nine_slice_quads(dest, 8.0, 8.0, (0.0, 0.0, 0.0, 0.0));
-        assert_eq!(quads.len(), 9);
-        // The four true corners (0, 2, 6, 8) collapse to zero in BOTH
-        // dimensions — there's no border pixel to draw. The four edges
-        // (1, 3, 5, 7) collapse only along the axis their border would
-        // have occupied; the other axis still spans the whole dest, since
-        // that's the axis the (now-zero) corners would otherwise have
-        // shared width/height with.
-        for &i in &[0, 2, 6, 8] {
-            let (d, s) = quads[i];
-            assert_eq!(
-                (d.w, d.h),
-                (0.0, 0.0),
-                "corner quad {i} should be degenerate in both axes with a zero border"
-            );
-            assert_eq!(
-                (s.w, s.h),
-                (0.0, 0.0),
-                "corner quad {i} should be degenerate in both axes with a zero border"
-            );
-        }
-        for &i in &[1, 7] {
-            // top edge, bottom edge: zero height, full width
-            let (d, _) = quads[i];
-            assert_eq!(d.h, 0.0, "edge quad {i} should be degenerate along its border axis");
-            assert_eq!(d.w, dest.w);
-        }
-        for &i in &[3, 5] {
-            // left edge, right edge: zero width, full height
-            let (d, _) = quads[i];
-            assert_eq!(d.w, 0.0, "edge quad {i} should be degenerate along its border axis");
-            assert_eq!(d.h, dest.h);
-        }
-        let (center_d, center_s) = quads[4];
-        assert_eq!(center_d, dest, "with a zero border the center dest must cover the whole rect");
-        assert_eq!(
-            center_s,
-            Rect::new(0.0, 0.0, 8.0, 8.0),
-            "with a zero border the center src must cover the whole texture"
-        );
-    }
-
-    #[test]
-    fn nine_slice_quads_clamps_a_dest_smaller_than_the_combined_borders() {
-        // dest (30px) is smaller than the combined left+right border (40px)
-        // — the middle column must clamp to zero width, not go negative.
-        let dest = Rect::new(0.0, 0.0, 30.0, 30.0);
-        let quads = nine_slice_quads(dest, 100.0, 100.0, (20.0, 20.0, 20.0, 20.0));
-        let (center_d, _) = quads[4];
-        assert_eq!(center_d.w, 0.0);
-        assert_eq!(center_d.h, 0.0);
-    }
-}
+#[path = "tests.rs"]
+mod tests;

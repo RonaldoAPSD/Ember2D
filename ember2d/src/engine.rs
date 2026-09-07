@@ -174,10 +174,29 @@ impl ApplicationHandler for WindowInit {
         }
         let pixel_width = self.width * crate::renderer::CELL_W;
         let pixel_height = self.height * crate::renderer::CELL_H;
+        // 7B-2 (docs/ember2d-master-plan.md §5.2, R21): only a starting
+        // guess — no window (and therefore no authoritative
+        // `window.scale_factor()`) exists yet to ask. `Renderer::new`
+        // re-derives the real scale, cell grid, and `ScreenMapping` from
+        // the window's actual `inner_size()`/`scale_factor()` once it
+        // exists (`recompute_layout`), so a wrong guess here only costs an
+        // extra resize-equivalent recompute, not a lasting mismatch — see
+        // that function's own doc comment. `PhysicalSize`, not
+        // `LogicalSize`: this guessed scale IS meant to end up as the
+        // window's actual physical size, same as the real DPI-derived
+        // `scale` will apply later; requesting a `LogicalSize` here would
+        // let winit's own OS-level DPI scaling apply on top and
+        // double-scale.
+        let guessed_scale = event_loop
+            .primary_monitor()
+            .map(|m| m.scale_factor() as f32)
+            .unwrap_or(crate::renderer::INITIAL_SCALE_GUESS)
+            .round()
+            .max(1.0);
         let attrs = Window::default_attributes().with_title(&self.title).with_inner_size(
-            winit::dpi::LogicalSize::new(
-                pixel_width as f32 * crate::renderer::SCALE as f32,
-                pixel_height as f32 * crate::renderer::SCALE as f32,
+            winit::dpi::PhysicalSize::new(
+                pixel_width as f32 * guessed_scale,
+                pixel_height as f32 * guessed_scale,
             ),
         );
         if let Ok(window) = event_loop.create_window(attrs) {
@@ -241,8 +260,16 @@ impl<'a> ApplicationHandler for EventPump<'a> {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let scale = self.renderer.scale_factor();
-                self.mouse.handle_move(position.x as f32 / scale, position.y as f32 / scale);
+                // 7B-2 (docs/ember2d-master-plan.md §5.2, R21): was a
+                // single-axis, DPI-blind `scale_factor()` pre-division
+                // that never accounted for the letterbox origin —
+                // `handle_move` does the full physical->logical conversion
+                // via `ScreenMapping` now.
+                self.mouse.handle_move(
+                    position.x as f32,
+                    position.y as f32,
+                    self.renderer.screen_mapping(),
+                );
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 let btn = MouseButton::from_winit(button);
@@ -260,6 +287,19 @@ impl<'a> ApplicationHandler for EventPump<'a> {
             },
             WindowEvent::Resized(_) => {
                 if self.renderer.try_handle_resize() {
+                    *self.engine_width = self.renderer.width;
+                    *self.engine_height = self.renderer.height;
+                }
+            }
+            // 7B-2 (docs/ember2d-master-plan.md §5.2, R21): the window
+            // moved to a monitor with a different DPI scale factor (or the
+            // OS scale setting changed) — re-derive `scale`/the cell grid/
+            // `ScreenMapping` the same way a resize would. Ignoring
+            // `inner_size_writer`: nothing here requests a specific inner
+            // size in response, `recompute_layout` just reads whatever the
+            // window's size/scale_factor are by the time this fires.
+            WindowEvent::ScaleFactorChanged { .. } => {
+                if self.renderer.handle_scale_factor_changed() {
                     *self.engine_width = self.renderer.width;
                     *self.engine_height = self.renderer.height;
                 }
@@ -319,7 +359,15 @@ impl Engine {
         }
         let window = window_init.window.take().unwrap();
 
-        let renderer = Renderer::new(width, height, window)?;
+        // 7B-2 (docs/ember2d-master-plan.md §5.2, R21): Renderer::new no
+        // longer takes width/height — it derives the real cell grid from
+        // the window itself (see that function's own doc comment). Read
+        // it back here rather than trusting the `width`/`height` this
+        // function was originally asked for, which `WindowInit` only ever
+        // used as an initial sizing guess.
+        let renderer = Renderer::new(window)?;
+        let width = renderer.width;
+        let height = renderer.height;
 
         Ok(Engine {
             renderer,

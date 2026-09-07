@@ -25,11 +25,7 @@ impl MouseButton {
     }
 }
 
-/// Width of one character cell in pixels — must match renderer's CELL_W.
-const CELL_W: f32 = 8.0;
-
-/// Height of one character cell in pixels — must match renderer's CELL_H.
-const CELL_H: f32 = 16.0;
+use crate::renderer::{ScreenMapping, CELL_H, CELL_W};
 
 /// Tracks the mouse position and button state across frames.
 pub struct MouseState {
@@ -110,12 +106,18 @@ impl MouseState {
         });
     }
 
-    /// Update mouse position.
-    pub fn handle_move(&mut self, px: f32, py: f32) {
+    /// Update mouse position from a raw physical cursor position (7B-2,
+    /// docs/ember2d-master-plan.md §5.2, R21) — `mapping` converts to the
+    /// letterbox-origin-relative, scale-descaled logical pixel position
+    /// `pixel_x`/`pixel_y` store (was pre-descaled by the caller via the
+    /// old single-axis `scale_factor()` before this ever saw it, which is
+    /// exactly what missed the letterbox origin and the vertical axis).
+    pub fn handle_move(&mut self, physical_x: f32, physical_y: f32, mapping: ScreenMapping) {
+        let (px, py) = mapping.physical_to_logical((physical_x, physical_y));
         self.pixel_x = px;
         self.pixel_y = py;
-        self.cell_x = (px / CELL_W) as usize;
-        self.cell_y = (py / CELL_H) as usize;
+        self.cell_x = (px / CELL_W as f32) as usize;
+        self.cell_y = (py / CELL_H as f32) as usize;
         self.in_bounds = true;
     }
 

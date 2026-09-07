@@ -2,6 +2,7 @@
 
 use crate::renderer::color::{Color, DEFAULT_BG, DEFAULT_FG};
 use crate::renderer::texture::Texture;
+use crate::renderer::{CELL_H, CELL_W};
 use bytemuck::{Pod, Zeroable};
 use std::collections::HashMap;
 
@@ -39,6 +40,11 @@ pub trait RenderBackend {
     /// of the render target (`Renderer`'s `wgpu::SurfaceConfiguration`) —
     /// the backend needs these to clamp scissor rects; see the comment at
     /// their one use site for why a recomputed value isn't safe to trust.
+    /// `viewport_origin`/`viewport_size` (7B-2, docs/ember2d-master-plan.md
+    /// §5.2, R21) are the letterboxed drawable rect within that surface —
+    /// `cells * CELL * scale` physical pixels, centered — everything
+    /// outside it stays the clear color instead of every cell stretching
+    /// to fill whatever's left over (R21's actual bug).
     fn render(
         &mut self,
         device: &wgpu::Device,
@@ -46,6 +52,8 @@ pub trait RenderBackend {
         view: &wgpu::TextureView,
         surface_width: u32,
         surface_height: u32,
+        viewport_origin: (f32, f32),
+        viewport_size: (f32, f32),
     );
     fn resize(&mut self, width: usize, height: usize);
     fn width(&self) -> usize;
@@ -62,7 +70,12 @@ pub trait RenderBackend {
     /// (via `Font::take_dirty`) tracks when that's happened.
     fn invalidate_texture(&mut self, id: u64);
     fn set_scissor(&mut self, rect: Option<(u32, u32, u32, u32)>);
-    fn set_render_scale(&mut self, scale: f32);
+    /// 7B-2 (docs/ember2d-master-plan.md §5.2, R21): per-axis now (was one
+    /// scalar) — panels still specify `set_scissor` rects in logical
+    /// pixels; converting to physical needs both this scale *and*
+    /// `origin_px` (the letterbox offset `scale_factor()` never accounted
+    /// for) to land on the right pixels.
+    fn set_render_scale(&mut self, scale_x: f32, scale_y: f32, origin_px: (f32, f32));
 }
 
 #[repr(C)]
@@ -133,7 +146,14 @@ pub struct WgpuBackend {
     width: usize,
     height: usize,
     pub is_sprite_mode: bool,
-    pub render_scale: f32,
+    /// 7B-2 (docs/ember2d-master-plan.md §5.2, R21): physical pixels per
+    /// logical pixel, per axis (was one scalar) — set each frame from
+    /// `Renderer::screen_mapping()` via `set_render_scale`.
+    pub render_scale: (f32, f32),
+    /// The letterbox origin, in physical pixels — added to a scissor
+    /// rect's logical-pixel coordinates after scaling, same reasoning as
+    /// `render_scale`.
+    pub render_origin: (f32, f32),
 
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
@@ -389,7 +409,8 @@ impl WgpuBackend {
             width,
             height,
             is_sprite_mode: false,
-            render_scale: 1.0,
+            render_scale: (1.0, 1.0),
+            render_origin: (0.0, 0.0),
             pipeline,
             vertex_buffer,
             index_buffer,
@@ -547,8 +568,10 @@ impl RenderBackend for WgpuBackend {
         let bg_rgba = bg.to_rgba(DEFAULT_BG);
         let ch_idx = ch as usize % 128;
         let uv_y = ch_idx as f32 / 128.0;
-        let cell_x = px as f32 / 8.0;
-        let cell_y = py as f32 / 16.0;
+        // 7B-2 (docs/ember2d-master-plan.md §5.2, R21): was a hardcoded
+        // `/ 8.0` / `/ 16.0` literal pair duplicating CELL_W/CELL_H.
+        let cell_x = px as f32 / CELL_W as f32;
+        let cell_y = py as f32 / CELL_H as f32;
 
         self.instances.push(SpriteInstance {
             position: [cell_x, cell_y],
@@ -574,8 +597,10 @@ impl RenderBackend for WgpuBackend {
     ) {
         self.ensure_batch(texture.id);
 
-        let cell_x = px as f32 / 8.0;
-        let cell_y = py as f32 / 16.0;
+        // 7B-2 (docs/ember2d-master-plan.md §5.2, R21): was a hardcoded
+        // `/ 8.0` / `/ 16.0` literal pair duplicating CELL_W/CELL_H.
+        let cell_x = px as f32 / CELL_W as f32;
+        let cell_y = py as f32 / CELL_H as f32;
         let (uv_offset, uv_size) = match uv_rect {
             Some([x, y, w, h]) => ([x, y], [w, h]),
             None => ([0.0, 0.0], [1.0, 1.0]),
@@ -606,6 +631,8 @@ impl RenderBackend for WgpuBackend {
         view: &wgpu::TextureView,
         surface_width: u32,
         surface_height: u32,
+        viewport_origin: (f32, f32),
+        viewport_size: (f32, f32),
     ) {
         self.update_globals(queue);
 
@@ -664,28 +691,48 @@ impl RenderBackend for WgpuBackend {
             rp.set_vertex_buffer(1, self.instance_buffer.slice(..));
             rp.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
+            // 7B-2 (docs/ember2d-master-plan.md §5.2, R21): restricts
+            // drawing to the letterboxed drawable rect — everything
+            // outside stays this pass's own Clear color instead of every
+            // cell stretching to fill the leftover surface (R21's actual
+            // bug). Clamped to the real surface bounds: `viewport_size`
+            // comes from `cells * CELL * scale`, which floor-division
+            // (`compute_layout`, renderer/mod.rs) guarantees never exceeds
+            // the physical surface — this clamp only matters if the window
+            // shrank below the `.max(20)`/`.max(6)` minimum grid floor,
+            // where the requested viewport can be wider than the surface
+            // itself; wgpu rejects — and panics on — a viewport not fully
+            // contained in the render target.
+            let vp_w = viewport_size.0.min(surface_width as f32);
+            let vp_h = viewport_size.1.min(surface_height as f32);
+            rp.set_viewport(viewport_origin.0, viewport_origin.1, vp_w, vp_h, 0.0, 1.0);
+
             for batch in &self.batches {
                 if let Some(bind_group) = self.texture_cache.get(&batch.texture_id) {
                     let (raw_x, raw_y, raw_w, raw_h) = if let Some((x, y, w, h)) = batch.scissor {
+                        // Scissor rects are always relative to the render
+                        // target itself, independent of whatever viewport
+                        // is set — panels specify these in logical pixels,
+                        // so both the per-axis scale AND the letterbox
+                        // origin (`render_scale`/`render_origin`, set once
+                        // a frame from `Renderer::screen_mapping()`) are
+                        // needed to land on the same physical pixels the
+                        // viewport above just placed the actual content at.
                         (
-                            (x as f32 * self.render_scale).round() as u32,
-                            (y as f32 * self.render_scale).round() as u32,
-                            (w as f32 * self.render_scale).round() as u32,
-                            (h as f32 * self.render_scale).round() as u32,
+                            (self.render_origin.0 + x as f32 * self.render_scale.0).round() as u32,
+                            (self.render_origin.1 + y as f32 * self.render_scale.1).round() as u32,
+                            (w as f32 * self.render_scale.0).round() as u32,
+                            (h as f32 * self.render_scale.1).round() as u32,
                         )
                     } else {
-                        // "No explicit scissor" means "reset to the full
-                        // surface" — NOT "recompute the full surface size
-                        // from self.width/height". Those are cell counts
-                        // produced by ceiling-rounding an arbitrary physical
-                        // resize (Renderer::try_handle_resize), so
-                        // `cells * CELL_W * scale` can land a few pixels
-                        // *past* the real surface whenever the window's
-                        // physical size doesn't divide evenly into whole
-                        // cells (e.g. maximizing to a height like 829px).
-                        // wgpu's set_scissor_rect rejects — and panics on —
-                        // any rect not fully contained in the render target,
-                        // so this used to crash the whole game on maximize.
+                        // "No explicit scissor" means "no clipping" — the
+                        // viewport above already confines actual drawing to
+                        // the letterboxed rect, so resetting to the full
+                        // surface here (not the smaller drawable rect) is
+                        // still correct, not a stretch: scissor and
+                        // viewport clip independently, and wgpu validates
+                        // scissor rects against the render target, not the
+                        // current viewport.
                         (0, 0, surface_width, surface_height)
                     };
                     // Defensive clamp for both branches: an editor panel's
@@ -729,7 +776,8 @@ impl RenderBackend for WgpuBackend {
         self.texture_cache.remove(&id);
     }
 
-    fn set_render_scale(&mut self, scale: f32) {
-        self.render_scale = scale;
+    fn set_render_scale(&mut self, scale_x: f32, scale_y: f32, origin_px: (f32, f32)) {
+        self.render_scale = (scale_x, scale_y);
+        self.render_origin = origin_px;
     }
 }
