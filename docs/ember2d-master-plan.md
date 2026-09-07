@@ -904,7 +904,7 @@ draws. Doing these after the theme lands would mean redoing the theme.
 
 **Checklist sections at gate:** §1, §2, §11.
 
-#### `[ ]` 7B-1 — Upgrade wgpu and winit
+#### `[x]` 7B-1 — Upgrade wgpu and winit (`25b9058`)
 
 - **Why:** wgpu 0.19 (Jan 2024) and winit 0.29 are two years behind. The
   blast radius is small now and grows with every renderer step.
@@ -925,6 +925,52 @@ draws. Doing these after the theme lands would mean redoing the theme.
   demos run.
 - **Scope:** `ember2d`, `ember2d-editor` (rfd/winit types if any),
   `Cargo.lock`.
+- **Landed as:** the actual jump was far bigger than this step's own Why
+  anticipated — wgpu ships a breaking release roughly every three months,
+  so 0.19 → 30.0.1 is ~11 major versions, not a routine bump (user chose
+  "go to latest anyway" over an intermediate target or a sub-stepped
+  migration when this was found live). winit 0.29 → 0.30.13. Also bumped
+  in step: `glam` 0.25 → 0.33.7 (collapses the two versions Cargo.lock
+  carried into one), `image` 0.24 → 0.25.10, `gilrs` 0.10 → 0.11.2, `kira`
+  0.9 → 0.12.4. `rand` deliberately left at 0.8, per this step's own Why.
+  One resolver-level fix beyond any single crate bump: `cargo tree`
+  initially showed two `windows` crate versions (0.54.0 pulled in
+  redundantly alongside wgpu-hal's own direct 0.62.2 dependency) — both
+  `gilrs-core` and `gpu-allocator` (a `wgpu-hal` dependency, not
+  ember2d's own) declare wide-enough `windows` ranges to unify on 0.62.2,
+  but `cargo update`'s default resolution kept the older one around
+  redundantly; `cargo update -p windows@0.54.0 --precise 0.62.2` forced
+  the merge. Without it, `wgpu-hal`'s own DX12 backend code fails to
+  compile — a real cross-version type mismatch (`ID3D12Device` from two
+  different `windows` majors), not an ember2d bug, but worth recording
+  since it isn't obvious from the compiler error alone.
+
+  `engine.rs` gained a "winit 0.30 `ApplicationHandler` shims" section:
+  `WindowInit` (one-shot, pumped inside `Engine::new` until `resumed()`
+  hands back a window — `WindowBuilder`/direct-from-`EventLoop` creation
+  is gone entirely in 0.30) and `EventPump` (the per-frame handler
+  `poll_events` builds fresh each call, replacing the closure
+  `pump_events` — deprecated in favor of `pump_app_events` — used to
+  take). `Renderer::new` now takes an already-built `Arc<Window>` instead
+  of `title`/`&EventLoop`; window creation (title, size, `SCALE`) moved
+  into `WindowInit::resumed`. R29 fixed via a new `fatal_gpu_error`
+  helper (`renderer/mod.rs`) using `rfd::MessageDialog` — a new `ember2d`
+  dependency, `rfd = "0.17.2"` (already used by `ember2d-editor`, same
+  version). `audio.rs` needed real rework, not just renames: kira 0.12
+  flattened `manager`/`tween` into top-level re-exports AND replaced the
+  amplitude-based `Volume` enum with `Decibels` (a logarithmic `f32`
+  newtype) — `amplitude_to_decibels` converts `play_sound`'s
+  still-amplitude `volume: f64` parameter (unchanged scripting-API
+  contract) via `20 * log10(amplitude)`, clamped to `Decibels::SILENCE`
+  at/below zero. `ember2d-editor` needed no changes — its own `rfd`
+  dependency doesn't touch winit types directly.
+
+  Screenshots: `docs/screenshots/7B-1/{before,after}-{editor,roguelike,shooter}.png`
+  — all three pairs visually identical (same tiles, entities, colors, HUD
+  text). `cargo tree -p ember2d -i glam`/`-i windows` each show exactly
+  one version. Full workspace build clean (zero warnings), 229 tests
+  green, clippy 57 warnings at `--lib` scope (down from 59 pre-step),
+  `scripts/check.ps1` clean.
 
 #### `[ ]` 7B-2 — Integer cell projection and HiDPI
 
