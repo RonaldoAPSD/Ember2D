@@ -279,6 +279,8 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R38 | S4 | `play.rs` 607 lines (limit 600); `panel/mod.rs` 597 | `ember2d/src/play.rs` | `[x]` moot — the limit itself rose to 750 (§0.4, 2026-09-06, by user direction) after 7A-5 had already pulled `play.rs` back to exactly 600 (debug overlay + HUD-draw dispatch moved to `play/render.rs`); `panel/mod.rs` (597) was never over either limit. No file in the codebase is within 100 lines of 750 as of this row. |
 | R39 | S4 | LICENSE placeholder; no `license`/`repository` in manifests; OFL text not bundled | `LICENSE`, `*/Cargo.toml` | `[x]` 7A-8 (`1e6080f`) — see 7A-8's "Landed as" note |
 | R40 | S4 | No tags; `main` 26 commits behind; version 0.5.0 meaningless | git | `[ ]` unresolved by 7A-8 itself — tagging/fast-forwarding `main` happens at the Phase 7A gate (§0.4, §9), after 7A-9; not a 7A-8 commit |
+| R42 | S4 | `scripting/api.rs` grew from 515 to 771 lines (limit 750) — found running `scripts/check.ps1` after 7A-9's `cargo fmt --all` pass; rustfmt's mechanical line-splitting alone pushed it over, no logic changed | `ember2d-sim/src/scripting/api.rs` | `[ ]` unscheduled — needs a sub-module split before the Phase 7A gate (§0.5.3 runs `check.ps1`); out of 7A-9's own "mechanical only" scope |
+| R43 | S4 | `scripting/engine.rs` grew from 591 to 790 lines (limit 750) — same cause as R42, same commit | `ember2d-sim/src/scripting/engine.rs` | `[ ]` unscheduled — needs a sub-module split before the Phase 7A gate (§0.5.3); out of 7A-9's own "mechanical only" scope |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -753,7 +755,7 @@ testable, and mostly one-file. Expected size: eight commits.
   workspace test suite and `scripts/check.ps1` both verified green after
   every commit, not just the last.
 
-#### `[ ]` 7A-9 — rustfmt decision
+#### `[x]` 7A-9 — rustfmt decision (`6f7230a`, `4957b32`)
 
 - **Why:** 1,397 diff hunks means every future commit that touches a file
   will either reformat it (noisy) or leave two styles side by side.
@@ -766,6 +768,18 @@ testable, and mostly one-file. Expected size: eight commits.
 - **Done when:** `cargo fmt --check` passes in CI (A) or the config is
   committed (B).
 - **Scope:** all crates (A), repo root only (B).
+- **Landed as:** Option A, by user direction. `6f7230a` — `rustfmt.toml`
+  plus the one-time `cargo fmt --all` pass, no other change (1,397 pre-fmt
+  diff hunks → 0; `cargo fmt --check` clean). `4957b32` — `cargo fmt --all
+  -- --check` added to `.github/workflows/ci.yml`. Full workspace build and
+  test suite verified green after the reformat before either commit landed.
+  One side effect outside this step's "mechanical only" scope: `cargo fmt
+  --all` alone pushed `ember2d-sim/src/scripting/api.rs` (515→771 lines)
+  and `ember2d-sim/src/scripting/engine.rs` (591→790 lines) over the
+  750-line hard limit — logged as **R42**/**R43** (§3.2) rather than fixed
+  here, since a sub-module split is a real content decision, not a
+  formatting one. Both need resolving before the Phase 7A gate, which runs
+  `scripts/check.ps1` (§0.5.3).
 
 **Phase 7A gate:** §0.5, then tag `v0.5.7a`.
 
@@ -1544,7 +1558,9 @@ authoring shows the need.
 
 See that step. Record the choice here.
 
-**Decision:** *(pending)*
+**Decision:** Option A — adopt rustfmt (`rustfmt.toml`: `max_width = 100`,
+`use_small_heuristics = "Max"`), workspace reformatted once (`6f7230a`),
+`cargo fmt --check` enforced in CI (`4957b32`).
 
 ---
 
