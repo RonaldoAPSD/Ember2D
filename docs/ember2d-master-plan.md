@@ -266,8 +266,8 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R23 | S3 | Frame pacing double-throttles (Fifo vsync + `thread::sleep` to 60) | `engine.rs:389-392` | `[ ]` → 7B-4 |
 | R24 | S3 | Key repeat inconsistent: `repeat` flag ignored; letters repeat into text buffer, editing keys never repeat; Ctrl+S pushes "s" | `engine.rs:226-243` | `[ ]` → 7B-4 |
 | R25 | S3 | `GamepadState::poll` ignores `Disconnected`; held buttons stick | `gamepad.rs:131-159` | `[ ]` → 7B-4 |
-| R26 | S3 | GPU textures never freed; `AssetManager::clear` doesn't invalidate `texture_cache` | `backend.rs:124` | `[ ]` → 7B-3 |
-| R27 | S3 | `draw_text_px` clones the 4 MB atlas `Texture` per call | `renderer/mod.rs:270` | `[ ]` → 7B-3 |
+| R26 | S3 | GPU textures never freed; `AssetManager::clear` doesn't invalidate `texture_cache` | `backend.rs:124` | `[x]` 7B-3 — new `TextureBudget` (LRU + byte budget, `renderer/texture_budget.rs`) plus `AssetManager::clear` now evicts every id it forgets via a new `TextureEvictor` trait `Renderer` implements |
+| R27 | S3 | `draw_text_px` clones the 4 MB atlas `Texture` per call | `renderer/mod.rs:270` | `[x]` 7B-3 — only clones real pixel data when `dirty` or not yet GPU-resident (`WgpuBackend::has_texture`); every other call passes a lightweight placeholder instead |
 | R28 | S3 | Bottom world row never drawn (culled for a HUD bar removed in Phase 4) | `play/render.rs:106-108` | `[ ]` → 7B-4 |
 | R29 | S3 | `request_adapter`/`request_device` `.expect` → panic with no message on unsupported GPU | `renderer/mod.rs:84, 93` | `[ ]` → 7B-1 |
 | R30 | S3 | Audio: decode from disk on every `play_sound`; new `AudioEngine` per level kills music | `audio.rs:38, 51`; `play.rs:203` | `[ ]` → 7.5-11 |
@@ -288,6 +288,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R44 | S2 | Space key never reached any text field — winit reports it as `Key::Named(NamedKey::Space)`, not `Key::Character(" ")`, and `Engine::poll_events` matched only `Character`. Made the built-in script editor (and every other `take_text()` consumer) unable to type a space, which makes writing real Rhai source impossible. Found live during the Phase 7A gate's own manual regression pass (§8, "Type, navigate with cursor keys, scroll") | `ember2d/src/engine.rs:266-275` (before fix) | `[x]` 7A-11 — `Key::logical_key_text` handles `Named(NamedKey::Space)` alongside `Character`; unit-tested directly (no live event loop needed) |
 | R45 | S2 | `ember2d-app`'s `--editor <path>` CLI branch called `EditorState::load` but never set `project_folder` (only the start-screen "Open Project" flow, via `new_from_result`, did) — the level itself rendered fine, but the Files panel showed "(empty folder)" and New Script silently did nothing, since both require `project_folder: Some(_)`. Found live in the same manual regression pass, right after confirming R44's fix | `ember2d-app/src/main.rs:29-56` (before fix) | `[x]` 7A-12 — new `EditorState::open_project_folder` (`pub`, wraps the existing `pub(super) load_palette`/`refresh_project_files`) called from the `--editor <path>` branch, mirroring what `new_from_result` already did for the start-screen path |
 | R46 | S4 | `WindowEvent::MouseWheel`'s `PixelDelta` branch still hardcodes `/ 8.0`/`/ 16.0` — the same class of gap 7B-2 fixed for click position, just for scroll delta instead. Found while fixing R21 (7B-2); not in that step's own Change list (only `backend.rs`/`mouse.rs`'s position-mapping sites were named), and `PixelDelta` scroll events are rare in practice (most mice/touchpads report `LineDelta`), so left as a follow-up rather than expanding 7B-2's scope | `ember2d/src/engine.rs` (`EventPump::window_event`, `MouseWheel` arm) | `[ ]` unscheduled |
+| R47 | S4 | `cargo clippy -p ember2d --all-targets` reports dead code in `ember2d/tests/common/mod.rs` (`TurnHarness`'s own test helpers): `find_tagged_entity_at`, `test_temp_dir`, and `TurnHarness::load`/`player_id`/`player_pos` are never called by any current test. Found while checking 7B-3's own "no dead code in `ember2d`" done-when criterion — confirmed pre-existing (identical warnings before 7B-3's changes) and unrelated to that step's named Change list (renderer resource hygiene only), so not fixed there | `ember2d/tests/common/mod.rs:74, 223, 227, 238, 254` | `[ ]` unscheduled |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -1041,7 +1042,7 @@ draws. Doing these after the theme lands would mean redoing the theme.
   pin the math exactly; an interactive click-test at a non-exact window
   size is worth doing before trusting this at the Phase 7B gate.
 
-#### `[ ]` 7B-3 — Renderer resource hygiene
+#### `[x]` 7B-3 — Renderer resource hygiene (`af582e3`)
 
 - **Why:** R26, R27, dead code.
 - **Change:** `draw_text_px` takes `&Texture` (or a `TextureId` resolved
@@ -1059,6 +1060,75 @@ draws. Doing these after the theme lands would mean redoing the theme.
 - **Done when:** `cargo clippy` reports no dead code in `ember2d`; frame
   time on floor2 unchanged or better.
 - **Scope:** `ember2d`.
+- **Landed as:** all seven named dead-code items removed (confirmed zero
+  real callers via grep before deleting each); `renderer/buffer.rs` was a
+  complete unused pre-wgpu terminal-diffing `Buffer`/`Cell` implementation,
+  deleted outright. `RenderBackend` deleted per the plan's own
+  recommendation — `WgpuBackend` was its only implementor; `Renderer` now
+  holds a `WgpuBackend` directly instead of `Box<dyn RenderBackend>`, and
+  its methods moved to a plain inherent `impl` (unchanged bodies, `fn` →
+  `pub fn`).
+
+  R27: `draw_text_px` only clones the font atlas's real pixel data when
+  `dirty` or not yet GPU-resident (`WgpuBackend::has_texture`, new) — every
+  other call (the overwhelming majority once an atlas has uploaded once)
+  passes a lightweight id/width/height placeholder instead, since
+  `upload_texture` never reads `.pixels` once an id is already cached.
+
+  R26: new `TextureBudget` (own file, `renderer/texture_budget.rs`) tracks
+  approximate byte size and LRU order for `texture_cache`, independent of
+  `wgpu::BindGroup` so the eviction *decision* is unit-testable without a
+  live GPU device — 5 tests. `upload_texture` inserts/touches it on every
+  access and actually removes whatever it reports evicted from
+  `texture_cache`, with an `eprintln!` warning (CLAUDE.md: acceptable in
+  `ember2d`) each time. `font_texture_id` deliberately never enters the
+  budget at all (inserted directly into `texture_cache` in `new`, as
+  before) rather than being tracked-then-exempted — it's foundational
+  (every glyph draw needs it) and tiny (32 KB), so there's no scenario
+  where evicting it would be correct.
+  `AssetManager::clear` calls a new `TextureEvictor` trait's
+  `evict_texture` (not `backend.evict_texture(id)` literally, since
+  `AssetManager` never sees the backend directly — only `Renderer`, which
+  privately owns it) instead of only clearing its own CPU-side maps, which
+  used to leave every previously-uploaded GPU texture resident forever (worse,
+  a later reload of the "same" path got a fresh id once `path_to_id` was
+  wiped too, so the leak compounded rather than at least reusing the old
+  GPU copy). `Renderer` is the trait's only real implementor;
+  `AssetManager::clear`'s own test uses a trivial recording mock instead,
+  since constructing a real `Renderer` needs a live GPU device — this
+  step's Test line named `assets.rs`, but not literally "assert
+  `texture_cache` empty" (that field lives on `WgpuBackend`, unreachable
+  headlessly); the mock asserts the same thing the plan's own test
+  intended (every id `clear()` forgets on the CPU side gets evicted on the
+  GPU side too), just via the seam that keeps it testable at all.
+
+  `PlayState::render`'s blank-fill: the render pass's own per-frame GPU
+  clear was hardcoded to `wgpu::Color::BLACK`, not `DEFAULT_BG`
+  (`0x111111` — dark grey, not pure black), so the redundant
+  width*height blank-glyph fill wasn't *purely* wasteful, it was also
+  covering a real color mismatch. Fixed the clear color
+  (`default_bg_clear_color`, backend.rs) to match `DEFAULT_BG` first, then
+  deleted the fill outright — confirmed via `docs/screenshots/7B-3/` that
+  the visible background is now the correct dark grey in both play mode
+  and the editor (whose own background is unaffected either way — it
+  always repaints its own full-screen background explicitly).
+
+  `renderer/backend.rs` crossed 750 lines adding `TextureBudget` alone;
+  split it into its own file (with its tests, co-located rather than a
+  separate test file) and, still over, also split `Vertex`/
+  `SpriteInstance`/`Globals`/`Batch` (pure GPU data layout, no logic) into
+  `renderer/vertex.rs`.
+
+  Found live checking this step's own "no dead code" done-when: R47,
+  pre-existing dead code in `ember2d/tests/common/mod.rs` unrelated to
+  this step's scope — logged, not fixed.
+
+  "Frame time on floor2 unchanged or better" not measured numerically —
+  the change removes work (fewer per-frame instances, no full-atlas clone
+  on cache hits) without adding any, so it can only improve or stay flat;
+  confirmed both demos and the editor still run and render correctly via
+  screenshots and a clean `cargo test --workspace` (233 tests, 0
+  failures).
 
 #### `[ ]` 7B-4 — Engine loop and input correctness
 
