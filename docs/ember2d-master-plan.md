@@ -277,8 +277,8 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | **Process** | | | | |
 | R37 | S2 | CI deleted; no cross-platform determinism check exists | `.github/` | `[x]` 7A-7 — `.github/workflows/ci.yml` recreated (`windows-latest`+`ubuntu-latest`, see 7A-7's "Landed as" note); pushed but blocked by an account billing lock, not a workflow defect — CI-green link still pending that being cleared |
 | R38 | S4 | `play.rs` 607 lines (limit 600); `panel/mod.rs` 597 | `ember2d/src/play.rs` | `[x]` moot — the limit itself rose to 750 (§0.4, 2026-09-06, by user direction) after 7A-5 had already pulled `play.rs` back to exactly 600 (debug overlay + HUD-draw dispatch moved to `play/render.rs`); `panel/mod.rs` (597) was never over either limit. No file in the codebase is within 100 lines of 750 as of this row. |
-| R39 | S4 | LICENSE placeholder; no `license`/`repository` in manifests; OFL text not bundled | `LICENSE`, `*/Cargo.toml` | `[ ]` → 7A-8 |
-| R40 | S4 | No tags; `main` 26 commits behind; version 0.5.0 meaningless | git | `[ ]` → 7A-8, §9 |
+| R39 | S4 | LICENSE placeholder; no `license`/`repository` in manifests; OFL text not bundled | `LICENSE`, `*/Cargo.toml` | `[x]` 7A-8 (`1e6080f`) — see 7A-8's "Landed as" note |
+| R40 | S4 | No tags; `main` 26 commits behind; version 0.5.0 meaningless | git | `[ ]` unresolved by 7A-8 itself — tagging/fast-forwarding `main` happens at the Phase 7A gate (§0.4, §9), after 7A-9; not a 7A-8 commit |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -696,7 +696,7 @@ testable, and mostly one-file. Expected size: eight commits.
   `v0.5.7a` run link both wait on the account's billing lock being cleared
   (`github.com/settings/billing`), which is outside this session's reach.
 
-#### `[ ]` 7A-8 — Hygiene
+#### `[x]` 7A-8 — Hygiene (`8c9a72c`, `1e6080f`, `8a70e14`)
 
 - **Why:** R38–R40 and small debts.
 - **Change:** ~~split `play.rs` (move HUD dispatch + debug overlay into
@@ -717,6 +717,35 @@ testable, and mostly one-file. Expected size: eight commits.
 - **Done when:** `scripts/check.ps1` reports zero files over 750 lines;
   clippy warning count recorded in §9.
 - **Scope:** all crates (mechanical only), repo root.
+- **Landed as:** three commits, not one — this step's own Change list
+  explicitly asks for the clippy diff to be "committed separately from any
+  logic change", so `[x]` here cites all three rather than picking one:
+  `8c9a72c` (mechanical: per-process temp dirs in every test that writes a
+  scratch file, plus the `cargo clippy --fix` diff itself — both purely
+  mechanical, bundled together since they touch overlapping files and
+  neither is a behavior change), `1e6080f` (LICENSE's unfilled
+  `[yyyy] [name of copyright owner]` placeholder → "Copyright 2026
+  RonaldoAPSD", by user direction when asked; `license`/`repository` added
+  to all four manifests; the Cascadia Code OFL 1.1 text fetched
+  byte-for-byte from `github.com/microsoft/cascadia-code`'s own `LICENSE`
+  — via plain `curl`, not `WebFetch`, which summarizes rather than
+  returning verbatim text and is unusable for a legal document — and
+  bundled at `ember2d/assets/fonts/OFL.txt`), and `8a70e14` (the one actual
+  logic change: `.gitignore` gains `**/*.palette.ron` rather than
+  committing the file deliberately — neither shipped demo needs a
+  customized palette — and `EditorState::save`/the palette editor's Escape
+  handler no longer call `save_palette()`; only the palette editor's own
+  "Save & Close" and item-delete actions do, which is what "unless the
+  user saves one" in this step's own Change list asks for). The two
+  pre-existing untracked `project.palette.ron` files are now gitignored,
+  not deleted, per this session's earlier "leave it untouched" direction.
+  `ember2d`'s and `ember2d-app`'s own auto-fixable clippy suggestions (13
+  and 2) were left alone — not named in this step's Change list, which
+  scopes the fix to `ember2d-sim`/`ember2d-editor` specifically; recorded
+  in §9's clippy count rather than silently fixed, per "don't
+  opportunistically refactor". Workspace clippy warnings: 133 → 61 (§9).
+  Full workspace test suite and `scripts/check.ps1` both verified green
+  after every commit, not just the last.
 
 #### `[ ]` 7A-9 — rustfmt decision
 
@@ -1539,7 +1568,7 @@ the commit message. "Appearance unchanged" is a claim that needs evidence.
 | Tag | After | Date | Tests | Clippy warnings | floor2 p50 | CI run |
 |---|---|---|---|---|---|---|
 | `v0.5.0-pre-refactor` | (retroactive, at `a7e3af0`) | — | 0 | — | — | — |
-| `v0.5.7a` | Phase 7A | | | | | |
+| `v0.5.7a` | Phase 7A | | | 61 (7A-8: 133 → 61 after `cargo clippy --fix` on ember2d-sim/ember2d-editor; ember2d/ember2d-app's own 13+2 auto-fixable were out of 7A-8's scope, left for a later pass) | | |
 | `v0.5.7b` | Phase 7B | | | | | |
 | `v0.5.7c` | Phase 7C | | | | | |
 | `v0.5.7d` | Phase 7D | | | | | |
