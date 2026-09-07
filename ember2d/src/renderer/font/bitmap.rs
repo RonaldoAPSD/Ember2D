@@ -2,9 +2,9 @@
 // atlas. Split out of the original flat `font.rs` when `ttf.rs`/`atlas.rs`
 // were added — see `mod.rs`'s header comment.
 
-use ember2d_sim::math::{Rect, Vec2};
 use super::super::texture::TextureId;
 use super::{Font, GlyphInfo};
+use ember2d_sim::math::{Rect, Vec2};
 
 /// Wraps the existing font8x8 atlas (`WgpuBackend::new`'s "Create Font
 /// Atlas" section, `backend.rs`) — reserved texture id 0, glyphs stored
@@ -47,11 +47,15 @@ impl BitmapFont {
 }
 
 impl Default for BitmapFont {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Font for BitmapFont {
-    fn texture_id(&self) -> TextureId { self.texture_id }
+    fn texture_id(&self) -> TextureId {
+        self.texture_id
+    }
 
     fn texture_size(&self) -> (u32, u32) {
         // Mirrors `backend.rs`'s "Create Font Atlas" section exactly —
@@ -65,12 +69,19 @@ impl Font for BitmapFont {
         // — harmless there since script/editor text has always been
         // ASCII in practice, but this new trait can afford to be honest
         // about what it doesn't have instead of aliasing.
-        if !ch.is_ascii() { return None; }
+        if !ch.is_ascii() {
+            return None;
+        }
         let scale = Self::scale_for(px);
         let effective = scale * Self::NATIVE_PX;
         let idx = (ch as usize) % Self::GLYPH_COUNT;
         Some(GlyphInfo {
-            atlas_rect: Rect::new(0.0, idx as f32 * Self::NATIVE_PX, Self::NATIVE_PX, Self::NATIVE_PX),
+            atlas_rect: Rect::new(
+                0.0,
+                idx as f32 * Self::NATIVE_PX,
+                Self::NATIVE_PX,
+                Self::NATIVE_PX,
+            ),
             // Phase 7 Part 2d (docs/ember2d-phase7-plan.md): the pen sits
             // ON THE BASELINE (`Font`'s documented convention), and this
             // font models no descender — the baseline IS the glyph's
@@ -168,7 +179,11 @@ mod tests {
         let mut font = BitmapFont::new();
         assert_eq!(font.measure("abc", 8.0), (24.0, 8.0));
         assert_eq!(font.measure("abc", 16.0), (48.0, 16.0));
-        assert_eq!(font.measure("", 8.0), (0.0, 8.0), "empty text has zero width but still a real line height");
+        assert_eq!(
+            font.measure("", 8.0),
+            (0.0, 8.0),
+            "empty text has zero width but still a real line height"
+        );
     }
 
     #[test]

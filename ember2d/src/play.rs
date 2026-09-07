@@ -16,23 +16,26 @@ mod render;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use animation::{PlayingAnimation, RenderOverrides};
+use crate::audio::AudioEngine;
 use crate::camera::Camera;
-use ember2d_sim::components::{AnimationClip, ClipFrames, SpriteSource};
 use crate::engine::{GameState, RenderContext, Transition, UpdateContext};
-pub use render::{DrawCommand, DrawList, Space};
-use render::{camera_shake_jitter, draw_debug_overlay, draw_hud_queue, draw_recent_log, in_viewport, sprite_size};
-use ember2d_sim::event::EventBus;
 use crate::input::Key;
+use crate::renderer::color::Color;
+use animation::{PlayingAnimation, RenderOverrides};
+use ember2d_sim::components::{AnimationClip, ClipFrames, SpriteSource};
+use ember2d_sim::event::EventBus;
 use ember2d_sim::level::LevelData;
 use ember2d_sim::math::Vec2;
-use crate::renderer::color::Color;
-use crate::audio::AudioEngine;
 use ember2d_sim::scripting::LogEntry;
 use ember2d_sim::simulation::{Simulation, StepInput};
 use ember2d_sim::world::{EntityId, World};
-use rand::{Rng, SeedableRng};
 use rand::rngs::SmallRng;
+use rand::{Rng, SeedableRng};
+use render::{
+    camera_shake_jitter, draw_debug_overlay, draw_hud_queue, draw_recent_log, in_viewport,
+    sprite_size,
+};
+pub use render::{DrawCommand, DrawList, Space};
 
 // `resolve_exit_path` moved into `ember2d-sim`'s `simulation` module (Phase
 // 5.5, docs/ember2d-phase5.5-plan.md Part 2) — every real caller
@@ -69,7 +72,11 @@ pub struct PauseMenuState {
 impl PauseMenuState {
     pub fn new() -> Self {
         Self {
-            options: vec!["Resume".to_string(), "Back to Editor".to_string(), "Quit Game".to_string()],
+            options: vec![
+                "Resume".to_string(),
+                "Back to Editor".to_string(),
+                "Quit Game".to_string(),
+            ],
             selected: 0,
             pending_transition: None,
         }
@@ -78,8 +85,14 @@ impl PauseMenuState {
 
 impl GameState for PauseMenuState {
     fn update(&mut self, ctx: UpdateContext) {
-        if ctx.input.just_pressed(Key::Up)    { self.selected = self.selected.saturating_sub(1); }
-        if ctx.input.just_pressed(Key::Down)  { if self.selected + 1 < self.options.len() { self.selected += 1; } }
+        if ctx.input.just_pressed(Key::Up) {
+            self.selected = self.selected.saturating_sub(1);
+        }
+        if ctx.input.just_pressed(Key::Down) {
+            if self.selected + 1 < self.options.len() {
+                self.selected += 1;
+            }
+        }
 
         if ctx.input.just_pressed(Key::Enter) {
             match self.selected {
@@ -116,7 +129,9 @@ impl GameState for PauseMenuState {
         }
     }
 
-    fn take_transition(&mut self) -> Option<Transition> { self.pending_transition.take() }
+    fn take_transition(&mut self) -> Option<Transition> {
+        self.pending_transition.take()
+    }
 }
 
 // ── PlayState ─────────────────────────────────────────────────────────────────
@@ -206,24 +221,24 @@ const RENDER_RNG_SEED_OFFSET: u64 = 0x2545F4914F6CDD1D;
 impl PlayState {
     fn new_with_sim(sim: Simulation, seed: u64) -> Self {
         PlayState {
-            fps:                0.0,
-            show_debug:         false,
+            fps: 0.0,
+            show_debug: false,
             sim,
             pending_transition: None,
-            audio:              AudioEngine::new(),
-            script_log:         Vec::new(),
-            camera_override:    None,
-            shake_state:        None,
-            shake_timer:        0.0,
-            camera:             Camera::new(0.0, 0.0), // real dimensions set every update()
-            particles:          Vec::new(),
-            animations:         Vec::new(),
-            buffered_pressed:   BTreeSet::new(),
+            audio: AudioEngine::new(),
+            script_log: Vec::new(),
+            camera_override: None,
+            shake_state: None,
+            shake_timer: 0.0,
+            camera: Camera::new(0.0, 0.0), // real dimensions set every update()
+            particles: Vec::new(),
+            animations: Vec::new(),
+            buffered_pressed: BTreeSet::new(),
             buffered_mouse_pressed: (false, false),
             buffered_gamepad_pressed: HashSet::new(),
-            rng:                SmallRng::seed_from_u64(seed.wrapping_add(PLAYSTATE_RNG_SEED_OFFSET)),
-            render_rng:         SmallRng::seed_from_u64(seed ^ RENDER_RNG_SEED_OFFSET),
-            pixels_per_unit:    crate::project::default_pixels_per_unit(),
+            rng: SmallRng::seed_from_u64(seed.wrapping_add(PLAYSTATE_RNG_SEED_OFFSET)),
+            render_rng: SmallRng::seed_from_u64(seed ^ RENDER_RNG_SEED_OFFSET),
+            pixels_per_unit: crate::project::default_pixels_per_unit(),
         }
     }
 
@@ -237,9 +252,19 @@ impl PlayState {
     /// handles restoring them and skipping a re-run of `on_start`. See that
     /// constructor's own doc comment for why re-running `on_start` isn't
     /// the fix — `turn_number`/`scheduler` (R7, 7A-3) get the same treatment.
-    pub fn from_save(level_data: LevelData, _persistent: BTreeMap<String, rhai::Dynamic>, globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, turn_number: u64, scheduler: Vec<(EntityId, u64)>) -> Self {
+    pub fn from_save(
+        level_data: LevelData,
+        _persistent: BTreeMap<String, rhai::Dynamic>,
+        globals: BTreeMap<String, rhai::Dynamic>,
+        clips: BTreeMap<String, AnimationClip>,
+        turn_number: u64,
+        scheduler: Vec<(EntityId, u64)>,
+    ) -> Self {
         let seed = level_data.seed;
-        Self::new_with_sim(Simulation::from_save(level_data, globals, clips, turn_number, scheduler), seed)
+        Self::new_with_sim(
+            Simulation::from_save(level_data, globals, clips, turn_number, scheduler),
+            seed,
+        )
     }
 
     /// Override the default `pixels_per_unit` with the owning project's
@@ -255,10 +280,16 @@ impl PlayState {
     /// using only `ember2d::prelude`) reads a script-set global directly to
     /// verify D17's save/load round trip. Nothing inside this crate needs
     /// these anymore; the field itself lives on `Simulation` now.
-    pub fn globals(&self) -> &BTreeMap<String, rhai::Dynamic> { self.sim.globals() }
-    pub fn clips(&self) -> &BTreeMap<String, AnimationClip> { self.sim.clips() }
+    pub fn globals(&self) -> &BTreeMap<String, rhai::Dynamic> {
+        self.sim.globals()
+    }
+    pub fn clips(&self) -> &BTreeMap<String, AnimationClip> {
+        self.sim.clips()
+    }
 
-    pub fn take_log(&mut self) -> Vec<LogEntry> { std::mem::take(&mut self.script_log) }
+    pub fn take_log(&mut self) -> Vec<LogEntry> {
+        std::mem::take(&mut self.script_log)
+    }
 
     /// Folds a `Simulation` step's outcome into this state's own
     /// presentation fields — shared between `update` and `late_update`
@@ -271,7 +302,9 @@ impl PlayState {
         // `docs/ember2d-scripting-api.md`'s "Camera" section ("setting the
         // camera overrides follow until cleared"): a step with nothing new
         // to say just leaves this alone.
-        if outcome.camera_override.is_some() { self.camera_override = outcome.camera_override; }
+        if outcome.camera_override.is_some() {
+            self.camera_override = outcome.camera_override;
+        }
         if let Some(shake) = outcome.shake_state {
             self.shake_state = Some(shake);
             self.shake_timer = shake.duration;
@@ -280,28 +313,50 @@ impl PlayState {
             let vx = self.rng.gen_range(-5.0..5.0);
             let vy = self.rng.gen_range(-5.0..5.0);
             let life = self.rng.gen_range(0.2..0.8);
-            self.particles.push(Particle { x: req.x, y: req.y, vx, vy, glyph: req.glyph, fg: req.fg, life });
+            self.particles.push(Particle {
+                x: req.x,
+                y: req.y,
+                vx,
+                vy,
+                glyph: req.glyph,
+                fg: req.fg,
+                life,
+            });
         }
-        if let Some(next) = outcome.pending_level { self.pending_transition = Some(Transition::ToPlay(next)); }
-        if let Some(state) = outcome.pending_load { self.pending_transition = Some(Transition::LoadGame(state)); }
-        for ev in outcome.animations { self.animations.push(PlayingAnimation::from_event(ev)); }
+        if let Some(next) = outcome.pending_level {
+            self.pending_transition = Some(Transition::ToPlay(next));
+        }
+        if let Some(state) = outcome.pending_load {
+            self.pending_transition = Some(Transition::LoadGame(state));
+        }
+        for ev in outcome.animations {
+            self.animations.push(PlayingAnimation::from_event(ev));
+        }
         self.script_log.extend(outcome.logs);
     }
 
     fn flush_audio(&mut self) {
         let reqs = self.sim.take_audio_requests();
-        for path in reqs.sounds { self.audio.play_sound(&path, 1.0); }
+        for path in reqs.sounds {
+            self.audio.play_sound(&path, 1.0);
+        }
         let cam_pos = self.camera.position;
         let max_dist = 20.0f32;
         for (path, x, y) in reqs.spatial_sounds {
             let dx = x - cam_pos.x;
             let dy = y - cam_pos.y;
-            let dist = (dx*dx + dy*dy).sqrt();
+            let dist = (dx * dx + dy * dy).sqrt();
             let volume = (1.0 - (dist / max_dist)).clamp(0.0, 1.0);
-            if volume > 0.01 { self.audio.play_sound(&path, volume as f64); }
+            if volume > 0.01 {
+                self.audio.play_sound(&path, volume as f64);
+            }
         }
-        if reqs.stop_music { self.audio.stop_music(); }
-        if let Some(path) = reqs.music { self.audio.play_music(&path); }
+        if reqs.stop_music {
+            self.audio.stop_music();
+        }
+        if let Some(path) = reqs.music {
+            self.audio.play_music(&path);
+        }
     }
 
     /// World position scripts see as the camera's origin — `get_camera_x/y`
@@ -314,28 +369,49 @@ impl PlayState {
         let tl = self.camera.top_left();
         Vec2::new(tl.x.round(), tl.y.round())
     }
-
 }
 
 impl GameState for PlayState {
-    fn on_start(&mut self, world: &mut World, _events: &mut EventBus, viewport_width: usize, viewport_height: usize, persistent: &mut BTreeMap<String, rhai::Dynamic>) {
+    fn on_start(
+        &mut self,
+        world: &mut World,
+        _events: &mut EventBus,
+        viewport_width: usize,
+        viewport_height: usize,
+        persistent: &mut BTreeMap<String, rhai::Dynamic>,
+    ) {
         let logs = self.sim.on_start(world, viewport_width, viewport_height, persistent);
         self.script_log.extend(logs);
     }
 
     fn update(&mut self, ctx: UpdateContext) {
         // R16 (7A-5): `ctx.elapsed` deliberately not bound — see sim_elapsed below.
-        let UpdateContext { world, input, mouse, delta_time, frame_delta_time, viewport_width, viewport_height, turn_triggered, persistent, .. } = ctx;
+        let UpdateContext {
+            world,
+            input,
+            mouse,
+            delta_time,
+            frame_delta_time,
+            viewport_width,
+            viewport_height,
+            turn_triggered,
+            persistent,
+            ..
+        } = ctx;
 
         // FPS counter and shake-timer decay are presentation only (the F3
         // debug overlay, the render-time shake jitter) — never read back by
         // scripts — so they use frame_delta_time (real wall-clock), not
         // delta_time (the fixed sim step). See UpdateContext::frame_delta_time's
         // own doc comment.
-        if frame_delta_time > 0.0 { self.fps = self.fps * 0.9 + (1.0 / frame_delta_time) * 0.1; }
+        if frame_delta_time > 0.0 {
+            self.fps = self.fps * 0.9 + (1.0 / frame_delta_time) * 0.1;
+        }
         if self.shake_timer > 0.0 {
             self.shake_timer -= frame_delta_time;
-            if self.shake_timer <= 0.0 { self.shake_state = None; }
+            if self.shake_timer <= 0.0 {
+                self.shake_state = None;
+            }
         }
 
         if input.just_pressed(Key::Escape) {
@@ -343,10 +419,15 @@ impl GameState for PlayState {
             return;
         }
 
-        if input.just_pressed(Key::F3) { self.show_debug = !self.show_debug; }
+        if input.just_pressed(Key::F3) {
+            self.show_debug = !self.show_debug;
+        }
 
-        let mut target_cam = self.sim.camera_entity().map(|id| world.get_global_position(id)).unwrap_or(Vec2::ZERO);
-        if let Some(over) = self.camera_override { target_cam = over; }
+        let mut target_cam =
+            self.sim.camera_entity().map(|id| world.get_global_position(id)).unwrap_or(Vec2::ZERO);
+        if let Some(over) = self.camera_override {
+            target_cam = over;
+        }
 
         // Step 4g: the world gets the full viewport now — the two
         // hardcoded HUD bars that used to reserve row 0 and the last row
@@ -365,8 +446,9 @@ impl GameState for PlayState {
         target_cam.x = target_cam.x.clamp(min_x, max_x);
         target_cam.y = target_cam.y.clamp(min_y, max_y);
 
-        if self.camera.position == Vec2::ZERO { self.camera.position = target_cam; }
-        else {
+        if self.camera.position == Vec2::ZERO {
+            self.camera.position = target_cam;
+        } else {
             // Presentation, not simulation — frame_delta_time (real
             // wall-clock), not delta_time, so the camera stays visually
             // smooth regardless of the sim's own clock. `exp()` is a named
@@ -374,7 +456,9 @@ impl GameState for PlayState {
             // one more reason camera position must never be read back into
             // anything a script or the sim depends on.
             let lerp_speed = 5.0;
-            self.camera.position = self.camera.position + (target_cam - self.camera.position) * (1.0 - (-lerp_speed * frame_delta_time).exp());
+            self.camera.position = self.camera.position
+                + (target_cam - self.camera.position)
+                    * (1.0 - (-lerp_speed * frame_delta_time).exp());
         }
         self.camera.viewport_width = viewport_width as f32;
         self.camera.viewport_height = game_h;
@@ -416,7 +500,9 @@ impl GameState for PlayState {
         // continue" per the plan) — only stepping itself is gated, and now
         // only for the one actor it actually needs to wait on.
         self.animations.retain_mut(|a| a.advance(frame_delta_time));
-        let front_is_animating = self.sim.current_actor()
+        let front_is_animating = self
+            .sim
+            .current_actor()
             .map(|id| self.animations.iter().any(|a| a.entity == id))
             .unwrap_or(false);
 
@@ -459,17 +545,21 @@ impl GameState for PlayState {
             // `Simulation`, not something `PlayState` itself ever needs to feed.
             // R16 (7A-5): step_count is read before this call.
             let sim_elapsed = self.sim.step_count() as f32 * delta_time;
-            let outcome = self.sim.step(world, StepInput {
-                input: &input_snapshot,
-                mouse: mouse_snapshot,
-                gamepad: &gamepad_snapshot,
-                external_commands: &[],
-                camera_origin,
-                sim_dt: delta_time,
-                elapsed: sim_elapsed,
-                viewport_w: viewport_width,
-                viewport_h: viewport_height,
-            }, persistent);
+            let outcome = self.sim.step(
+                world,
+                StepInput {
+                    input: &input_snapshot,
+                    mouse: mouse_snapshot,
+                    gamepad: &gamepad_snapshot,
+                    external_commands: &[],
+                    camera_origin,
+                    sim_dt: delta_time,
+                    elapsed: sim_elapsed,
+                    viewport_w: viewport_width,
+                    viewport_h: viewport_height,
+                },
+                persistent,
+            );
 
             *turn_triggered = outcome.turn_triggered;
             self.apply_outcome(outcome);
@@ -479,14 +569,26 @@ impl GameState for PlayState {
         // category as the camera lerp/shake above), so they move at real
         // wall-clock speed rather than the fixed sim step.
         self.particles.retain_mut(|p| {
-            p.x += p.vx * frame_delta_time; p.y += p.vy * frame_delta_time; p.life -= frame_delta_time; p.life > 0.0
+            p.x += p.vx * frame_delta_time;
+            p.y += p.vy * frame_delta_time;
+            p.life -= frame_delta_time;
+            p.life > 0.0
         });
         self.flush_audio();
     }
 
     fn late_update(&mut self, ctx: UpdateContext) {
         // R16 (7A-5): step_count is unchanged since update() ran this step.
-        let UpdateContext { world, events, prev_positions, delta_time, viewport_width, viewport_height, persistent, .. } = ctx;
+        let UpdateContext {
+            world,
+            events,
+            prev_positions,
+            delta_time,
+            viewport_width,
+            viewport_height,
+            persistent,
+            ..
+        } = ctx;
         let sim_elapsed = self.sim.step_count() as f32 * delta_time;
 
         // self.camera was already refreshed this step by the preceding
@@ -494,14 +596,32 @@ impl GameState for PlayState {
         // collisions, late_update) — no need to recompute it here, just
         // read the same origin update() already used.
         let camera_origin = self.script_camera_origin();
-        let outcome = self.sim.late_step(world, &*events, prev_positions, camera_origin, delta_time, sim_elapsed, viewport_width, viewport_height, persistent);
+        let outcome = self.sim.late_step(
+            world,
+            &*events,
+            prev_positions,
+            camera_origin,
+            delta_time,
+            sim_elapsed,
+            viewport_width,
+            viewport_height,
+            persistent,
+        );
         self.apply_outcome(outcome);
         self.flush_audio();
     }
 
     fn render(&mut self, ctx: RenderContext) {
         let RenderContext { world, renderer, assets, .. } = ctx;
-        renderer.draw_rect_filled(0, 0, renderer.width, renderer.height, ' ', Color::Reset, Color::Reset);
+        renderer.draw_rect_filled(
+            0,
+            0,
+            renderer.width,
+            renderer.height,
+            ' ',
+            Color::Reset,
+            Color::Reset,
+        );
 
         // self.camera's viewport/origin were already refreshed this frame by
         // update() (see script_camera_origin's doc comment). Shake jitters a
@@ -535,7 +655,9 @@ impl GameState for PlayState {
             // before this bounds check ran, so textured sprites bypassed
             // viewport culling entirely (glyph sprites were always culled
             // correctly). Both paths now share one check up front.
-            if !in_viewport(col, row, renderer.width, renderer.height) { continue; }
+            if !in_viewport(col, row, renderer.width, renderer.height) {
+                continue;
+            }
 
             match cmd.source {
                 SpriteSource::Glyph { ch, bg } => {
@@ -545,16 +667,33 @@ impl GameState for PlayState {
                     let id = assets.load(path);
                     if let Some(t) = assets.get(id) {
                         let size = sprite_size(cmd.size, t.width, t.height, self.pixels_per_unit);
-                        renderer.draw_texture_world(&render_camera, world_pos, t, size, 0.0, tint, *src);
+                        renderer.draw_texture_world(
+                            &render_camera,
+                            world_pos,
+                            t,
+                            size,
+                            0.0,
+                            tint,
+                            *src,
+                        );
                     }
                 }
                 SpriteSource::Clip { name } => {
                     // ClipFrames::Rects isn't resolved here yet (Step 3c's
                     // scope is glyph clips only).
-                    if let Some(ClipFrames::Glyphs { frames }) = self.sim.clips().get(name).map(|c| &c.frames) {
+                    if let Some(ClipFrames::Glyphs { frames }) =
+                        self.sim.clips().get(name).map(|c| &c.frames)
+                    {
                         if !frames.is_empty() {
-                            let frame = world.animators.get(&cmd.id).map(|a| a.frame).unwrap_or(0) % frames.len();
-                            renderer.draw_char_world(&render_camera, world_pos, frames[frame], tint, Color::Reset);
+                            let frame = world.animators.get(&cmd.id).map(|a| a.frame).unwrap_or(0)
+                                % frames.len();
+                            renderer.draw_char_world(
+                                &render_camera,
+                                world_pos,
+                                frames[frame],
+                                tint,
+                                Color::Reset,
+                            );
                         }
                     }
                 }
@@ -575,7 +714,11 @@ impl GameState for PlayState {
         // gameplay HUD (health, gold, controls hint, etc.) is drawn by
         // scripts via ctx.draw_hud (the loop below), not hardcoded here.
         if self.show_debug {
-            let pos = self.sim.camera_entity().map(|id| world.get_global_position(id)).unwrap_or(Vec2::ZERO);
+            let pos = self
+                .sim
+                .camera_entity()
+                .map(|id| world.get_global_position(id))
+                .unwrap_or(Vec2::ZERO);
             draw_debug_overlay(renderer, &self.sim.level().name, pos, self.fps);
         }
 
@@ -591,7 +734,9 @@ impl GameState for PlayState {
         // made a script's drawn HUD vanish the instant the game paused.
     }
 
-    fn take_transition(&mut self) -> Option<Transition> { self.pending_transition.take() }
+    fn take_transition(&mut self) -> Option<Transition> {
+        self.pending_transition.take()
+    }
 }
 
 // Tests split into play/tests.rs — see that file's header comment — once

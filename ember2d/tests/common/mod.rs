@@ -21,11 +21,11 @@
 // there), not something a turn-logic test needs to re-exercise on every
 // synthetic press.
 
-use std::collections::{BTreeMap, BTreeSet};
 use ember2d::prelude::*;
 use ember2d_sim::command::{GamepadSnapshot, InputSnapshot, MouseSnapshot};
 use ember2d_sim::save::SaveState;
 use ember2d_sim::simulation::{Simulation, StepInput};
+use std::collections::{BTreeMap, BTreeSet};
 
 pub struct TurnHarness {
     pub world: World,
@@ -80,7 +80,15 @@ impl TurnHarness {
         let (viewport_width, viewport_height) = (80, 24);
         sim.on_start(&mut world, viewport_width, viewport_height, &mut persistent);
 
-        TurnHarness { world, sim, persistent, elapsed: 0.0, viewport_width, viewport_height, pending_level: None }
+        TurnHarness {
+            world,
+            sim,
+            persistent,
+            elapsed: 0.0,
+            viewport_width,
+            viewport_height,
+            pending_level: None,
+        }
     }
 
     /// R7 (7A-3, docs/ember2d-master-plan.md): `load`'s counterpart for a
@@ -90,14 +98,24 @@ impl TurnHarness {
     #[allow(dead_code)]
     pub fn from_save(level_path: &str, save: SaveState) -> Self {
         ensure_workspace_root_cwd();
-        let data = LevelData::load(level_path).unwrap_or_else(|e| panic!("load {}: {}", level_path, e));
+        let data =
+            LevelData::load(level_path).unwrap_or_else(|e| panic!("load {}: {}", level_path, e));
         let mut world = save.world;
         let mut persistent = save.persistent;
-        let mut sim = Simulation::from_save(data, save.globals, save.clips, save.turn_number, save.scheduler);
+        let mut sim =
+            Simulation::from_save(data, save.globals, save.clips, save.turn_number, save.scheduler);
         let (viewport_width, viewport_height) = (80, 24);
         sim.on_start(&mut world, viewport_width, viewport_height, &mut persistent);
 
-        TurnHarness { world, sim, persistent, elapsed: 0.0, viewport_width, viewport_height, pending_level: None }
+        TurnHarness {
+            world,
+            sim,
+            persistent,
+            elapsed: 0.0,
+            viewport_width,
+            viewport_height,
+            pending_level: None,
+        }
     }
 
     /// One simulation step in TurnBased mode. Returns whether a turn was
@@ -110,24 +128,32 @@ impl TurnHarness {
         let prev_positions = self.world.snapshot_positions();
 
         let mut keys = BTreeSet::new();
-        if let Some(k) = press { keys.insert(k.to_string()); }
+        if let Some(k) = press {
+            keys.insert(k.to_string());
+        }
         let input = InputSnapshot { held: keys.clone(), pressed: keys };
         let mouse = MouseSnapshot::default();
         let gamepad = GamepadSnapshot::default();
 
-        let outcome = self.sim.step(&mut self.world, StepInput {
-            input: &input,
-            mouse,
-            gamepad: &gamepad,
-            external_commands: &[],
-            camera_origin: Vec2::ZERO,
-            sim_dt: HARNESS_DT,
-            elapsed: self.elapsed,
-            viewport_w: self.viewport_width,
-            viewport_h: self.viewport_height,
-        }, &mut self.persistent);
+        let outcome = self.sim.step(
+            &mut self.world,
+            StepInput {
+                input: &input,
+                mouse,
+                gamepad: &gamepad,
+                external_commands: &[],
+                camera_origin: Vec2::ZERO,
+                sim_dt: HARNESS_DT,
+                elapsed: self.elapsed,
+                viewport_w: self.viewport_width,
+                viewport_h: self.viewport_height,
+            },
+            &mut self.persistent,
+        );
 
-        if outcome.pending_level.is_some() { self.pending_level = outcome.pending_level; }
+        if outcome.pending_level.is_some() {
+            self.pending_level = outcome.pending_level;
+        }
         let turn_triggered = outcome.turn_triggered;
 
         // Mirrors `ember2d::sim::step`'s TurnBased branch: the late phase
@@ -139,10 +165,19 @@ impl TurnHarness {
             let mut events = EventBus::new();
             self.world.detect_collisions(&mut events);
             let late_outcome = self.sim.late_step(
-                &mut self.world, &events, &prev_positions, Vec2::ZERO,
-                HARNESS_DT, self.elapsed, self.viewport_width, self.viewport_height, &mut self.persistent,
+                &mut self.world,
+                &events,
+                &prev_positions,
+                Vec2::ZERO,
+                HARNESS_DT,
+                self.elapsed,
+                self.viewport_width,
+                self.viewport_height,
+                &mut self.persistent,
             );
-            if late_outcome.pending_level.is_some() { self.pending_level = late_outcome.pending_level; }
+            if late_outcome.pending_level.is_some() {
+                self.pending_level = late_outcome.pending_level;
+            }
         }
 
         self.elapsed += HARNESS_DT;
@@ -201,12 +236,14 @@ impl TurnHarness {
 /// is a real, useful guarantee but not what a test that wants "the gold pile
 /// specifically at (10, 6)" needs.
 pub fn find_tagged_entity_at(world: &World, tag: &str, x: f32, y: f32) -> Option<EntityId> {
-    world.tags.iter()
-        .filter(|(_, t)| t.name == tag)
-        .find_map(|(&id, _)| {
-            let pos = world.transforms.get(&id)?.position;
-            if (pos.x - x).abs() < 0.01 && (pos.y - y).abs() < 0.01 { Some(id) } else { None }
-        })
+    world.tags.iter().filter(|(_, t)| t.name == tag).find_map(|(&id, _)| {
+        let pos = world.transforms.get(&id)?.position;
+        if (pos.x - x).abs() < 0.01 && (pos.y - y).abs() < 0.01 {
+            Some(id)
+        } else {
+            None
+        }
+    })
 }
 
 /// A per-process scratch dir under the OS temp dir (7A-8) — every test

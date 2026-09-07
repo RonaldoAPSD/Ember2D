@@ -133,15 +133,27 @@ fn build_level(map: &Arena, features: Vec<TileRecord>) -> LevelData {
         for x in 0..W {
             if map.wall[y][x] {
                 data.tiles.push(TileRecord::new(
-                    x as i32, y as i32, 1, '#',
-                    Color::DarkCyan, Color::Reset,
-                    true, false, "wall",
+                    x as i32,
+                    y as i32,
+                    1,
+                    '#',
+                    Color::DarkCyan,
+                    Color::Reset,
+                    true,
+                    false,
+                    "wall",
                 ));
             } else if x % 6 == 0 && y % 3 == 0 {
                 data.tiles.push(TileRecord::new(
-                    x as i32, y as i32, 0, '.',
-                    Color::DarkGrey, Color::Reset,
-                    false, false, "floor",
+                    x as i32,
+                    y as i32,
+                    0,
+                    '.',
+                    Color::DarkGrey,
+                    Color::Reset,
+                    false,
+                    false,
+                    "floor",
                 ));
             }
         }
@@ -205,7 +217,8 @@ fn main() {
 
     // RealTime is the whole point of this demo — it's the branch of
     // `Engine::run` the roguelike never touches (see this file's header).
-    let mut project = ProjectData::new("Ember Assault", VisualStyle::ClassicASCII, GameplayLoop::RealTime);
+    let mut project =
+        ProjectData::new("Ember Assault", VisualStyle::ClassicASCII, GameplayLoop::RealTime);
     project.start_level = Some("arena.level".to_string());
     project.save(out_dir.to_str().unwrap()).expect("save project.ron");
     println!("wrote shooter/project.ron");

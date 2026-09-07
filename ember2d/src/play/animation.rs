@@ -13,11 +13,11 @@
 // the script called `ctx.set_position`; this is purely what's shown while
 // real time passes before the sim is allowed to step again.
 
-use std::collections::HashMap;
+use crate::renderer::color::Color;
 use ember2d_sim::math::Vec2;
 use ember2d_sim::scripting::AnimationEvent;
 use ember2d_sim::world::EntityId;
-use crate::renderer::color::Color;
+use std::collections::HashMap;
 
 /// Per-entity jitter magnitude for `AnimationEvent::Shake` — unlike camera
 /// shake (`ctx.shake_camera`), a script never supplies an intensity here;
@@ -42,9 +42,21 @@ pub(super) struct PlayingAnimation {
 impl PlayingAnimation {
     pub fn from_event(ev: AnimationEvent) -> Self {
         match ev {
-            AnimationEvent::Move { entity, from, to, duration } => PlayingAnimation { entity, elapsed: 0.0, duration, kind: PlayingKind::Move { from, to } },
-            AnimationEvent::Flash { entity, color, duration } => PlayingAnimation { entity, elapsed: 0.0, duration, kind: PlayingKind::Flash { color } },
-            AnimationEvent::Shake { entity, duration } => PlayingAnimation { entity, elapsed: 0.0, duration, kind: PlayingKind::Shake },
+            AnimationEvent::Move { entity, from, to, duration } => PlayingAnimation {
+                entity,
+                elapsed: 0.0,
+                duration,
+                kind: PlayingKind::Move { from, to },
+            },
+            AnimationEvent::Flash { entity, color, duration } => PlayingAnimation {
+                entity,
+                elapsed: 0.0,
+                duration,
+                kind: PlayingKind::Flash { color },
+            },
+            AnimationEvent::Shake { entity, duration } => {
+                PlayingAnimation { entity, elapsed: 0.0, duration, kind: PlayingKind::Shake }
+            }
         }
     }
 
@@ -60,7 +72,11 @@ impl PlayingAnimation {
     /// duration so a script that passes `0.0` applies instantly rather than
     /// dividing by zero or lingering forever.
     fn progress(&self) -> f32 {
-        if self.duration <= 0.0 { 1.0 } else { (self.elapsed / self.duration).clamp(0.0, 1.0) }
+        if self.duration <= 0.0 {
+            1.0
+        } else {
+            (self.elapsed / self.duration).clamp(0.0, 1.0)
+        }
     }
 }
 
@@ -85,23 +101,33 @@ impl RenderOverrides {
             let t = anim.progress();
             match &anim.kind {
                 PlayingKind::Move { from, to } => {
-                    overrides.positions.insert(anim.entity, Vec2::new(
-                        from.x + (to.x - from.x) * t,
-                        from.y + (to.y - from.y) * t,
-                    ));
+                    overrides.positions.insert(
+                        anim.entity,
+                        Vec2::new(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t),
+                    );
                 }
-                PlayingKind::Flash { color } => { overrides.tints.insert(anim.entity, *color); }
-                PlayingKind::Shake => { overrides.shakes.insert(anim.entity, 1.0 - t); }
+                PlayingKind::Flash { color } => {
+                    overrides.tints.insert(anim.entity, *color);
+                }
+                PlayingKind::Shake => {
+                    overrides.shakes.insert(anim.entity, 1.0 - t);
+                }
             }
         }
         overrides
     }
 
-    pub fn position(&self, id: EntityId) -> Option<Vec2> { self.positions.get(&id).copied() }
-    pub fn tint(&self, id: EntityId) -> Option<Color> { self.tints.get(&id).copied() }
+    pub fn position(&self, id: EntityId) -> Option<Vec2> {
+        self.positions.get(&id).copied()
+    }
+    pub fn tint(&self, id: EntityId) -> Option<Color> {
+        self.tints.get(&id).copied()
+    }
     /// `Some(scale)` (1.0 fading to 0.0) if `id` is mid-shake — multiply by
     /// `ENTITY_SHAKE_INTENSITY` for the actual jitter magnitude to apply.
-    pub fn shake_scale(&self, id: EntityId) -> Option<f32> { self.shakes.get(&id).copied() }
+    pub fn shake_scale(&self, id: EntityId) -> Option<f32> {
+        self.shakes.get(&id).copied()
+    }
 }
 
 pub(super) const SHAKE_INTENSITY: f32 = ENTITY_SHAKE_INTENSITY;

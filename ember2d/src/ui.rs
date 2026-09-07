@@ -20,12 +20,7 @@ pub struct Panel {
 
 impl Panel {
     pub fn new(x: usize, y: usize, w: usize, h: usize) -> Self {
-        Panel {
-            x, y, w, h,
-            title: String::new(),
-            fg: Color::White,
-            bg: Color::Reset,
-        }
+        Panel { x, y, w, h, title: String::new(), fg: Color::White, bg: Color::Reset }
     }
 
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
@@ -72,7 +67,11 @@ pub struct Menu {
 impl Menu {
     pub fn new(x: usize, y: usize, w: usize, options: Vec<String>, selected: usize) -> Self {
         Menu {
-            x, y, w, options, selected,
+            x,
+            y,
+            w,
+            options,
+            selected,
             fg: Color::White,
             bg: Color::Reset,
             sel_fg: Color::Black,
@@ -81,7 +80,10 @@ impl Menu {
     }
 
     pub fn with_colors(mut self, fg: Color, bg: Color, sel_fg: Color, sel_bg: Color) -> Self {
-        self.fg = fg; self.bg = bg; self.sel_fg = sel_fg; self.sel_bg = sel_bg;
+        self.fg = fg;
+        self.bg = bg;
+        self.sel_fg = sel_fg;
+        self.sel_bg = sel_bg;
         self
     }
 
@@ -89,12 +91,8 @@ impl Menu {
         for (i, opt) in self.options.iter().enumerate() {
             let row = self.y + i;
             let is_sel = i == self.selected;
-            
-            let (fg, bg) = if is_sel {
-                (self.sel_fg, self.sel_bg)
-            } else {
-                (self.fg, self.bg)
-            };
+
+            let (fg, bg) = if is_sel { (self.sel_fg, self.sel_bg) } else { (self.fg, self.bg) };
 
             let prefix = if is_sel { "> " } else { "  " };
             let text = format!("{}{}", prefix, opt);

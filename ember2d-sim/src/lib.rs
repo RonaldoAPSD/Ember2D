@@ -41,16 +41,16 @@
 // this crate too, defeating the split, or a real redesign those two states
 // don't need).
 
-pub mod math;
 pub mod color;
-pub mod world;
-pub mod components;
-pub mod level;
-pub mod save;
-pub mod scripting;
 pub mod command;
-pub mod scheduler;
-pub mod graph;
+pub mod components;
 pub mod event;
-pub mod simulation;
+pub mod graph;
 pub mod layers;
+pub mod level;
+pub mod math;
+pub mod save;
+pub mod scheduler;
+pub mod scripting;
+pub mod simulation;
+pub mod world;

@@ -3,8 +3,8 @@
 // discarded — PlayState::do_on_start ran on_start scripts against a throwaway
 // local HashMap instead of the engine's real persistent store.
 
-use std::collections::BTreeMap;
 use ember2d::prelude::*;
+use std::collections::BTreeMap;
 
 mod common;
 
@@ -12,11 +12,15 @@ mod common;
 fn set_persistent_in_on_start_survives() {
     let mut script_path = common::test_temp_dir();
     script_path.push("ember2d_test_on_start_persist.rhai");
-    std::fs::write(&script_path, r#"
+    std::fs::write(
+        &script_path,
+        r#"
         fn on_start(id, ctx) {
             ctx.set_persistent("marker", 42);
         }
-    "#).expect("write temp script");
+    "#,
+    )
+    .expect("write temp script");
 
     let mut data = LevelData::empty(20, 10);
     data.player.script = Some(script_path.to_string_lossy().to_string());

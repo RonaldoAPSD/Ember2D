@@ -1,7 +1,7 @@
 // input.rs — Keyboard input system, backend-agnostic.
 
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap, HashSet};
-use serde::{Serialize, Deserialize};
 use winit::keyboard::{KeyCode, PhysicalKey};
 
 use ember2d_sim::command::InputSnapshot;
@@ -24,13 +24,86 @@ pub const INPUT_BUFFER_WINDOW: f32 = 0.12;
 /// A backend-agnostic representation of a keyboard key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Key {
-    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
-    Key0, Key1, Key2, Key3, Key4, Key5, Key6, Key7, Key8, Key9,
-    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
-    Left, Right, Up, Down,
-    Escape, Space, Enter, Backspace, Tab, Delete, Insert, Home, End, PageUp, PageDown,
-    LeftShift, RightShift, LeftCtrl, RightCtrl, LeftAlt, RightAlt,
-    Semicolon, Apostrophe, Comma, Period, Slash, Backslash, LeftBracket, RightBracket, Minus, Equals, Backquote,
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
+    Key0,
+    Key1,
+    Key2,
+    Key3,
+    Key4,
+    Key5,
+    Key6,
+    Key7,
+    Key8,
+    Key9,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    Left,
+    Right,
+    Up,
+    Down,
+    Escape,
+    Space,
+    Enter,
+    Backspace,
+    Tab,
+    Delete,
+    Insert,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    LeftShift,
+    RightShift,
+    LeftCtrl,
+    RightCtrl,
+    LeftAlt,
+    RightAlt,
+    Semicolon,
+    Apostrophe,
+    Comma,
+    Period,
+    Slash,
+    Backslash,
+    LeftBracket,
+    RightBracket,
+    Minus,
+    Equals,
+    Backquote,
 }
 
 impl Key {
@@ -41,45 +114,91 @@ impl Key {
         };
 
         Some(match code {
-            KeyCode::KeyA => Key::A, KeyCode::KeyB => Key::B, KeyCode::KeyC => Key::C,
-            KeyCode::KeyD => Key::D, KeyCode::KeyE => Key::E, KeyCode::KeyF => Key::F,
-            KeyCode::KeyG => Key::G, KeyCode::KeyH => Key::H, KeyCode::KeyI => Key::I,
-            KeyCode::KeyJ => Key::J, KeyCode::KeyK => Key::K, KeyCode::KeyL => Key::L,
-            KeyCode::KeyM => Key::M, KeyCode::KeyN => Key::N, KeyCode::KeyO => Key::O,
-            KeyCode::KeyP => Key::P, KeyCode::KeyQ => Key::Q, KeyCode::KeyR => Key::R,
-            KeyCode::KeyS => Key::S, KeyCode::KeyT => Key::T, KeyCode::KeyU => Key::U,
-            KeyCode::KeyV => Key::V, KeyCode::KeyW => Key::W, KeyCode::KeyX => Key::X,
-            KeyCode::KeyY => Key::Y, KeyCode::KeyZ => Key::Z,
+            KeyCode::KeyA => Key::A,
+            KeyCode::KeyB => Key::B,
+            KeyCode::KeyC => Key::C,
+            KeyCode::KeyD => Key::D,
+            KeyCode::KeyE => Key::E,
+            KeyCode::KeyF => Key::F,
+            KeyCode::KeyG => Key::G,
+            KeyCode::KeyH => Key::H,
+            KeyCode::KeyI => Key::I,
+            KeyCode::KeyJ => Key::J,
+            KeyCode::KeyK => Key::K,
+            KeyCode::KeyL => Key::L,
+            KeyCode::KeyM => Key::M,
+            KeyCode::KeyN => Key::N,
+            KeyCode::KeyO => Key::O,
+            KeyCode::KeyP => Key::P,
+            KeyCode::KeyQ => Key::Q,
+            KeyCode::KeyR => Key::R,
+            KeyCode::KeyS => Key::S,
+            KeyCode::KeyT => Key::T,
+            KeyCode::KeyU => Key::U,
+            KeyCode::KeyV => Key::V,
+            KeyCode::KeyW => Key::W,
+            KeyCode::KeyX => Key::X,
+            KeyCode::KeyY => Key::Y,
+            KeyCode::KeyZ => Key::Z,
 
-            KeyCode::Digit0 => Key::Key0, KeyCode::Digit1 => Key::Key1, KeyCode::Digit2 => Key::Key2,
-            KeyCode::Digit3 => Key::Key3, KeyCode::Digit4 => Key::Key4, KeyCode::Digit5 => Key::Key5,
-            KeyCode::Digit6 => Key::Key6, KeyCode::Digit7 => Key::Key7, KeyCode::Digit8 => Key::Key8,
+            KeyCode::Digit0 => Key::Key0,
+            KeyCode::Digit1 => Key::Key1,
+            KeyCode::Digit2 => Key::Key2,
+            KeyCode::Digit3 => Key::Key3,
+            KeyCode::Digit4 => Key::Key4,
+            KeyCode::Digit5 => Key::Key5,
+            KeyCode::Digit6 => Key::Key6,
+            KeyCode::Digit7 => Key::Key7,
+            KeyCode::Digit8 => Key::Key8,
             KeyCode::Digit9 => Key::Key9,
 
-            KeyCode::F1 => Key::F1, KeyCode::F2 => Key::F2, KeyCode::F3 => Key::F3,
-            KeyCode::F4 => Key::F4, KeyCode::F5 => Key::F5, KeyCode::F6 => Key::F6,
-            KeyCode::F7 => Key::F7, KeyCode::F8 => Key::F8, KeyCode::F9 => Key::F9,
-            KeyCode::F10 => Key::F10, KeyCode::F11 => Key::F11, KeyCode::F12 => Key::F12,
+            KeyCode::F1 => Key::F1,
+            KeyCode::F2 => Key::F2,
+            KeyCode::F3 => Key::F3,
+            KeyCode::F4 => Key::F4,
+            KeyCode::F5 => Key::F5,
+            KeyCode::F6 => Key::F6,
+            KeyCode::F7 => Key::F7,
+            KeyCode::F8 => Key::F8,
+            KeyCode::F9 => Key::F9,
+            KeyCode::F10 => Key::F10,
+            KeyCode::F11 => Key::F11,
+            KeyCode::F12 => Key::F12,
 
-            KeyCode::ArrowLeft  => Key::Left,  KeyCode::ArrowRight => Key::Right,
-            KeyCode::ArrowUp    => Key::Up,    KeyCode::ArrowDown  => Key::Down,
-            KeyCode::Escape     => Key::Escape, KeyCode::Space      => Key::Space,
-            KeyCode::Enter      => Key::Enter,  KeyCode::Backspace  => Key::Backspace,
-            KeyCode::Tab        => Key::Tab,    KeyCode::Delete     => Key::Delete,
-            KeyCode::Insert     => Key::Insert, KeyCode::Home       => Key::Home,
-            KeyCode::End        => Key::End,    KeyCode::PageUp     => Key::PageUp,
-            KeyCode::PageDown   => Key::PageDown,
+            KeyCode::ArrowLeft => Key::Left,
+            KeyCode::ArrowRight => Key::Right,
+            KeyCode::ArrowUp => Key::Up,
+            KeyCode::ArrowDown => Key::Down,
+            KeyCode::Escape => Key::Escape,
+            KeyCode::Space => Key::Space,
+            KeyCode::Enter => Key::Enter,
+            KeyCode::Backspace => Key::Backspace,
+            KeyCode::Tab => Key::Tab,
+            KeyCode::Delete => Key::Delete,
+            KeyCode::Insert => Key::Insert,
+            KeyCode::Home => Key::Home,
+            KeyCode::End => Key::End,
+            KeyCode::PageUp => Key::PageUp,
+            KeyCode::PageDown => Key::PageDown,
 
-            KeyCode::ShiftLeft    => Key::LeftShift,   KeyCode::ShiftRight    => Key::RightShift,
-            KeyCode::ControlLeft  => Key::LeftCtrl,    KeyCode::ControlRight  => Key::RightCtrl,
-            KeyCode::AltLeft      => Key::LeftAlt,     KeyCode::AltRight      => Key::RightAlt,
+            KeyCode::ShiftLeft => Key::LeftShift,
+            KeyCode::ShiftRight => Key::RightShift,
+            KeyCode::ControlLeft => Key::LeftCtrl,
+            KeyCode::ControlRight => Key::RightCtrl,
+            KeyCode::AltLeft => Key::LeftAlt,
+            KeyCode::AltRight => Key::RightAlt,
 
-            KeyCode::Semicolon    => Key::Semicolon,   KeyCode::Quote         => Key::Apostrophe,
-            KeyCode::Comma        => Key::Comma,       KeyCode::Period        => Key::Period,
-            KeyCode::Slash        => Key::Slash,       KeyCode::Backslash     => Key::Backslash,
-            KeyCode::BracketLeft  => Key::LeftBracket, KeyCode::BracketRight  => Key::RightBracket,
-            KeyCode::Minus        => Key::Minus,       KeyCode::Equal         => Key::Equals,
-            KeyCode::Backquote    => Key::Backquote,
+            KeyCode::Semicolon => Key::Semicolon,
+            KeyCode::Quote => Key::Apostrophe,
+            KeyCode::Comma => Key::Comma,
+            KeyCode::Period => Key::Period,
+            KeyCode::Slash => Key::Slash,
+            KeyCode::Backslash => Key::Backslash,
+            KeyCode::BracketLeft => Key::LeftBracket,
+            KeyCode::BracketRight => Key::RightBracket,
+            KeyCode::Minus => Key::Minus,
+            KeyCode::Equal => Key::Equals,
+            KeyCode::Backquote => Key::Backquote,
 
             _ => return None,
         })
@@ -131,11 +250,11 @@ impl InputManager {
     /// Create a fresh InputManager with no keys pressed.
     pub fn new() -> Self {
         InputManager {
-            held:          Vec::new(),
-            pending:       HashMap::new(),
-            consumed:      HashSet::new(),
+            held: Vec::new(),
+            pending: HashMap::new(),
+            consumed: HashSet::new(),
             just_released: Vec::new(),
-            text_buffer:   String::new(),
+            text_buffer: String::new(),
             text_capture_requested: false,
             quit_requested: false,
         }
@@ -164,7 +283,10 @@ impl InputManager {
     /// Call once per frame (real delta time, not sim dt) after the frame's
     /// simulation steps have had their chance to consume them.
     pub fn decay(&mut self, dt: f32) {
-        self.pending.retain(|_, remaining| { *remaining -= dt; *remaining > 0.0 });
+        self.pending.retain(|_, remaining| {
+            *remaining -= dt;
+            *remaining > 0.0
+        });
     }
 
     /// Returns the contents of the text buffer and clears it.
@@ -239,28 +361,64 @@ impl InputManager {
         // Lowercase to match the documented script API contract
         // (docs/ember2d-scripting-api.md §3: `"w"`, `"space"`, `"escape"`, `"left"`, …).
         const KEY_MAP: &[(Key, &str)] = &[
-            (Key::W, "w"), (Key::A, "a"), (Key::S, "s"), (Key::D, "d"),
-            (Key::Q, "q"), (Key::E, "e"), (Key::R, "r"), (Key::F, "f"),
-            (Key::Z, "z"), (Key::X, "x"), (Key::C, "c"), (Key::V, "v"),
-            (Key::Up, "up"), (Key::Down, "down"), (Key::Left, "left"), (Key::Right, "right"),
-            (Key::Space, "space"), (Key::Enter, "enter"), (Key::Escape, "escape"),
-            (Key::LeftShift, "shift"), (Key::RightShift, "shift"),
-            (Key::LeftCtrl, "ctrl"),  (Key::RightCtrl, "ctrl"),
-            (Key::Key1, "1"), (Key::Key2, "2"), (Key::Key3, "3"),
-            (Key::Key4, "4"), (Key::Key5, "5"), (Key::Key6, "6"),
-            (Key::Key7, "7"), (Key::Key8, "8"), (Key::Key9, "9"), (Key::Key0, "0"),
+            (Key::W, "w"),
+            (Key::A, "a"),
+            (Key::S, "s"),
+            (Key::D, "d"),
+            (Key::Q, "q"),
+            (Key::E, "e"),
+            (Key::R, "r"),
+            (Key::F, "f"),
+            (Key::Z, "z"),
+            (Key::X, "x"),
+            (Key::C, "c"),
+            (Key::V, "v"),
+            (Key::Up, "up"),
+            (Key::Down, "down"),
+            (Key::Left, "left"),
+            (Key::Right, "right"),
+            (Key::Space, "space"),
+            (Key::Enter, "enter"),
+            (Key::Escape, "escape"),
+            (Key::LeftShift, "shift"),
+            (Key::RightShift, "shift"),
+            (Key::LeftCtrl, "ctrl"),
+            (Key::RightCtrl, "ctrl"),
+            (Key::Key1, "1"),
+            (Key::Key2, "2"),
+            (Key::Key3, "3"),
+            (Key::Key4, "4"),
+            (Key::Key5, "5"),
+            (Key::Key6, "6"),
+            (Key::Key7, "7"),
+            (Key::Key8, "8"),
+            (Key::Key9, "9"),
+            (Key::Key0, "0"),
             (Key::Tab, "tab"),
             (Key::Backspace, "backspace"),
-            (Key::F1, "f1"), (Key::F2, "f2"), (Key::F3, "f3"), (Key::F4, "f4"),
-            (Key::F5, "f5"), (Key::F6, "f6"), (Key::F7, "f7"), (Key::F8, "f8"),
-            (Key::F9, "f9"), (Key::F10, "f10"), (Key::F11, "f11"), (Key::F12, "f12"),
+            (Key::F1, "f1"),
+            (Key::F2, "f2"),
+            (Key::F3, "f3"),
+            (Key::F4, "f4"),
+            (Key::F5, "f5"),
+            (Key::F6, "f6"),
+            (Key::F7, "f7"),
+            (Key::F8, "f8"),
+            (Key::F9, "f9"),
+            (Key::F10, "f10"),
+            (Key::F11, "f11"),
+            (Key::F12, "f12"),
         ];
 
         let mut held = BTreeSet::new();
         let mut pressed = BTreeSet::new();
         for (key, name) in KEY_MAP {
-            if self.is_held(*key)      { held.insert(name.to_string()); }
-            if self.just_pressed(*key) { pressed.insert(name.to_string()); }
+            if self.is_held(*key) {
+                held.insert(name.to_string());
+            }
+            if self.just_pressed(*key) {
+                pressed.insert(name.to_string());
+            }
         }
         InputSnapshot { held, pressed }
     }
@@ -292,7 +450,10 @@ mod tests {
         // Light frame: no simulation step runs, so nothing consumes it —
         // only the per-frame decay ticks the buffer down.
         input.decay(1.0 / 240.0);
-        assert!(!input.just_pressed(Key::Space), "no step ran yet, so nothing should be marked just-pressed");
+        assert!(
+            !input.just_pressed(Key::Space),
+            "no step ran yet, so nothing should be marked just-pressed"
+        );
 
         // Next frame, a step finally runs and should still see the press.
         input.consume_step();
@@ -308,7 +469,10 @@ mod tests {
         input.decay(INPUT_BUFFER_WINDOW + 0.01);
 
         input.consume_step();
-        assert!(!input.just_pressed(Key::Space), "an unclaimed press should eventually expire, not buffer forever");
+        assert!(
+            !input.just_pressed(Key::Space),
+            "an unclaimed press should eventually expire, not buffer forever"
+        );
     }
 
     #[test]
@@ -321,7 +485,10 @@ mod tests {
         assert!(input.just_released(Key::Space));
 
         input.consume_step();
-        assert!(input.just_pressed(Key::Space), "a tap shorter than one frame must still register as a press");
+        assert!(
+            input.just_pressed(Key::Space),
+            "a tap shorter than one frame must still register as a press"
+        );
     }
 
     #[test]
@@ -357,7 +524,10 @@ mod tests {
         let snap = input.snapshot();
         assert!(snap.is_held("w"), "held set should use lowercase key names");
         assert!(snap.just_pressed("enter"), "just_pressed set should use lowercase key names");
-        assert!(!snap.is_held("W") && !snap.just_pressed("Enter"), "no capitalized names should leak through");
+        assert!(
+            !snap.is_held("W") && !snap.just_pressed("Enter"),
+            "no capitalized names should leak through"
+        );
     }
 
     // ── Tests: R12 (7A-2, docs/ember2d-master-plan.md) — text_buffer must
@@ -377,7 +547,10 @@ mod tests {
         input.text_buffer.push_str("hello");
         input.begin_text_capture();
         input.finish_frame_text_capture();
-        assert_eq!(input.text_buffer, "hello", "a widget that called begin_text_capture this frame must still see its text");
+        assert_eq!(
+            input.text_buffer, "hello",
+            "a widget that called begin_text_capture this frame must still see its text"
+        );
     }
 
     #[test]

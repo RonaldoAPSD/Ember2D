@@ -1,0 +1,8 @@
+# Decision recorded at Phase 7A Step 7A-9 (docs/ember2d-master-plan.md
+# §5.1 7A-9, §7.6): Option A — adopt rustfmt project-wide rather than
+# keep the pre-refactor hand-formatted style. `max_width`/
+# `use_small_heuristics` are set to the values closest to the style the
+# codebase already used, so the one-time `cargo fmt --all` pass this step
+# runs stays as close to a no-op diff as an actual reformat can be.
+max_width = 100
+use_small_heuristics = "Max"

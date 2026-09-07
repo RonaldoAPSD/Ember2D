@@ -31,20 +31,33 @@ impl TtfFont {
         Self::with_atlas_size(bytes, font_id, DEFAULT_ATLAS_SIZE, DEFAULT_ATLAS_SIZE)
     }
 
-    pub fn with_atlas_size(bytes: &[u8], font_id: usize, atlas_w: u32, atlas_h: u32) -> Result<Self, String> {
+    pub fn with_atlas_size(
+        bytes: &[u8],
+        font_id: usize,
+        atlas_w: u32,
+        atlas_h: u32,
+    ) -> Result<Self, String> {
         let font = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())?;
         Ok(TtfFont { font, font_id, atlas: GlyphAtlas::new(atlas_w, atlas_h, 0x0000_0000) })
     }
 }
 
 impl Font for TtfFont {
-    fn texture_id(&self) -> TextureId { self.atlas.texture_id() }
+    fn texture_id(&self) -> TextureId {
+        self.atlas.texture_id()
+    }
 
-    fn texture_size(&self) -> (u32, u32) { (self.atlas.texture.width, self.atlas.texture.height) }
+    fn texture_size(&self) -> (u32, u32) {
+        (self.atlas.texture.width, self.atlas.texture.height)
+    }
 
-    fn atlas_texture(&self) -> Option<&Texture> { Some(&self.atlas.texture) }
+    fn atlas_texture(&self) -> Option<&Texture> {
+        Some(&self.atlas.texture)
+    }
 
-    fn take_dirty(&mut self) -> bool { self.atlas.take_dirty() }
+    fn take_dirty(&mut self) -> bool {
+        self.atlas.take_dirty()
+    }
 
     fn glyph(&mut self, ch: char, px: f32) -> Option<GlyphInfo> {
         self.atlas.get_or_rasterize(&self.font, self.font_id, ch, px)
@@ -59,7 +72,9 @@ impl Font for TtfFont {
     fn measure(&mut self, text: &str, px: f32) -> (f32, f32) {
         let mut width = 0.0;
         for ch in text.chars() {
-            if let Some(g) = self.glyph(ch, px) { width += g.advance; }
+            if let Some(g) = self.glyph(ch, px) {
+                width += g.advance;
+            }
         }
         (width, self.line_height(px))
     }
@@ -98,7 +113,10 @@ mod tests {
         let mut font = test_font();
         let small = font.glyph('A', 16.0).unwrap();
         let large = font.glyph('A', 32.0).unwrap();
-        assert_ne!(small, large, "a 2x size request must not reuse the smaller glyph's cached metrics");
+        assert_ne!(
+            small, large,
+            "a 2x size request must not reuse the smaller glyph's cached metrics"
+        );
         assert!(large.advance > small.advance);
     }
 
@@ -141,12 +159,17 @@ mod tests {
         let id_before = font.texture_id();
         font.glyph('A', 16.0);
         font.glyph('Z', 24.0);
-        assert_eq!(font.texture_id(), id_before, "the atlas is one texture for this TtfFont's whole lifetime");
+        assert_eq!(
+            font.texture_id(),
+            id_before,
+            "the atlas is one texture for this TtfFont's whole lifetime"
+        );
     }
 
     #[test]
     fn texture_size_matches_the_atlas_it_was_constructed_with() {
-        let font = TtfFont::with_atlas_size(TEST_FONT, 0, 256, 128).expect("bundled test font must parse");
+        let font =
+            TtfFont::with_atlas_size(TEST_FONT, 0, 256, 128).expect("bundled test font must parse");
         assert_eq!(font.texture_size(), (256, 128));
     }
 
@@ -164,7 +187,8 @@ mod tests {
 
     #[test]
     fn a_tiny_atlas_eventually_refuses_further_glyphs_instead_of_corrupting_earlier_ones() {
-        let mut font = TtfFont::with_atlas_size(TEST_FONT, 0, 8, 8).expect("bundled test font must parse");
+        let mut font =
+            TtfFont::with_atlas_size(TEST_FONT, 0, 8, 8).expect("bundled test font must parse");
         // A single glyph at a normal reading size is already bigger than
         // this atlas — the very first request must come back empty
         // (`None`), not panic or silently write out of bounds.

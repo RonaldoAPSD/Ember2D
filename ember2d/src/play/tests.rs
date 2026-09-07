@@ -7,10 +7,10 @@
 // via `use super::*`.
 
 use super::*;
-use std::collections::HashMap;
 use ember2d_sim::components::{Sprite, Transform};
 use ember2d_sim::event::GameEvent;
 use ember2d_sim::world::EntityId;
+use std::collections::HashMap;
 
 /// A per-process scratch dir under the OS temp dir (7A-8) — every test
 /// script/level this file writes lives under here instead of directly in
@@ -47,17 +47,27 @@ fn equal_z_entities_sort_by_entity_id() {
 
     let list = DrawList::from_world(&world);
     let ids: Vec<EntityId> = list.commands.iter().map(|c| c.id).collect();
-    assert_eq!(ids, vec![a, b, c], "entities sharing a z_order must draw in a stable, id-ordered sequence");
+    assert_eq!(
+        ids,
+        vec![a, b, c],
+        "entities sharing a z_order must draw in a stable, id-ordered sequence"
+    );
 }
 
 #[test]
 fn draw_order_is_stable_across_repeated_calls() {
     let mut world = World::new();
-    for i in 0..20 { spawn_at(&mut world, i as f32, 0.0, i % 3, 'x'); }
+    for i in 0..20 {
+        spawn_at(&mut world, i as f32, 0.0, i % 3, 'x');
+    }
 
-    let first:  Vec<EntityId> = DrawList::from_world(&world).commands.iter().map(|c| c.id).collect();
-    let second: Vec<EntityId> = DrawList::from_world(&world).commands.iter().map(|c| c.id).collect();
-    assert_eq!(first, second, "repeated calls over the same world must produce the same draw order");
+    let first: Vec<EntityId> = DrawList::from_world(&world).commands.iter().map(|c| c.id).collect();
+    let second: Vec<EntityId> =
+        DrawList::from_world(&world).commands.iter().map(|c| c.id).collect();
+    assert_eq!(
+        first, second,
+        "repeated calls over the same world must produce the same draw order"
+    );
 }
 
 #[test]
@@ -66,7 +76,11 @@ fn lower_z_still_sorts_first_regardless_of_id() {
     let high_id_low_z = spawn_at(&mut world, 0.0, 0.0, 0, 'a');
     let _ = spawn_at(&mut world, 0.0, 0.0, 5, 'b'); // higher z, spawned after
     let list = DrawList::from_world(&world);
-    assert_eq!(list.commands.first().map(|c| c.id), Some(high_id_low_z), "z_order must still take priority over the id tiebreak");
+    assert_eq!(
+        list.commands.first().map(|c| c.id),
+        Some(high_id_low_z),
+        "z_order must still take priority over the id tiebreak"
+    );
 }
 
 #[test]
@@ -85,9 +99,9 @@ fn same_texture_entries_land_adjacent_even_when_spawned_interleaved() {
     // and id as further tiebreaks, all equal here) must group every command
     // sharing a texture into one contiguous run.
     let mut world = World::new();
-    let g1 = spawn_at(&mut world, 0.0, 0.0, 0, 'a');          // glyph (texture: None)
+    let g1 = spawn_at(&mut world, 0.0, 0.0, 0, 'a'); // glyph (texture: None)
     let t1 = spawn_textured_at(&mut world, 0, "a.png");
-    let g2 = spawn_at(&mut world, 0.0, 0.0, 0, 'b');          // glyph (texture: None)
+    let g2 = spawn_at(&mut world, 0.0, 0.0, 0, 'b'); // glyph (texture: None)
     let t2 = spawn_textured_at(&mut world, 0, "a.png");
     let t3 = spawn_textured_at(&mut world, 0, "b.png");
 
@@ -113,7 +127,10 @@ fn in_viewport_rejects_negative_coordinates() {
 #[test]
 fn in_viewport_rejects_past_the_right_and_bottom_edge() {
     assert!(!in_viewport(80, 5, 80, 24));
-    assert!(!in_viewport(5, 23, 80, 24), "the last row is reserved for the HUD bar and must be culled");
+    assert!(
+        !in_viewport(5, 23, 80, 24),
+        "the last row is reserved for the HUD bar and must be culled"
+    );
 }
 
 #[test]
@@ -128,8 +145,8 @@ fn in_viewport_never_panics_on_a_degenerate_viewport() {
 
 use crate::gamepad::GamepadState;
 use crate::input::InputManager;
-use ember2d_sim::level::TileRecord;
 use crate::mouse::MouseState;
+use ember2d_sim::level::TileRecord;
 
 /// Build a level with one exit tile (tagged "exit") pointing at a small
 /// level this function writes to the temp directory itself — a real file,
@@ -148,13 +165,18 @@ fn level_with_exit(name: &str) -> (LevelData, std::path::PathBuf) {
     LevelData::empty(4, 4).save(target_path.to_str().unwrap()).expect("write hermetic exit target");
 
     let mut data = LevelData::empty(20, 10);
-    let mut exit_tile = TileRecord::new(3, 3, 1, '>', Color::White, Color::Reset, false, true, "exit");
+    let mut exit_tile =
+        TileRecord::new(3, 3, 1, '>', Color::White, Color::Reset, false, true, "exit");
     exit_tile.next_level = Some(target_path.to_string_lossy().to_string());
     data.tiles.push(exit_tile);
     (data, target_path)
 }
 
-fn collide_player_with_exit(play: &mut PlayState, world: &mut World, exit_id: EntityId) -> Option<Transition> {
+fn collide_player_with_exit(
+    play: &mut PlayState,
+    world: &mut World,
+    exit_id: EntityId,
+) -> Option<Transition> {
     let mut events = EventBus::new();
     let player_id = world.find_by_tag("player").expect("player should have spawned");
     events.emit(GameEvent::Collision { entity_a: player_id, entity_b: exit_id });
@@ -214,10 +236,16 @@ fn an_unlocked_exit_triggers_a_level_transition() {
     play.on_start(&mut world, &mut events, 20, 10, &mut persistent);
 
     let exit_id = world.find_by_tag("exit").expect("exit entity should have spawned");
-    assert!(!world.colliders.get(&exit_id).unwrap().locked, "an exit should be unlocked by default");
+    assert!(
+        !world.colliders.get(&exit_id).unwrap().locked,
+        "an exit should be unlocked by default"
+    );
 
     let transition = collide_player_with_exit(&mut play, &mut world, exit_id);
-    assert!(matches!(transition, Some(Transition::ToPlay(_))), "an unlocked exit must trigger a level transition");
+    assert!(
+        matches!(transition, Some(Transition::ToPlay(_))),
+        "an unlocked exit must trigger a level transition"
+    );
     let _ = std::fs::remove_file(&target_path);
 }
 
@@ -239,10 +267,17 @@ fn setting_the_collider_layer_to_the_string_locked_no_longer_blocks_the_exit() {
     // docs/ember2d-phase6-plan.md) — the entire point is that the STRING
     // "locked" must be meaningless to the exit-gating logic now, no matter
     // what it resolves to.
-    world.colliders.get_mut(&exit_id).unwrap().set_layer(&ember2d_sim::layers::LayerRegistry::default(), "locked");
+    world
+        .colliders
+        .get_mut(&exit_id)
+        .unwrap()
+        .set_layer(&ember2d_sim::layers::LayerRegistry::default(), "locked");
 
     let transition = collide_player_with_exit(&mut play, &mut world, exit_id);
-    assert!(matches!(transition, Some(Transition::ToPlay(_))), "the layer name \"locked\" must be meaningless now — only Collider::locked gates the exit");
+    assert!(
+        matches!(transition, Some(Transition::ToPlay(_))),
+        "the layer name \"locked\" must be meaningless now — only Collider::locked gates the exit"
+    );
     let _ = std::fs::remove_file(&target_path);
 }
 
@@ -259,13 +294,43 @@ fn tile_z_uses_only_the_authored_layer_not_a_tag_based_offset() {
     // Three different tags that z_for_tag used to bucket differently
     // (floor=0, item=1, wall=2), all on the same editor layer — must all
     // land at the exact same z now.
-    data.tiles.push(TileRecord::new(1, 1, 1, '.', Color::White, Color::Reset, false, false, "floor"));
-    data.tiles.push(TileRecord::new(2, 1, 1, '*', Color::White, Color::Reset, false, true,  "item"));
-    data.tiles.push(TileRecord::new(3, 1, 1, '#', Color::White, Color::Reset, true,  false, "wall"));
+    data.tiles.push(TileRecord::new(
+        1,
+        1,
+        1,
+        '.',
+        Color::White,
+        Color::Reset,
+        false,
+        false,
+        "floor",
+    ));
+    data.tiles.push(TileRecord::new(2, 1, 1, '*', Color::White, Color::Reset, false, true, "item"));
+    data.tiles.push(TileRecord::new(3, 1, 1, '#', Color::White, Color::Reset, true, false, "wall"));
     // One tile per remaining layer, to confirm the Background < Main <
     // Player < Foreground tiering still holds using the layer alone.
-    data.tiles.push(TileRecord::new(4, 1, 0, '~', Color::White, Color::Reset, false, false, "water"));
-    data.tiles.push(TileRecord::new(5, 1, 2, '^', Color::White, Color::Reset, false, true,  "danger"));
+    data.tiles.push(TileRecord::new(
+        4,
+        1,
+        0,
+        '~',
+        Color::White,
+        Color::Reset,
+        false,
+        false,
+        "water",
+    ));
+    data.tiles.push(TileRecord::new(
+        5,
+        1,
+        2,
+        '^',
+        Color::White,
+        Color::Reset,
+        false,
+        true,
+        "danger",
+    ));
 
     // Step 4g: the player's z is PlayerRecord.layer now, not a hardcoded
     // Z_PLAYER constant — capture it before `data` moves into from_level.
@@ -279,9 +344,13 @@ fn tile_z_uses_only_the_authored_layer_not_a_tag_based_offset() {
 
     let z_of = |tag: &str| world.sprites.get(&world.find_by_tag(tag).unwrap()).unwrap().layer;
     assert_eq!(z_of("floor"), 10, "layer 1 must land at z=10 regardless of tag");
-    assert_eq!(z_of("item"),  10, "an item shares its layer's z with a floor tile — no more per-tag bucket");
-    assert_eq!(z_of("wall"),  10);
-    assert_eq!(z_of("water"),  0, "layer 0 (Background) must land at z=0");
+    assert_eq!(
+        z_of("item"),
+        10,
+        "an item shares its layer's z with a floor tile — no more per-tag bucket"
+    );
+    assert_eq!(z_of("wall"), 10);
+    assert_eq!(z_of("water"), 0, "layer 0 (Background) must land at z=0");
     assert_eq!(z_of("danger"), 20, "layer 2 (Foreground) must land at z=20");
 
     assert!(z_of("water") < player_layer, "Background must still draw under the player");
@@ -300,7 +369,11 @@ fn player_collider_size_defaults_to_the_legacy_hardcoded_value() {
 
     let player_id = world.find_by_tag("player").expect("player should have spawned");
     let col = world.colliders.get(&player_id).unwrap();
-    assert_eq!((col.width, col.height), (0.75, 0.75), "must match the value that used to be hardcoded in play/spawn.rs");
+    assert_eq!(
+        (col.width, col.height),
+        (0.75, 0.75),
+        "must match the value that used to be hardcoded in play/spawn.rs"
+    );
 }
 
 #[test]
@@ -334,7 +407,10 @@ fn player_layer_defaults_to_the_legacy_hardcoded_z_player_value() {
 
     let player_id = world.find_by_tag("player").expect("player should have spawned");
     let z = world.sprites.get(&player_id).unwrap().layer;
-    assert_eq!(z, 15, "must match the value that used to be the hardcoded Z_PLAYER constant in play.rs");
+    assert_eq!(
+        z, 15,
+        "must match the value that used to be the hardcoded Z_PLAYER constant in play.rs"
+    );
 }
 
 #[test]
@@ -369,7 +445,10 @@ fn playstate_rng_is_deterministic_for_the_same_level_seed() {
 
     let seq_a: Vec<i32> = (0..10).map(|_| play_a.rng.gen_range(-100..100)).collect();
     let seq_b: Vec<i32> = (0..10).map(|_| play_b.rng.gen_range(-100..100)).collect();
-    assert_eq!(seq_a, seq_b, "PlayState's particle/shake RNG must be deterministic for the same level seed");
+    assert_eq!(
+        seq_a, seq_b,
+        "PlayState's particle/shake RNG must be deterministic for the same level seed"
+    );
 }
 
 #[test]
@@ -384,7 +463,10 @@ fn playstate_rng_differs_across_level_seeds() {
 
     let seq_a: Vec<i32> = (0..10).map(|_| play_a.rng.gen_range(-100..100)).collect();
     let seq_b: Vec<i32> = (0..10).map(|_| play_b.rng.gen_range(-100..100)).collect();
-    assert_ne!(seq_a, seq_b, "different level seeds should not produce the same particle/shake sequence");
+    assert_ne!(
+        seq_a, seq_b,
+        "different level seeds should not produce the same particle/shake sequence"
+    );
 }
 
 // ── Test: script-facing camera math (docs/ember2d-refactor-plan.md Phase 2,
@@ -494,7 +576,9 @@ fn render_time_shake_jitter_never_touches_the_deterministic_rng_stream() {
     }
 
     let _ = camera_shake_jitter(&mut a.render_rng, a.shake_state, a.shake_timer);
-    for _ in 0..5 { let _ = camera_shake_jitter(&mut b.render_rng, b.shake_state, b.shake_timer); }
+    for _ in 0..5 {
+        let _ = camera_shake_jitter(&mut b.render_rng, b.shake_state, b.shake_timer);
+    }
 
     let da = a.rng.gen_range(-5.0..5.0f32);
     let db = b.rng.gen_range(-5.0..5.0f32);
@@ -505,12 +589,17 @@ fn render_time_shake_jitter_never_touches_the_deterministic_rng_stream() {
 fn get_elapsed_derives_from_step_count_not_the_wall_clock_value_passed_in() {
     let mut script_path = test_temp_dir();
     script_path.push("ember2d_test_get_elapsed_step_count.rhai");
-    std::fs::write(&script_path, r#"
+    std::fs::write(
+        &script_path,
+        r#"
         fn on_update(id, ctx) { ctx.set_global("elapsed_seen", ctx.get_elapsed()); }
-    "#).expect("write temp script");
+    "#,
+    )
+    .expect("write temp script");
 
     let mut data = LevelData::empty(10, 10);
-    let mut tile = TileRecord::new(2, 2, 1, 'x', Color::White, Color::Reset, false, false, "watcher");
+    let mut tile =
+        TileRecord::new(2, 2, 1, 'x', Color::White, Color::Reset, false, false, "watcher");
     tile.script = Some(script_path.to_string_lossy().to_string());
     data.tiles.push(tile);
 
@@ -530,18 +619,30 @@ fn get_elapsed_derives_from_step_count_not_the_wall_clock_value_passed_in() {
         let mut quit = false;
         let mut turn_triggered = false;
         play.update(UpdateContext {
-            world: &mut world, input: &mut input, mouse: &mouse, gamepad: &gamepad,
-            events: &mut events, prev_positions: &prev_positions,
-            delta_time: SIM_DT, frame_delta_time: SIM_DT,
+            world: &mut world,
+            input: &mut input,
+            mouse: &mouse,
+            gamepad: &gamepad,
+            events: &mut events,
+            prev_positions: &prev_positions,
+            delta_time: SIM_DT,
+            frame_delta_time: SIM_DT,
             // Deliberately garbage, varying "wall-clock" elapsed — if the
             // fix works the script must never see this value at all.
             elapsed: 999.0 + i as f32 * 37.0,
-            quit: &mut quit, turn_triggered: &mut turn_triggered,
-            viewport_width: 10, viewport_height: 10, persistent: &mut persistent,
+            quit: &mut quit,
+            turn_triggered: &mut turn_triggered,
+            viewport_width: 10,
+            viewport_height: 10,
+            persistent: &mut persistent,
         });
     }
 
-    let seen = play.globals().get("elapsed_seen").and_then(|d| d.as_float().ok()).expect("script must have set elapsed_seen") as f32;
+    let seen = play
+        .globals()
+        .get("elapsed_seen")
+        .and_then(|d| d.as_float().ok())
+        .expect("script must have set elapsed_seen") as f32;
     let expected = (steps - 1) as f32 * SIM_DT;
     assert!((seen - expected).abs() < 1e-4, "get_elapsed() must derive from step_count * sim_dt ({}), not the wall-clock value passed in; got {}", expected, seen);
 

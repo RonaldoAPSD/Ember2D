@@ -6,14 +6,16 @@
 // with full access to engine.rs's private items via `use super::*`.
 
 use super::*;
-use crate::components::{Animator, Script, Sprite, SpriteSource, Transform};
 use crate::color::Color;
+use crate::components::{Animator, Script, Sprite, SpriteSource, Transform};
 
 /// The one-layer registry every test here that doesn't care about
 /// collision-layer bits (Phase 6 Step 7, docs/ember2d-phase6-plan.md) passes
 /// to `ScriptEngine::new` — mirrors `LevelData::default_collision_layers()`,
 /// the real default a level with no explicit `collision_layers` gets.
-fn test_layers() -> crate::layers::LayerRegistry { crate::layers::LayerRegistry::new(&["solid".to_string()]) }
+fn test_layers() -> crate::layers::LayerRegistry {
+    crate::layers::LayerRegistry::new(&["solid".to_string()])
+}
 
 /// A per-process scratch dir under the OS temp dir (7A-8) — every test
 /// script this file writes lives under here instead of directly in the
@@ -50,8 +52,10 @@ fn same_seed_produces_the_same_random_sequence() {
     use rand::Rng;
     let engine_a = ScriptEngine::new(1234, test_layers());
     let engine_b = ScriptEngine::new(1234, test_layers());
-    let seq_a: Vec<u32> = (0..10).map(|_| engine_a.rng.borrow_mut().gen_range(0..1_000_000)).collect();
-    let seq_b: Vec<u32> = (0..10).map(|_| engine_b.rng.borrow_mut().gen_range(0..1_000_000)).collect();
+    let seq_a: Vec<u32> =
+        (0..10).map(|_| engine_a.rng.borrow_mut().gen_range(0..1_000_000)).collect();
+    let seq_b: Vec<u32> =
+        (0..10).map(|_| engine_b.rng.borrow_mut().gen_range(0..1_000_000)).collect();
     assert_eq!(seq_a, seq_b, "the same seed must produce the same random_* sequence");
 }
 
@@ -60,8 +64,10 @@ fn different_seeds_produce_different_random_sequences() {
     use rand::Rng;
     let engine_a = ScriptEngine::new(1, test_layers());
     let engine_b = ScriptEngine::new(2, test_layers());
-    let seq_a: Vec<u32> = (0..10).map(|_| engine_a.rng.borrow_mut().gen_range(0..1_000_000)).collect();
-    let seq_b: Vec<u32> = (0..10).map(|_| engine_b.rng.borrow_mut().gen_range(0..1_000_000)).collect();
+    let seq_a: Vec<u32> =
+        (0..10).map(|_| engine_a.rng.borrow_mut().gen_range(0..1_000_000)).collect();
+    let seq_b: Vec<u32> =
+        (0..10).map(|_| engine_b.rng.borrow_mut().gen_range(0..1_000_000)).collect();
     assert_ne!(seq_a, seq_b, "different seeds should not produce the same sequence");
 }
 
@@ -101,7 +107,10 @@ fn hot_reload_clears_only_the_reloaded_scripts_entities() {
 
     engine.check_hot_reload(&world, &mut log);
 
-    assert!(!engine.scopes.contains_key(&entity_a), "the reloaded script's entity must get a fresh scope");
+    assert!(
+        !engine.scopes.contains_key(&entity_a),
+        "the reloaded script's entity must get a fresh scope"
+    );
     assert_eq!(
         engine.scopes.get(&entity_b).and_then(|s| s.get_value::<bool>("marker")),
         Some(true),
@@ -162,8 +171,22 @@ fn run_scripts_once(engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<
     let mut persistent = BTreeMap::new();
     let snapshot = Rc::new(WorldSnapshot::build(world, &engine.layers));
     engine.run_scripts(
-        world, snapshot, log, 1.0 / 60.0, 0.0, crate::command::InputSnapshot::default(), crate::command::MouseSnapshot::default(), crate::command::GamepadSnapshot::default(),
-        &[], BTreeMap::new(), BTreeMap::new(), &mut persistent, crate::math::Vec2::ZERO, BTreeMap::new(), 0, (80, 24),
+        world,
+        snapshot,
+        log,
+        1.0 / 60.0,
+        0.0,
+        crate::command::InputSnapshot::default(),
+        crate::command::MouseSnapshot::default(),
+        crate::command::GamepadSnapshot::default(),
+        &[],
+        BTreeMap::new(),
+        BTreeMap::new(),
+        &mut persistent,
+        crate::math::Vec2::ZERO,
+        BTreeMap::new(),
+        0,
+        (80, 24),
     );
 }
 
@@ -183,7 +206,10 @@ fn a_script_that_errors_is_disabled_and_stops_being_called() {
     world.add_script(entity, Script::new(&path));
 
     run_scripts_once(&mut engine, &mut world, &mut log);
-    assert!(engine.disabled_scripts.contains(&path), "a script that throws must be disabled after its first error");
+    assert!(
+        engine.disabled_scripts.contains(&path),
+        "a script that throws must be disabled after its first error"
+    );
     let errors_after_first_call = log.iter().filter(|e| e.level == LogLevel::Error).count();
     assert_eq!(errors_after_first_call, 1);
 
@@ -192,7 +218,10 @@ fn a_script_that_errors_is_disabled_and_stops_being_called() {
     run_scripts_once(&mut engine, &mut world, &mut log);
     run_scripts_once(&mut engine, &mut world, &mut log);
     let errors_after_more_calls = log.iter().filter(|e| e.level == LogLevel::Error).count();
-    assert_eq!(errors_after_more_calls, errors_after_first_call, "a disabled script must not be invoked again, so it can't log another error");
+    assert_eq!(
+        errors_after_more_calls, errors_after_first_call,
+        "a disabled script must not be invoked again, so it can't log another error"
+    );
 
     // Fix the script on disk and force it to look stale (see the hot-reload
     // test above for why UNIX_EPOCH rather than racing real fs mtimes).
@@ -206,9 +235,15 @@ fn a_script_that_errors_is_disabled_and_stops_being_called() {
     // `HOT_RELOAD_CHECK_INTERVAL` times to get there.
     engine.hot_reload_counter = HOT_RELOAD_CHECK_INTERVAL - 1;
     run_scripts_once(&mut engine, &mut world, &mut log);
-    assert!(!engine.disabled_scripts.contains(&path), "a fixed script must re-enable itself once it hot-reloads successfully");
+    assert!(
+        !engine.disabled_scripts.contains(&path),
+        "a fixed script must re-enable itself once it hot-reloads successfully"
+    );
     let errors_after_fix = log.iter().filter(|e| e.level == LogLevel::Error).count();
-    assert_eq!(errors_after_fix, errors_after_first_call, "the fixed script must run cleanly with no new errors");
+    assert_eq!(
+        errors_after_fix, errors_after_first_call,
+        "the fixed script must run cleanly with no new errors"
+    );
 
     let _ = std::fs::remove_file(&script);
 }
@@ -225,11 +260,14 @@ fn a_script_that_errors_is_disabled_and_stops_being_called() {
 
 #[test]
 fn a_genuine_function_not_found_error_inside_on_update_is_logged_and_disables_the_script() {
-    let (_world, log) = run_source("undefined_function_call", r#"
+    let (_world, log) = run_source(
+        "undefined_function_call",
+        r#"
         fn on_update(id, ctx) {
             this_function_does_not_exist_anywhere(42);
         }
-    "#);
+    "#,
+    );
     assert!(
         log.iter().any(|e| e.level == LogLevel::Error),
         "a genuine \"function not found\" error from a call inside on_update must be logged, not silently swallowed like a missing on_update itself"
@@ -276,9 +314,12 @@ fn spawn_entity_default_overload_keeps_the_legacy_appearance() {
     // Defect D10 regression guard: the 4-arg overload must still produce
     // exactly what used to be hardcoded, so existing scripts (and the
     // demo) see no behavior change.
-    let (world, _log) = run_source("default_overload", r#"
+    let (world, _log) = run_source(
+        "default_overload",
+        r#"
         fn on_update(id, ctx) { ctx.spawn_entity("Q", 3.0, 4.0, "widget"); }
-    "#);
+    "#,
+    );
 
     let spawned = world.find_by_tag("widget").expect("spawned entity should exist");
     let tf = world.transforms.get(&spawned).unwrap();
@@ -297,11 +338,14 @@ fn spawn_entity_default_overload_keeps_the_legacy_appearance() {
 
 #[test]
 fn spawn_entity_extended_overload_honors_every_parameter() {
-    let (world, _log) = run_source("extended_overload", r#"
+    let (world, _log) = run_source(
+        "extended_overload",
+        r#"
         fn on_update(id, ctx) {
             ctx.spawn_entity("B", 1.0, 2.0, "bullet", "Red", "Reset", 9, true, 0.5, 0.5, "projectile");
         }
-    "#);
+    "#,
+    );
 
     let spawned = world.find_by_tag("bullet").expect("spawned entity should exist");
     let sp = world.sprites.get(&spawned).unwrap();
@@ -320,27 +364,37 @@ fn a_script_can_configure_the_entity_it_just_spawned_in_the_same_frame() {
     // Spawns are now applied before every other pending_* queue in
     // apply_ctx specifically so this pattern works on the very first
     // frame, not just from the next frame onward.
-    let (world, _log) = run_source("same_frame_setter", r#"
+    let (world, _log) = run_source(
+        "same_frame_setter",
+        r#"
         fn on_update(id, ctx) {
             let e = ctx.spawn_entity("Z", 0.0, 0.0, "thing");
             ctx.set_layer_order(e, 42);
         }
-    "#);
+    "#,
+    );
 
     let spawned = world.find_by_tag("thing").expect("spawned entity should exist");
-    assert_eq!(world.sprites.get(&spawned).unwrap().layer, 42, "a setter called on the same frame as spawn_entity must not be dropped");
+    assert_eq!(
+        world.sprites.get(&spawned).unwrap().layer,
+        42,
+        "a setter called on the same frame as spawn_entity must not be dropped"
+    );
 }
 
 // ── Tests: Step 3e API renames (ember2d-refactor-plan.md Phase 3) ──────────────
 
 #[test]
 fn set_tint_writes_the_same_fields_the_removed_set_color_used_to() {
-    let (world, _log) = run_source("set_tint", r#"
+    let (world, _log) = run_source(
+        "set_tint",
+        r#"
         fn on_update(id, ctx) {
             let e = ctx.spawn_entity("Q", 0.0, 0.0, "thing");
             ctx.set_tint(e, "Cyan", "DarkBlue");
         }
-    "#);
+    "#,
+    );
 
     let spawned = world.find_by_tag("thing").expect("spawned entity should exist");
     let sp = world.sprites.get(&spawned).unwrap();
@@ -351,12 +405,15 @@ fn set_tint_writes_the_same_fields_the_removed_set_color_used_to() {
 
 #[test]
 fn set_tint_accepts_an_explicit_hex_value() {
-    let (world, _log) = run_source("set_tint_hex", r##"
+    let (world, _log) = run_source(
+        "set_tint_hex",
+        r##"
         fn on_update(id, ctx) {
             let e = ctx.spawn_entity("Q", 0.0, 0.0, "thing");
             ctx.set_tint(e, "#4A90E2", "Reset");
         }
-    "##);
+    "##,
+    );
 
     let spawned = world.find_by_tag("thing").expect("spawned entity should exist");
     assert_eq!(world.sprites.get(&spawned).unwrap().tint, Color::Rgb(0x4A, 0x90, 0xE2));
@@ -364,11 +421,17 @@ fn set_tint_accepts_an_explicit_hex_value() {
 
 #[test]
 fn api_version_reports_the_current_breaking_change_generation() {
-    let (_world, log) = run_source("api_version", r#"
+    let (_world, log) = run_source(
+        "api_version",
+        r#"
         fn on_update(id, ctx) { ctx.log(ctx.api_version().to_string()); }
-    "#);
+    "#,
+    );
 
-    let msg = log.iter().find(|e| e.level == LogLevel::Info).expect("api_version() should be loggable like any other return value");
+    let msg = log
+        .iter()
+        .find(|e| e.level == LogLevel::Info)
+        .expect("api_version() should be loggable like any other return value");
     assert_eq!(msg.text, API_VERSION.to_string());
 }
 
@@ -387,9 +450,13 @@ fn pending_hud_draws_are_cleared_at_the_start_of_run_scripts_not_by_the_renderer
     // script pass actually happens.
     let mut script = test_temp_dir();
     script.push("ember2d_test_hud_persist.rhai");
-    std::fs::write(&script, r#"
+    std::fs::write(
+        &script,
+        r#"
         fn on_update(id, ctx) { ctx.draw_hud(1, 1, "hp: 10", "White", "Reset"); }
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     let path = script.to_string_lossy().to_string();
 
     let mut engine = ScriptEngine::new(1, test_layers());
@@ -401,19 +468,31 @@ fn pending_hud_draws_are_cleared_at_the_start_of_run_scripts_not_by_the_renderer
     world.add_script(entity, Script::new(&path));
 
     run_scripts_once(&mut engine, &mut world, &mut log);
-    assert_eq!(engine.pending_hud_draws.len(), 1, "a script's draw_hud call must land in the engine's queue after a real pass");
+    assert_eq!(
+        engine.pending_hud_draws.len(),
+        1,
+        "a script's draw_hud call must land in the engine's queue after a real pass"
+    );
 
     // Simulate a paused frame: no run_scripts call at all (PlayState::update
     // doesn't run for a state that isn't on top of the stack). Nothing else
     // in this headless test touches the queue, pinning that only
     // run_scripts itself may clear it.
-    assert_eq!(engine.pending_hud_draws.len(), 1, "skipping a script pass must not clear the queue");
+    assert_eq!(
+        engine.pending_hud_draws.len(),
+        1,
+        "skipping a script pass must not clear the queue"
+    );
 
     // A second real pass must reset the queue before repopulating it —
     // otherwise draws would accumulate across frames instead of reflecting
     // only the latest pass.
     run_scripts_once(&mut engine, &mut world, &mut log);
-    assert_eq!(engine.pending_hud_draws.len(), 1, "a fresh pass must clear stale draws before adding this frame's");
+    assert_eq!(
+        engine.pending_hud_draws.len(),
+        1,
+        "a fresh pass must clear stale draws before adding this frame's"
+    );
 
     let _ = std::fs::remove_file(&script);
 }
@@ -454,12 +533,15 @@ fn run_source_with_driver(name: &str, source: &str) -> (World, EntityId, Vec<Log
 
 #[test]
 fn play_clip_starts_an_animator_and_points_the_sprite_at_the_clip() {
-    let (world, driver, _log) = run_source_with_driver("play_clip", r#"
+    let (world, driver, _log) = run_source_with_driver(
+        "play_clip",
+        r#"
         fn on_update(id, ctx) {
             ctx.register_clip("flicker", "*+#", 6.0, true);
             ctx.play_clip(id, "flicker");
         }
-    "#);
+    "#,
+    );
 
     let animator = world.animators.get(&driver).expect("play_clip must create an Animator");
     assert_eq!(animator.clip, "flicker");
@@ -470,14 +552,20 @@ fn play_clip_starts_an_animator_and_points_the_sprite_at_the_clip() {
 
 #[test]
 fn play_clip_once_sets_the_oneshot_override() {
-    let (world, driver, _log) = run_source_with_driver("play_clip_once", r#"
+    let (world, driver, _log) = run_source_with_driver(
+        "play_clip_once",
+        r#"
         fn on_update(id, ctx) {
             ctx.register_clip("swing", "ab", 6.0, true);
             ctx.play_clip_once(id, "swing");
         }
-    "#);
+    "#,
+    );
 
-    assert!(world.animators.get(&driver).unwrap().oneshot, "play_clip_once must set the oneshot override even for a looping clip");
+    assert!(
+        world.animators.get(&driver).unwrap().oneshot,
+        "play_clip_once must set the oneshot override even for a looping clip"
+    );
 }
 
 #[test]
@@ -488,9 +576,13 @@ fn clip_finished_reports_true_for_entities_whose_animator_just_finished_this_tic
     // Animator::just_finished the World already carries into this frame.
     let mut script = test_temp_dir();
     script.push("ember2d_test_clip_finished.rhai");
-    std::fs::write(&script, r#"
+    std::fs::write(
+        &script,
+        r#"
         fn on_update(id, ctx) { ctx.set_global("finished", ctx.clip_finished(id)); }
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     let path = script.to_string_lossy().to_string();
 
     let mut engine = ScriptEngine::new(1, test_layers());
@@ -507,8 +599,22 @@ fn clip_finished_reports_true_for_entities_whose_animator_just_finished_this_tic
     let mut persistent = BTreeMap::new();
     let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers));
     let result = engine.run_scripts(
-        &mut world, snapshot, &mut log, 1.0 / 60.0, 0.0, crate::command::InputSnapshot::default(), crate::command::MouseSnapshot::default(), crate::command::GamepadSnapshot::default(),
-        &[], BTreeMap::new(), BTreeMap::new(), &mut persistent, crate::math::Vec2::ZERO, BTreeMap::new(), 0, (80, 24),
+        &mut world,
+        snapshot,
+        &mut log,
+        1.0 / 60.0,
+        0.0,
+        crate::command::InputSnapshot::default(),
+        crate::command::MouseSnapshot::default(),
+        crate::command::GamepadSnapshot::default(),
+        &[],
+        BTreeMap::new(),
+        BTreeMap::new(),
+        &mut persistent,
+        crate::math::Vec2::ZERO,
+        BTreeMap::new(),
+        0,
+        (80, 24),
     );
 
     assert_eq!(result.globals.get("finished").and_then(|d| d.as_bool().ok()), Some(true));

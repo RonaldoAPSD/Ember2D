@@ -14,9 +14,9 @@
 // writes are unconditional, e.g. enemy_rat.rhai's own hp lazy-init, and
 // re-running it would reset every enemy back to full health).
 
-use std::collections::{BTreeMap, HashMap};
 use ember2d::prelude::*;
 use ember2d_sim::simulation::Simulation;
+use std::collections::{BTreeMap, HashMap};
 
 mod common;
 use common::TurnHarness;
@@ -32,11 +32,15 @@ const FLOOR2: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../roguelike/floor2.l
 fn a_scripts_set_global_survives_a_real_ron_round_trip_through_save_and_load() {
     let mut script_path = common::test_temp_dir();
     script_path.push("ember2d_test_save_load_globals.rhai");
-    std::fs::write(&script_path, r#"
+    std::fs::write(
+        &script_path,
+        r#"
         fn on_update(id, ctx) {
             ctx.set_global("hp_" + id, 4);
         }
-    "#).expect("write temp script");
+    "#,
+    )
+    .expect("write temp script");
 
     let mut data = LevelData::empty(10, 10);
     let mut tile = TileRecord::new(2, 2, 1, 'r', Color::Red, Color::Reset, false, false, "enemy");
@@ -85,7 +89,15 @@ fn a_scripts_set_global_survives_a_real_ron_round_trip_through_save_and_load() {
 
     // The actual regression: round-trip through a REAL RON string, not just
     // an in-memory clone — this is what save_game/load_game do.
-    let save = SaveState::new(world.clone(), persistent.clone(), play.globals().clone(), play.clips().clone(), "unused.level".to_string(), 0, Vec::new());
+    let save = SaveState::new(
+        world.clone(),
+        persistent.clone(),
+        play.globals().clone(),
+        play.clips().clone(),
+        "unused.level".to_string(),
+        0,
+        Vec::new(),
+    );
     let ron = save.to_ron().expect("SaveState must serialize");
     let restored = SaveState::from_ron(&ron).expect("SaveState must deserialize");
 
@@ -134,8 +146,13 @@ fn a_saved_and_loaded_session_still_transitions_when_the_player_steps_onto_the_s
     // A REAL RON round trip — SaveState::to_ron/from_ron, matching
     // save_game/load_game exactly, not an in-memory clone.
     let save = SaveState::new(
-        h.world.clone(), h.persistent.clone(), h.sim.globals().clone(), h.sim.clips().clone(),
-        FLOOR1.to_string(), h.sim.turn_number().max(0) as u64, h.sim.scheduler_snapshot(),
+        h.world.clone(),
+        h.persistent.clone(),
+        h.sim.globals().clone(),
+        h.sim.clips().clone(),
+        FLOOR1.to_string(),
+        h.sim.turn_number().max(0) as u64,
+        h.sim.scheduler_snapshot(),
     );
     let ron = save.to_ron().expect("SaveState must serialize");
     let restored = SaveState::from_ron(&ron).expect("SaveState must deserialize");
@@ -147,15 +164,33 @@ fn a_saved_and_loaded_session_still_transitions_when_the_player_steps_onto_the_s
     let level = LevelData::load(FLOOR1).expect("floor1 must load");
     let mut loaded_world = restored.world;
     let mut loaded_persistent = restored.persistent;
-    let mut loaded_sim = Simulation::from_save(level, restored.globals, restored.clips, restored.turn_number, restored.scheduler);
-    loaded_sim.on_start(&mut loaded_world, h.viewport_width, h.viewport_height, &mut loaded_persistent);
+    let mut loaded_sim = Simulation::from_save(
+        level,
+        restored.globals,
+        restored.clips,
+        restored.turn_number,
+        restored.scheduler,
+    );
+    loaded_sim.on_start(
+        &mut loaded_world,
+        h.viewport_width,
+        h.viewport_height,
+        &mut loaded_persistent,
+    );
 
     let mut events = EventBus::new();
     loaded_world.detect_collisions(&mut events);
     let prev_positions = loaded_world.snapshot_positions();
     let outcome = loaded_sim.late_step(
-        &mut loaded_world, &events, &prev_positions, Vec2::ZERO,
-        1.0 / 60.0, 0.0, h.viewport_width, h.viewport_height, &mut loaded_persistent,
+        &mut loaded_world,
+        &events,
+        &prev_positions,
+        Vec2::ZERO,
+        1.0 / 60.0,
+        0.0,
+        h.viewport_width,
+        h.viewport_height,
+        &mut loaded_persistent,
     );
 
     assert!(outcome.pending_level.is_some(), "stepping onto the stairs after a save/load must still trigger a level transition — exit_targets must survive the load");
@@ -179,8 +214,13 @@ fn loading_a_mid_round_save_resumes_with_the_same_current_actor() {
     let expected_actor = h.sim.current_actor();
 
     let save = SaveState::new(
-        h.world.clone(), h.persistent.clone(), h.sim.globals().clone(), h.sim.clips().clone(),
-        FLOOR2.to_string(), h.sim.turn_number().max(0) as u64, h.sim.scheduler_snapshot(),
+        h.world.clone(),
+        h.persistent.clone(),
+        h.sim.globals().clone(),
+        h.sim.clips().clone(),
+        FLOOR2.to_string(),
+        h.sim.turn_number().max(0) as u64,
+        h.sim.scheduler_snapshot(),
     );
     let ron = save.to_ron().expect("SaveState must serialize");
     let restored = SaveState::from_ron(&ron).expect("SaveState must deserialize");
@@ -188,8 +228,19 @@ fn loading_a_mid_round_save_resumes_with_the_same_current_actor() {
     let level = LevelData::load(FLOOR2).expect("floor2 must load");
     let mut loaded_world = restored.world;
     let mut loaded_persistent = restored.persistent;
-    let mut loaded_sim = Simulation::from_save(level, restored.globals, restored.clips, restored.turn_number, restored.scheduler);
-    loaded_sim.on_start(&mut loaded_world, h.viewport_width, h.viewport_height, &mut loaded_persistent);
+    let mut loaded_sim = Simulation::from_save(
+        level,
+        restored.globals,
+        restored.clips,
+        restored.turn_number,
+        restored.scheduler,
+    );
+    loaded_sim.on_start(
+        &mut loaded_world,
+        h.viewport_width,
+        h.viewport_height,
+        &mut loaded_persistent,
+    );
 
     assert_eq!(
         loaded_sim.current_actor(), expected_actor,

@@ -31,7 +31,7 @@ pub mod transform;
 
 // Re-export the most commonly used types at the `components` level.
 pub use actor::{Actor, Controller};
-pub use animator::{Animator, AnimationClip, ClipFrames};
+pub use animator::{AnimationClip, Animator, ClipFrames};
 pub use collider::Collider;
 pub use script::Script;
 pub use sprite::{Sprite, SpriteSource};

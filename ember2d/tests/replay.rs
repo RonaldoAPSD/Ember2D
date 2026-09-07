@@ -59,16 +59,37 @@ const CHECKPOINT_EVERY: usize = 4;
 /// per-checkpoint divergence reporting.
 fn scripted_session() -> Vec<Option<&'static str>> {
     vec![
-        Some("d"), Some("d"), Some("d"), Some("s"), Some("s"), Some("a"), Some("w"),
-        Some("space"), Some("d"), Some("s"), Some("space"), Some("a"), Some("a"),
-        Some("w"), Some("w"), None, None, Some("q"), Some("d"), Some("d"),
+        Some("d"),
+        Some("d"),
+        Some("d"),
+        Some("s"),
+        Some("s"),
+        Some("a"),
+        Some("w"),
+        Some("space"),
+        Some("d"),
+        Some("s"),
+        Some("space"),
+        Some("a"),
+        Some("a"),
+        Some("w"),
+        Some("w"),
+        None,
+        None,
+        Some("q"),
+        Some("d"),
+        Some("d"),
     ]
 }
 
 fn drive(h: &mut TurnHarness, key: Option<&str>) {
     match key {
-        Some(k) => { h.turn(k); }
-        None => { h.frame(None); }
+        Some(k) => {
+            h.turn(k);
+        }
+        None => {
+            h.frame(None);
+        }
     }
 }
 
@@ -106,7 +127,9 @@ fn replay_produces_byte_identical_state_across_independent_instances() {
     let mut recorded_checkpoints = Vec::new();
     for (i, &key) in session.iter().enumerate() {
         drive(&mut h1, key);
-        if (i + 1) % CHECKPOINT_EVERY == 0 { recorded_checkpoints.push(snapshot(&h1)); }
+        if (i + 1) % CHECKPOINT_EVERY == 0 {
+            recorded_checkpoints.push(snapshot(&h1));
+        }
     }
     let recorded_final = snapshot(&h1);
 
@@ -130,7 +153,11 @@ fn replay_produces_byte_identical_state_across_independent_instances() {
         }
     }
 
-    assert_eq!(snapshot(&h2), recorded_final, "final state must be byte-identical to the recorded run");
+    assert_eq!(
+        snapshot(&h2),
+        recorded_final,
+        "final state must be byte-identical to the recorded run"
+    );
 }
 
 /// R7 (7A-3, docs/ember2d-master-plan.md) "done when": a save/load round
@@ -145,7 +172,9 @@ fn replay_matches_when_a_save_load_round_trip_happens_at_the_midpoint() {
 
     // "Record": straight through, no save/load at all.
     let mut h1 = TurnHarness::load(FLOOR2);
-    for &key in &session { drive(&mut h1, key); }
+    for &key in &session {
+        drive(&mut h1, key);
+    }
     let recorded_final = snapshot(&h1);
 
     // "Replay with a save/load stitched in at the midpoint": same level,
@@ -153,17 +182,30 @@ fn replay_matches_when_a_save_load_round_trip_happens_at_the_midpoint() {
     // session down to a `SaveState` (a real RON round trip, not an
     // in-memory clone) and rebuild a fresh one from it.
     let mut h2 = TurnHarness::load(FLOOR2);
-    for &key in &session[..midpoint] { drive(&mut h2, key); }
+    for &key in &session[..midpoint] {
+        drive(&mut h2, key);
+    }
 
     let save = SaveState::new(
-        h2.world.clone(), h2.persistent.clone(), h2.sim.globals().clone(), h2.sim.clips().clone(),
-        FLOOR2.to_string(), h2.sim.turn_number().max(0) as u64, h2.sim.scheduler_snapshot(),
+        h2.world.clone(),
+        h2.persistent.clone(),
+        h2.sim.globals().clone(),
+        h2.sim.clips().clone(),
+        FLOOR2.to_string(),
+        h2.sim.turn_number().max(0) as u64,
+        h2.sim.scheduler_snapshot(),
     );
     let ron = save.to_ron().expect("state must RON-serialize");
     let restored = SaveState::from_ron(&ron).expect("state must RON-deserialize");
     let mut h2 = TurnHarness::from_save(FLOOR2, restored);
 
-    for &key in &session[midpoint..] { drive(&mut h2, key); }
+    for &key in &session[midpoint..] {
+        drive(&mut h2, key);
+    }
 
-    assert_eq!(snapshot(&h2), recorded_final, "a save/load round trip stitched in at the midpoint must not change the final state");
+    assert_eq!(
+        snapshot(&h2),
+        recorded_final,
+        "a save/load round trip stitched in at the midpoint must not change the final state"
+    );
 }

@@ -19,10 +19,10 @@
 // mask filtering specifically, not by geometry — that isolates exactly the
 // thing this file exists to check.
 
-use std::collections::BTreeMap;
 use ember2d::prelude::*;
 use ember2d_sim::event::GameEvent;
 use ember2d_sim::save::SaveState;
+use std::collections::BTreeMap;
 
 /// A non-solid trigger so nothing here is ever physically blocked or moved
 /// by `late_step`'s solid-collision resolver — this file is purely about
@@ -41,10 +41,10 @@ fn build_level() -> LevelData {
     let mut data = LevelData::empty(10, 10);
     data.collision_layers = vec!["solid".to_string(), "enemy".to_string(), "pickup".to_string()];
     data.tiles = vec![
-        overlapping_tile("wall",  "solid",  vec![]),                              // empty mask: matches everything
-        overlapping_tile("rat",   "enemy",  vec!["solid".to_string()]),           // wants only solids
-        overlapping_tile("gold",  "pickup", vec!["enemy".to_string()]),           // wants only enemies, not solids
-        overlapping_tile("ghost", "pickup", vec!["ghost_layer".to_string()]),     // wants an UNREGISTERED layer
+        overlapping_tile("wall", "solid", vec![]), // empty mask: matches everything
+        overlapping_tile("rat", "enemy", vec!["solid".to_string()]), // wants only solids
+        overlapping_tile("gold", "pickup", vec!["enemy".to_string()]), // wants only enemies, not solids
+        overlapping_tile("ghost", "pickup", vec!["ghost_layer".to_string()]), // wants an UNREGISTERED layer
     ];
     data
 }
@@ -64,22 +64,30 @@ fn spawn_and_detect(data: LevelData) -> (World, EventBus) {
 fn collided(events: &EventBus, world: &World, tag_a: &str, tag_b: &str) -> bool {
     let a = world.find_by_tag(tag_a).unwrap_or_else(|| panic!("{} should have spawned", tag_a));
     let b = world.find_by_tag(tag_b).unwrap_or_else(|| panic!("{} should have spawned", tag_b));
-    events.events().iter().any(|e| matches!(e,
-        GameEvent::Collision { entity_a, entity_b }
-        if (*entity_a == a && *entity_b == b) || (*entity_a == b && *entity_b == a)
-    ))
+    events.events().iter().any(|e| {
+        matches!(e,
+            GameEvent::Collision { entity_a, entity_b }
+            if (*entity_a == a && *entity_b == b) || (*entity_a == b && *entity_b == a)
+        )
+    })
 }
 
 #[test]
 fn a_mask_naming_a_registered_layer_matches_it() {
     let (world, events) = spawn_and_detect(build_level());
-    assert!(collided(&events, &world, "wall", "rat"), "rat's mask [\"solid\"] should match wall's \"solid\" layer");
+    assert!(
+        collided(&events, &world, "wall", "rat"),
+        "rat's mask [\"solid\"] should match wall's \"solid\" layer"
+    );
 }
 
 #[test]
 fn a_mask_naming_only_other_layers_excludes_a_non_matching_pair() {
     let (world, events) = spawn_and_detect(build_level());
-    assert!(!collided(&events, &world, "wall", "gold"), "gold's mask [\"enemy\"] must not match wall's \"solid\" layer");
+    assert!(
+        !collided(&events, &world, "wall", "gold"),
+        "gold's mask [\"enemy\"] must not match wall's \"solid\" layer"
+    );
 }
 
 #[test]
@@ -111,9 +119,18 @@ fn a_mask_naming_an_unregistered_layer_matches_nothing_not_everything() {
     // mask naming a specific layer should ever do on a typo or an
     // authored-before-registered name). ghost must therefore collide with
     // NOTHING here, despite physically overlapping all three other tiles.
-    assert!(!collided(&events, &world, "ghost", "wall"), "an unregistered-layer mask must not accidentally match \"solid\"");
-    assert!(!collided(&events, &world, "ghost", "rat"), "an unregistered-layer mask must not accidentally match \"enemy\"");
-    assert!(!collided(&events, &world, "ghost", "gold"), "an unregistered-layer mask must not accidentally match \"pickup\"");
+    assert!(
+        !collided(&events, &world, "ghost", "wall"),
+        "an unregistered-layer mask must not accidentally match \"solid\""
+    );
+    assert!(
+        !collided(&events, &world, "ghost", "rat"),
+        "an unregistered-layer mask must not accidentally match \"enemy\""
+    );
+    assert!(
+        !collided(&events, &world, "ghost", "gold"),
+        "an unregistered-layer mask must not accidentally match \"pickup\""
+    );
 }
 
 /// The mandatory round trip (see this file's header comment). Builds the
@@ -142,7 +159,15 @@ fn collider_bits_survive_a_save_load_round_trip() {
 
     // A REAL RON round trip — SaveState::to_ron/from_ron, not
     // std::mem::clone — is what actually exercises `#[serde(skip)]`.
-    let save = SaveState::new(world.clone(), persistent.clone(), play.globals().clone(), play.clips().clone(), "unused.level".to_string(), 0, Vec::new());
+    let save = SaveState::new(
+        world.clone(),
+        persistent.clone(),
+        play.globals().clone(),
+        play.clips().clone(),
+        "unused.level".to_string(),
+        0,
+        Vec::new(),
+    );
     let ron = save.to_ron().expect("SaveState must serialize");
     let restored = SaveState::from_ron(&ron).expect("SaveState must deserialize");
     let mut loaded_world = restored.world;
@@ -154,7 +179,14 @@ fn collider_bits_survive_a_save_load_round_trip() {
     // re-read from disk, since this test never wrote a .level file) while
     // the entities themselves come from the restored World, not a fresh
     // do_on_start spawn.
-    let mut loaded_play = PlayState::from_save(data, restored.persistent, restored.globals, restored.clips, restored.turn_number, restored.scheduler);
+    let mut loaded_play = PlayState::from_save(
+        data,
+        restored.persistent,
+        restored.globals,
+        restored.clips,
+        restored.turn_number,
+        restored.scheduler,
+    );
     let mut loaded_persistent: BTreeMap<String, rhai::Dynamic> = BTreeMap::new();
     let mut loaded_events = EventBus::new();
     loaded_play.on_start(&mut loaded_world, &mut loaded_events, 10, 10, &mut loaded_persistent);
@@ -167,7 +199,13 @@ fn collider_bits_survive_a_save_load_round_trip() {
     // by a future edit), every collider's mask_bits would read 0 —
     // indistinguishable from "matches everything" — and gold/wall,
     // normally excluded by gold's own real mask, would suddenly collide.
-    assert!(collided(&after, &loaded_world, "wall", "rat"), "rat must still match wall's \"solid\" layer after a save/load round trip");
+    assert!(
+        collided(&after, &loaded_world, "wall", "rat"),
+        "rat must still match wall's \"solid\" layer after a save/load round trip"
+    );
     assert!(!collided(&after, &loaded_world, "wall", "gold"), "gold's mask must still exclude wall after a save/load round trip -- a bare 0 here means the bits were never refreshed");
-    assert!(!collided(&after, &loaded_world, "ghost", "wall"), "an unregistered-layer mask must still match nothing after a save/load round trip");
+    assert!(
+        !collided(&after, &loaded_world, "ghost", "wall"),
+        "an unregistered-layer mask must still match nothing after a save/load round trip"
+    );
 }

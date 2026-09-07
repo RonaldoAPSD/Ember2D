@@ -15,7 +15,7 @@
 // A real engine might support MULTIPLE tags per entity (a Vec<String>),
 // but a single tag covers most use cases and keeps the API simple.
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// A human-readable label for an entity.
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -87,12 +87,16 @@ impl Map {
 
     fn corridor_h(&mut self, x1: usize, x2: usize, y: usize) {
         let (lo, hi) = (x1.min(x2), x1.max(x2));
-        for xx in lo..=hi { self.floor[y][xx] = true; }
+        for xx in lo..=hi {
+            self.floor[y][xx] = true;
+        }
     }
 
     fn corridor_v(&mut self, y1: usize, y2: usize, x: usize) {
         let (lo, hi) = (y1.min(y2), y1.max(y2));
-        for yy in lo..=hi { self.floor[yy][x] = true; }
+        for yy in lo..=hi {
+            self.floor[yy][x] = true;
+        }
     }
 }
 
@@ -105,7 +109,13 @@ impl Map {
 /// explicit, stable order or two runs of this program would produce
 /// different byte streams (and, worse, a different entity-id assignment in
 /// `PlayState::do_on_start`, since ids are handed out in tile order).
-fn build_level(name: &str, map: &Map, seed: u64, spawn: (f32, f32), features: Vec<TileRecord>) -> LevelData {
+fn build_level(
+    name: &str,
+    map: &Map,
+    seed: u64,
+    spawn: (f32, f32),
+    features: Vec<TileRecord>,
+) -> LevelData {
     let mut data = LevelData::empty(map.w, map.h);
     data.name = name.to_string();
     data.seed = seed;
@@ -114,9 +124,29 @@ fn build_level(name: &str, map: &Map, seed: u64, spawn: (f32, f32), features: Ve
     for y in 0..map.h {
         for x in 0..map.w {
             if map.floor[y][x] {
-                data.tiles.push(TileRecord::new(x as i32, y as i32, 0, '.', Color::DarkGrey, Color::Reset, false, false, "floor"));
+                data.tiles.push(TileRecord::new(
+                    x as i32,
+                    y as i32,
+                    0,
+                    '.',
+                    Color::DarkGrey,
+                    Color::Reset,
+                    false,
+                    false,
+                    "floor",
+                ));
             } else {
-                data.tiles.push(TileRecord::new(x as i32, y as i32, 1, '#', Color::Grey, Color::Reset, true, false, "wall"));
+                data.tiles.push(TileRecord::new(
+                    x as i32,
+                    y as i32,
+                    1,
+                    '#',
+                    Color::Grey,
+                    Color::Reset,
+                    true,
+                    false,
+                    "wall",
+                ));
             }
         }
     }
@@ -165,7 +195,8 @@ fn rat(x: i32, y: i32) -> TileRecord {
 /// already locks any level's stairs while `ctx.count_by_tag("boss") > 0`,
 /// so placing this tile is the entire boss-gate mechanism.
 fn boss(x: i32, y: i32) -> TileRecord {
-    let mut t = TileRecord::new(x, y, 1, 'B', Color::DarkMagenta, Color::Reset, true, false, "boss");
+    let mut t =
+        TileRecord::new(x, y, 1, 'B', Color::DarkMagenta, Color::Reset, true, false, "boss");
     t.script = Some(ENEMY_BOSS_SCRIPT.to_string());
     // Step 5f: an Ai actor, same as rat() above.
     t.actor = Some(ActorRecord::default());
@@ -204,11 +235,11 @@ fn floor2() -> LevelData {
     let w = 80usize;
     let h = 32usize;
     let mut map = Map::new(w, h);
-    map.room(2, 2, 20, 12);       // room A: entry, x:[2,21] y:[2,13]
-    map.corridor_h(21, 45, 7);    // A -> B
-    map.room(44, 2, 26, 20);      // room B: combat arena, x:[44,69] y:[2,21]
-    map.corridor_v(21, 27, 56);   // B -> C
-    map.room(50, 26, 20, 4);      // room C: stairs, x:[50,69] y:[26,29]
+    map.room(2, 2, 20, 12); // room A: entry, x:[2,21] y:[2,13]
+    map.corridor_h(21, 45, 7); // A -> B
+    map.room(44, 2, 26, 20); // room B: combat arena, x:[44,69] y:[2,21]
+    map.corridor_v(21, 27, 56); // B -> C
+    map.room(50, 26, 20, 4); // room C: stairs, x:[50,69] y:[26,29]
 
     let spawn = (5.0, 5.0);
     let features = vec![
@@ -238,9 +269,9 @@ fn floor3() -> LevelData {
     let w = 56usize;
     let h = 28usize;
     let mut map = Map::new(w, h);
-    map.room(2, 2, 16, 10);      // room A: entry, x:[2,17] y:[2,11]
-    map.corridor_h(17, 30, 6);   // A -> B
-    map.room(28, 2, 24, 20);     // room B: boss arena, x:[28,51] y:[2,21]
+    map.room(2, 2, 16, 10); // room A: entry, x:[2,17] y:[2,11]
+    map.corridor_h(17, 30, 6); // A -> B
+    map.room(28, 2, 24, 20); // room B: boss arena, x:[28,51] y:[2,21]
 
     let spawn = (5.0, 5.0);
     let features = vec![
@@ -294,7 +325,8 @@ fn main() {
 
     // TurnBased is the whole point of this demo (see the Phase 4 plan): it
     // exercises the engine's turn-gating path, which no prior demo touched.
-    let mut project = ProjectData::new("Roguelike", VisualStyle::ClassicASCII, GameplayLoop::TurnBased);
+    let mut project =
+        ProjectData::new("Roguelike", VisualStyle::ClassicASCII, GameplayLoop::TurnBased);
     project.start_level = Some("floor1.level".to_string());
     project.save(out_dir.to_str().unwrap()).expect("save project.ron");
     println!("wrote roguelike/project.ron");

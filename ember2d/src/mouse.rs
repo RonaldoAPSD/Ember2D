@@ -1,8 +1,8 @@
 // mouse.rs — Mouse input tracking, backend-agnostic.
 
-use std::collections::{HashMap, HashSet};
-use serde::{Serialize, Deserialize};
 use crate::input::INPUT_BUFFER_WINDOW;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 /// A backend-agnostic representation of a mouse button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -71,16 +71,16 @@ pub struct MouseState {
 impl MouseState {
     pub fn new() -> Self {
         MouseState {
-            cell_x:        0,
-            cell_y:        0,
-            pixel_x:       0.0,
-            pixel_y:       0.0,
-            in_bounds:      false,
-            wheel_x:        0.0,
-            wheel_y:        0.0,
-            held:          Vec::new(),
-            pending:       HashMap::new(),
-            consumed:      HashSet::new(),
+            cell_x: 0,
+            cell_y: 0,
+            pixel_x: 0.0,
+            pixel_y: 0.0,
+            in_bounds: false,
+            wheel_x: 0.0,
+            wheel_y: 0.0,
+            held: Vec::new(),
+            pending: HashMap::new(),
+            consumed: HashSet::new(),
             just_released: Vec::new(),
         }
     }
@@ -104,15 +104,18 @@ impl MouseState {
     /// Call once per frame (real delta time) after the frame's simulation
     /// steps have had their chance to consume them.
     pub fn decay(&mut self, dt: f32) {
-        self.pending.retain(|_, remaining| { *remaining -= dt; *remaining > 0.0 });
+        self.pending.retain(|_, remaining| {
+            *remaining -= dt;
+            *remaining > 0.0
+        });
     }
 
     /// Update mouse position.
     pub fn handle_move(&mut self, px: f32, py: f32) {
         self.pixel_x = px;
         self.pixel_y = py;
-        self.cell_x  = (px / CELL_W) as usize;
-        self.cell_y  = (py / CELL_H) as usize;
+        self.cell_x = (px / CELL_W) as usize;
+        self.cell_y = (py / CELL_H) as usize;
         self.in_bounds = true;
     }
 
@@ -141,22 +144,46 @@ impl MouseState {
 
     // ── Button query methods ─────────────────────────────────────────────────
 
-    pub fn is_held(&self, button: MouseButton) -> bool { self.held.contains(&button) }
-    pub fn just_pressed(&self, button: MouseButton) -> bool { self.consumed.contains(&button) }
-    pub fn just_released(&self, button: MouseButton) -> bool { self.just_released.contains(&button) }
+    pub fn is_held(&self, button: MouseButton) -> bool {
+        self.held.contains(&button)
+    }
+    pub fn just_pressed(&self, button: MouseButton) -> bool {
+        self.consumed.contains(&button)
+    }
+    pub fn just_released(&self, button: MouseButton) -> bool {
+        self.just_released.contains(&button)
+    }
 
     // Shorthands for common buttons to avoid breaking too much code
-    pub fn left_held(&self) -> bool { self.is_held(MouseButton::Left) }
-    pub fn right_held(&self) -> bool { self.is_held(MouseButton::Right) }
-    pub fn middle_held(&self) -> bool { self.is_held(MouseButton::Middle) }
+    pub fn left_held(&self) -> bool {
+        self.is_held(MouseButton::Left)
+    }
+    pub fn right_held(&self) -> bool {
+        self.is_held(MouseButton::Right)
+    }
+    pub fn middle_held(&self) -> bool {
+        self.is_held(MouseButton::Middle)
+    }
 
-    pub fn left_just_pressed(&self) -> bool { self.just_pressed(MouseButton::Left) }
-    pub fn right_just_pressed(&self) -> bool { self.just_pressed(MouseButton::Right) }
-    pub fn middle_just_pressed(&self) -> bool { self.just_pressed(MouseButton::Middle) }
+    pub fn left_just_pressed(&self) -> bool {
+        self.just_pressed(MouseButton::Left)
+    }
+    pub fn right_just_pressed(&self) -> bool {
+        self.just_pressed(MouseButton::Right)
+    }
+    pub fn middle_just_pressed(&self) -> bool {
+        self.just_pressed(MouseButton::Middle)
+    }
 
-    pub fn left_just_released(&self) -> bool { self.just_released(MouseButton::Left) }
-    pub fn right_just_released(&self) -> bool { self.just_released(MouseButton::Right) }
-    pub fn middle_just_released(&self) -> bool { self.just_released(MouseButton::Middle) }
+    pub fn left_just_released(&self) -> bool {
+        self.just_released(MouseButton::Left)
+    }
+    pub fn right_just_released(&self) -> bool {
+        self.just_released(MouseButton::Right)
+    }
+    pub fn middle_just_released(&self) -> bool {
+        self.just_released(MouseButton::Middle)
+    }
 
     /// The sim-safe half of this state — see `MouseSnapshot`'s own doc
     /// comment (command.rs, Step 5i) for why scripting reads this instead

@@ -1,10 +1,10 @@
 // save.rs — Save/Load system for Ember2D.
 
-use std::collections::BTreeMap;
-use std::fs;
-use serde::{Serialize, Deserialize};
 use crate::components::AnimationClip;
 use crate::world::{EntityId, World};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::fs;
 
 /// Encapsulates the entire serializable state of a game session.
 #[derive(Serialize, Deserialize)]
@@ -60,15 +60,21 @@ pub struct SaveState {
 impl SaveState {
     /// Create a new SaveState from the current engine components.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(world: World, persistent: BTreeMap<String, rhai::Dynamic>, globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, level_path: String, turn_number: u64, scheduler: Vec<(EntityId, u64)>) -> Self {
+    pub fn new(
+        world: World,
+        persistent: BTreeMap<String, rhai::Dynamic>,
+        globals: BTreeMap<String, rhai::Dynamic>,
+        clips: BTreeMap<String, AnimationClip>,
+        level_path: String,
+        turn_number: u64,
+        scheduler: Vec<(EntityId, u64)>,
+    ) -> Self {
         SaveState { world, persistent, globals, clips, level_path, turn_number, scheduler }
     }
 
     /// Serialize the state to a RON string.
     pub fn to_ron(&self) -> Result<String, String> {
-        let config = ron::ser::PrettyConfig::new()
-            .depth_limit(4)
-            .new_line("\n".to_string());
+        let config = ron::ser::PrettyConfig::new().depth_limit(4).new_line("\n".to_string());
         ron::ser::to_string_pretty(self, config).map_err(|e| e.to_string())
     }
 
@@ -102,7 +108,8 @@ mod tests {
         // instead of erroring out — same convention as World's own
         // `animators` field (Step 3c, see world.rs's own such test).
         let pre_step_5c_ron = "(world:(next_id:1,transforms:{},sprites:{},colliders:{},tags:{},scripts:{}),persistent:{},level_path:\"x.level\")";
-        let restored: SaveState = ron::de::from_str(pre_step_5c_ron).expect("a SaveState RON with no globals/clips keys must still deserialize");
+        let restored: SaveState = ron::de::from_str(pre_step_5c_ron)
+            .expect("a SaveState RON with no globals/clips keys must still deserialize");
         assert!(restored.globals.is_empty());
         assert!(restored.clips.is_empty());
     }

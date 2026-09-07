@@ -53,13 +53,18 @@ pub mod prelude {
 
     // ── Renderer ──────────────────────────────────────────────────────────
     // The terminal renderer and its color palette.
-    pub use crate::renderer::{Color, Renderer, Texture, TextureId, RenderBackend, WgpuBackend, AssetManager};
+    pub use crate::renderer::{
+        AssetManager, Color, RenderBackend, Renderer, Texture, TextureId, WgpuBackend,
+    };
 
     // ── Components ────────────────────────────────────────────────────────
     // The core components every entity can have, plus Phase 3's animation
     // playback (Animator) and shared clip-definition (AnimationClip,
     // ClipFrames) types. (ember2d-sim)
-    pub use ember2d_sim::components::{Actor, Animator, AnimationClip, ClipFrames, Collider, Controller, Sprite, SpriteSource, Tag, Transform};
+    pub use ember2d_sim::components::{
+        Actor, AnimationClip, Animator, ClipFrames, Collider, Controller, Sprite, SpriteSource,
+        Tag, Transform,
+    };
 
     // ── World ─────────────────────────────────────────────────────────────
     // The entity database and the EntityId type alias. (ember2d-sim)
@@ -68,8 +73,8 @@ pub mod prelude {
     // ── Input ─────────────────────────────────────────────────────────────
     // The input manager and Key.
     // Game code uses Key::W, Key::Up, Key::Escape, etc.
+    pub use crate::gamepad::{GamepadAxis, GamepadButton, GamepadState};
     pub use crate::input::{InputManager, Key};
-    pub use crate::gamepad::{GamepadState, GamepadButton, GamepadAxis};
 
     // ── Events ────────────────────────────────────────────────────────────
     // The event bus and all event types. (ember2d-sim)
@@ -89,8 +94,8 @@ pub mod prelude {
     pub use ember2d_sim::save::SaveState;
 
     // ── Project ───────────────────────────────────────────────────────────
+    pub use crate::project::{GameplayLoop, ProjectData, VisualStyle};
     pub use crate::project::{StartResult, StartTemplate};
-    pub use crate::project::{ProjectData, VisualStyle, GameplayLoop};
 
     // ── Play mode ─────────────────────────────────────────────────────────
     // Runs a level loaded from a LevelData.

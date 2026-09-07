@@ -48,7 +48,9 @@ use crate::level::LevelData;
 use crate::math::Vec2;
 use crate::save::SaveState;
 use crate::scheduler::{TurnScheduler, ALTERNATING_COST};
-use crate::scripting::{HudDraw, LogEntry, ScriptEngine, ScriptUpdateResult, ShakeState, WorldSnapshot};
+use crate::scripting::{
+    HudDraw, LogEntry, ScriptEngine, ScriptUpdateResult, ShakeState, WorldSnapshot,
+};
 use crate::world::{EntityId, World};
 
 // ── Path resolution ─────────────────────────────────────────────────────────
@@ -83,7 +85,11 @@ fn is_local_player(world: &World, id: EntityId) -> bool {
 /// `BTreeMap`, Step 5b) — used only for `on_start`'s camera-entity fallback
 /// on a loaded save, where more than one might plausibly need considering.
 fn local_player_ids(world: &World) -> impl Iterator<Item = EntityId> + '_ {
-    world.actors.iter().filter(|(_, a)| matches!(a.controller, Controller::Local(_))).map(|(&id, _)| id)
+    world
+        .actors
+        .iter()
+        .filter(|(_, a)| matches!(a.controller, Controller::Local(_)))
+        .map(|(&id, _)| id)
 }
 
 // ── Step input/output ────────────────────────────────────────────────────────
@@ -238,7 +244,13 @@ impl Simulation {
     /// come from the same `SaveState` as `globals`/`clips` — see
     /// `pending_scheduler`'s own doc comment for why the scheduler restore
     /// itself waits until `on_start`.
-    pub fn from_save(level: LevelData, globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, turn_number: u64, scheduler: Vec<(EntityId, u64)>) -> Self {
+    pub fn from_save(
+        level: LevelData,
+        globals: BTreeMap<String, rhai::Dynamic>,
+        clips: BTreeMap<String, AnimationClip>,
+        turn_number: u64,
+        scheduler: Vec<(EntityId, u64)>,
+    ) -> Self {
         let mut sim = Self::new(level);
         sim.is_loading_save = true;
         sim.globals = globals;
@@ -248,33 +260,53 @@ impl Simulation {
         sim
     }
 
-    pub fn level(&self) -> &LevelData { &self.level }
+    pub fn level(&self) -> &LevelData {
+        &self.level
+    }
     /// This simulation's layer name<->bit table (Phase 6 Step 7,
     /// docs/ember2d-phase6-plan.md) — exposed for `bench_sim`'s direct,
     /// isolated `WorldSnapshot::build` timing, which needs the same
     /// registry a real step would use without re-deriving it from
     /// `level().collision_layers` by hand.
-    pub fn layers(&self) -> &LayerRegistry { &self.layers }
-    pub fn camera_entity(&self) -> Option<EntityId> { self.camera_entity }
+    pub fn layers(&self) -> &LayerRegistry {
+        &self.layers
+    }
+    pub fn camera_entity(&self) -> Option<EntityId> {
+        self.camera_entity
+    }
     /// Whose turn is up — lets a caller target `StepInput::external_commands`
     /// at the right actor.
-    pub fn current_actor(&self) -> Option<EntityId> { self.scheduler.peek() }
+    pub fn current_actor(&self) -> Option<EntityId> {
+        self.scheduler.peek()
+    }
     /// How many turns the local player has completed — the save-side
     /// counterpart to `ctx.get_turn_number()`, and one of the two fields
     /// R7 (7A-3, docs/ember2d-master-plan.md) adds to `SaveState`.
-    pub fn turn_number(&self) -> i64 { self.turn_number }
+    pub fn turn_number(&self) -> i64 {
+        self.turn_number
+    }
     /// R16 (7A-5, docs/ember2d-master-plan.md): how many `step` calls have
     /// completed so far — see `step_count`'s own doc comment for why a
     /// caller building this step's `StepInput::elapsed` should multiply
     /// this (read BEFORE calling `step`) by its own fixed timestep instead
     /// of using wall-clock time.
-    pub fn step_count(&self) -> u64 { self.step_count }
+    pub fn step_count(&self) -> u64 {
+        self.step_count
+    }
     /// The scheduler's exact (actor, due) state — see
     /// `TurnScheduler::snapshot`'s own doc comment.
-    pub fn scheduler_snapshot(&self) -> Vec<(EntityId, u64)> { self.scheduler.snapshot() }
-    pub fn globals(&self) -> &BTreeMap<String, rhai::Dynamic> { &self.globals }
-    pub fn clips(&self) -> &BTreeMap<String, AnimationClip> { &self.clips }
-    pub fn pending_hud_draws(&self) -> &[HudDraw] { &self.script_engine.pending_hud_draws }
+    pub fn scheduler_snapshot(&self) -> Vec<(EntityId, u64)> {
+        self.scheduler.snapshot()
+    }
+    pub fn globals(&self) -> &BTreeMap<String, rhai::Dynamic> {
+        &self.globals
+    }
+    pub fn clips(&self) -> &BTreeMap<String, AnimationClip> {
+        &self.clips
+    }
+    pub fn pending_hud_draws(&self) -> &[HudDraw] {
+        &self.script_engine.pending_hud_draws
+    }
 
     pub fn take_audio_requests(&mut self) -> AudioRequests {
         AudioRequests {
@@ -330,7 +362,13 @@ impl Simulation {
     /// Spawns the level (or, on a loaded save, just compiles scripts and
     /// re-derives `camera_entity` — `SaveState` doesn't carry it) and builds
     /// the turn scheduler. Returns whatever got logged.
-    pub fn on_start(&mut self, world: &mut World, viewport_w: usize, viewport_h: usize, persistent: &mut BTreeMap<String, rhai::Dynamic>) -> Vec<LogEntry> {
+    pub fn on_start(
+        &mut self,
+        world: &mut World,
+        viewport_w: usize,
+        viewport_h: usize,
+        persistent: &mut BTreeMap<String, rhai::Dynamic>,
+    ) -> Vec<LogEntry> {
         let mut logs = Vec::new();
         if !self.is_loading_save {
             // `do_on_start` calls `index_exits` and this crate's normal
@@ -338,8 +376,12 @@ impl Simulation {
             self.do_on_start(world, viewport_w, viewport_h, persistent, &mut logs);
             self.rebuild_scheduler(world);
         } else {
-            for script in world.scripts.values() { self.script_engine.compile(&script.path, &mut logs); }
-            if self.camera_entity.is_none() { self.camera_entity = local_player_ids(world).next(); }
+            for script in world.scripts.values() {
+                self.script_engine.compile(&script.path, &mut logs);
+            }
+            if self.camera_entity.is_none() {
+                self.camera_entity = local_player_ids(world).next();
+            }
             // Phase 6 Step 7 (docs/ember2d-phase6-plan.md): a loaded save's
             // `World` round-tripped through serialization, which skips
             // `Collider::layer_bits`/`mask_bits` (`#[serde(skip)]`) — every
@@ -367,7 +409,8 @@ impl Simulation {
             if saved_schedule.is_empty() {
                 self.rebuild_scheduler(world);
             } else {
-                self.scheduler.restore(&saved_schedule, |id| world.actors.get(&id).map(|a| a.controller));
+                self.scheduler
+                    .restore(&saved_schedule, |id| world.actors.get(&id).map(|a| a.controller));
             }
         }
         logs
@@ -381,8 +424,23 @@ impl Simulation {
     /// Mirrors `ember2d::play::PlayState::update`'s former body exactly —
     /// see that history for why the pass order (on_update before on_turn,
     /// not after) is load-bearing, not arbitrary.
-    pub fn step(&mut self, world: &mut World, input: StepInput<'_>, persistent: &mut BTreeMap<String, rhai::Dynamic>) -> StepOutcome {
-        let StepInput { input: input_snapshot, mouse: mouse_snapshot, gamepad: gamepad_snapshot, external_commands, camera_origin, sim_dt, elapsed, viewport_w, viewport_h } = input;
+    pub fn step(
+        &mut self,
+        world: &mut World,
+        input: StepInput<'_>,
+        persistent: &mut BTreeMap<String, rhai::Dynamic>,
+    ) -> StepOutcome {
+        let StepInput {
+            input: input_snapshot,
+            mouse: mouse_snapshot,
+            gamepad: gamepad_snapshot,
+            external_commands,
+            camera_origin,
+            sim_dt,
+            elapsed,
+            viewport_w,
+            viewport_h,
+        } = input;
 
         // R16 (7A-5, docs/ember2d-master-plan.md): counts this call — see
         // `step_count`'s own doc comment.
@@ -394,8 +452,11 @@ impl Simulation {
         // Advance every Animator before scripts run this step, so
         // `clip_finished(id)` reflects this tick, not last step's.
         for animator in world.animators.values_mut() {
-            if let Some(clip) = self.clips.get(&animator.clip) { animator.advance(clip, sim_dt); }
-            else { animator.just_finished = false; }
+            if let Some(clip) = self.clips.get(&animator.clip) {
+                animator.advance(clip, sim_dt);
+            } else {
+                animator.just_finished = false;
+            }
         }
 
         // Built once per step, shared (via cheap `Rc::clone`) across
@@ -404,16 +465,33 @@ impl Simulation {
         let world_snapshot = std::rc::Rc::new(WorldSnapshot::build(world, &self.layers));
 
         let front = self.scheduler.peek();
-        let is_local = front.map(|f| matches!(world.actors.get(&f).map(|a| a.controller), Some(Controller::Local(_)))).unwrap_or(false);
+        let is_local = front
+            .map(|f| {
+                matches!(world.actors.get(&f).map(|a| a.controller), Some(Controller::Local(_)))
+            })
+            .unwrap_or(false);
 
         if let Some(front) = front {
             if is_local {
                 let globals = std::mem::take(&mut self.globals);
                 let clips = std::mem::take(&mut self.clips);
                 let input_res = self.script_engine.run_on_input(
-                    world, world_snapshot.clone(), &mut logs, front, sim_dt, elapsed, input_snapshot.clone(),
-                    mouse_snapshot, gamepad_snapshot.clone(), &self.level.extra_spawns, globals, clips,
-                    persistent, camera_origin, self.turn_number, (viewport_w, viewport_h),
+                    world,
+                    world_snapshot.clone(),
+                    &mut logs,
+                    front,
+                    sim_dt,
+                    elapsed,
+                    input_snapshot.clone(),
+                    mouse_snapshot,
+                    gamepad_snapshot.clone(),
+                    &self.level.extra_spawns,
+                    globals,
+                    clips,
+                    persistent,
+                    camera_origin,
+                    self.turn_number,
+                    (viewport_w, viewport_h),
                 );
                 self.apply_script_result(world, input_res, persistent, &mut logs, &mut outcome);
             }
@@ -423,7 +501,9 @@ impl Simulation {
         // as an entity's own `ctx.submit()` during `on_input`, just sourced
         // from outside instead. Overwrites on a matching actor id, same
         // "last write wins" rule `ScriptState::pending_commands` already has.
-        for cmd in external_commands { self.commands.insert(cmd.actor as i64, cmd.clone()); }
+        for cmd in external_commands {
+            self.commands.insert(cmd.actor as i64, cmd.clone());
+        }
 
         // `mem::take`, not `.clone()`: the housekeeping pass below always
         // overwrites `self.commands` with its own (always-empty) result
@@ -436,16 +516,44 @@ impl Simulation {
         let globals = std::mem::take(&mut self.globals);
         let clips = std::mem::take(&mut self.clips);
         let res = self.script_engine.run_scripts(
-            world, world_snapshot.clone(), &mut logs, sim_dt, elapsed, input_snapshot.clone(), mouse_snapshot, gamepad_snapshot.clone(),
-            &self.level.extra_spawns, globals, clips, persistent, camera_origin,
-            turn_commands.clone(), self.turn_number, (viewport_w, viewport_h),
+            world,
+            world_snapshot.clone(),
+            &mut logs,
+            sim_dt,
+            elapsed,
+            input_snapshot.clone(),
+            mouse_snapshot,
+            gamepad_snapshot.clone(),
+            &self.level.extra_spawns,
+            globals,
+            clips,
+            persistent,
+            camera_origin,
+            turn_commands.clone(),
+            self.turn_number,
+            (viewport_w, viewport_h),
         );
         self.apply_script_result(world, res, persistent, &mut logs, &mut outcome);
 
         if let Some(front) = front {
-            let has_command = turn_commands.get(&(front as i64)).map(|c| !c.action.is_empty()).unwrap_or(false);
+            let has_command =
+                turn_commands.get(&(front as i64)).map(|c| !c.action.is_empty()).unwrap_or(false);
             if !is_local || has_command {
-                self.run_actor_turn(world, world_snapshot, front, is_local, turn_commands, sim_dt, elapsed, persistent, camera_origin, viewport_w, viewport_h, &mut logs, &mut outcome);
+                self.run_actor_turn(
+                    world,
+                    world_snapshot,
+                    front,
+                    is_local,
+                    turn_commands,
+                    sim_dt,
+                    elapsed,
+                    persistent,
+                    camera_origin,
+                    viewport_w,
+                    viewport_h,
+                    &mut logs,
+                    &mut outcome,
+                );
             }
         }
 
@@ -458,16 +566,37 @@ impl Simulation {
     /// this step as having consumed a turn.
     #[allow(clippy::too_many_arguments)]
     fn run_actor_turn(
-        &mut self, world: &mut World, snapshot: std::rc::Rc<WorldSnapshot>, actor: EntityId, is_local: bool, commands: BTreeMap<i64, Command>,
-        sim_dt: f32, elapsed: f32, persistent: &mut BTreeMap<String, rhai::Dynamic>,
-        camera_origin: Vec2, viewport_w: usize, viewport_h: usize, logs: &mut Vec<LogEntry>, outcome: &mut StepOutcome,
+        &mut self,
+        world: &mut World,
+        snapshot: std::rc::Rc<WorldSnapshot>,
+        actor: EntityId,
+        is_local: bool,
+        commands: BTreeMap<i64, Command>,
+        sim_dt: f32,
+        elapsed: f32,
+        persistent: &mut BTreeMap<String, rhai::Dynamic>,
+        camera_origin: Vec2,
+        viewport_w: usize,
+        viewport_h: usize,
+        logs: &mut Vec<LogEntry>,
+        outcome: &mut StepOutcome,
     ) {
         let globals = std::mem::take(&mut self.globals);
         let clips = std::mem::take(&mut self.clips);
         let res = self.script_engine.run_on_turn(
-            world, snapshot, logs, actor, sim_dt, elapsed,
-            &self.level.extra_spawns, globals, clips,
-            persistent, camera_origin, commands, self.turn_number,
+            world,
+            snapshot,
+            logs,
+            actor,
+            sim_dt,
+            elapsed,
+            &self.level.extra_spawns,
+            globals,
+            clips,
+            persistent,
+            camera_origin,
+            commands,
+            self.turn_number,
             (viewport_w, viewport_h),
         );
         let act_cost = res.act_cost;
@@ -481,11 +610,14 @@ impl Simulation {
         // (a self-despawn during its own on_turn).
         let consumed = !is_local || act_cost.is_some();
         if consumed && self.scheduler.peek() == Some(actor) {
-            let controller = world.actors.get(&actor).map(|a| a.controller).unwrap_or(Controller::Ai);
+            let controller =
+                world.actors.get(&actor).map(|a| a.controller).unwrap_or(Controller::Ai);
             let cost = act_cost.unwrap_or(ALTERNATING_COST as f64).max(1.0) as u64;
             self.scheduler.advance(actor, controller, cost);
             outcome.turn_triggered = true;
-            if is_local { self.turn_number += 1; }
+            if is_local {
+                self.turn_number += 1;
+            }
         }
     }
 
@@ -496,7 +628,18 @@ impl Simulation {
     /// doesn't move between the two) — a small, deliberate addition beyond
     /// docs/ember2d-phase5.5-plan.md's literal `late_step` sketch, since
     /// `ScriptEngine::run_collisions` requires one exactly like `step` does.
-    pub fn late_step(&mut self, world: &mut World, events: &EventBus, prev_positions: &HashMap<EntityId, Vec2>, camera_origin: Vec2, sim_dt: f32, elapsed: f32, viewport_w: usize, viewport_h: usize, persistent: &mut BTreeMap<String, rhai::Dynamic>) -> StepOutcome {
+    pub fn late_step(
+        &mut self,
+        world: &mut World,
+        events: &EventBus,
+        prev_positions: &HashMap<EntityId, Vec2>,
+        camera_origin: Vec2,
+        sim_dt: f32,
+        elapsed: f32,
+        viewport_w: usize,
+        viewport_h: usize,
+        persistent: &mut BTreeMap<String, rhai::Dynamic>,
+    ) -> StepOutcome {
         let mut outcome = StepOutcome::default();
         let mut logs = Vec::new();
         let mut all_pairs = Vec::new();
@@ -505,17 +648,28 @@ impl Simulation {
             let crate::event::GameEvent::Collision { entity_a, entity_b } = event else { continue };
             let (a, b) = (*entity_a, *entity_b);
             all_pairs.push((a, b));
-            let (player, other) = if is_local_player(world, a) { (a, b) } else if is_local_player(world, b) { (b, a) } else { continue };
+            let (player, other) = if is_local_player(world, a) {
+                (a, b)
+            } else if is_local_player(world, b) {
+                (b, a)
+            } else {
+                continue;
+            };
             let solid = world.colliders.get(&other).map(|c| c.solid).unwrap_or(false);
             let locked = world.colliders.get(&other).map(|c| c.locked).unwrap_or(false);
 
-            if solid { world.resolve_solid_collision(player, other, prev_positions); }
-            else if let Some(path) = self.exit_targets.get(&other).cloned() {
+            if solid {
+                world.resolve_solid_collision(player, other, prev_positions);
+            } else if let Some(path) = self.exit_targets.get(&other).cloned() {
                 if !locked {
                     let full_path = resolve_exit_path(&path, &self.level.path);
                     match LevelData::load(&full_path) {
-                        Ok(next) => { outcome.pending_level = Some(next); }
-                        Err(e) => { logs.push(LogEntry::warn(format!("Exit failed: {}", e))); }
+                        Ok(next) => {
+                            outcome.pending_level = Some(next);
+                        }
+                        Err(e) => {
+                            logs.push(LogEntry::warn(format!("Exit failed: {}", e)));
+                        }
                     }
                 }
             }
@@ -524,8 +678,16 @@ impl Simulation {
         let globals = std::mem::take(&mut self.globals);
         let clips = std::mem::take(&mut self.clips);
         let res = self.script_engine.run_collisions(
-            world, &all_pairs, &mut logs, sim_dt, elapsed,
-            &self.level.extra_spawns, globals, clips, persistent, camera_origin,
+            world,
+            &all_pairs,
+            &mut logs,
+            sim_dt,
+            elapsed,
+            &self.level.extra_spawns,
+            globals,
+            clips,
+            persistent,
+            camera_origin,
             (viewport_w, viewport_h),
         );
         self.apply_script_result(world, res, persistent, &mut logs, &mut outcome);
@@ -540,7 +702,14 @@ impl Simulation {
     /// makes. `pending_level`/`pending_save`/`pending_load` are resolved
     /// (loaded/written) right here rather than left as raw paths — the
     /// caller only ever sees an already-loaded `LevelData`/`SaveState`.
-    fn apply_script_result(&mut self, world: &mut World, res: ScriptUpdateResult, persistent: &mut BTreeMap<String, rhai::Dynamic>, logs: &mut Vec<LogEntry>, outcome: &mut StepOutcome) {
+    fn apply_script_result(
+        &mut self,
+        world: &mut World,
+        res: ScriptUpdateResult,
+        persistent: &mut BTreeMap<String, rhai::Dynamic>,
+        logs: &mut Vec<LogEntry>,
+        outcome: &mut StepOutcome,
+    ) {
         // Phase 6 Step 3 (docs/ember2d-phase6-plan.md): every call site
         // above `mem::take`s `self.globals`/`self.clips` immediately before
         // its `run_*` call, specifically so this function's own
@@ -552,14 +721,23 @@ impl Simulation {
         // its matching call reaching this point (an early return in
         // between), either of which would otherwise silently duplicate or
         // permanently lose script state with no visible symptom.
-        debug_assert!(self.globals.is_empty() && self.clips.is_empty(), "apply_script_result called without a preceding mem::take of self.globals/self.clips");
+        debug_assert!(
+            self.globals.is_empty() && self.clips.is_empty(),
+            "apply_script_result called without a preceding mem::take of self.globals/self.clips"
+        );
         // A despawned actor must not keep cycling a dead turn slot forever.
-        for &id in &res.despawned { self.scheduler.remove(id); }
+        for &id in &res.despawned {
+            self.scheduler.remove(id);
+        }
         if let Some(level_path) = res.pending_level {
             let full = resolve_exit_path(&level_path, &self.level.path);
             match LevelData::load(&full) {
-                Ok(next) => { outcome.pending_level = Some(next); }
-                Err(e) => { logs.push(LogEntry::warn(format!("load_level failed: {}", e))); }
+                Ok(next) => {
+                    outcome.pending_level = Some(next);
+                }
+                Err(e) => {
+                    logs.push(LogEntry::warn(format!("load_level failed: {}", e)));
+                }
             }
         }
         self.globals = res.globals;
@@ -574,7 +752,15 @@ impl Simulation {
             // R7 (7A-3, docs/ember2d-master-plan.md): turn_number/scheduler
             // are what makes this a faithful mid-round save — see
             // `SaveState::turn_number`/`::scheduler`'s own doc comments.
-            let state = SaveState::new(world.clone(), persistent.clone(), self.globals.clone(), self.clips.clone(), self.level.path.clone(), self.turn_number.max(0) as u64, self.scheduler.snapshot());
+            let state = SaveState::new(
+                world.clone(),
+                persistent.clone(),
+                self.globals.clone(),
+                self.clips.clone(),
+                self.level.path.clone(),
+                self.turn_number.max(0) as u64,
+                self.scheduler.snapshot(),
+            );
             if let Err(e) = state.save_to_file(&save_path) {
                 logs.push(LogEntry::error(format!("save_game failed: {}", e)));
             } else {
@@ -584,13 +770,21 @@ impl Simulation {
 
         if let Some(load_path) = res.pending_load {
             match SaveState::load_from_file(&load_path) {
-                Ok(state) => { outcome.pending_load = Some(state); }
-                Err(e) => { logs.push(LogEntry::error(format!("load_game failed: {}", e))); }
+                Ok(state) => {
+                    outcome.pending_load = Some(state);
+                }
+                Err(e) => {
+                    logs.push(LogEntry::error(format!("load_game failed: {}", e)));
+                }
             }
         }
 
-        if res.camera_override.is_some() { outcome.camera_override = res.camera_override; }
-        if let Some(shake) = res.shake_state { outcome.shake_state = Some(shake); }
+        if res.camera_override.is_some() {
+            outcome.camera_override = res.camera_override;
+        }
+        if let Some(shake) = res.shake_state {
+            outcome.shake_state = Some(shake);
+        }
         outcome.particles.extend(res.particles);
         outcome.animations.extend(res.animations);
     }

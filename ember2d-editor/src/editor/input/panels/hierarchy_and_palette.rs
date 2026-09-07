@@ -5,10 +5,10 @@
 // split's overall shape and the `bool` "did this section consume the
 // input" convention every extracted section follows.
 
-use super::super::super::EditorState;
 use super::super::super::panel::PanelId;
 use super::super::super::ui::HierarchySelection;
 use super::super::super::ui::WidgetId;
+use super::super::super::EditorState;
 
 impl EditorState {
     pub(super) fn handle_hierarchy_click(&mut self, mouse: &ember2d::mouse::MouseState) -> bool {
@@ -61,7 +61,8 @@ impl EditorState {
                 if mouse.wheel_y != 0.0 {
                     let delta = -(mouse.wheel_y as i32);
                     let max_scroll = layout.len().saturating_sub(ch.saturating_sub(2));
-                    self.palette_scroll = (self.palette_scroll as i32 + delta).clamp(0, max_scroll as i32) as usize;
+                    self.palette_scroll =
+                        (self.palette_scroll as i32 + delta).clamp(0, max_scroll as i32) as usize;
                 }
 
                 if mouse.left_just_pressed() {

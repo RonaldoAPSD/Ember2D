@@ -24,7 +24,7 @@
 
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 // ─────────────────────────── Vec2 ────────────────────────────────────────────
 
@@ -272,31 +272,45 @@ impl Rect {
 
         // X slab
         if dx.abs() < f32::EPSILON {
-            if ox < self.x || ox >= self.right() { return None; }
+            if ox < self.x || ox >= self.right() {
+                return None;
+            }
         } else {
             let inv_d = 1.0 / dx;
             let mut t1 = (self.x - ox) * inv_d;
             let mut t2 = (self.right() - ox) * inv_d;
-            if t1 > t2 { std::mem::swap(&mut t1, &mut t2); }
+            if t1 > t2 {
+                std::mem::swap(&mut t1, &mut t2);
+            }
             tmin = tmin.max(t1);
             tmax = tmax.min(t2);
-            if tmin > tmax { return None; }
+            if tmin > tmax {
+                return None;
+            }
         }
 
         // Y slab
         if dy.abs() < f32::EPSILON {
-            if oy < self.y || oy >= self.bottom() { return None; }
+            if oy < self.y || oy >= self.bottom() {
+                return None;
+            }
         } else {
             let inv_d = 1.0 / dy;
             let mut t1 = (self.y - oy) * inv_d;
             let mut t2 = (self.bottom() - oy) * inv_d;
-            if t1 > t2 { std::mem::swap(&mut t1, &mut t2); }
+            if t1 > t2 {
+                std::mem::swap(&mut t1, &mut t2);
+            }
             tmin = tmin.max(t1);
             tmax = tmax.min(t2);
-            if tmin > tmax { return None; }
+            if tmin > tmax {
+                return None;
+            }
         }
 
-        if tmax < 0.0 { return None; }
+        if tmax < 0.0 {
+            return None;
+        }
         Some(tmin)
     }
 }
@@ -360,8 +374,12 @@ pub fn atan2_approx(y: f64, x: f64) -> f64 {
     // way." Matches the real atan2's own documented convention: atan2(0, 0)
     // is conventionally 0, not an error.
     if x == 0.0 {
-        if y > 0.0 { return FRAC_PI_2; }
-        if y < 0.0 { return -FRAC_PI_2; }
+        if y > 0.0 {
+            return FRAC_PI_2;
+        }
+        if y < 0.0 {
+            return -FRAC_PI_2;
+        }
         return 0.0;
     }
 
@@ -370,7 +388,9 @@ pub fn atan2_approx(y: f64, x: f64) -> f64 {
         // atan(z) for |z| <= 1, where the approximation below was fitted.
         let atan = z / (1.0 + 0.28 * z * z);
         if x < 0.0 {
-            if y < 0.0 { return atan - PI; }
+            if y < 0.0 {
+                return atan - PI;
+            }
             return atan + PI;
         }
         atan
@@ -385,7 +405,11 @@ pub fn atan2_approx(y: f64, x: f64) -> f64 {
         // analysis needs — verified against the real atan2 at all four
         // quadrants by this module's own test, not just algebra.
         let atan = FRAC_PI_2 - z / (z * z + 0.28);
-        if y < 0.0 { atan - PI } else { atan }
+        if y < 0.0 {
+            atan - PI
+        } else {
+            atan
+        }
     }
 }
 
@@ -414,7 +438,9 @@ mod tests {
             for &r in &[0.1_f64, 1.0, 5.0, 100.0] {
                 let x = r * theta.cos();
                 let y = r * theta.sin();
-                if x.abs() < 1e-9 && y.abs() < 1e-9 { continue; }
+                if x.abs() < 1e-9 && y.abs() < 1e-9 {
+                    continue;
+                }
 
                 let expected = y.atan2(x);
                 let got = atan2_approx(y, x);
@@ -423,12 +449,20 @@ mod tests {
                 // raw subtraction, which would falsely fail right at the
                 // wrap boundary despite the two angles being nearly identical.
                 let raw_diff = (got - expected).abs();
-                let diff = if raw_diff > std::f64::consts::PI { 2.0 * std::f64::consts::PI - raw_diff } else { raw_diff };
+                let diff = if raw_diff > std::f64::consts::PI {
+                    2.0 * std::f64::consts::PI - raw_diff
+                } else {
+                    raw_diff
+                };
 
                 assert!(
                     diff < TOLERANCE,
                     "theta={:.4} r={}: expected {:.6}, got {:.6}, diff {:.6}",
-                    theta, r, expected, got, diff
+                    theta,
+                    r,
+                    expected,
+                    got,
+                    diff
                 );
             }
         }

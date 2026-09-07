@@ -32,7 +32,14 @@ impl Simulation {
     /// Spawns every tile plus the player, compiles every script, and runs
     /// `on_start` for all of them. Moved near-verbatim from
     /// `ember2d::play::spawn::do_on_start`.
-    pub(super) fn do_on_start(&mut self, world: &mut World, viewport_w: usize, viewport_h: usize, persistent: &mut BTreeMap<String, rhai::Dynamic>, logs: &mut Vec<LogEntry>) {
+    pub(super) fn do_on_start(
+        &mut self,
+        world: &mut World,
+        viewport_w: usize,
+        viewport_h: usize,
+        persistent: &mut BTreeMap<String, rhai::Dynamic>,
+        logs: &mut Vec<LogEntry>,
+    ) {
         let mut scripts_ok = 0u32;
         let mut scripts_fail = 0u32;
 
@@ -56,7 +63,11 @@ impl Simulation {
 
             if tile.solid {
                 let mut col = Collider::unit();
-                let layer = if tile.collider_layer.is_empty() { "solid".to_string() } else { tile.collider_layer.clone() };
+                let layer = if tile.collider_layer.is_empty() {
+                    "solid".to_string()
+                } else {
+                    tile.collider_layer.clone()
+                };
                 col.set_layer(&self.layers, layer);
                 col.set_mask(&self.layers, tile.collider_mask.clone());
                 world.add_collider(id, col);
@@ -67,28 +78,45 @@ impl Simulation {
                 world.add_collider(id, col);
             }
 
-            if !tile.tag.is_empty() { world.add_tag(id, Tag::new(&tile.tag)); }
-            if let Some(ref ar) = tile.actor { world.add_actor(id, Actor::ai(ar.speed)); }
+            if !tile.tag.is_empty() {
+                world.add_tag(id, Tag::new(&tile.tag));
+            }
+            if let Some(ref ar) = tile.actor {
+                world.add_actor(id, Actor::ai(ar.speed));
+            }
 
             let mut source = String::new();
-            if let Some(ref graph) = tile.graph { source = crate::graph::generate_graph(graph); }
+            if let Some(ref graph) = tile.graph {
+                source = crate::graph::generate_graph(graph);
+            }
             if !source.is_empty() {
                 if let Some(ref path) = tile.script {
                     let full = resolve_exit_path(path, &self.level.path);
-                    if let Ok(file_src) = std::fs::read_to_string(&full) { source.push('\n'); source.push_str(&file_src); }
+                    if let Ok(file_src) = std::fs::read_to_string(&full) {
+                        source.push('\n');
+                        source.push_str(&file_src);
+                    }
                 }
                 let key = format!("__script_{}", id);
-                if self.script_engine.compile_str(&key, &source, logs) { scripts_ok += 1; }
-                else { scripts_fail += 1; }
+                if self.script_engine.compile_str(&key, &source, logs) {
+                    scripts_ok += 1;
+                } else {
+                    scripts_fail += 1;
+                }
                 world.add_script(id, Script::new(&key));
             } else if let Some(script_path) = &tile.script {
                 let full = resolve_exit_path(script_path, &self.level.path);
                 world.add_script(id, Script::new(&full));
-                if self.script_engine.compile(&full, logs) { scripts_ok += 1; }
-                else { scripts_fail += 1; }
+                if self.script_engine.compile(&full, logs) {
+                    scripts_ok += 1;
+                } else {
+                    scripts_fail += 1;
+                }
             }
 
-            if tile.camera_follow && self.camera_entity.is_none() { self.camera_entity = Some(id); }
+            if tile.camera_follow && self.camera_entity.is_none() {
+                self.camera_entity = Some(id);
+            }
         }
 
         let (sx, sy) = self.level.spawn_point;
@@ -112,19 +140,28 @@ impl Simulation {
         if let Some(ref script_path) = pr.script.clone() {
             let full = resolve_exit_path(script_path, &self.level.path);
             world.add_script(player, Script::new(&full));
-            if self.script_engine.compile(&full, logs) { scripts_ok += 1; }
-            else { scripts_fail += 1; }
+            if self.script_engine.compile(&full, logs) {
+                scripts_ok += 1;
+            } else {
+                scripts_fail += 1;
+            }
         }
 
-        if pr.camera_follow && self.camera_entity.is_none() { self.camera_entity = Some(player); }
+        if pr.camera_follow && self.camera_entity.is_none() {
+            self.camera_entity = Some(player);
+        }
 
         if scripts_ok + scripts_fail > 0 {
             let msg = format!("{} script(s) compiled, {} failed", scripts_ok, scripts_fail);
-            if scripts_fail > 0 { logs.push(LogEntry::warn(msg)); }
-            else { logs.push(LogEntry::info(msg)); }
+            if scripts_fail > 0 {
+                logs.push(LogEntry::warn(msg));
+            } else {
+                logs.push(LogEntry::info(msg));
+            }
         }
 
-        let cam_pos = self.camera_entity.map(|id| world.get_global_position(id)).unwrap_or(Vec2::ZERO);
+        let cam_pos =
+            self.camera_entity.map(|id| world.get_global_position(id)).unwrap_or(Vec2::ZERO);
         let game_h = (viewport_h as i32).max(1);
         let cam_x = (cam_pos.x - viewport_w as f32 / 2.0).max(0.0).round();
         let cam_y = (cam_pos.y - game_h as f32 / 2.0).max(0.0).round();
@@ -140,8 +177,13 @@ impl Simulation {
         let globals = std::mem::take(&mut self.globals);
         let clips = std::mem::take(&mut self.clips);
         let res = self.script_engine.run_on_start_all(
-            world, logs, &self.level.extra_spawns,
-            globals, clips, persistent, Vec2::new(cam_x, cam_y),
+            world,
+            logs,
+            &self.level.extra_spawns,
+            globals,
+            clips,
+            persistent,
+            Vec2::new(cam_x, cam_y),
             (viewport_w, viewport_h),
         );
         let mut outcome = StepOutcome::default();

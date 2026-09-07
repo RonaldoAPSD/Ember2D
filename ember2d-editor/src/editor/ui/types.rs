@@ -12,11 +12,15 @@ pub fn cells(font: &mut dyn ember2d::renderer::Font, text: &str) -> usize {
     (font.measure(text, 8.0).0 / 8.0).round() as usize
 }
 
-
 // ── DockSide ──────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum DockSide { None, Left, Right, Bottom }
+pub enum DockSide {
+    None,
+    Left,
+    Right,
+    Bottom,
+}
 
 // ── PanelId ───────────────────────────────────────────────────────────────────
 
@@ -86,23 +90,30 @@ pub enum ToolKind {
 // already depended on) for the same reason `PanelId` does: cheap value
 // equality for `UiFrame::hit`'s comparisons.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum MenuKind { File, Edit, Level, View, Tools, Layers }
+pub enum MenuKind {
+    File,
+    Edit,
+    Level,
+    View,
+    Tools,
+    Layers,
+}
 
 pub struct MenuState {
-    pub can_undo:       bool,
-    pub can_redo:       bool,
+    pub can_undo: bool,
+    pub can_redo: bool,
     pub clipboard_full: bool,
-    pub show_palette:   bool,
-    pub show_grid:      bool,
+    pub show_palette: bool,
+    pub show_grid: bool,
     pub show_hierarchy: bool,
     pub show_inspector: bool,
-    pub show_console:   bool,
-    pub show_stats:     bool,
+    pub show_console: bool,
+    pub show_stats: bool,
     pub show_script_editor: bool,
-    pub show_file_browser:  bool,
-    pub show_physics:   bool,
-    pub active_tool:    ToolKind,
-    pub active_layer:   u8,
+    pub show_file_browser: bool,
+    pub show_physics: bool,
+    pub active_tool: ToolKind,
+    pub active_layer: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -139,14 +150,14 @@ pub enum ToolbarAction {
 
 #[derive(Clone)]
 pub struct Layout {
-    pub screen_w:    usize,
-    pub screen_h:    usize,
-    pub canvas_x:    usize,
-    pub canvas_y:    usize,
-    pub canvas_w:    usize,
-    pub canvas_h:    usize,
+    pub screen_w: usize,
+    pub screen_h: usize,
+    pub canvas_x: usize,
+    pub canvas_y: usize,
+    pub canvas_w: usize,
+    pub canvas_h: usize,
     pub toolbar_row: usize,
-    pub zoom:        f32,
+    pub zoom: f32,
 }
 
 impl Layout {
@@ -154,12 +165,12 @@ impl Layout {
         Layout {
             screen_w,
             screen_h,
-            canvas_x:    0,
-            canvas_y:    2,
-            canvas_w:    screen_w,
-            canvas_h:    screen_h.saturating_sub(3).max(4),
+            canvas_x: 0,
+            canvas_y: 2,
+            canvas_w: screen_w,
+            canvas_h: screen_h.saturating_sub(3).max(4),
             toolbar_row: 1,
-            zoom:        1.0,
+            zoom: 1.0,
         }
     }
 
@@ -174,16 +185,16 @@ impl Layout {
 
 pub const HIER_W: usize = 14;
 
-pub const INSP_NAME_OFF:    usize = 2;
-pub const INSP_GLYPH_OFF:   usize = 3;
-pub const INSP_TAG_OFF:     usize = 5;
-pub const INSP_FG_OFF:      usize = 6;
-pub const INSP_BG_OFF:      usize = 7;
-pub const INSP_SOLID_OFF:   usize = 9;
-pub const INSP_TRIG_OFF:    usize = 10;
-pub const INSP_CAM_OFF:     usize = 11;
-pub const INSP_SCRIPT_OFF:  usize = 13;
-pub const INSP_EXIT_OFF:    usize = 14;
-pub const INSP_GRAPH_BTN:   usize = 17;
-pub const INSP_LAYER_OFF:   usize = 21;
-pub const INSP_MASK_OFF:    usize = 23;
+pub const INSP_NAME_OFF: usize = 2;
+pub const INSP_GLYPH_OFF: usize = 3;
+pub const INSP_TAG_OFF: usize = 5;
+pub const INSP_FG_OFF: usize = 6;
+pub const INSP_BG_OFF: usize = 7;
+pub const INSP_SOLID_OFF: usize = 9;
+pub const INSP_TRIG_OFF: usize = 10;
+pub const INSP_CAM_OFF: usize = 11;
+pub const INSP_SCRIPT_OFF: usize = 13;
+pub const INSP_EXIT_OFF: usize = 14;
+pub const INSP_GRAPH_BTN: usize = 17;
+pub const INSP_LAYER_OFF: usize = 21;
+pub const INSP_MASK_OFF: usize = 23;

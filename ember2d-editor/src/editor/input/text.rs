@@ -1,11 +1,11 @@
 // editor/input/text.rs — Text input handling for level editor.
 
-use ember2d::input::Key;
-use super::super::EditorState;
-use super::super::{DEFAULT_LEVEL_W, DEFAULT_LEVEL_H};
-use super::super::TextInputPurpose;
 use super::super::commands::Command;
 use super::super::commands::UndoStack;
+use super::super::EditorState;
+use super::super::TextInputPurpose;
+use super::super::{DEFAULT_LEVEL_H, DEFAULT_LEVEL_W};
+use ember2d::input::Key;
 
 impl EditorState {
     pub(super) fn handle_text_input(&mut self, input: &mut ember2d::input::InputManager) {
@@ -20,23 +20,34 @@ impl EditorState {
                 ti.buffer.push(ch);
             }
 
-            if input.just_pressed(Key::Backspace) { ti.buffer.pop(); }
+            if input.just_pressed(Key::Backspace) {
+                ti.buffer.pop();
+            }
 
             if input.just_pressed(Key::Enter) {
                 let ti = self.text_input.take().unwrap();
                 match ti.purpose {
                     TextInputPurpose::LevelName => {
-                        if !ti.buffer.is_empty() { self.grid.name = ti.buffer; self.unsaved = true; }
+                        if !ti.buffer.is_empty() {
+                            self.grid.name = ti.buffer;
+                            self.unsaved = true;
+                        }
                     }
                     TextInputPurpose::SaveAs => {
-                        if !ti.buffer.is_empty() { self.save_path = ti.buffer; self.save(); }
+                        if !ti.buffer.is_empty() {
+                            self.save_path = ti.buffer;
+                            self.save();
+                        }
                     }
                     TextInputPurpose::ScriptPath { gx, gy } => {
                         let lyr = self.active_layer;
                         if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
                             let mut new_tile = tile.clone();
-                            new_tile.script = if ti.buffer.is_empty() { None } else { Some(ti.buffer) };
-                            self.undo.push(Command::Batch { cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))] });
+                            new_tile.script =
+                                if ti.buffer.is_empty() { None } else { Some(ti.buffer) };
+                            self.undo.push(Command::Batch {
+                                cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))],
+                            });
                             self.grid.place(gx, gy, lyr, new_tile);
                             self.unsaved = true;
                         }
@@ -45,8 +56,11 @@ impl EditorState {
                         let lyr = self.active_layer;
                         if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
                             let mut new_tile = tile.clone();
-                            new_tile.next_level = if ti.buffer.is_empty() { None } else { Some(ti.buffer) };
-                            self.undo.push(Command::Batch { cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))] });
+                            new_tile.next_level =
+                                if ti.buffer.is_empty() { None } else { Some(ti.buffer) };
+                            self.undo.push(Command::Batch {
+                                cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))],
+                            });
                             self.grid.place(gx, gy, lyr, new_tile);
                             self.unsaved = true;
                         }
@@ -61,7 +75,9 @@ impl EditorState {
                             if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
                                 let mut new_tile = tile.clone();
                                 new_tile.tag = ti.buffer;
-                                self.undo.push(Command::Batch { cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))] });
+                                self.undo.push(Command::Batch {
+                                    cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))],
+                                });
                                 self.grid.place(gx, gy, lyr, new_tile);
                                 self.unsaved = true;
                             }
@@ -71,19 +87,23 @@ impl EditorState {
                         if let Some(ref folder) = self.project_folder {
                             let mut name = ti.buffer.trim().to_string();
                             if !name.is_empty() {
-                                if !name.ends_with(".rhai") { name.push_str(".rhai"); }
+                                if !name.ends_with(".rhai") {
+                                    name.push_str(".rhai");
+                                }
                                 let path = format!("{}/{}", folder, name);
                                 if !std::path::Path::new(&path).exists() {
                                     let _ = std::fs::write(&path, "");
                                     self.load_script(&name);
                                     self.refresh_project_files();
                                 } else {
-                                    self.console_log.push(ember2d_sim::scripting::LogEntry::error("Script already exists!"));
+                                    self.console_log.push(ember2d_sim::scripting::LogEntry::error(
+                                        "Script already exists!",
+                                    ));
                                 }
                             }
                         }
                     }
-                TextInputPurpose::PaletteName => {
+                    TextInputPurpose::PaletteName => {
                         let sel = self.palette.selected;
                         self.palette.tiles[sel].name = ti.buffer;
                         self.unsaved = true;
@@ -91,7 +111,9 @@ impl EditorState {
                     TextInputPurpose::NamedSpawn => {
                         if !ti.buffer.is_empty() {
                             self.placing_named_spawn = Some(ti.buffer);
-                            self.save_message = Some("Click on grid to place named spawn. Esc to cancel.".to_string());
+                            self.save_message = Some(
+                                "Click on grid to place named spawn. Esc to cancel.".to_string(),
+                            );
                             self.save_message_timer = 0;
                         }
                     }
@@ -129,11 +151,13 @@ impl EditorState {
                                 self.save_message_timer = 0;
                             }
                             Some((w, h)) => {
-                                self.save_message = Some(format!("Too small: {}×{} (min 4×3)", w, h));
+                                self.save_message =
+                                    Some(format!("Too small: {}×{} (min 4×3)", w, h));
                                 self.save_message_timer = 0;
                             }
                             None => {
-                                self.save_message = Some("Invalid format — enter WxH e.g. 40x20".to_string());
+                                self.save_message =
+                                    Some("Invalid format — enter WxH e.g. 40x20".to_string());
                                 self.save_message_timer = 0;
                             }
                         }
@@ -165,7 +189,15 @@ impl EditorState {
                                 if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
                                     let mut new_tile = tile.clone();
                                     new_tile.glyph = ch;
-                                    self.undo.push(Command::Batch { cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))] });
+                                    self.undo.push(Command::Batch {
+                                        cells: vec![(
+                                            gx,
+                                            gy,
+                                            lyr,
+                                            Some(tile),
+                                            Some(new_tile.clone()),
+                                        )],
+                                    });
                                     self.grid.place(gx, gy, lyr, new_tile);
                                     self.unsaved = true;
                                 }
@@ -193,15 +225,16 @@ impl EditorState {
                             };
                             self.save();
                             let mut new_grid = crate::editor::grid::LevelGrid::new(
-                                DEFAULT_LEVEL_W, DEFAULT_LEVEL_H,
+                                DEFAULT_LEVEL_W,
+                                DEFAULT_LEVEL_H,
                             );
                             new_grid.name = name.clone();
                             match new_grid.to_level_data().save(&path) {
                                 Ok(()) => {
-                                    self.grid      = new_grid;
-                                    self.undo      = UndoStack::new();
+                                    self.grid = new_grid;
+                                    self.undo = UndoStack::new();
                                     self.save_path = path.clone();
-                                    self.unsaved   = false;
+                                    self.unsaved = false;
                                     self.save_message = Some(format!("New level: {}", path));
                                     self.save_message_timer = 0;
                                 }
@@ -217,7 +250,9 @@ impl EditorState {
                         if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
                             let mut new_tile = tile.clone();
                             new_tile.collider_layer = ti.buffer;
-                            self.undo.push(Command::Batch { cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))] });
+                            self.undo.push(Command::Batch {
+                                cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))],
+                            });
                             self.grid.place(gx, gy, lyr, new_tile);
                             self.unsaved = true;
                         }
@@ -226,8 +261,15 @@ impl EditorState {
                         let lyr = self.active_layer;
                         if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
                             let mut new_tile = tile.clone();
-                            new_tile.collider_mask = ti.buffer.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
-                            self.undo.push(Command::Batch { cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))] });
+                            new_tile.collider_mask = ti
+                                .buffer
+                                .split(',')
+                                .map(|s| s.trim().to_string())
+                                .filter(|s| !s.is_empty())
+                                .collect();
+                            self.undo.push(Command::Batch {
+                                cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))],
+                            });
                             self.grid.place(gx, gy, lyr, new_tile);
                             self.unsaved = true;
                         }
@@ -243,7 +285,12 @@ impl EditorState {
                     TextInputPurpose::PlayerColliderMask => {
                         let before = self.grid.player.clone();
                         let mut after = before.clone();
-                        after.collider_mask = ti.buffer.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                        after.collider_mask = ti
+                            .buffer
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
                         self.undo.push(Command::UpdatePlayer { before, after: after.clone() });
                         self.grid.player = after;
                         self.unsaved = true;
@@ -254,10 +301,11 @@ impl EditorState {
                             if let (Ok(r), Ok(g), Ok(b)) = (
                                 u8::from_str_radix(&hex[0..2], 16),
                                 u8::from_str_radix(&hex[2..4], 16),
-                                u8::from_str_radix(&hex[4..6], 16)
+                                u8::from_str_radix(&hex[4..6], 16),
                             ) {
                                 let sel = self.palette.selected;
-                                self.palette.tiles[sel].fg = ember2d::renderer::color::Color::Rgb(r, g, b);
+                                self.palette.tiles[sel].fg =
+                                    ember2d::renderer::color::Color::Rgb(r, g, b);
                                 self.unsaved = true;
                             }
                         }
@@ -268,10 +316,11 @@ impl EditorState {
                             if let (Ok(r), Ok(g), Ok(b)) = (
                                 u8::from_str_radix(&hex[0..2], 16),
                                 u8::from_str_radix(&hex[2..4], 16),
-                                u8::from_str_radix(&hex[4..6], 16)
+                                u8::from_str_radix(&hex[4..6], 16),
                             ) {
                                 let sel = self.palette.selected;
-                                self.palette.tiles[sel].bg = ember2d::renderer::color::Color::Rgb(r, g, b);
+                                self.palette.tiles[sel].bg =
+                                    ember2d::renderer::color::Color::Rgb(r, g, b);
                                 self.unsaved = true;
                             }
                         }
@@ -280,7 +329,9 @@ impl EditorState {
                 return;
             }
 
-            if input.just_pressed(Key::Escape) { self.text_input = None; }
+            if input.just_pressed(Key::Escape) {
+                self.text_input = None;
+            }
         }
     }
 }

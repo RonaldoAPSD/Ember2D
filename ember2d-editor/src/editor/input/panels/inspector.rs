@@ -15,21 +15,28 @@
 // used to run before the general row match, are both gone — a graph-button
 // hit is now just another `InspectorField` arm in the same match.
 
-use super::super::super::EditorState;
-use super::super::super::panel::PanelId;
-use super::super::super::{TextInput, TextInputPurpose};
-use super::super::super::ui::HierarchySelection;
-use super::super::super::ui::{WidgetId, InspectorField};
 use super::super::super::commands::Command;
+use super::super::super::panel::PanelId;
+use super::super::super::ui::HierarchySelection;
+use super::super::super::ui::{InspectorField, WidgetId};
+use super::super::super::EditorState;
+use super::super::super::{TextInput, TextInputPurpose};
 use ember2d_sim::graph::NodeGraph;
 
 impl EditorState {
     pub(super) fn handle_inspector_click(&mut self, mouse: &ember2d::mouse::MouseState) {
         let insp_tile_pos = match self.hierarchy_sel {
             Some(HierarchySelection::Player) => None,
-            Some(HierarchySelection::Spawn(i)) => self.grid.extra_spawns.get(i)
-                .map(|(_, x, y)| (*x as i32, *y as i32)),
-            None => if self.select_mode { self.selected_pos } else { self.inspected_pos },
+            Some(HierarchySelection::Spawn(i)) => {
+                self.grid.extra_spawns.get(i).map(|(_, x, y)| (*x as i32, *y as i32))
+            }
+            None => {
+                if self.select_mode {
+                    self.selected_pos
+                } else {
+                    self.inspected_pos
+                }
+            }
         };
         if self.panels.visible(PanelId::Inspector) && mouse.left_just_pressed() && mouse.in_bounds {
             let p = self.panels.get(PanelId::Inspector);
@@ -101,8 +108,14 @@ impl EditorState {
                     if self.grid.get(gx, gy, self.active_layer).is_some() {
                         match hit {
                             Some(WidgetId::InspectorRow(InspectorField::GraphBtn)) => {
-                                if self.grid.get(gx, gy, self.active_layer).is_some_and(|t| t.graph.is_none()) {
-                                    if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {
+                                if self
+                                    .grid
+                                    .get(gx, gy, self.active_layer)
+                                    .is_some_and(|t| t.graph.is_none())
+                                {
+                                    if let Some(tile) =
+                                        self.grid.get(gx, gy, self.active_layer).cloned()
+                                    {
                                         let mut new_tile = tile.clone();
                                         new_tile.graph = Some(NodeGraph::default());
                                         self.grid.place(gx, gy, self.active_layer, new_tile);
@@ -113,56 +126,128 @@ impl EditorState {
                                 self.graph_view_ox = 4;
                                 self.graph_view_oy = 3;
                                 self.graph_selected_node = None;
-                                self.graph_connecting    = None;
-                                self.graph_palette_open  = None;
+                                self.graph_connecting = None;
+                                self.graph_palette_open = None;
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Glyph)) => {
-                                let g = self.grid.get(gx, gy, self.active_layer).map(|t| t.glyph.to_string()).unwrap_or_default();
-                                self.text_input = Some(TextInput { buffer: g, purpose: TextInputPurpose::TileGlyph { gx, gy } });
+                                let g = self
+                                    .grid
+                                    .get(gx, gy, self.active_layer)
+                                    .map(|t| t.glyph.to_string())
+                                    .unwrap_or_default();
+                                self.text_input = Some(TextInput {
+                                    buffer: g,
+                                    purpose: TextInputPurpose::TileGlyph { gx, gy },
+                                });
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Tag)) => {
-                                let tag = self.grid.get(gx, gy, self.active_layer).map(|t| t.tag.clone()).unwrap_or_default();
-                                self.text_input = Some(TextInput { buffer: tag, purpose: TextInputPurpose::TileTag { gx, gy } });
+                                let tag = self
+                                    .grid
+                                    .get(gx, gy, self.active_layer)
+                                    .map(|t| t.tag.clone())
+                                    .unwrap_or_default();
+                                self.text_input = Some(TextInput {
+                                    buffer: tag,
+                                    purpose: TextInputPurpose::TileTag { gx, gy },
+                                });
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Script)) => {
-                                let script = self.grid.get(gx, gy, self.active_layer).and_then(|t| t.script.clone()).unwrap_or_default();
-                                self.text_input = Some(TextInput { buffer: script, purpose: TextInputPurpose::ScriptPath { gx, gy } });
+                                let script = self
+                                    .grid
+                                    .get(gx, gy, self.active_layer)
+                                    .and_then(|t| t.script.clone())
+                                    .unwrap_or_default();
+                                self.text_input = Some(TextInput {
+                                    buffer: script,
+                                    purpose: TextInputPurpose::ScriptPath { gx, gy },
+                                });
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Exit)) => {
-                                let path = self.grid.get(gx, gy, self.active_layer).and_then(|t| t.next_level.clone()).unwrap_or_default();
-                                self.text_input = Some(TextInput { buffer: path, purpose: TextInputPurpose::TileNextLevel { gx, gy } });
+                                let path = self
+                                    .grid
+                                    .get(gx, gy, self.active_layer)
+                                    .and_then(|t| t.next_level.clone())
+                                    .unwrap_or_default();
+                                self.text_input = Some(TextInput {
+                                    buffer: path,
+                                    purpose: TextInputPurpose::TileNextLevel { gx, gy },
+                                });
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Layer)) => {
-                                let layer = self.grid.get(gx, gy, self.active_layer).map(|t| t.collider_layer.clone()).unwrap_or_default();
-                                self.text_input = Some(TextInput { buffer: layer, purpose: TextInputPurpose::TileColliderLayer { gx, gy } });
+                                let layer = self
+                                    .grid
+                                    .get(gx, gy, self.active_layer)
+                                    .map(|t| t.collider_layer.clone())
+                                    .unwrap_or_default();
+                                self.text_input = Some(TextInput {
+                                    buffer: layer,
+                                    purpose: TextInputPurpose::TileColliderLayer { gx, gy },
+                                });
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Mask)) => {
-                                let mask = self.grid.get(gx, gy, self.active_layer).map(|t| t.collider_mask.join(",")).unwrap_or_default();
-                                self.text_input = Some(TextInput { buffer: mask, purpose: TextInputPurpose::TileColliderMask { gx, gy } });
+                                let mask = self
+                                    .grid
+                                    .get(gx, gy, self.active_layer)
+                                    .map(|t| t.collider_mask.join(","))
+                                    .unwrap_or_default();
+                                self.text_input = Some(TextInput {
+                                    buffer: mask,
+                                    purpose: TextInputPurpose::TileColliderMask { gx, gy },
+                                });
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Solid)) => {
-                                if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {
+                                if let Some(tile) =
+                                    self.grid.get(gx, gy, self.active_layer).cloned()
+                                {
                                     let mut new_tile = tile.clone();
                                     new_tile.solid = !new_tile.solid;
-                                    self.undo.push(Command::Batch { cells: vec![(gx, gy, self.active_layer, Some(tile), Some(new_tile.clone()))] });
+                                    self.undo.push(Command::Batch {
+                                        cells: vec![(
+                                            gx,
+                                            gy,
+                                            self.active_layer,
+                                            Some(tile),
+                                            Some(new_tile.clone()),
+                                        )],
+                                    });
                                     self.grid.place(gx, gy, self.active_layer, new_tile);
                                     self.unsaved = true;
                                 }
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Trigger)) => {
-                                if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {
+                                if let Some(tile) =
+                                    self.grid.get(gx, gy, self.active_layer).cloned()
+                                {
                                     let mut new_tile = tile.clone();
                                     new_tile.trigger = !new_tile.trigger;
-                                    self.undo.push(Command::Batch { cells: vec![(gx, gy, self.active_layer, Some(tile), Some(new_tile.clone()))] });
+                                    self.undo.push(Command::Batch {
+                                        cells: vec![(
+                                            gx,
+                                            gy,
+                                            self.active_layer,
+                                            Some(tile),
+                                            Some(new_tile.clone()),
+                                        )],
+                                    });
                                     self.grid.place(gx, gy, self.active_layer, new_tile);
                                     self.unsaved = true;
                                 }
                             }
                             Some(WidgetId::InspectorRow(InspectorField::CameraFollow)) => {
-                                if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {
+                                if let Some(tile) =
+                                    self.grid.get(gx, gy, self.active_layer).cloned()
+                                {
                                     let mut new_tile = tile.clone();
                                     new_tile.camera_follow = !new_tile.camera_follow;
-                                    self.undo.push(Command::Batch { cells: vec![(gx, gy, self.active_layer, Some(tile), Some(new_tile.clone()))] });
+                                    self.undo.push(Command::Batch {
+                                        cells: vec![(
+                                            gx,
+                                            gy,
+                                            self.active_layer,
+                                            Some(tile),
+                                            Some(new_tile.clone()),
+                                        )],
+                                    });
                                     self.grid.place(gx, gy, self.active_layer, new_tile);
                                     self.unsaved = true;
                                 }

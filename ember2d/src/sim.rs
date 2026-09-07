@@ -23,10 +23,10 @@
 use std::collections::{BTreeMap, HashMap};
 
 use crate::engine::{GameState, UpdateContext};
-use ember2d_sim::event::EventBus;
 use crate::gamepad::GamepadState;
 use crate::input::InputManager;
 use crate::mouse::MouseState;
+use ember2d_sim::event::EventBus;
 use ember2d_sim::math::Vec2;
 use ember2d_sim::world::{EntityId, World};
 
@@ -134,7 +134,9 @@ pub fn step(
         // specifically so this never mattered functionally — but the call
         // itself was still dead weight asserting a physics model turn-based
         // play doesn't have). Only realtime mode integrates now.
-        if !gate_late_phase_on_turn { world.integrate_physics(physics_dt); }
+        if !gate_late_phase_on_turn {
+            world.integrate_physics(physics_dt);
+        }
         world.detect_collisions(events);
 
         state.late_update(UpdateContext {

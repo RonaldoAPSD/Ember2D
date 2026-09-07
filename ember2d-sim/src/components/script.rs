@@ -27,7 +27,7 @@
 //       }
 //   }
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Marks an entity as having a script that runs every frame.
 ///

@@ -9,10 +9,10 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
-use crate::world::World;
+use crate::color::Color;
 use crate::command::{Command, GamepadSnapshot, InputSnapshot, MouseSnapshot};
 use crate::components::{AnimationClip, SpriteSource};
-use crate::color::Color;
+use crate::world::World;
 
 use super::types::*;
 
@@ -55,9 +55,9 @@ use super::types::*;
 // script ever needs same-step mutation visibility across these three
 // passes specifically, that's the seam to revisit.
 pub struct WorldSnapshot {
-    pub(super) positions:        BTreeMap<i64, (f32, f32)>,
-    pub(super) velocities:       HashMap<i64, (f32, f32)>,
-    pub(super) parents:          HashMap<i64, i64>,
+    pub(super) positions: BTreeMap<i64, (f32, f32)>,
+    pub(super) velocities: HashMap<i64, (f32, f32)>,
+    pub(super) parents: HashMap<i64, i64>,
     /// (width, height, solid, layer, mask, locked, layer_bits). `layer_bits`
     /// (Phase 6 Step 7, docs/ember2d-phase6-plan.md) is copied straight off
     /// each `Collider`'s own pre-resolved bit — this snapshot needs no
@@ -67,7 +67,7 @@ pub struct WorldSnapshot {
     /// snapshotted collider's own mask — the pairwise mask test lives in
     /// `World::detect_collisions`, against `World`'s real `Collider`s
     /// directly, not this snapshot.
-    pub(super) colliders:        BTreeMap<i64, (f32, f32, bool, String, Vec<String>, bool, u32)>,
+    pub(super) colliders: BTreeMap<i64, (f32, f32, bool, String, Vec<String>, bool, u32)>,
     /// This snapshot's own copy of the level's layer name<->bit table
     /// (Phase 6 Step 7) — what `raycast`/`get_path` fold their incoming
     /// Rhai `mask: Array` argument against, once per call, instead of a
@@ -75,7 +75,7 @@ pub struct WorldSnapshot {
     /// own doc comment; cheap to clone in (at most 31 entries), so this
     /// snapshot owns it rather than sharing a reference that would need its
     /// own lifetime threaded through every `ScriptState` constructor.
-    pub(super) layers:           crate::layers::LayerRegistry,
+    pub(super) layers: crate::layers::LayerRegistry,
     /// Phase 6 Step 4 (docs/ember2d-phase6-plan.md): one `Rc<str>` per
     /// tagged entity, shared (by cheap `Rc::clone` — a refcount bump, not an
     /// allocation) into this map, `tag_to_id`, and `tag_to_ids` below,
@@ -84,33 +84,33 @@ pub struct WorldSnapshot {
     /// a plain `String` from Rhai — `Rc<str>: Borrow<str>` (and its `Hash`/
     /// `Eq`/`Ord` all delegate to `str`'s) is what lets `.get(name.as_str())`
     /// keep working against a map keyed by `Rc<str>` unchanged.
-    pub(super) tags:             BTreeMap<i64, Rc<str>>,
-    pub(super) glyphs:           HashMap<i64, char>,
+    pub(super) tags: BTreeMap<i64, Rc<str>>,
+    pub(super) glyphs: HashMap<i64, char>,
     /// Phase 6 Step 4: stores the tint `Color` values directly rather than
     /// the name strings `get_color` returns — building this used to run
     /// `color_to_name` (a `String` allocation) on both fg and bg for every
     /// sprite whether or not any script ever calls `get_color` on that
     /// entity. `get_color` (api.rs) now does that conversion itself, on the
     /// entities that actually ask for it.
-    pub(super) colors:           HashMap<i64, (Color, Color)>,
-    pub(super) textures:         HashMap<i64, Rc<str>>,
-    pub(super) tag_to_id:        HashMap<Rc<str>, i64>,
-    pub(super) tag_to_ids:       BTreeMap<Rc<str>, Vec<i64>>,
-    pub(super) visibility:       BTreeMap<i64, bool>,
-    pub(super) z_orders:         BTreeMap<i64, i32>,
+    pub(super) colors: HashMap<i64, (Color, Color)>,
+    pub(super) textures: HashMap<i64, Rc<str>>,
+    pub(super) tag_to_id: HashMap<Rc<str>, i64>,
+    pub(super) tag_to_ids: BTreeMap<Rc<str>, Vec<i64>>,
+    pub(super) visibility: BTreeMap<i64, bool>,
+    pub(super) z_orders: BTreeMap<i64, i32>,
     /// Read-only per-entity `Animator::frame` snapshot backing `get_frame`.
-    pub(super) animator_frames:  BTreeMap<i64, usize>,
+    pub(super) animator_frames: BTreeMap<i64, usize>,
     /// Entities whose `Animator` reached the last frame of a non-looping
     /// run on the tick this snapshot was taken from — what
     /// `clip_finished(id)` reads. Populated from `Animator::just_finished`,
     /// which is itself only ever true for the one tick that set it.
-    pub(super) clip_finished:    HashSet<i64>,
+    pub(super) clip_finished: HashSet<i64>,
     /// Read-only per-entity `Actor::speed` snapshot backing `ctx.get_speed`.
     /// Vestigial today — `TurnScheduler` charges every actor the same flat
     /// cost regardless (`scheduler::ALTERNATING_COST`) — but a real,
     /// honestly-functioning read, not a stub, so a future non-`Alternating`
     /// mode that does consult it needs no scripting-API change.
-    pub(super) actor_speeds:     HashMap<i64, u32>,
+    pub(super) actor_speeds: HashMap<i64, u32>,
 }
 
 impl WorldSnapshot {
@@ -123,26 +123,28 @@ impl WorldSnapshot {
         // `world.tags`, which may have fewer unique names than entries, but
         // never more), so this is a safe upper bound, not a guess.
         let n_transforms = world.transforms.len();
-        let n_tags       = world.tags.len();
+        let n_tags = world.tags.len();
 
-        let mut positions  = BTreeMap::new();
+        let mut positions = BTreeMap::new();
         let mut velocities = HashMap::with_capacity(n_transforms);
-        let mut parents    = HashMap::new();
-        let mut colliders  = BTreeMap::new();
-        let mut tags       = BTreeMap::new();
-        let mut glyphs     = HashMap::with_capacity(n_transforms);
-        let mut colors     = HashMap::with_capacity(n_transforms);
-        let mut textures   = HashMap::new();
-        let mut tag_to_id  = HashMap::with_capacity(n_tags);
+        let mut parents = HashMap::new();
+        let mut colliders = BTreeMap::new();
+        let mut tags = BTreeMap::new();
+        let mut glyphs = HashMap::with_capacity(n_transforms);
+        let mut colors = HashMap::with_capacity(n_transforms);
+        let mut textures = HashMap::new();
+        let mut tag_to_id = HashMap::with_capacity(n_tags);
         let mut tag_to_ids: BTreeMap<Rc<str>, Vec<i64>> = BTreeMap::new();
         let mut visibility = BTreeMap::new();
-        let mut z_orders   = BTreeMap::new();
+        let mut z_orders = BTreeMap::new();
 
         for (id, tf) in &world.transforms {
             let eid = *id as i64;
-            positions.insert(eid,  (tf.position.x, tf.position.y));
+            positions.insert(eid, (tf.position.x, tf.position.y));
             velocities.insert(eid, (tf.velocity.x, tf.velocity.y));
-            if let Some(pid) = tf.parent { parents.insert(eid, pid as i64); }
+            if let Some(pid) = tf.parent {
+                parents.insert(eid, pid as i64);
+            }
             if let Some(sp) = world.sprites.get(id) {
                 // bg only means something for a Glyph source; Texture/Clip
                 // sprites report Reset ("no override"), matching how
@@ -165,9 +167,24 @@ impl WorldSnapshot {
                 z_orders.insert(eid, sp.layer);
             }
         }
-        for (id, col) in &world.colliders { colliders.insert(*id as i64, (col.width, col.height, col.solid, col.layer().to_string(), col.mask().to_vec(), col.locked, col.layer_bits())); }
+        for (id, col) in &world.colliders {
+            colliders.insert(
+                *id as i64,
+                (
+                    col.width,
+                    col.height,
+                    col.solid,
+                    col.layer().to_string(),
+                    col.mask().to_vec(),
+                    col.locked,
+                    col.layer_bits(),
+                ),
+            );
+        }
         let mut actor_speeds = HashMap::with_capacity(world.actors.len());
-        for (id, actor) in &world.actors { actor_speeds.insert(*id as i64, actor.speed); }
+        for (id, actor) in &world.actors {
+            actor_speeds.insert(*id as i64, actor.speed);
+        }
         for (id, tag) in &world.tags {
             let eid = *id as i64;
             // Phase 6 Step 4: one allocation (`Rc::from`), then two cheap
@@ -185,12 +202,27 @@ impl WorldSnapshot {
         for (id, animator) in &world.animators {
             let eid = *id as i64;
             animator_frames.insert(eid, animator.frame);
-            if animator.just_finished { clip_finished.insert(eid); }
+            if animator.just_finished {
+                clip_finished.insert(eid);
+            }
         }
 
         WorldSnapshot {
-            positions, velocities, parents, colliders, tags, glyphs, colors, textures,
-            tag_to_id, tag_to_ids, visibility, z_orders, animator_frames, clip_finished, actor_speeds,
+            positions,
+            velocities,
+            parents,
+            colliders,
+            tags,
+            glyphs,
+            colors,
+            textures,
+            tag_to_id,
+            tag_to_ids,
+            visibility,
+            z_orders,
+            animator_frames,
+            clip_finished,
+            actor_speeds,
             layers: layers.clone(),
         }
     }
@@ -203,30 +235,30 @@ pub(super) struct ScriptState {
     /// `self.positions`/`self.colliders`/etc. access in `scripting/api.rs`
     /// keeps compiling unchanged — Rust's field-access autoderef finds
     /// them there.
-    pub(super) snapshot:         Rc<WorldSnapshot>,
-    pub(super) delta_time:       f32,
-    pub(super) elapsed:          f32,
-    pub(super) next_spawn_id:    crate::world::EntityId,
+    pub(super) snapshot: Rc<WorldSnapshot>,
+    pub(super) delta_time: f32,
+    pub(super) elapsed: f32,
+    pub(super) next_spawn_id: crate::world::EntityId,
     /// Was two separate `HashSet<String>` fields (`held_keys`/
     /// `just_pressed_keys`) until Step 5e (docs/ember2d-phase5-plan.md)
     /// introduced the sim-safe `InputSnapshot` type — see that type's own
     /// doc comment (command.rs) for why raw input is now this shape.
-    pub(super) input:            InputSnapshot,
-    pub(super) extra_spawns:     HashMap<String, (f32, f32)>,
-    pub(super) mouse_pos:        (f32, f32),
-    pub(super) mouse_held:       (bool, bool),
-    pub(super) mouse_pressed:    (bool, bool),
+    pub(super) input: InputSnapshot,
+    pub(super) extra_spawns: HashMap<String, (f32, f32)>,
+    pub(super) mouse_pos: (f32, f32),
+    pub(super) mouse_held: (bool, bool),
+    pub(super) mouse_pressed: (bool, bool),
 
-    pub(super) gamepad_held:     HashSet<(usize, String)>,
-    pub(super) gamepad_pressed:  HashSet<(usize, String)>,
-    pub(super) gamepad_axes:     HashMap<(usize, String), f32>,
+    pub(super) gamepad_held: HashSet<(usize, String)>,
+    pub(super) gamepad_pressed: HashSet<(usize, String)>,
+    pub(super) gamepad_axes: HashMap<(usize, String), f32>,
 
-    pub(super) globals:          BTreeMap<String, rhai::Dynamic>,
+    pub(super) globals: BTreeMap<String, rhai::Dynamic>,
     /// Script-registered animation definitions (Step 3c), threaded through
     /// the same in/out-per-frame pattern as `globals` since — like
     /// globals — these live on `PlayState`, not `World`.
-    pub(super) clips:            BTreeMap<String, AnimationClip>,
-    pub(super) persistent:       BTreeMap<String, rhai::Dynamic>,
+    pub(super) clips: BTreeMap<String, AnimationClip>,
+    pub(super) persistent: BTreeMap<String, rhai::Dynamic>,
     /// R9 (7A-1, docs/ember2d-master-plan.md): set by `clear_all_persistent`
     /// instead of clearing `pending_persistent` directly — see that
     /// method's own doc comment (api.rs) for why clearing the write queue
@@ -248,58 +280,58 @@ pub(super) struct ScriptState {
     /// what this holds — the on_update pass gets the on_input pass's own
     /// result, every other pass gets an empty map (see the `run_*` methods
     /// in engine.rs).
-    pub(super) commands:         BTreeMap<i64, Command>,
+    pub(super) commands: BTreeMap<i64, Command>,
     /// How many turns the local player has completed so far this level —
     /// what `ctx.get_turn_number()` reads (Step 5f, docs/ember2d-phase5-plan.md).
     /// Engine-tracked plain data, not a script global: `PlayState::turn_number`
     /// increments it directly in `run_actor_turn` right after the player's
     /// own `on_turn` consumes a turn, so unlike the old "turn" global this
     /// has no same-pass deferred-write lag to guard against.
-    pub(super) turn_number:      i64,
-    pub(super) camera_pos:       (f32, f32),
-    pub(super) viewport_size:    (usize, usize),
+    pub(super) turn_number: i64,
+    pub(super) camera_pos: (f32, f32),
+    pub(super) viewport_size: (usize, usize),
     pub(super) pending_velocities: Vec<(i64, f32, f32)>,
-    pub(super) pending_positions:  Vec<(i64, f32, f32)>,
-    pub(super) pending_parents:    Vec<(i64, i64, bool)>,
-    pub(super) pending_glyphs:     Vec<(i64, char)>,
-    pub(super) pending_colors:     Vec<(i64, String, String)>,
-    pub(super) pending_textures:   Vec<(i64, Option<String>)>,
-    pub(super) pending_hud_draws:  Vec<HudDraw>,
-    pub(super) pending_particles:  Vec<ParticleRequest>,
-    pub(super) clear_hud:          bool,
-    pub(super) despawn_queue:      Vec<i64>,
-    pub(super) spawn_queue:        Vec<SpawnRequest>,
-    pub(super) pending_level:      Option<String>,
-    pub(super) pending_save:       Option<String>,
-    pub(super) pending_load:       Option<String>,
-    pub(super) pending_logs:       Vec<String>,
-    pub(super) pending_sounds:     Vec<String>,
+    pub(super) pending_positions: Vec<(i64, f32, f32)>,
+    pub(super) pending_parents: Vec<(i64, i64, bool)>,
+    pub(super) pending_glyphs: Vec<(i64, char)>,
+    pub(super) pending_colors: Vec<(i64, String, String)>,
+    pub(super) pending_textures: Vec<(i64, Option<String>)>,
+    pub(super) pending_hud_draws: Vec<HudDraw>,
+    pub(super) pending_particles: Vec<ParticleRequest>,
+    pub(super) clear_hud: bool,
+    pub(super) despawn_queue: Vec<i64>,
+    pub(super) spawn_queue: Vec<SpawnRequest>,
+    pub(super) pending_level: Option<String>,
+    pub(super) pending_save: Option<String>,
+    pub(super) pending_load: Option<String>,
+    pub(super) pending_logs: Vec<String>,
+    pub(super) pending_sounds: Vec<String>,
     pub(super) pending_spatial_sounds: Vec<(String, f32, f32)>,
-    pub(super) pending_music:      Option<String>,
-    pub(super) stop_music:         bool,
-    pub(super) pending_globals:    BTreeMap<String, rhai::Dynamic>,
+    pub(super) pending_music: Option<String>,
+    pub(super) stop_music: bool,
+    pub(super) pending_globals: BTreeMap<String, rhai::Dynamic>,
     /// `register_clip` writes here rather than into `clips` directly, so a
     /// clip a script registers this frame only becomes visible (to that
     /// script or any other) starting next frame — the same "writes settle
     /// at frame end" convention every other pending_* queue follows.
-    pub(super) pending_clip_defs:   Vec<(String, AnimationClip)>,
+    pub(super) pending_clip_defs: Vec<(String, AnimationClip)>,
     /// (id, clip name, oneshot) — `play_clip`/`play_clip_once`.
-    pub(super) pending_play_clip:   Vec<(i64, String, bool)>,
-    pub(super) pending_stop_clip:   Vec<i64>,
-    pub(super) pending_clip_speed:  Vec<(i64, f32)>,
-    pub(super) pending_set_frame:   Vec<(i64, usize)>,
+    pub(super) pending_play_clip: Vec<(i64, String, bool)>,
+    pub(super) pending_stop_clip: Vec<i64>,
+    pub(super) pending_clip_speed: Vec<(i64, f32)>,
+    pub(super) pending_set_frame: Vec<(i64, usize)>,
     pub(super) pending_persistent: BTreeMap<String, rhai::Dynamic>,
-    pub(super) pending_camera:     Option<crate::math::Vec2>,
-    pub(super) pending_shake:      Option<ShakeState>,
+    pub(super) pending_camera: Option<crate::math::Vec2>,
+    pub(super) pending_shake: Option<ShakeState>,
     pub(super) pending_visibility: Vec<(i64, bool)>,
-    pub(super) pending_z_order:    Vec<(i64, i32)>,
-    pub(super) pending_tags:       Vec<(i64, String)>,
-    pub(super) pending_collider_size:  Vec<(i64, f32, f32)>,
+    pub(super) pending_z_order: Vec<(i64, i32)>,
+    pub(super) pending_tags: Vec<(i64, String)>,
+    pub(super) pending_collider_size: Vec<(i64, f32, f32)>,
     pub(super) pending_collider_solid: Vec<(i64, bool)>,
     pub(super) pending_collider_layer: Vec<(i64, String)>,
     pub(super) pending_collider_locked: Vec<(i64, bool)>,
-    pub(super) pending_collider_mask:  Vec<(i64, Vec<String>)>,
-    pub(super) pending_timers:     Vec<(crate::world::EntityId, String, f64)>,
+    pub(super) pending_collider_mask: Vec<(i64, Vec<String>)>,
+    pub(super) pending_timers: Vec<(crate::world::EntityId, String, f64)>,
     /// Phase 6 Step 9 (docs/ember2d-phase6-plan.md): `mem::take`n out of
     /// `ScriptEngine.timers` at the start of whichever `run_*` method built
     /// this `ScriptState`, and put back by `apply_ctx` before it returns —
@@ -307,15 +339,15 @@ pub(super) struct ScriptState {
     /// (Step 3), just entirely internal to `ScriptEngine` rather than
     /// surfacing through `ScriptUpdateResult`. `BTreeMap` outer and inner,
     /// matching `ScriptEngine.timers`'s own doc comment for why.
-    pub(super) timers:             BTreeMap<crate::world::EntityId, BTreeMap<String, f64>>,
+    pub(super) timers: BTreeMap<crate::world::EntityId, BTreeMap<String, f64>>,
     /// `ctx.submit()`'s write queue (Step 5e, docs/ember2d-phase5-plan.md)
     /// — meaningful only from `on_input`; see `commands`'s own doc comment
     /// for the read side.
-    pub(super) pending_commands:   Vec<Command>,
+    pub(super) pending_commands: Vec<Command>,
     /// `ctx.act()`'s write queue (Step 5f) — see `ScriptUpdateResult::act_cost`'s
     /// doc comment for what this means and who reads it.
-    pub(super) pending_act_cost:   Option<f64>,
-    pub(super) pending_speed:      Vec<(i64, u32)>,
+    pub(super) pending_act_cost: Option<f64>,
+    pub(super) pending_speed: Vec<(i64, u32)>,
     /// `ctx.animate_move`/`animate_flash`/`animate_shake`'s write queue
     /// (Phase 5.5 Part 3, docs/ember2d-phase5.5-plan.md) — drained into
     /// `ScriptUpdateResult::animations`, same shape as `pending_particles`.
@@ -324,7 +356,9 @@ pub(super) struct ScriptState {
 
 impl std::ops::Deref for ScriptState {
     type Target = WorldSnapshot;
-    fn deref(&self) -> &WorldSnapshot { &self.snapshot }
+    fn deref(&self) -> &WorldSnapshot {
+        &self.snapshot
+    }
 }
 
 impl ScriptState {
@@ -337,18 +371,38 @@ impl ScriptState {
     /// `WorldSnapshot` once and call `from_snapshot` instead.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn from_world(
-        world: &World, layers: &crate::layers::LayerRegistry, delta_time: f32, elapsed: f32,
-        input: InputSnapshot, mouse: MouseSnapshot, gamepad: GamepadSnapshot,
-        spawns: &[(String, f32, f32)], globals: BTreeMap<String, rhai::Dynamic>,
+        world: &World,
+        layers: &crate::layers::LayerRegistry,
+        delta_time: f32,
+        elapsed: f32,
+        input: InputSnapshot,
+        mouse: MouseSnapshot,
+        gamepad: GamepadSnapshot,
+        spawns: &[(String, f32, f32)],
+        globals: BTreeMap<String, rhai::Dynamic>,
         clips: BTreeMap<String, AnimationClip>,
-        persistent: BTreeMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2,
-        commands: BTreeMap<i64, Command>, turn_number: i64,
+        persistent: BTreeMap<String, rhai::Dynamic>,
+        camera_pos: crate::math::Vec2,
+        commands: BTreeMap<i64, Command>,
+        turn_number: i64,
         viewport_size: (usize, usize),
     ) -> Self {
         Self::from_snapshot(
-            Rc::new(WorldSnapshot::build(world, layers)), world.next_id,
-            delta_time, elapsed, input, mouse, gamepad, spawns, globals, clips,
-            persistent, camera_pos, commands, turn_number, viewport_size,
+            Rc::new(WorldSnapshot::build(world, layers)),
+            world.next_id,
+            delta_time,
+            elapsed,
+            input,
+            mouse,
+            gamepad,
+            spawns,
+            globals,
+            clips,
+            persistent,
+            camera_pos,
+            commands,
+            turn_number,
+            viewport_size,
         )
     }
 
@@ -360,45 +414,94 @@ impl ScriptState {
     /// same step must see any spawn an earlier one made.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn from_snapshot(
-        snapshot: Rc<WorldSnapshot>, next_spawn_id: crate::world::EntityId,
-        delta_time: f32, elapsed: f32,
-        input: InputSnapshot, mouse: MouseSnapshot, gamepad: GamepadSnapshot,
-        spawns: &[(String, f32, f32)], globals: BTreeMap<String, rhai::Dynamic>,
+        snapshot: Rc<WorldSnapshot>,
+        next_spawn_id: crate::world::EntityId,
+        delta_time: f32,
+        elapsed: f32,
+        input: InputSnapshot,
+        mouse: MouseSnapshot,
+        gamepad: GamepadSnapshot,
+        spawns: &[(String, f32, f32)],
+        globals: BTreeMap<String, rhai::Dynamic>,
         clips: BTreeMap<String, AnimationClip>,
-        persistent: BTreeMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2,
-        commands: BTreeMap<i64, Command>, turn_number: i64,
+        persistent: BTreeMap<String, rhai::Dynamic>,
+        camera_pos: crate::math::Vec2,
+        commands: BTreeMap<i64, Command>,
+        turn_number: i64,
         viewport_size: (usize, usize),
     ) -> Self {
         let mouse_pos = mouse.cell;
         let mouse_held = mouse.held;
         let mouse_pressed = mouse.pressed;
-        let GamepadSnapshot { held: gamepad_held, pressed: gamepad_pressed, axes: gamepad_axes } = gamepad;
+        let GamepadSnapshot { held: gamepad_held, pressed: gamepad_pressed, axes: gamepad_axes } =
+            gamepad;
 
-        let extra_spawns: HashMap<String, (f32, f32)> = spawns.iter().map(|(name, x, y)| (name.clone(), (*x, *y))).collect();
+        let extra_spawns: HashMap<String, (f32, f32)> =
+            spawns.iter().map(|(name, x, y)| (name.clone(), (*x, *y))).collect();
 
         ScriptState {
             snapshot,
-            delta_time, elapsed, next_spawn_id, input, extra_spawns,
-            mouse_pos, mouse_held, mouse_pressed,
-            gamepad_held, gamepad_pressed, gamepad_axes,
-            globals, clips, persistent, pending_persistent_clear_all: false, logged_bad_colors: BTreeSet::new(),
-            commands, turn_number,
-            camera_pos: (camera_pos.x, camera_pos.y), viewport_size,
-            pending_velocities: Vec::new(), pending_positions: Vec::new(), pending_parents: Vec::new(),
-            pending_glyphs: Vec::new(), pending_colors: Vec::new(), pending_textures: Vec::new(),
-            pending_hud_draws: Vec::new(), pending_particles: Vec::new(), clear_hud: false, despawn_queue: Vec::new(),
-            spawn_queue: Vec::new(), pending_level: None, pending_save: None, pending_load: None, pending_logs: Vec::new(),
-            pending_sounds: Vec::new(), pending_spatial_sounds: Vec::new(),
-            pending_music: None, stop_music: false, pending_globals: BTreeMap::new(),
-            pending_clip_defs: Vec::new(), pending_play_clip: Vec::new(), pending_stop_clip: Vec::new(),
-            pending_clip_speed: Vec::new(), pending_set_frame: Vec::new(),
+            delta_time,
+            elapsed,
+            next_spawn_id,
+            input,
+            extra_spawns,
+            mouse_pos,
+            mouse_held,
+            mouse_pressed,
+            gamepad_held,
+            gamepad_pressed,
+            gamepad_axes,
+            globals,
+            clips,
+            persistent,
+            pending_persistent_clear_all: false,
+            logged_bad_colors: BTreeSet::new(),
+            commands,
+            turn_number,
+            camera_pos: (camera_pos.x, camera_pos.y),
+            viewport_size,
+            pending_velocities: Vec::new(),
+            pending_positions: Vec::new(),
+            pending_parents: Vec::new(),
+            pending_glyphs: Vec::new(),
+            pending_colors: Vec::new(),
+            pending_textures: Vec::new(),
+            pending_hud_draws: Vec::new(),
+            pending_particles: Vec::new(),
+            clear_hud: false,
+            despawn_queue: Vec::new(),
+            spawn_queue: Vec::new(),
+            pending_level: None,
+            pending_save: None,
+            pending_load: None,
+            pending_logs: Vec::new(),
+            pending_sounds: Vec::new(),
+            pending_spatial_sounds: Vec::new(),
+            pending_music: None,
+            stop_music: false,
+            pending_globals: BTreeMap::new(),
+            pending_clip_defs: Vec::new(),
+            pending_play_clip: Vec::new(),
+            pending_stop_clip: Vec::new(),
+            pending_clip_speed: Vec::new(),
+            pending_set_frame: Vec::new(),
             pending_persistent: BTreeMap::new(),
-            pending_camera: None, pending_shake: None, pending_visibility: Vec::new(), pending_z_order: Vec::new(), pending_tags: Vec::new(),
-            pending_collider_size: Vec::new(), pending_collider_solid: Vec::new(), pending_collider_layer: Vec::new(), pending_collider_mask: Vec::new(),
+            pending_camera: None,
+            pending_shake: None,
+            pending_visibility: Vec::new(),
+            pending_z_order: Vec::new(),
+            pending_tags: Vec::new(),
+            pending_collider_size: Vec::new(),
+            pending_collider_solid: Vec::new(),
+            pending_collider_layer: Vec::new(),
+            pending_collider_mask: Vec::new(),
             pending_collider_locked: Vec::new(),
-            pending_timers: Vec::new(), timers: BTreeMap::new(),
+            pending_timers: Vec::new(),
+            timers: BTreeMap::new(),
             pending_commands: Vec::new(),
-            pending_act_cost: None, pending_speed: Vec::new(),
+            pending_act_cost: None,
+            pending_speed: Vec::new(),
             pending_animations: Vec::new(),
         }
     }
@@ -409,7 +512,8 @@ impl ScriptState {
     pub(super) fn log_bad_color_once(&mut self, bad: &str) {
         let trimmed = bad.trim().to_string();
         if self.logged_bad_colors.insert(trimmed.clone()) {
-            self.pending_logs.push(format!("[script] malformed or unrecognized color '{}', ignored", trimmed));
+            self.pending_logs
+                .push(format!("[script] malformed or unrecognized color '{}', ignored", trimmed));
         }
     }
 }

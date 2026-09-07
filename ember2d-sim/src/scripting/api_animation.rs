@@ -60,5 +60,7 @@ impl ScriptCtx {
     /// currently constant) answer rather than erroring, so a future
     /// per-entity (rather than whole-queue) animation gate can make this
     /// meaningful without a scripting-API change.
-    pub fn is_animating(&mut self, _id: i64) -> bool { false }
+    pub fn is_animating(&mut self, _id: i64) -> bool {
+        false
+    }
 }

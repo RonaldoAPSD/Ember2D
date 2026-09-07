@@ -30,7 +30,11 @@ fn every_level_has_a_pinned_nonzero_seed() {
     // here — see LevelData::seed's own doc comment.
     for path in LEVELS {
         let data = LevelData::load(path).unwrap_or_else(|e| panic!("load {}: {}", path, e));
-        assert_ne!(data.seed, 0, "{}: seed must be pinned by the generator, not the pre-seed-field default", path);
+        assert_ne!(
+            data.seed, 0,
+            "{}: seed must be pinned by the generator, not the pre-seed-field default",
+            path
+        );
     }
 }
 
@@ -42,7 +46,11 @@ fn every_level_is_the_current_format_version_with_collision_layers() {
     // matched going forward.
     for path in LEVELS {
         let data = LevelData::load(path).unwrap_or_else(|e| panic!("load {}: {}", path, e));
-        assert_eq!(data.version, LEVEL_FORMAT_VERSION, "{}: shipped level must be regenerated to the current format version", path);
+        assert_eq!(
+            data.version, LEVEL_FORMAT_VERSION,
+            "{}: shipped level must be regenerated to the current format version",
+            path
+        );
         assert!(!data.collision_layers.is_empty(), "{}: collision_layers must not be empty", path);
     }
 }
@@ -56,7 +64,8 @@ fn every_levels_tiles_are_sorted_by_layer_then_y_then_x() {
     // play/spawn.rs::do_on_start (ids are handed out in tile order).
     for path in LEVELS {
         let data = LevelData::load(path).unwrap_or_else(|e| panic!("load {}: {}", path, e));
-        let original: Vec<(u8, i32, i32)> = data.tiles.iter().map(|t| (t.layer, t.y, t.x)).collect();
+        let original: Vec<(u8, i32, i32)> =
+            data.tiles.iter().map(|t| (t.layer, t.y, t.x)).collect();
         let mut sorted = original.clone();
         sorted.sort();
         assert_eq!(original, sorted, "{}: tiles must already be sorted by (layer, y, x)", path);
@@ -80,14 +89,33 @@ fn every_script_and_next_level_path_a_level_references_exists_on_disk() {
     for path in LEVELS {
         let data = LevelData::load(path).unwrap_or_else(|e| panic!("load {}: {}", path, e));
         if let Some(ref script) = data.player.script {
-            assert!(Path::new(script).exists(), "{}: player script '{}' does not exist", path, script);
+            assert!(
+                Path::new(script).exists(),
+                "{}: player script '{}' does not exist",
+                path,
+                script
+            );
         }
         for tile in &data.tiles {
             if let Some(ref script) = tile.script {
-                assert!(Path::new(script).exists(), "{}: tile ({},{}) script '{}' does not exist", path, tile.x, tile.y, script);
+                assert!(
+                    Path::new(script).exists(),
+                    "{}: tile ({},{}) script '{}' does not exist",
+                    path,
+                    tile.x,
+                    tile.y,
+                    script
+                );
             }
             if let Some(ref next) = tile.next_level {
-                assert!(Path::new(next).exists(), "{}: tile ({},{}) next_level '{}' does not exist", path, tile.x, tile.y, next);
+                assert!(
+                    Path::new(next).exists(),
+                    "{}: tile ({},{}) next_level '{}' does not exist",
+                    path,
+                    tile.x,
+                    tile.y,
+                    next
+                );
             }
         }
     }
@@ -119,7 +147,14 @@ fn no_cell_in_any_level_has_more_than_one_collider_bearing_tile() {
             }
         }
         for (&(x, y), &count) in &seen {
-            assert!(count <= 1, "{}: cell ({},{}) has {} collider-bearing tiles, must have at most 1", path, x, y, count);
+            assert!(
+                count <= 1,
+                "{}: cell ({},{}) has {} collider-bearing tiles, must have at most 1",
+                path,
+                x,
+                y,
+                count
+            );
         }
     }
 }
@@ -142,7 +177,9 @@ fn every_level_is_fully_walkable_from_spawn_to_the_stairs_and_every_enemy() {
 
         let mut solid: HashSet<(i32, i32)> = HashSet::new();
         for t in &data.tiles {
-            if t.solid && t.tag != "enemy" && t.tag != "boss" { solid.insert((t.x, t.y)); }
+            if t.solid && t.tag != "enemy" && t.tag != "boss" {
+                solid.insert((t.x, t.y));
+            }
         }
 
         let start = (data.spawn_point.0.round() as i32, data.spawn_point.1.round() as i32);
@@ -153,15 +190,29 @@ fn every_level_is_fully_walkable_from_spawn_to_the_stairs_and_every_enemy() {
         queue.push_back(start);
         while let Some((x, y)) = queue.pop_front() {
             for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
-                if nx < 0 || ny < 0 || nx >= w || ny >= h { continue; }
-                if solid.contains(&(nx, ny)) { continue; }
-                if visited.insert((nx, ny)) { queue.push_back((nx, ny)); }
+                if nx < 0 || ny < 0 || nx >= w || ny >= h {
+                    continue;
+                }
+                if solid.contains(&(nx, ny)) {
+                    continue;
+                }
+                if visited.insert((nx, ny)) {
+                    queue.push_back((nx, ny));
+                }
             }
         }
 
         for t in &data.tiles {
             if t.tag == "stairs" || t.tag == "enemy" || t.tag == "boss" {
-                assert!(visited.contains(&(t.x, t.y)), "{}: {} at ({},{}) is not reachable from spawn {:?}", path, t.tag, t.x, t.y, start);
+                assert!(
+                    visited.contains(&(t.x, t.y)),
+                    "{}: {} at ({},{}) is not reachable from spawn {:?}",
+                    path,
+                    t.tag,
+                    t.x,
+                    t.y,
+                    start
+                );
             }
         }
     }

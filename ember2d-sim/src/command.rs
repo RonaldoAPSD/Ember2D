@@ -48,8 +48,12 @@ pub struct InputSnapshot {
 }
 
 impl InputSnapshot {
-    pub fn is_held(&self, key: &str) -> bool { self.held.contains(key) }
-    pub fn just_pressed(&self, key: &str) -> bool { self.pressed.contains(key) }
+    pub fn is_held(&self, key: &str) -> bool {
+        self.held.contains(key)
+    }
+    pub fn just_pressed(&self, key: &str) -> bool {
+        self.pressed.contains(key)
+    }
 }
 
 /// The mouse's cell position and left/right button state this step, with no

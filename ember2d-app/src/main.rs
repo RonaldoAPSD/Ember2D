@@ -19,13 +19,25 @@ fn main() -> io::Result<()> {
         let mut editor_mode = false;
         let mut path = String::new();
         for arg in &args[1..] {
-            if arg == "--editor" { editor_mode = true; }
-            else if !arg.starts_with("--") { path = arg.clone(); }
+            if arg == "--editor" {
+                editor_mode = true;
+            } else if !arg.starts_with("--") {
+                path = arg.clone();
+            }
         }
 
         if editor_mode {
-            let editor = if path.is_empty() { EditorState::new("") }
-            else { match EditorState::load(&path) { Ok(e) => e, Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); } } };
+            let editor = if path.is_empty() {
+                EditorState::new("")
+            } else {
+                match EditorState::load(&path) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            };
             let project_dir = Path::new(&path).parent().unwrap_or(Path::new("."));
             // The editor has no time model of its own (D6) — only the project's
             // sprite mode applies here. `gameplay_loop` is captured separately
@@ -33,19 +45,31 @@ fn main() -> io::Result<()> {
             let mut play_gameplay_loop = GameplayLoop::RealTime;
             let mut pixels_per_unit = project::default_pixels_per_unit();
             if let Ok(proj) = ProjectData::load(&project_dir.to_string_lossy()) {
-                if proj.visual_style == VisualStyle::Sprites2D { engine.renderer.set_sprite_mode(true); }
-                else { engine.renderer.set_sprite_mode(false); }
+                if proj.visual_style == VisualStyle::Sprites2D {
+                    engine.renderer.set_sprite_mode(true);
+                } else {
+                    engine.renderer.set_sprite_mode(false);
+                }
                 play_gameplay_loop = proj.gameplay_loop;
                 pixels_per_unit = proj.pixels_per_unit;
             }
             run_editor_app(&mut engine, editor, play_gameplay_loop, pixels_per_unit)?;
         } else if !path.is_empty() {
-            let data = match LevelData::load(&path) { Ok(d) => d, Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); } };
+            let data = match LevelData::load(&path) {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            };
             let project_dir = Path::new(&path).parent().unwrap_or(Path::new("."));
             let mut pixels_per_unit = project::default_pixels_per_unit();
             if let Ok(proj) = ProjectData::load(&project_dir.to_string_lossy()) {
-                if proj.visual_style == VisualStyle::Sprites2D { engine.renderer.set_sprite_mode(true); }
-                else { engine.renderer.set_sprite_mode(false); }
+                if proj.visual_style == VisualStyle::Sprites2D {
+                    engine.renderer.set_sprite_mode(true);
+                } else {
+                    engine.renderer.set_sprite_mode(false);
+                }
                 engine.gameplay_loop = proj.gameplay_loop;
                 pixels_per_unit = proj.pixels_per_unit;
             }
@@ -66,20 +90,33 @@ fn main() -> io::Result<()> {
                 Some(Transition::ToEditorWithResult(res)) => {
                     engine.pop_state(); // Pop start screen
                     if let Ok(editor) = EditorState::new_from_result(res) {
-                        let folder = editor.project_folder.clone().unwrap_or_else(|| ".".to_string());
+                        let folder =
+                            editor.project_folder.clone().unwrap_or_else(|| ".".to_string());
                         let mut play_gameplay_loop = GameplayLoop::RealTime;
                         let mut pixels_per_unit = project::default_pixels_per_unit();
                         if let Ok(proj) = ProjectData::load(&folder) {
-                            if proj.visual_style == VisualStyle::Sprites2D { engine.renderer.set_sprite_mode(true); }
-                            else { engine.renderer.set_sprite_mode(false); }
+                            if proj.visual_style == VisualStyle::Sprites2D {
+                                engine.renderer.set_sprite_mode(true);
+                            } else {
+                                engine.renderer.set_sprite_mode(false);
+                            }
                             play_gameplay_loop = proj.gameplay_loop;
                             pixels_per_unit = proj.pixels_per_unit;
                         }
-                        if !run_editor_app(&mut engine, editor, play_gameplay_loop, pixels_per_unit)? { break; } // Quit from editor
+                        if !run_editor_app(
+                            &mut engine,
+                            editor,
+                            play_gameplay_loop,
+                            pixels_per_unit,
+                        )? {
+                            break;
+                        } // Quit from editor
                     }
                 }
                 Some(Transition::Quit) | None => break,
-                _ => { engine.pop_state(); }
+                _ => {
+                    engine.pop_state();
+                }
             }
         }
     }

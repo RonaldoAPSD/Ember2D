@@ -7,25 +7,53 @@
 // hard limit — no behavioral change from being grouped this way. See
 // `../panels/mod.rs` for the split's overall shape (`chrome`/`dock`/`modals`).
 
+use super::super::frame::{UiFrame, WidgetId};
+use super::super::rect::UiRect;
+use super::super::types::*;
+use crate::editor::palette::TilePalette;
 use ember2d::renderer::{color::Color, Font, Renderer};
 use ember2d_sim::level::TileRecord;
-use crate::editor::palette::TilePalette;
-use super::super::types::*;
-use super::super::rect::UiRect;
-use super::super::frame::{UiFrame, WidgetId};
 
-pub fn draw_title_bar(renderer: &mut Renderer, font: &mut dyn Font, level_name: &str, unsaved: bool, undo_count: usize, redo_count: usize, scroll: (f32, f32), level_size: (usize, usize)) {
+pub fn draw_title_bar(
+    renderer: &mut Renderer,
+    font: &mut dyn Font,
+    level_name: &str,
+    unsaved: bool,
+    undo_count: usize,
+    redo_count: usize,
+    scroll: (f32, f32),
+    level_size: (usize, usize),
+) {
     renderer.draw_rect_filled(0, 0, renderer.width, 1, ' ', Color::White, Color::DarkBlue);
     renderer.draw_str(1, 0, "EMBER2D EDITOR", Color::White, Color::DarkBlue);
 
     let saved_marker = if unsaved { "*" } else { " " };
-    let scroll_str = if scroll.0.abs() > 0.001 || scroll.1.abs() > 0.001 { format!(" @{:.1},{:.1}", scroll.0, scroll.1) } else { String::new() };
-    let info = format!("{}{}  {}×{}{}  U:{} R:{}", saved_marker, level_name, level_size.0, level_size.1, scroll_str, undo_count, redo_count);
+    let scroll_str = if scroll.0.abs() > 0.001 || scroll.1.abs() > 0.001 {
+        format!(" @{:.1},{:.1}", scroll.0, scroll.1)
+    } else {
+        String::new()
+    };
+    let info = format!(
+        "{}{}  {}×{}{}  U:{} R:{}",
+        saved_marker, level_name, level_size.0, level_size.1, scroll_str, undo_count, redo_count
+    );
     let col = renderer.width.saturating_sub(cells(font, &info) + 1);
     renderer.draw_str(col, 0, &info, Color::Yellow, Color::DarkBlue);
 }
 
-pub fn draw_status_bar(renderer: &mut Renderer, mouse: &ember2d::mouse::MouseState, _palette: &TilePalette, grid_overlay: bool, _save_path: &str, tile_under: Option<&TileRecord>, mode_hint: &str, scroll: (f32, f32), active_layer: u8, erase_size: usize, layout: &Layout) {
+pub fn draw_status_bar(
+    renderer: &mut Renderer,
+    mouse: &ember2d::mouse::MouseState,
+    _palette: &TilePalette,
+    grid_overlay: bool,
+    _save_path: &str,
+    tile_under: Option<&TileRecord>,
+    mode_hint: &str,
+    scroll: (f32, f32),
+    active_layer: u8,
+    erase_size: usize,
+    layout: &Layout,
+) {
     let status_row = renderer.height - 1;
     renderer.draw_rect_filled(0, status_row, renderer.width, 1, ' ', Color::White, Color::DarkGrey);
     let cx = mouse.cell_x.saturating_sub(layout.canvas_x) as f32 / layout.zoom + scroll.0;
@@ -33,15 +61,29 @@ pub fn draw_status_bar(renderer: &mut Renderer, mouse: &ember2d::mouse::MouseSta
     let pos_str = format!(" ({:3.1},{:3.1})", cx, cy);
     renderer.draw_str(0, status_row, &pos_str, Color::Cyan, Color::DarkGrey);
 
-    let lyr_name = match active_layer { 0 => "Background", 1 => "Main", 2 => "Foreground", _ => "Unknown" };
+    let lyr_name = match active_layer {
+        0 => "Background",
+        1 => "Main",
+        2 => "Foreground",
+        _ => "Unknown",
+    };
     let lyr_str = format!("[LAYER: {}]", lyr_name);
     renderer.draw_str(10, status_row, &lyr_str, Color::White, Color::DarkGrey);
 
     if !mode_hint.is_empty() {
-        renderer.draw_str(30, status_row, &format!("| {}", mode_hint), Color::White, Color::DarkGrey);
+        renderer.draw_str(
+            30,
+            status_row,
+            &format!("| {}", mode_hint),
+            Color::White,
+            Color::DarkGrey,
+        );
     } else if let Some(tile) = tile_under {
         let script_mark = if tile.script.is_some() { "[S]" } else { "   " };
-        let props = format!("| [{}] s:{} t:{} {} T=script", tile.tag, tile.solid as u8, tile.trigger as u8, script_mark);
+        let props = format!(
+            "| [{}] s:{} t:{} {} T=script",
+            tile.tag, tile.solid as u8, tile.trigger as u8, script_mark
+        );
         renderer.draw_str(30, status_row, &props, Color::Yellow, Color::DarkGrey);
     } else {
         let grid_hint = if grid_overlay { "Tab:off" } else { "Tab:grd" };
@@ -62,8 +104,19 @@ pub fn draw_status_bar(renderer: &mut Renderer, mouse: &ember2d::mouse::MouseSta
 /// fixing a real quirk the old independent hit-test had, where a
 /// single-panel dock's title row still claimed an invisible "tab" hitbox
 /// over its first `title.len()+2` cells even though no tab was ever drawn.
-pub fn draw_dock_tabs(renderer: &mut Renderer, font: &mut dyn Font, x: usize, y: usize, w: usize, panels: &[(PanelId, &str)], active: Option<PanelId>, frame: &mut UiFrame) {
-    if panels.is_empty() { return; }
+pub fn draw_dock_tabs(
+    renderer: &mut Renderer,
+    font: &mut dyn Font,
+    x: usize,
+    y: usize,
+    w: usize,
+    panels: &[(PanelId, &str)],
+    active: Option<PanelId>,
+    frame: &mut UiFrame,
+) {
+    if panels.is_empty() {
+        return;
+    }
 
     // Background for the tab bar
     renderer.draw_rect_filled(x, y, w, 1, ' ', Color::White, Color::Black);
@@ -76,7 +129,9 @@ pub fn draw_dock_tabs(renderer: &mut Renderer, font: &mut dyn Font, x: usize, y:
 
         let label = format!(" {} ", title);
         let label_w = cells(font, &label);
-        if cursor_x + label_w > x + w { break; }
+        if cursor_x + label_w > x + w {
+            break;
+        }
 
         renderer.draw_str(cursor_x, y, &label, fg, bg);
         frame.push(WidgetId::Tab(*id), UiRect::from_cells(cursor_x as i32, y as i32, label_w, 1));
@@ -84,7 +139,13 @@ pub fn draw_dock_tabs(renderer: &mut Renderer, font: &mut dyn Font, x: usize, y:
     }
 }
 
-pub fn draw_text_input(renderer: &mut Renderer, font: &mut dyn Font, prompt: &str, buffer: &str, layout: &Layout) {
+pub fn draw_text_input(
+    renderer: &mut Renderer,
+    font: &mut dyn Font,
+    prompt: &str,
+    buffer: &str,
+    layout: &Layout,
+) {
     let mw = 40usize;
     let mh = 7usize;
     let mx = (layout.screen_w.saturating_sub(mw)) / 2;
@@ -134,7 +195,9 @@ pub fn draw_text_input(renderer: &mut Renderer, font: &mut dyn Font, prompt: &st
         let mut start = chars.len();
         for (i, &ch) in chars.iter().enumerate().rev() {
             let cw = (font.glyph(ch, 8.0).map(|g| g.advance).unwrap_or(8.0) / 8.0).round() as usize;
-            if suffix_w + cw > budget { break; }
+            if suffix_w + cw > budget {
+                break;
+            }
             suffix_w += cw;
             start = i;
         }
@@ -151,7 +214,13 @@ pub fn draw_text_input(renderer: &mut Renderer, font: &mut dyn Font, prompt: &st
     renderer.draw_str(hint_x, my + mh - 3, hint, Color::DarkGrey, Color::DarkGrey);
 }
 
-pub fn draw_confirm_modal(renderer: &mut Renderer, font: &mut dyn Font, title: &str, message: &str, layout: &Layout) {
+pub fn draw_confirm_modal(
+    renderer: &mut Renderer,
+    font: &mut dyn Font,
+    title: &str,
+    message: &str,
+    layout: &Layout,
+) {
     let mw = 40usize;
     let mh = 8usize;
     let mx = (layout.screen_w.saturating_sub(mw)) / 2;
@@ -159,7 +228,13 @@ pub fn draw_confirm_modal(renderer: &mut Renderer, font: &mut dyn Font, title: &
 
     renderer.draw_rect_filled(mx, my, mw, mh, ' ', Color::White, Color::DarkGrey);
     renderer.draw_rect_filled(mx, my, mw, 1, ' ', Color::White, Color::DarkBlue);
-    renderer.draw_str(mx + 1, my, &format!(" {} ", title.to_uppercase()), Color::White, Color::DarkBlue);
+    renderer.draw_str(
+        mx + 1,
+        my,
+        &format!(" {} ", title.to_uppercase()),
+        Color::White,
+        Color::DarkBlue,
+    );
 
     // Message
     let msg_x = mx + (mw.saturating_sub(cells(font, message))) / 2;
@@ -168,10 +243,10 @@ pub fn draw_confirm_modal(renderer: &mut Renderer, font: &mut dyn Font, title: &
     // Buttons
     let btn_y = my + 5;
     let yes_x = mx + 8;
-    let no_x  = mx + mw - 15;
+    let no_x = mx + mw - 15;
 
     renderer.draw_str(yes_x, btn_y, " [ YES ] ", Color::Black, Color::Cyan);
-    renderer.draw_str(no_x,  btn_y, " [ NO ]  ", Color::White, Color::Black);
+    renderer.draw_str(no_x, btn_y, " [ NO ]  ", Color::White, Color::Black);
 }
 
 pub fn draw_context_menu(renderer: &mut Renderer, menu: &ContextMenu) {
@@ -209,7 +284,9 @@ pub fn draw_context_menu(renderer: &mut Renderer, menu: &ContextMenu) {
         let bg = if is_selected { Color::Cyan } else { Color::DarkGrey };
 
         let mut text = format!(" {:<width$} ", label, width = mw - 2);
-        if text.len() > mw { text = text.chars().take(mw).collect(); }
+        if text.len() > mw {
+            text = text.chars().take(mw).collect();
+        }
         renderer.draw_str(mx, row, &text, fg, bg);
     }
 }

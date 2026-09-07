@@ -18,8 +18,8 @@
 // is D20's own regression test — it needs a SECOND actor to tell the two
 // gating strategies apart at all.
 
-use std::collections::{BTreeMap, HashMap};
 use ember2d::prelude::*;
+use std::collections::{BTreeMap, HashMap};
 
 mod common;
 
@@ -34,10 +34,20 @@ fn step(play: &mut PlayState, world: &mut World, persistent: &mut BTreeMap<Strin
     let mut quit = false;
     let mut turn_triggered = false;
     play.update(UpdateContext {
-        world, input: &mut input, mouse: &mouse, gamepad: &gamepad, events: &mut events,
-        prev_positions: &prev_positions, delta_time: FRAME_DT, frame_delta_time: FRAME_DT,
-        elapsed: 0.0, quit: &mut quit, turn_triggered: &mut turn_triggered,
-        viewport_width: 20, viewport_height: 10, persistent,
+        world,
+        input: &mut input,
+        mouse: &mouse,
+        gamepad: &gamepad,
+        events: &mut events,
+        prev_positions: &prev_positions,
+        delta_time: FRAME_DT,
+        frame_delta_time: FRAME_DT,
+        elapsed: 0.0,
+        quit: &mut quit,
+        turn_triggered: &mut turn_triggered,
+        viewport_width: 20,
+        viewport_height: 10,
+        persistent,
     });
 }
 
@@ -55,7 +65,12 @@ fn turns(persistent: &BTreeMap<String, rhai::Dynamic>) -> i64 {
 /// inside `update`, so a driver that skips either step wouldn't exercise
 /// the actual failure mode (a real frame claims-then-doesn't-necessarily-read
 /// a buffered press).
-fn play_frame(play: &mut PlayState, world: &mut World, input: &mut InputManager, persistent: &mut BTreeMap<String, rhai::Dynamic>) {
+fn play_frame(
+    play: &mut PlayState,
+    world: &mut World,
+    input: &mut InputManager,
+    persistent: &mut BTreeMap<String, rhai::Dynamic>,
+) {
     input.consume_step();
     let mouse = MouseState::new();
     let gamepad = GamepadState::new();
@@ -64,10 +79,20 @@ fn play_frame(play: &mut PlayState, world: &mut World, input: &mut InputManager,
     let mut quit = false;
     let mut turn_triggered = false;
     play.update(UpdateContext {
-        world, input, mouse: &mouse, gamepad: &gamepad, events: &mut events,
-        prev_positions: &prev_positions, delta_time: FRAME_DT, frame_delta_time: FRAME_DT,
-        elapsed: 0.0, quit: &mut quit, turn_triggered: &mut turn_triggered,
-        viewport_width: 20, viewport_height: 10, persistent,
+        world,
+        input,
+        mouse: &mouse,
+        gamepad: &gamepad,
+        events: &mut events,
+        prev_positions: &prev_positions,
+        delta_time: FRAME_DT,
+        frame_delta_time: FRAME_DT,
+        elapsed: 0.0,
+        quit: &mut quit,
+        turn_triggered: &mut turn_triggered,
+        viewport_width: 20,
+        viewport_height: 10,
+        persistent,
     });
     input.decay(FRAME_DT);
 }
@@ -85,7 +110,9 @@ fn a_key_pressed_while_an_animation_plays_is_not_lost() {
     // enemy-specific.
     let mut script_path = common::test_temp_dir();
     script_path.push("ember2d_test_d19_buffered_press.rhai");
-    std::fs::write(&script_path, r#"
+    std::fs::write(
+        &script_path,
+        r#"
         fn on_input(id, ctx) {
             if ctx.just_pressed("d") { ctx.submit(id, "move", [1.0, 0.0]); }
         }
@@ -97,7 +124,9 @@ fn a_key_pressed_while_an_animation_plays_is_not_lost() {
                 ctx.act(100.0);
             }
         }
-    "#).expect("write temp script");
+    "#,
+    )
+    .expect("write temp script");
 
     let mut data = LevelData::empty(10, 10);
     data.player.script = Some(script_path.to_string_lossy().to_string());
@@ -117,7 +146,11 @@ fn a_key_pressed_while_an_animation_plays_is_not_lost() {
     input.handle_pressed(Key::D);
     play_frame(&mut play, &mut world, &mut input, &mut persistent);
     input.handle_released(Key::D);
-    assert_eq!(world.get_global_position(player_id), Vec2::new(start.x + 1.0, start.y), "the first press must move the player one cell");
+    assert_eq!(
+        world.get_global_position(player_id),
+        Vec2::new(start.x + 1.0, start.y),
+        "the first press must move the player one cell"
+    );
 
     // Frame 2: the FIRST blocked frame (animation elapsed 0 < 5/60, still
     // draining) — tap "d" again right here. Before the D19 fix, this press
@@ -129,13 +162,16 @@ fn a_key_pressed_while_an_animation_plays_is_not_lost() {
     input.handle_released(Key::D);
 
     // Frames 3-7: drain the remaining animation with no further input.
-    for _ in 0..5 { play_frame(&mut play, &mut world, &mut input, &mut persistent); }
+    for _ in 0..5 {
+        play_frame(&mut play, &mut world, &mut input, &mut persistent);
+    }
 
     // The frame-2 press must have survived and been honored once stepping
     // resumed — the player should now be two cells over, not stuck at one
     // (which is what D19 looked like: the second tap silently vanished).
     assert_eq!(
-        world.get_global_position(player_id), Vec2::new(start.x + 2.0, start.y),
+        world.get_global_position(player_id),
+        Vec2::new(start.x + 2.0, start.y),
         "a key pressed while the animation queue was draining must not be silently dropped (D19)"
     );
 
@@ -156,7 +192,9 @@ fn the_scheduler_waits_for_the_animation_queue_to_drain_before_the_next_turn() {
     // exactly on it).
     let mut script_path = common::test_temp_dir();
     script_path.push("ember2d_test_turn_animation.rhai");
-    std::fs::write(&script_path, r#"
+    std::fs::write(
+        &script_path,
+        r#"
         fn on_input(id, ctx) {
             ctx.submit(id, "tick", []);
         }
@@ -167,7 +205,9 @@ fn the_scheduler_waits_for_the_animation_queue_to_drain_before_the_next_turn() {
             ctx.animate_move(id, ctx.get_x(id), ctx.get_y(id), 5.0 / 60.0);
             ctx.act(100.0);
         }
-    "#).expect("write temp script");
+    "#,
+    )
+    .expect("write temp script");
 
     let mut data = LevelData::empty(10, 10);
     data.player.script = Some(script_path.to_string_lossy().to_string());
@@ -179,21 +219,35 @@ fn the_scheduler_waits_for_the_animation_queue_to_drain_before_the_next_turn() {
     play.on_start(&mut world, &mut events, 20, 10, &mut persistent);
 
     step(&mut play, &mut world, &mut persistent);
-    assert_eq!(turns(&persistent), 1, "the first step must resolve exactly one turn and queue its animation");
+    assert_eq!(
+        turns(&persistent),
+        1,
+        "the first step must resolve exactly one turn and queue its animation"
+    );
 
     // Comfortably inside the 5-frame window — no further turn may resolve
     // while that animation is still draining.
     step(&mut play, &mut world, &mut persistent);
     step(&mut play, &mut world, &mut persistent);
-    assert_eq!(turns(&persistent), 1, "no further turn may resolve while the animation queue is still draining");
+    assert_eq!(
+        turns(&persistent),
+        1,
+        "no further turn may resolve while the animation queue is still draining"
+    );
 
     // Comfortably past the 5-frame window (6 more steps, 8 total since the
     // turn that queued it) — stepping must have resumed, and exactly once,
     // not more (a bug that ignored the gate entirely would show turns > 2
     // here just as readily as a bug that never resumed would show turns
     // stuck at 1).
-    for _ in 0..6 { step(&mut play, &mut world, &mut persistent); }
-    assert_eq!(turns(&persistent), 2, "the scheduler must resolve exactly one more turn once the animation queue drains");
+    for _ in 0..6 {
+        step(&mut play, &mut world, &mut persistent);
+    }
+    assert_eq!(
+        turns(&persistent),
+        2,
+        "the scheduler must resolve exactly one more turn once the animation queue drains"
+    );
 
     let _ = std::fs::remove_file(&script_path);
 }
@@ -210,7 +264,9 @@ fn two_actors_animations_overlap_instead_of_stacking() {
     // advancing to 2 immediately.
     let mut player_script = common::test_temp_dir();
     player_script.push("ember2d_test_d20_player.rhai");
-    std::fs::write(&player_script, r#"
+    std::fs::write(
+        &player_script,
+        r#"
         fn on_input(id, ctx) { ctx.submit(id, "tick", []); }
         fn on_turn(id, ctx) {
             let n = ctx.get_persistent("turns");
@@ -218,11 +274,15 @@ fn two_actors_animations_overlap_instead_of_stacking() {
             ctx.set_persistent("turns", n + 1);
             ctx.act(100.0);
         }
-    "#).expect("write temp script");
+    "#,
+    )
+    .expect("write temp script");
 
     let mut ai_script = common::test_temp_dir();
     ai_script.push("ember2d_test_d20_ai.rhai");
-    std::fs::write(&ai_script, r#"
+    std::fs::write(
+        &ai_script,
+        r#"
         fn on_turn(id, ctx) {
             let n = ctx.get_global("ai_turns");
             let n = if n == () { 0 } else { n };
@@ -230,7 +290,9 @@ fn two_actors_animations_overlap_instead_of_stacking() {
             ctx.animate_move(id, ctx.get_x(id), ctx.get_y(id), 10.0 / 60.0);
             ctx.act(100.0);
         }
-    "#).expect("write temp script");
+    "#,
+    )
+    .expect("write temp script");
 
     let mut data = LevelData::empty(10, 10);
     data.player.script = Some(player_script.to_string_lossy().to_string());
@@ -245,7 +307,9 @@ fn two_actors_animations_overlap_instead_of_stacking() {
     let mut persistent: BTreeMap<String, rhai::Dynamic> = BTreeMap::new();
     play.on_start(&mut world, &mut events, 20, 10, &mut persistent);
 
-    fn ai_turns(play: &PlayState) -> i64 { play.globals().get("ai_turns").and_then(|d| d.as_int().ok()).unwrap_or(0) }
+    fn ai_turns(play: &PlayState) -> i64 {
+        play.globals().get("ai_turns").and_then(|d| d.as_int().ok()).unwrap_or(0)
+    }
 
     // Step 1: player's turn (never blocked — it has no animation of its own,
     // and the scheduler starts with the local actor first).
@@ -255,14 +319,22 @@ fn two_actors_animations_overlap_instead_of_stacking() {
 
     // Step 2: the AI's turn — resolves and queues its 10-frame animation.
     step(&mut play, &mut world, &mut persistent);
-    assert_eq!(ai_turns(&play), 1, "the AI's first turn must resolve on its own step, unblocked (nothing animated yet)");
+    assert_eq!(
+        ai_turns(&play),
+        1,
+        "the AI's first turn must resolve on its own step, unblocked (nothing animated yet)"
+    );
 
     // Step 3: back to the player. Under the OLD whole-queue gate this would
     // be blocked (the AI's animation from step 2 is still draining) and
     // `turns` would stay at 1. Under D20's per-actor gate the player is
     // never blocked by an animation that isn't its own.
     step(&mut play, &mut world, &mut persistent);
-    assert_eq!(turns(&persistent), 2, "D20: the player's turn must resolve even while the AI's own animation is still draining");
+    assert_eq!(
+        turns(&persistent),
+        2,
+        "D20: the player's turn must resolve even while the AI's own animation is still draining"
+    );
 
     // Step 4: the AI's turn comes up again, but its OWN animation from step
     // 2 (10 frames) has only had 2 real frames pass since (steps 3 and this
@@ -270,11 +342,17 @@ fn two_actors_animations_overlap_instead_of_stacking() {
     // invariant D20 must preserve: an actor can't receive a new animation
     // before its previous one finishes.
     step(&mut play, &mut world, &mut persistent);
-    assert_eq!(ai_turns(&play), 1, "the AI's own still-draining animation must still block its own next turn");
+    assert_eq!(
+        ai_turns(&play),
+        1,
+        "the AI's own still-draining animation must still block its own next turn"
+    );
 
     // Drain well past the 10-frame window, stepping throughout so the
     // now-unblocked AI actually gets to act again.
-    for _ in 0..12 { step(&mut play, &mut world, &mut persistent); }
+    for _ in 0..12 {
+        step(&mut play, &mut world, &mut persistent);
+    }
     assert_eq!(ai_turns(&play), 2, "the AI's turn must resume once its own animation finishes");
 
     let _ = std::fs::remove_file(&player_script);

@@ -22,7 +22,9 @@ impl ScriptCtx {
         let s = self.inner.borrow_mut();
         for (&id, &(w, h, _, _, _, _, _)) in &s.colliders {
             if let Some(&(px, py)) = s.positions.get(&id) {
-                if x >= px as f64 && x < (px + w) as f64 && y >= py as f64 && y < (py + h) as f64 { return id; }
+                if x >= px as f64 && x < (px + w) as f64 && y >= py as f64 && y < (py + h) as f64 {
+                    return id;
+                }
             }
         }
         -1
@@ -30,9 +32,13 @@ impl ScriptCtx {
     pub fn is_solid_at(&mut self, x: f64, y: f64) -> bool {
         let s = self.inner.borrow_mut();
         for (&id, &(w, h, solid, _, _, _, _)) in &s.colliders {
-            if !solid { continue; }
+            if !solid {
+                continue;
+            }
             if let Some(&(px, py)) = s.positions.get(&id) {
-                if x >= px as f64 && x < (px + w) as f64 && y >= py as f64 && y < (py + h) as f64 { return true; }
+                if x >= px as f64 && x < (px + w) as f64 && y >= py as f64 && y < (py + h) as f64 {
+                    return true;
+                }
             }
         }
         false
@@ -44,7 +50,9 @@ impl ScriptCtx {
         for (&id, &(cw, ch, _, _, _, _, _)) in &s.colliders {
             if let Some(&(px, py)) = s.positions.get(&id) {
                 let r2 = crate::math::Rect::new(px, py, cw, ch);
-                if r1.intersects(r2) { found.push(Dynamic::from(id)); }
+                if r1.intersects(r2) {
+                    found.push(Dynamic::from(id));
+                }
             }
         }
         found
@@ -65,14 +73,16 @@ impl ScriptCtx {
                 let (dx, dy) = ((x2 - x1) as f64, (y2 - y1) as f64);
                 (dx * dx + dy * dy).sqrt()
             }
-            _ => 0.0
+            _ => 0.0,
         }
     }
     pub fn get_angle_to(&mut self, from_id: i64, to_id: i64) -> f64 {
         let s = self.inner.borrow_mut();
         match (s.positions.get(&from_id), s.positions.get(&to_id)) {
-            (Some(&(x1, y1)), Some(&(x2, y2))) => crate::math::atan2_approx((y2 - y1) as f64, (x2 - x1) as f64),
-            _ => 0.0
+            (Some(&(x1, y1)), Some(&(x2, y2))) => {
+                crate::math::atan2_approx((y2 - y1) as f64, (x2 - x1) as f64)
+            }
+            _ => 0.0,
         }
     }
 
@@ -100,9 +110,15 @@ impl ScriptCtx {
         let mut closest_t = 1.0f32; // normalized distance [0, 1] along the segment
 
         for (&id, &(w, h, solid, _, _, _, layer_bits)) in &s.colliders {
-            if id == self.entity_id { continue; } // Don't hit self
-            if !solid { continue; }
-            if mask_bits != 0 && (mask_bits & layer_bits) == 0 { continue; }
+            if id == self.entity_id {
+                continue;
+            } // Don't hit self
+            if !solid {
+                continue;
+            }
+            if mask_bits != 0 && (mask_bits & layer_bits) == 0 {
+                continue;
+            }
 
             if let Some(&(px, py)) = s.positions.get(&id) {
                 let rect = crate::math::Rect::new(px, py, w, h);
@@ -118,7 +134,11 @@ impl ScriptCtx {
         if closest_id != -1 {
             let hit_x = ox + dx * closest_t;
             let hit_y = oy + dy * closest_t;
-            vec![Dynamic::from(closest_id), Dynamic::from(hit_x as f64), Dynamic::from(hit_y as f64)]
+            vec![
+                Dynamic::from(closest_id),
+                Dynamic::from(hit_x as f64),
+                Dynamic::from(hit_y as f64),
+            ]
         } else {
             Array::new()
         }
@@ -134,7 +154,9 @@ impl ScriptCtx {
         let target_x = x2.round() as i32;
         let target_y = y2.round() as i32;
 
-        if start_x == target_x && start_y == target_y { return Array::new(); }
+        if start_x == target_x && start_y == target_y {
+            return Array::new();
+        }
 
         // Phase 6 Step 7 (docs/ember2d-phase6-plan.md): folded to bits ONCE
         // here, before A* even starts, rather than re-compared as strings
@@ -143,26 +165,38 @@ impl ScriptCtx {
         let mask_vec: Vec<String> = mask.into_iter().map(|d| d.to_string()).collect();
         let mask_bits = s.layers.mask_bits(&mask_vec);
 
-        use std::collections::{BinaryHeap, HashMap};
         use std::cmp::Ordering;
+        use std::collections::{BinaryHeap, HashMap};
 
         #[derive(Copy, Clone, Eq, PartialEq)]
         struct Node {
-            x: i32, y: i32, g: i32, f: i32,
+            x: i32,
+            y: i32,
+            g: i32,
+            f: i32,
         }
 
         impl Ord for Node {
-            fn cmp(&self, other: &Self) -> Ordering { other.f.cmp(&self.f) } // Min-heap
+            fn cmp(&self, other: &Self) -> Ordering {
+                other.f.cmp(&self.f)
+            } // Min-heap
         }
         impl PartialOrd for Node {
-            fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                Some(self.cmp(other))
+            }
         }
 
         let mut open_set = BinaryHeap::new();
         let mut came_from = HashMap::new();
         let mut g_score = HashMap::new();
 
-        open_set.push(Node { x: start_x, y: start_y, g: 0, f: (start_x - target_x).abs() + (start_y - target_y).abs() });
+        open_set.push(Node {
+            x: start_x,
+            y: start_y,
+            g: 0,
+            f: (start_x - target_x).abs() + (start_y - target_y).abs(),
+        });
         g_score.insert((start_x, start_y), 0);
 
         let mut found = false;
@@ -170,7 +204,9 @@ impl ScriptCtx {
 
         while let Some(current) = open_set.pop() {
             iterations += 1;
-            if iterations > 2000 { break; } // Safety limit
+            if iterations > 2000 {
+                break;
+            } // Safety limit
 
             if current.x == target_x && current.y == target_y {
                 found = true;
@@ -184,22 +220,31 @@ impl ScriptCtx {
                 // Check collision at (nx, ny)
                 let mut blocked = false;
                 for (&id, &(w, h, solid, _, _, _, layer_bits)) in &s.colliders {
-                    if !solid { continue; }
+                    if !solid {
+                        continue;
+                    }
                     // If mask is empty (mask_bits == 0), ALL solids block.
                     // Otherwise only solids whose own layer bit intersects
                     // the requested mask block.
-                    if mask_bits != 0 && (mask_bits & layer_bits) == 0 { continue; }
+                    if mask_bits != 0 && (mask_bits & layer_bits) == 0 {
+                        continue;
+                    }
 
                     if let Some(&(px, py)) = s.positions.get(&id) {
-                        if nx >= px.round() as i32 && nx < (px + w).round() as i32 &&
-                           ny >= py.round() as i32 && ny < (py + h).round() as i32 {
+                        if nx >= px.round() as i32
+                            && nx < (px + w).round() as i32
+                            && ny >= py.round() as i32
+                            && ny < (py + h).round() as i32
+                        {
                             blocked = true;
                             break;
                         }
                     }
                 }
 
-                if blocked { continue; }
+                if blocked {
+                    continue;
+                }
 
                 let tentative_g = current.g + 1;
                 if tentative_g < *g_score.get(&(nx, ny)).unwrap_or(&i32::MAX) {
@@ -215,8 +260,15 @@ impl ScriptCtx {
             let mut path = Vec::new();
             let mut curr = (target_x, target_y);
             while curr != (start_x, start_y) {
-                path.push(Dynamic::from(vec![Dynamic::from(curr.0 as f64), Dynamic::from(curr.1 as f64)]));
-                if let Some(&prev) = came_from.get(&curr) { curr = prev; } else { break; }
+                path.push(Dynamic::from(vec![
+                    Dynamic::from(curr.0 as f64),
+                    Dynamic::from(curr.1 as f64),
+                ]));
+                if let Some(&prev) = came_from.get(&curr) {
+                    curr = prev;
+                } else {
+                    break;
+                }
             }
             path.reverse();
             path

@@ -9,7 +9,7 @@
 // `play/spawn.rs`), but a script with no `on_input`/`on_turn` functions
 // never notices — see `scheduler.rs`'s header comment.
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Who supplies this actor's commands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -5,11 +5,11 @@
 // "did this section consume the input" convention every extracted section
 // follows.
 
-use ember2d::input::Key;
+use super::super::super::ui::WidgetId;
+use super::super::super::ui::{self, ToolbarAction};
 use super::super::super::EditorState;
 use super::super::super::{TextInput, TextInputPurpose};
-use super::super::super::ui::{self, ToolbarAction};
-use super::super::super::ui::WidgetId;
+use ember2d::input::Key;
 
 impl EditorState {
     /// Clicking a top menu-bar label (row `layout.toolbar_row`) opens or
@@ -22,7 +22,8 @@ impl EditorState {
     /// note on the padding-cell fix this includes.
     pub(super) fn handle_menu_bar_click(&mut self, mouse: &ember2d::mouse::MouseState) -> bool {
         if mouse.left_just_pressed() && mouse.cell_y == self.layout.toolbar_row {
-            if let Some(WidgetId::MenuLabel(kind)) = self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) {
+            if let Some(WidgetId::MenuLabel(kind)) = self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y)
+            {
                 self.active_menu = if self.active_menu == Some(kind) { None } else { Some(kind) };
             } else {
                 self.active_menu = None;
@@ -37,7 +38,11 @@ impl EditorState {
     /// closes the menu on a miss), Escape dismisses it. `true` in either
     /// case, matching the original's unconditional `return;` at the end of
     /// each of those two branches.
-    pub(super) fn handle_menu_dropdown_click(&mut self, input: &ember2d::input::InputManager, mouse: &ember2d::mouse::MouseState) -> bool {
+    pub(super) fn handle_menu_dropdown_click(
+        &mut self,
+        input: &ember2d::input::InputManager,
+        mouse: &ember2d::mouse::MouseState,
+    ) -> bool {
         let Some(menu) = self.active_menu else { return false };
 
         if mouse.left_just_pressed() {
@@ -70,14 +75,15 @@ impl EditorState {
                     }
                     ToolbarAction::ResizeLevel => {
                         self.text_input = Some(TextInput {
-                            buffer:  String::new(),
+                            buffer: String::new(),
                             purpose: TextInputPurpose::ResizeLevel,
                         });
                         return true;
                     }
                     ToolbarAction::SetSpawn => {
                         self.placing_spawn = true;
-                        self.save_message = Some("Click on grid to place spawn. Esc to cancel.".to_string());
+                        self.save_message =
+                            Some("Click on grid to place spawn. Esc to cancel.".to_string());
                         self.save_message_timer = 0;
                         return true;
                     }
@@ -90,17 +96,23 @@ impl EditorState {
                     }
                     ToolbarAction::NewLevel => {
                         self.text_input = Some(TextInput {
-                            buffer:  String::new(),
+                            buffer: String::new(),
                             purpose: TextInputPurpose::NewLevelName,
                         });
                         return true;
                     }
-                    _ => { self.dispatch_toolbar_action(action); return true; }
+                    _ => {
+                        self.dispatch_toolbar_action(action);
+                        return true;
+                    }
                 }
             }
             return true;
         }
-        if input.just_pressed(Key::Escape) { self.active_menu = None; return true; }
+        if input.just_pressed(Key::Escape) {
+            self.active_menu = None;
+            return true;
+        }
         false
     }
 }

@@ -41,9 +41,9 @@
 // Because Color (in renderer/color.rs) also derives Serialize + Deserialize,
 // it serializes to its variant name: `Yellow`, `Reset`, etc. — not a number.
 
-use std::fs;
-use serde::{Deserialize, Serialize};
 use crate::color::Color;
+use serde::{Deserialize, Serialize};
+use std::fs;
 
 // ── TileRecord ────────────────────────────────────────────────────────────────
 
@@ -150,8 +150,12 @@ pub struct TileRecord {
     pub actor: Option<ActorRecord>,
 }
 
-fn default_layer() -> u8 { 1 }
-fn is_false(b: &bool) -> bool { !*b }
+fn default_layer() -> u8 {
+    1
+}
+fn is_false(b: &bool) -> bool {
+    !*b
+}
 
 // ── ActorRecord ───────────────────────────────────────────────────────────────
 
@@ -162,7 +166,9 @@ pub struct ActorRecord {
     pub speed: u32,
 }
 
-fn default_actor_speed() -> u32 { 100 }
+fn default_actor_speed() -> u32 {
+    100
+}
 
 impl Default for ActorRecord {
     fn default() -> Self {
@@ -218,31 +224,45 @@ pub struct PlayerRecord {
     pub layer: i32,
 }
 
-fn default_player_glyph() -> char { '@' }
-fn default_player_fg()    -> Color { Color::Green }
-fn default_player_bg()    -> Color { Color::Reset }
-fn default_player_tag()   -> String { "player".to_string() }
-fn bool_true()            -> bool { true }
-fn default_player_collider_size() -> f32 { 0.75 }
-fn default_player_layer() -> i32 { 15 }
+fn default_player_glyph() -> char {
+    '@'
+}
+fn default_player_fg() -> Color {
+    Color::Green
+}
+fn default_player_bg() -> Color {
+    Color::Reset
+}
+fn default_player_tag() -> String {
+    "player".to_string()
+}
+fn bool_true() -> bool {
+    true
+}
+fn default_player_collider_size() -> f32 {
+    0.75
+}
+fn default_player_layer() -> i32 {
+    15
+}
 
 impl Default for PlayerRecord {
     fn default() -> Self {
         PlayerRecord {
-            glyph:          '@',
-            fg:             Color::Green,
-            bg:             Color::Reset,
-            solid:          false,
-            trigger:        false,
-            tag:            "player".to_string(),
-            camera_follow:  true,
-            script:         None,
+            glyph: '@',
+            fg: Color::Green,
+            bg: Color::Reset,
+            solid: false,
+            trigger: false,
+            tag: "player".to_string(),
+            camera_follow: true,
+            script: None,
             collider_layer: String::new(),
-            collider_mask:  Vec::new(),
-            texture:        None,
-            collider_w:     default_player_collider_size(),
-            collider_h:     default_player_collider_size(),
-            layer:          default_player_layer(),
+            collider_mask: Vec::new(),
+            texture: None,
+            collider_w: default_player_collider_size(),
+            collider_h: default_player_collider_size(),
+            layer: default_player_layer(),
         }
     }
 }
@@ -250,17 +270,27 @@ impl Default for PlayerRecord {
 impl TileRecord {
     /// Construct a TileRecord with all fields explicit.
     pub fn new(
-        x: i32, y: i32,
+        x: i32,
+        y: i32,
         layer: u8,
         glyph: char,
-        fg: Color, bg: Color,
-        solid: bool, trigger: bool,
+        fg: Color,
+        bg: Color,
+        solid: bool,
+        trigger: bool,
         tag: impl Into<String>,
     ) -> Self {
-        TileRecord { 
-            x, y, layer, glyph, fg, bg, solid, trigger, 
-            tag: tag.into(), 
-            script: None, 
+        TileRecord {
+            x,
+            y,
+            layer,
+            glyph,
+            fg,
+            bg,
+            solid,
+            trigger,
+            tag: tag.into(),
+            script: None,
             collider_layer: String::new(),
             collider_mask: Vec::new(),
             camera_follow: false,
@@ -376,7 +406,9 @@ pub struct LevelData {
 // default_pixels_per_unit is pub) can use this exact default for a
 // freshly-created level instead of a second hardcoded `vec!["solid"...]`
 // literal drifting from this one.
-pub fn default_collision_layers() -> Vec<String> { vec!["solid".to_string()] }
+pub fn default_collision_layers() -> Vec<String> {
+    vec!["solid".to_string()]
+}
 
 impl LevelData {
     /// Create an empty level with no tiles and the spawn point at (1, 1).
@@ -390,16 +422,16 @@ impl LevelData {
     /// (defect D3), not re-rolled on every launch.
     pub fn empty(width: usize, height: usize) -> Self {
         LevelData {
-            version:      LEVEL_FORMAT_VERSION,
-            name:         String::from("Untitled"),
+            version: LEVEL_FORMAT_VERSION,
+            name: String::from("Untitled"),
             width,
             height,
-            spawn_point:  (1.0, 1.0),
+            spawn_point: (1.0, 1.0),
             extra_spawns: Vec::new(),
-            tiles:        Vec::new(),
-            player:       PlayerRecord::default(),
-            path:         String::new(),
-            seed:         rand::random(),
+            tiles: Vec::new(),
+            player: PlayerRecord::default(),
+            path: String::new(),
+            seed: rand::random(),
             collision_layers: default_collision_layers(),
         }
     }
@@ -418,9 +450,7 @@ impl LevelData {
     pub fn save(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
         // PrettyConfig controls the RON output formatting.
         // depth_limit controls indentation depth; new_line controls line endings.
-        let config = ron::ser::PrettyConfig::new()
-            .depth_limit(4)
-            .new_line("\n".to_string());
+        let config = ron::ser::PrettyConfig::new().depth_limit(4).new_line("\n".to_string());
 
         // Serialize self to a RON string.
         let ron_string = ron::ser::to_string_pretty(self, config)?;
@@ -479,7 +509,9 @@ mod tests {
     /// The dir is scoped by process id (7A-8) rather than a fixed name, so
     /// two `cargo test` processes can never collide on the same path.
     fn write_temp_level(name: &str, ron: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("ember2d-{}", std::process::id())).join("level_version");
+        let dir = std::env::temp_dir()
+            .join(format!("ember2d-{}", std::process::id()))
+            .join("level_version");
         std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
         let path = dir.join(name);
         std::fs::write(&path, ron).expect("write temp level");
@@ -490,8 +522,13 @@ mod tests {
 
     #[test]
     fn a_level_saved_by_a_newer_engine_fails_to_load_with_a_clear_message() {
-        let path = write_temp_level("newer.level", "(version: 99, name: \"x\", width: 4, height: 4, spawn_point: (1.0, 1.0), tiles: [])");
-        let err = LevelData::load(path.to_str().unwrap()).expect_err("a level from a newer format version must fail to load, not silently misbehave");
+        let path = write_temp_level(
+            "newer.level",
+            "(version: 99, name: \"x\", width: 4, height: 4, spawn_point: (1.0, 1.0), tiles: [])",
+        );
+        let err = LevelData::load(path.to_str().unwrap()).expect_err(
+            "a level from a newer format version must fail to load, not silently misbehave",
+        );
         let msg = err.to_string();
         assert!(msg.contains("newer engine"), "error message must explain why, got: {}", msg);
         let _ = std::fs::remove_file(&path);
@@ -499,8 +536,12 @@ mod tests {
 
     #[test]
     fn a_version_2_level_loads_with_collision_layers_defaulted() {
-        let path = write_temp_level("v2.level", "(version: 2, name: \"x\", width: 4, height: 4, spawn_point: (1.0, 1.0), tiles: [])");
-        let level = LevelData::load(path.to_str().unwrap()).expect("an older-format level must still load");
+        let path = write_temp_level(
+            "v2.level",
+            "(version: 2, name: \"x\", width: 4, height: 4, spawn_point: (1.0, 1.0), tiles: [])",
+        );
+        let level =
+            LevelData::load(path.to_str().unwrap()).expect("an older-format level must still load");
         assert_eq!(level.collision_layers, vec!["solid".to_string()], "a version-2 level predates collision_layers entirely — it must default to the one layer name pre-Step-7 levels actually used");
         let _ = std::fs::remove_file(&path);
     }

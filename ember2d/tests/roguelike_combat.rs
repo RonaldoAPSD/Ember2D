@@ -18,7 +18,11 @@ const FLOOR2: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../roguelike/floor2.l
 const FLOOR3: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../roguelike/floor3.level");
 
 fn first_id_tagged(h: &TurnHarness, tag: &str) -> EntityId {
-    h.world.tags.iter().find(|(_, t)| t.name == tag).map(|(&id, _)| id)
+    h.world
+        .tags
+        .iter()
+        .find(|(_, t)| t.name == tag)
+        .map(|(&id, _)| id)
         .unwrap_or_else(|| panic!("no entity tagged \"{}\" found", tag))
 }
 
@@ -31,16 +35,24 @@ fn bump_attack_kills_a_rat_in_two_hits_and_each_hit_costs_a_turn() {
     let mut h = TurnHarness::load(FLOOR2);
     let rat_id = first_id_tagged(&h, "enemy");
     let rat_pos = h.world.transforms.get(&rat_id).unwrap().position;
-    h.world.transforms.get_mut(&h.player_id()).unwrap().position = Vec2::new(rat_pos.x - 1.0, rat_pos.y);
+    h.world.transforms.get_mut(&h.player_id()).unwrap().position =
+        Vec2::new(rat_pos.x - 1.0, rat_pos.y);
 
     let triggered1 = h.turn("d");
     assert!(triggered1, "a bump-attack must consume a turn");
-    assert_eq!(h.player_pos(), Vec2::new(rat_pos.x - 1.0, rat_pos.y), "attacking must not move the player onto the target's cell");
+    assert_eq!(
+        h.player_pos(),
+        Vec2::new(rat_pos.x - 1.0, rat_pos.y),
+        "attacking must not move the player onto the target's cell"
+    );
     assert!(h.world.sprites.contains_key(&rat_id), "one hit (3 dmg) must not kill a 6-hp rat");
 
     let triggered2 = h.turn("d");
     assert!(triggered2, "a second bump-attack must also consume a turn");
-    assert!(!h.world.sprites.contains_key(&rat_id), "a second hit must kill the rat (6 hp, 3 dmg/hit)");
+    assert!(
+        !h.world.sprites.contains_key(&rat_id),
+        "a second hit must kill the rat (6 hp, 3 dmg/hit)"
+    );
 }
 
 #[test]
@@ -49,7 +61,8 @@ fn a_rat_acts_at_most_once_per_player_turn_even_across_many_idle_frames() {
     let rat_id = first_id_tagged(&h, "enemy");
     let rat_start = h.world.transforms.get(&rat_id).unwrap().position;
     // Same open room, several cells away, clear line of sight.
-    h.world.transforms.get_mut(&h.player_id()).unwrap().position = Vec2::new(rat_start.x - 3.0, rat_start.y);
+    h.world.transforms.get_mut(&h.player_id()).unwrap().position =
+        Vec2::new(rat_start.x - 3.0, rat_start.y);
 
     h.turn("space"); // one player round: the rat wakes and takes exactly one step (its own on_turn call within this round)
     let after_one_turn = h.world.transforms.get(&rat_id).map(|t| t.position);
@@ -59,7 +72,9 @@ fn a_rat_acts_at_most_once_per_player_turn_even_across_many_idle_frames() {
     // TurnScheduler stays parked on the (Local) player awaiting one —
     // Step 5f, docs/ember2d-phase5-plan.md — so the rat's on_turn never
     // gets called again until the player's next round.
-    for _ in 0..10 { h.frame(None); }
+    for _ in 0..10 {
+        h.frame(None);
+    }
     let after_idle = h.world.transforms.get(&rat_id).map(|t| t.position);
     assert_eq!(after_idle, after_one_turn, "a rat must not act again until the next real player turn, no matter how many idle frames pass");
 }
@@ -82,8 +97,10 @@ fn two_adjacent_rats_each_contribute_their_own_damage_in_the_same_resolve() {
 
     let player_pos = Vec2::new(50.0, 10.0); // open floor inside room B
     h.world.transforms.get_mut(&h.player_id()).unwrap().position = player_pos;
-    h.world.transforms.get_mut(&rats[0]).unwrap().position = Vec2::new(player_pos.x - 1.0, player_pos.y);
-    h.world.transforms.get_mut(&rats[1]).unwrap().position = Vec2::new(player_pos.x, player_pos.y - 1.0);
+    h.world.transforms.get_mut(&rats[0]).unwrap().position =
+        Vec2::new(player_pos.x - 1.0, player_pos.y);
+    h.world.transforms.get_mut(&rats[1]).unwrap().position =
+        Vec2::new(player_pos.x, player_pos.y - 1.0);
 
     h.turn("space"); // both rats wake (adjacent = trivial line of sight) and land their hit this same round
 
@@ -107,7 +124,8 @@ fn stairs_are_locked_while_the_boss_is_alive_and_unlock_after_it_dies() {
     // mechanic work" from "what are today's exact balance numbers" — the
     // latter can reasonably change again without invalidating this test.
     let mut h = TurnHarness::load(FLOOR3);
-    let mut persistent: std::collections::BTreeMap<String, rhai::Dynamic> = std::collections::BTreeMap::new();
+    let mut persistent: std::collections::BTreeMap<String, rhai::Dynamic> =
+        std::collections::BTreeMap::new();
     persistent.insert("hp".into(), rhai::Dynamic::from(999_i64));
     persistent.insert("hp_max".into(), rhai::Dynamic::from(999_i64));
     persistent.insert("potions".into(), rhai::Dynamic::from(0_i64));
@@ -120,20 +138,30 @@ fn stairs_are_locked_while_the_boss_is_alive_and_unlock_after_it_dies() {
 
     let boss_id = first_id_tagged(&h, "boss");
     let stairs_id = h.world.find_by_tag("stairs").expect("stairs should exist");
-    assert!(h.world.colliders.get(&stairs_id).unwrap().locked, "stairs must be locked while the boss is alive");
+    assert!(
+        h.world.colliders.get(&stairs_id).unwrap().locked,
+        "stairs must be locked while the boss is alive"
+    );
 
     let boss_pos = h.world.transforms.get(&boss_id).unwrap().position;
-    h.world.transforms.get_mut(&h.player_id()).unwrap().position = Vec2::new(boss_pos.x - 1.0, boss_pos.y);
+    h.world.transforms.get_mut(&h.player_id()).unwrap().position =
+        Vec2::new(boss_pos.x - 1.0, boss_pos.y);
 
     // 15 hp, 3 dmg/hit -> dead on the 5th hit.
     for i in 0..5 {
         let triggered = h.turn("d");
         assert!(triggered, "hit #{} must consume a turn", i + 1);
     }
-    assert!(!h.world.sprites.contains_key(&boss_id), "the boss must be dead after 5 hits (15 hp, 3 dmg/hit)");
+    assert!(
+        !h.world.sprites.contains_key(&boss_id),
+        "the boss must be dead after 5 hits (15 hp, 3 dmg/hit)"
+    );
 
     h.turn("space"); // give stairs.rhai a turn to notice count_by_tag("boss") == 0
-    assert!(!h.world.colliders.get(&stairs_id).unwrap().locked, "stairs must unlock once the boss is dead");
+    assert!(
+        !h.world.colliders.get(&stairs_id).unwrap().locked,
+        "stairs must unlock once the boss is dead"
+    );
 }
 
 #[test]
@@ -156,28 +184,39 @@ fn identical_input_sequences_produce_identical_state_across_independent_instance
     let mut h1 = TurnHarness::load(FLOOR2);
     let mut h2 = TurnHarness::load(FLOOR2);
 
-    let sequence = [
-        "d", "d", "d", "s", "s", "a", "w",
-        "space", "d", "s", "space", "a", "a", "w", "w",
-    ];
+    let sequence =
+        ["d", "d", "d", "s", "s", "a", "w", "space", "d", "s", "space", "a", "a", "w", "w"];
     for &key in &sequence {
         h1.turn(key);
         h2.turn(key);
     }
 
-    assert_eq!(h1.player_pos(), h2.player_pos(), "same input sequence must produce the same player position");
+    assert_eq!(
+        h1.player_pos(),
+        h2.player_pos(),
+        "same input sequence must produce the same player position"
+    );
     let hp = |h: &TurnHarness| h.persistent.get("hp").and_then(|d| d.as_int().ok());
     let gold = |h: &TurnHarness| h.persistent.get("gold").and_then(|d| d.as_int().ok());
     assert_eq!(hp(&h1), hp(&h2), "same input sequence must produce the same hp");
     assert_eq!(gold(&h1), gold(&h2), "same input sequence must produce the same gold");
 
     let rat_positions = |h: &TurnHarness| -> Vec<(i64, i64)> {
-        let mut v: Vec<(i64, i64)> = h.world.tags.iter()
+        let mut v: Vec<(i64, i64)> = h
+            .world
+            .tags
+            .iter()
             .filter(|(_, t)| t.name == "enemy")
-            .filter_map(|(&id, _)| h.world.transforms.get(&id).map(|t| (t.position.x as i64, t.position.y as i64)))
+            .filter_map(|(&id, _)| {
+                h.world.transforms.get(&id).map(|t| (t.position.x as i64, t.position.y as i64))
+            })
             .collect();
         v.sort();
         v
     };
-    assert_eq!(rat_positions(&h1), rat_positions(&h2), "rats must end up in the same positions across independently-run instances");
+    assert_eq!(
+        rat_positions(&h1),
+        rat_positions(&h2),
+        "rats must end up in the same positions across independently-run instances"
+    );
 }

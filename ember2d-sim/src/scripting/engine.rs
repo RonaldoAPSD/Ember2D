@@ -1,18 +1,18 @@
 // scripting/engine.rs — ScriptState and ScriptEngine core.
 
+use rhai::{Engine, Scope, AST};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::time::SystemTime;
 use std::rc::Rc;
-use std::cell::RefCell;
-use rhai::{Engine, Scope, AST};
+use std::time::SystemTime;
 
-use crate::world::{EntityId, World};
 use crate::command::{Command, GamepadSnapshot, InputSnapshot, MouseSnapshot};
 use crate::components::AnimationClip;
+use crate::world::{EntityId, World};
 
-use super::types::*;
 use super::api::ScriptCtx;
+use super::types::*;
 
 // ScriptState (the per-frame snapshot + write-queue scripts see through
 // ScriptCtx) lives in state.rs, a sibling module declared in
@@ -35,7 +35,7 @@ use super::state::{ScriptState, WorldSnapshot};
 const HOT_RELOAD_CHECK_INTERVAL: u32 = 30;
 
 pub struct ScriptEngine {
-    engine:    Engine,
+    engine: Engine,
     ast_cache: HashMap<String, AST>,
     /// `pub(super)` (not private) since `apply.rs`'s `apply_ctx` — a second
     /// `impl ScriptEngine` block in a sibling file, Phase 6 Step 2 — reads
@@ -48,7 +48,7 @@ pub struct ScriptEngine {
     /// kept failing, every frame. A script stays disabled until it hot-reloads
     /// successfully (see `check_hot_reload`).
     disabled_scripts: HashSet<String>,
-    rng:       Rc<RefCell<rand::rngs::SmallRng>>,
+    rng: Rc<RefCell<rand::rngs::SmallRng>>,
     /// Phase 6 Step 6 (docs/ember2d-phase6-plan.md): counts calls to
     /// `run_scripts` so hot-reload checking can run every
     /// `HOT_RELOAD_CHECK_INTERVAL` of them instead of every one — see that
@@ -83,10 +83,10 @@ pub struct ScriptEngine {
     /// where the state happened to live.
     pub(super) timers: BTreeMap<EntityId, BTreeMap<String, f64>>,
     pub pending_hud_draws: Vec<HudDraw>,
-    pub pending_sounds:    Vec<String>,
+    pub pending_sounds: Vec<String>,
     pub pending_spatial_sounds: Vec<(String, f32, f32)>,
-    pub pending_music:     Option<String>,
-    pub stop_music:        bool,
+    pub pending_music: Option<String>,
+    pub stop_music: bool,
 }
 
 impl ScriptEngine {
@@ -109,176 +109,201 @@ impl ScriptEngine {
         // disables the script) — no separate handling needed here.
         engine.set_max_operations(2_000_000);
         engine.register_type_with_name::<ScriptCtx>("Ctx");
-        engine.register_fn("get_x",           ScriptCtx::get_x);
-        engine.register_fn("get_y",           ScriptCtx::get_y);
-        engine.register_fn("get_position",    ScriptCtx::get_position);
-        engine.register_fn("get_vel_x",       ScriptCtx::get_vel_x);
-        engine.register_fn("get_vel_y",       ScriptCtx::get_vel_y);
-        engine.register_fn("get_velocity",    ScriptCtx::get_velocity);
-        engine.register_fn("get_tag",         ScriptCtx::get_tag);
-        engine.register_fn("set_tag",         ScriptCtx::set_tag);
-        engine.register_fn("has_tag",         ScriptCtx::has_tag);
-        engine.register_fn("get_glyph",       ScriptCtx::get_glyph);
-        engine.register_fn("get_color",       ScriptCtx::get_color);
-        engine.register_fn("get_texture",     ScriptCtx::get_texture);
-        engine.register_fn("find_by_tag",     ScriptCtx::find_by_tag);
+        engine.register_fn("get_x", ScriptCtx::get_x);
+        engine.register_fn("get_y", ScriptCtx::get_y);
+        engine.register_fn("get_position", ScriptCtx::get_position);
+        engine.register_fn("get_vel_x", ScriptCtx::get_vel_x);
+        engine.register_fn("get_vel_y", ScriptCtx::get_vel_y);
+        engine.register_fn("get_velocity", ScriptCtx::get_velocity);
+        engine.register_fn("get_tag", ScriptCtx::get_tag);
+        engine.register_fn("set_tag", ScriptCtx::set_tag);
+        engine.register_fn("has_tag", ScriptCtx::has_tag);
+        engine.register_fn("get_glyph", ScriptCtx::get_glyph);
+        engine.register_fn("get_color", ScriptCtx::get_color);
+        engine.register_fn("get_texture", ScriptCtx::get_texture);
+        engine.register_fn("find_by_tag", ScriptCtx::find_by_tag);
         engine.register_fn("find_all_by_tag", ScriptCtx::find_all_by_tag);
-        engine.register_fn("is_held",         ScriptCtx::is_held);
-        engine.register_fn("just_pressed",    ScriptCtx::just_pressed);
+        engine.register_fn("is_held", ScriptCtx::is_held);
+        engine.register_fn("just_pressed", ScriptCtx::just_pressed);
         engine.register_fn("get_spawn_point", ScriptCtx::get_spawn_point);
-        engine.register_fn("get_delta",       ScriptCtx::get_delta);
-        engine.register_fn("get_elapsed",     ScriptCtx::get_elapsed);
-        engine.register_fn("set_velocity",    ScriptCtx::set_velocity);
-        engine.register_fn("set_position",    ScriptCtx::set_position);
-        engine.register_fn("set_glyph",       ScriptCtx::set_glyph);
-        engine.register_fn("set_tint",        ScriptCtx::set_tint);
-        engine.register_fn("set_texture",     ScriptCtx::set_texture);
-        engine.register_fn("despawn",         ScriptCtx::despawn);
-        engine.register_fn("spawn_entity",    ScriptCtx::spawn_entity);
-        engine.register_fn("spawn_entity",    ScriptCtx::spawn_entity_full);
-        engine.register_fn("load_level",      ScriptCtx::load_level);
-        engine.register_fn("log",             ScriptCtx::log);
-        engine.register_fn("draw_hud",        ScriptCtx::draw_hud);
-        engine.register_fn("draw_menu",       ScriptCtx::draw_menu);
-        engine.register_fn("draw_panel",      ScriptCtx::draw_panel);
-        engine.register_fn("play_sound",      ScriptCtx::play_sound);
-        engine.register_fn("play_sound_at",   ScriptCtx::play_sound_at);
-        engine.register_fn("play_music",      ScriptCtx::play_music);
-        engine.register_fn("stop_music",      ScriptCtx::stop_music);
-        engine.register_fn("emit_particles",  ScriptCtx::emit_particles);
-        engine.register_fn("set_global",      ScriptCtx::set_global);
-        engine.register_fn("get_global",      ScriptCtx::get_global);
-        engine.register_fn("has_global",      ScriptCtx::has_global);
-        engine.register_fn("remove_global",   ScriptCtx::remove_global);
-        engine.register_fn("random_int",      ScriptCtx::random_int);
-        engine.register_fn("random_float",    ScriptCtx::random_float);
-        engine.register_fn("random_bool",     ScriptCtx::random_bool);
-        engine.register_fn("random_choice",   ScriptCtx::random_choice);
-        engine.register_fn("get_entity_at",   ScriptCtx::get_entity_at);
-        engine.register_fn("is_solid_at",     ScriptCtx::is_solid_at);
+        engine.register_fn("get_delta", ScriptCtx::get_delta);
+        engine.register_fn("get_elapsed", ScriptCtx::get_elapsed);
+        engine.register_fn("set_velocity", ScriptCtx::set_velocity);
+        engine.register_fn("set_position", ScriptCtx::set_position);
+        engine.register_fn("set_glyph", ScriptCtx::set_glyph);
+        engine.register_fn("set_tint", ScriptCtx::set_tint);
+        engine.register_fn("set_texture", ScriptCtx::set_texture);
+        engine.register_fn("despawn", ScriptCtx::despawn);
+        engine.register_fn("spawn_entity", ScriptCtx::spawn_entity);
+        engine.register_fn("spawn_entity", ScriptCtx::spawn_entity_full);
+        engine.register_fn("load_level", ScriptCtx::load_level);
+        engine.register_fn("log", ScriptCtx::log);
+        engine.register_fn("draw_hud", ScriptCtx::draw_hud);
+        engine.register_fn("draw_menu", ScriptCtx::draw_menu);
+        engine.register_fn("draw_panel", ScriptCtx::draw_panel);
+        engine.register_fn("play_sound", ScriptCtx::play_sound);
+        engine.register_fn("play_sound_at", ScriptCtx::play_sound_at);
+        engine.register_fn("play_music", ScriptCtx::play_music);
+        engine.register_fn("stop_music", ScriptCtx::stop_music);
+        engine.register_fn("emit_particles", ScriptCtx::emit_particles);
+        engine.register_fn("set_global", ScriptCtx::set_global);
+        engine.register_fn("get_global", ScriptCtx::get_global);
+        engine.register_fn("has_global", ScriptCtx::has_global);
+        engine.register_fn("remove_global", ScriptCtx::remove_global);
+        engine.register_fn("random_int", ScriptCtx::random_int);
+        engine.register_fn("random_float", ScriptCtx::random_float);
+        engine.register_fn("random_bool", ScriptCtx::random_bool);
+        engine.register_fn("random_choice", ScriptCtx::random_choice);
+        engine.register_fn("get_entity_at", ScriptCtx::get_entity_at);
+        engine.register_fn("is_solid_at", ScriptCtx::is_solid_at);
         engine.register_fn("find_entities_in_rect", ScriptCtx::find_entities_in_rect);
-        engine.register_fn("get_distance",    ScriptCtx::get_distance);
-        engine.register_fn("get_angle_to",    ScriptCtx::get_angle_to);
-        engine.register_fn("entity_exists",   ScriptCtx::entity_exists);
-        engine.register_fn("count_by_tag",    ScriptCtx::count_by_tag);
-        engine.register_fn("get_collider_w",  ScriptCtx::get_collider_w);
-        engine.register_fn("get_collider_h",  ScriptCtx::get_collider_h);
+        engine.register_fn("get_distance", ScriptCtx::get_distance);
+        engine.register_fn("get_angle_to", ScriptCtx::get_angle_to);
+        engine.register_fn("entity_exists", ScriptCtx::entity_exists);
+        engine.register_fn("count_by_tag", ScriptCtx::count_by_tag);
+        engine.register_fn("get_collider_w", ScriptCtx::get_collider_w);
+        engine.register_fn("get_collider_h", ScriptCtx::get_collider_h);
         engine.register_fn("set_collider_size", ScriptCtx::set_collider_size);
         engine.register_fn("is_collider_solid", ScriptCtx::is_collider_solid);
         engine.register_fn("set_collider_solid", ScriptCtx::set_collider_solid);
-        engine.register_fn("is_visible",      ScriptCtx::is_visible);
-        engine.register_fn("set_visible",     ScriptCtx::set_visible);
+        engine.register_fn("is_visible", ScriptCtx::is_visible);
+        engine.register_fn("set_visible", ScriptCtx::set_visible);
         engine.register_fn("get_layer_order", ScriptCtx::get_layer_order);
         engine.register_fn("set_layer_order", ScriptCtx::set_layer_order);
-        engine.register_fn("get_mouse_x",     ScriptCtx::get_mouse_x);
-        engine.register_fn("get_mouse_y",     ScriptCtx::get_mouse_y);
+        engine.register_fn("get_mouse_x", ScriptCtx::get_mouse_x);
+        engine.register_fn("get_mouse_y", ScriptCtx::get_mouse_y);
         engine.register_fn("mouse_left_pressed", ScriptCtx::mouse_left_pressed);
         engine.register_fn("mouse_right_pressed", ScriptCtx::mouse_right_pressed);
         engine.register_fn("mouse_left_held", ScriptCtx::mouse_left_held);
         engine.register_fn("mouse_right_held", ScriptCtx::mouse_right_held);
         engine.register_fn("get_mouse_world_x", ScriptCtx::get_mouse_world_x);
         engine.register_fn("get_mouse_world_y", ScriptCtx::get_mouse_world_y);
-        engine.register_fn("get_camera_x",    ScriptCtx::get_camera_x);
-        engine.register_fn("get_camera_y",    ScriptCtx::get_camera_y);
-        engine.register_fn("set_camera",      ScriptCtx::set_camera);
-        engine.register_fn("shake_camera",    ScriptCtx::shake_camera);
-        engine.register_fn("set_persistent",   ScriptCtx::set_persistent);
-        engine.register_fn("get_persistent",   ScriptCtx::get_persistent);
-        engine.register_fn("has_persistent",   ScriptCtx::has_persistent);
+        engine.register_fn("get_camera_x", ScriptCtx::get_camera_x);
+        engine.register_fn("get_camera_y", ScriptCtx::get_camera_y);
+        engine.register_fn("set_camera", ScriptCtx::set_camera);
+        engine.register_fn("shake_camera", ScriptCtx::shake_camera);
+        engine.register_fn("set_persistent", ScriptCtx::set_persistent);
+        engine.register_fn("get_persistent", ScriptCtx::get_persistent);
+        engine.register_fn("has_persistent", ScriptCtx::has_persistent);
         engine.register_fn("clear_persistent", ScriptCtx::clear_persistent);
         engine.register_fn("clear_all_persistent", ScriptCtx::clear_all_persistent);
-        engine.register_fn("draw_box",        ScriptCtx::draw_box);
-        engine.register_fn("fill_rect",       ScriptCtx::fill_rect);
-        engine.register_fn("clear_hud",       ScriptCtx::clear_hud);
-        engine.register_fn("save_game",       ScriptCtx::save_game);
-        engine.register_fn("load_game",       ScriptCtx::load_game);
+        engine.register_fn("draw_box", ScriptCtx::draw_box);
+        engine.register_fn("fill_rect", ScriptCtx::fill_rect);
+        engine.register_fn("clear_hud", ScriptCtx::clear_hud);
+        engine.register_fn("save_game", ScriptCtx::save_game);
+        engine.register_fn("load_game", ScriptCtx::load_game);
         engine.register_fn("get_collider_layer", ScriptCtx::get_collider_layer);
         engine.register_fn("set_collider_layer", ScriptCtx::set_collider_layer);
         engine.register_fn("is_collider_locked", ScriptCtx::is_collider_locked);
         engine.register_fn("set_collider_locked", ScriptCtx::set_collider_locked);
         engine.register_fn("get_collider_mask", ScriptCtx::get_collider_mask);
         engine.register_fn("set_collider_mask", ScriptCtx::set_collider_mask);
-        engine.register_fn("raycast",         ScriptCtx::raycast);
-        engine.register_fn("get_path",        ScriptCtx::get_path);
+        engine.register_fn("raycast", ScriptCtx::raycast);
+        engine.register_fn("get_path", ScriptCtx::get_path);
         engine.register_fn("get_viewport_width", ScriptCtx::get_viewport_width);
         engine.register_fn("get_viewport_height", ScriptCtx::get_viewport_height);
-        engine.register_fn("start_timer",     ScriptCtx::start_timer);
-        engine.register_fn("timer_done",      ScriptCtx::timer_done);
-        engine.register_fn("cancel_timer",    ScriptCtx::cancel_timer);
-        engine.register_fn("get_parent",      ScriptCtx::get_parent);
-        engine.register_fn("set_parent",      ScriptCtx::set_parent);
+        engine.register_fn("start_timer", ScriptCtx::start_timer);
+        engine.register_fn("timer_done", ScriptCtx::timer_done);
+        engine.register_fn("cancel_timer", ScriptCtx::cancel_timer);
+        engine.register_fn("get_parent", ScriptCtx::get_parent);
+        engine.register_fn("set_parent", ScriptCtx::set_parent);
         engine.register_fn("set_parent_keep_world", ScriptCtx::set_parent_keep_world);
-        engine.register_fn("get_world_x",     ScriptCtx::get_world_x);
-        engine.register_fn("get_world_y",     ScriptCtx::get_world_y);
+        engine.register_fn("get_world_x", ScriptCtx::get_world_x);
+        engine.register_fn("get_world_y", ScriptCtx::get_world_y);
 
         // V0.5 Gamepad Extensions
-        engine.register_fn("gp_is_held",      ScriptCtx::gp_is_held);
+        engine.register_fn("gp_is_held", ScriptCtx::gp_is_held);
         engine.register_fn("gp_just_pressed", ScriptCtx::gp_just_pressed);
-        engine.register_fn("gp_axis",         ScriptCtx::gp_axis);
+        engine.register_fn("gp_axis", ScriptCtx::gp_axis);
 
         // Phase 3: named animation clips
-        engine.register_fn("register_clip",   ScriptCtx::register_clip);
-        engine.register_fn("play_clip",       ScriptCtx::play_clip);
-        engine.register_fn("play_clip_once",  ScriptCtx::play_clip_once);
-        engine.register_fn("stop_clip",       ScriptCtx::stop_clip);
-        engine.register_fn("set_clip_speed",  ScriptCtx::set_clip_speed);
-        engine.register_fn("get_frame",       ScriptCtx::get_frame);
-        engine.register_fn("set_frame",       ScriptCtx::set_frame);
-        engine.register_fn("clip_finished",   ScriptCtx::clip_finished);
+        engine.register_fn("register_clip", ScriptCtx::register_clip);
+        engine.register_fn("play_clip", ScriptCtx::play_clip);
+        engine.register_fn("play_clip_once", ScriptCtx::play_clip_once);
+        engine.register_fn("stop_clip", ScriptCtx::stop_clip);
+        engine.register_fn("set_clip_speed", ScriptCtx::set_clip_speed);
+        engine.register_fn("get_frame", ScriptCtx::get_frame);
+        engine.register_fn("set_frame", ScriptCtx::set_frame);
+        engine.register_fn("clip_finished", ScriptCtx::clip_finished);
 
         // Phase 3 Step 3e: lets a script (or its author) detect which
         // breaking-change generation of the API it's running against.
-        engine.register_fn("api_version",     ScriptCtx::api_version);
+        engine.register_fn("api_version", ScriptCtx::api_version);
 
         // Step 5e: the command boundary (docs/ember2d-phase5-plan.md) —
         // `submit` is meaningful only inside `on_input`; `command_action`/
         // `command_param` read back whatever the entity's own `on_input`
         // pass queued for it, once `on_update` runs.
-        engine.register_fn("submit",          ScriptCtx::submit);
-        engine.register_fn("command_action",  ScriptCtx::command_action);
-        engine.register_fn("command_param",   ScriptCtx::command_param);
+        engine.register_fn("submit", ScriptCtx::submit);
+        engine.register_fn("command_action", ScriptCtx::command_action);
+        engine.register_fn("command_param", ScriptCtx::command_param);
 
         // Step 5f: the turn scheduler (docs/ember2d-phase5-plan.md) —
         // `ctx.trigger_turn` is gone, replaced by `act`.
-        engine.register_fn("act",             ScriptCtx::act);
+        engine.register_fn("act", ScriptCtx::act);
         engine.register_fn("get_turn_number", ScriptCtx::get_turn_number);
-        engine.register_fn("get_speed",       ScriptCtx::get_speed);
-        engine.register_fn("set_speed",       ScriptCtx::set_speed);
+        engine.register_fn("get_speed", ScriptCtx::get_speed);
+        engine.register_fn("set_speed", ScriptCtx::set_speed);
 
         // Phase 5.5 Part 3: the animation queue (docs/ember2d-phase5.5-plan.md).
-        engine.register_fn("animate_move",    ScriptCtx::animate_move);
-        engine.register_fn("animate_flash",   ScriptCtx::animate_flash);
-        engine.register_fn("animate_shake",   ScriptCtx::animate_shake);
-        engine.register_fn("is_animating",    ScriptCtx::is_animating);
+        engine.register_fn("animate_move", ScriptCtx::animate_move);
+        engine.register_fn("animate_flash", ScriptCtx::animate_flash);
+        engine.register_fn("animate_shake", ScriptCtx::animate_shake);
+        engine.register_fn("is_animating", ScriptCtx::is_animating);
 
         use rand::SeedableRng;
         ScriptEngine {
-            engine, ast_cache: HashMap::new(), scopes: HashMap::new(), mod_times: HashMap::new(),
-            disabled_scripts: HashSet::new(), rng: Rc::new(RefCell::new(rand::rngs::SmallRng::seed_from_u64(seed))),
+            engine,
+            ast_cache: HashMap::new(),
+            scopes: HashMap::new(),
+            mod_times: HashMap::new(),
+            disabled_scripts: HashSet::new(),
+            rng: Rc::new(RefCell::new(rand::rngs::SmallRng::seed_from_u64(seed))),
             hot_reload_counter: 0,
             layers,
             timers: BTreeMap::new(),
-            pending_hud_draws: Vec::new(), pending_sounds: Vec::new(), pending_spatial_sounds: Vec::new(),
-            pending_music: None, stop_music: false,
+            pending_hud_draws: Vec::new(),
+            pending_sounds: Vec::new(),
+            pending_spatial_sounds: Vec::new(),
+            pending_music: None,
+            stop_music: false,
         }
     }
 
     pub fn compile_str(&mut self, key: &str, source: &str, log: &mut Vec<LogEntry>) -> bool {
-        if self.ast_cache.contains_key(key) { return true; }
+        if self.ast_cache.contains_key(key) {
+            return true;
+        }
         match self.engine.compile(source) {
-            Ok(ast) => { self.ast_cache.insert(key.to_string(), ast); true }
-            Err(e) => { log.push(LogEntry::error(format!("Compile rules '{}': {}", key, e))); false }
+            Ok(ast) => {
+                self.ast_cache.insert(key.to_string(), ast);
+                true
+            }
+            Err(e) => {
+                log.push(LogEntry::error(format!("Compile rules '{}': {}", key, e)));
+                false
+            }
         }
     }
 
     pub fn compile(&mut self, path: &str, log: &mut Vec<LogEntry>) -> bool {
-        if self.ast_cache.contains_key(path) { return true; }
+        if self.ast_cache.contains_key(path) {
+            return true;
+        }
         match self.engine.compile_file(path.into()) {
             Ok(ast) => {
-                if let Ok(meta) = fs::metadata(path) { if let Ok(t) = meta.modified() { self.mod_times.insert(path.to_string(), t); } }
-                self.ast_cache.insert(path.to_string(), ast); true
+                if let Ok(meta) = fs::metadata(path) {
+                    if let Ok(t) = meta.modified() {
+                        self.mod_times.insert(path.to_string(), t);
+                    }
+                }
+                self.ast_cache.insert(path.to_string(), ast);
+                true
             }
-            Err(e) => { log.push(LogEntry::error(format!("Compile '{}': {}", path, e))); false }
+            Err(e) => {
+                log.push(LogEntry::error(format!("Compile '{}': {}", path, e)));
+                false
+            }
         }
     }
 
@@ -311,17 +336,48 @@ impl ScriptEngine {
         matches!(err, rhai::EvalAltResult::ErrorFunctionNotFound(sig, _) if sig.as_str() == fn_name)
     }
 
-    pub fn run_on_start_all(&mut self, world: &mut World, log: &mut Vec<LogEntry>, extra_spawns: &[(String, f32, f32)], globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, persistent: &mut BTreeMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, viewport_size: (usize, usize)) -> ScriptUpdateResult {
-        let scripted: Vec<(i64, String)> = world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
-        let mut ctx_state = ScriptState::from_world(world, &self.layers, 0.0, 0.0, InputSnapshot::default(), MouseSnapshot::default(), GamepadSnapshot::default(), extra_spawns, globals, clips, std::mem::take(persistent), camera_pos, BTreeMap::new(), 0, viewport_size);
+    pub fn run_on_start_all(
+        &mut self,
+        world: &mut World,
+        log: &mut Vec<LogEntry>,
+        extra_spawns: &[(String, f32, f32)],
+        globals: BTreeMap<String, rhai::Dynamic>,
+        clips: BTreeMap<String, AnimationClip>,
+        persistent: &mut BTreeMap<String, rhai::Dynamic>,
+        camera_pos: crate::math::Vec2,
+        viewport_size: (usize, usize),
+    ) -> ScriptUpdateResult {
+        let scripted: Vec<(i64, String)> =
+            world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
+        let mut ctx_state = ScriptState::from_world(
+            world,
+            &self.layers,
+            0.0,
+            0.0,
+            InputSnapshot::default(),
+            MouseSnapshot::default(),
+            GamepadSnapshot::default(),
+            extra_spawns,
+            globals,
+            clips,
+            std::mem::take(persistent),
+            camera_pos,
+            BTreeMap::new(),
+            0,
+            viewport_size,
+        );
         ctx_state.timers = std::mem::take(&mut self.timers);
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         for (entity_id, path) in &scripted {
-            if self.disabled_scripts.contains(path) { continue; }
+            if self.disabled_scripts.contains(path) {
+                continue;
+            }
             let Some(ast) = self.ast_cache.get(path) else { continue };
             let scope = self.scopes.entry(*entity_id as EntityId).or_default();
             let entity_ctx = ctx.with_entity(*entity_id);
-            if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_start", (*entity_id, entity_ctx)) {
+            if let Err(e) =
+                self.engine.call_fn::<()>(scope, ast, "on_start", (*entity_id, entity_ctx))
+            {
                 if !Self::is_missing_optional_fn(&e, "on_start") {
                     log.push(LogEntry::error(format!("on_start '{}': {}", path, e)));
                     self.disabled_scripts.insert(path.clone());
@@ -343,9 +399,43 @@ impl ScriptEngine {
     /// apply its result, then call `run_scripts`) is what lets `on_update`
     /// read the command back out via `command_action`/`command_param`.
     #[allow(clippy::too_many_arguments)]
-    pub fn run_on_input(&mut self, world: &mut World, snapshot: Rc<WorldSnapshot>, log: &mut Vec<LogEntry>, actor_id: EntityId, delta_time: f32, elapsed: f32, input: InputSnapshot, mouse: MouseSnapshot, gamepad: GamepadSnapshot, spawns: &[(String, f32, f32)], globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, persistent: &mut BTreeMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, turn_number: i64, viewport_size: (usize, usize)) -> ScriptUpdateResult {
+    pub fn run_on_input(
+        &mut self,
+        world: &mut World,
+        snapshot: Rc<WorldSnapshot>,
+        log: &mut Vec<LogEntry>,
+        actor_id: EntityId,
+        delta_time: f32,
+        elapsed: f32,
+        input: InputSnapshot,
+        mouse: MouseSnapshot,
+        gamepad: GamepadSnapshot,
+        spawns: &[(String, f32, f32)],
+        globals: BTreeMap<String, rhai::Dynamic>,
+        clips: BTreeMap<String, AnimationClip>,
+        persistent: &mut BTreeMap<String, rhai::Dynamic>,
+        camera_pos: crate::math::Vec2,
+        turn_number: i64,
+        viewport_size: (usize, usize),
+    ) -> ScriptUpdateResult {
         let path = world.scripts.get(&actor_id).map(|s| s.path.clone());
-        let mut ctx_state = ScriptState::from_snapshot(snapshot, world.next_id, delta_time, elapsed, input, mouse, gamepad, spawns, globals, clips, std::mem::take(persistent), camera_pos, BTreeMap::new(), turn_number, viewport_size);
+        let mut ctx_state = ScriptState::from_snapshot(
+            snapshot,
+            world.next_id,
+            delta_time,
+            elapsed,
+            input,
+            mouse,
+            gamepad,
+            spawns,
+            globals,
+            clips,
+            std::mem::take(persistent),
+            camera_pos,
+            BTreeMap::new(),
+            turn_number,
+            viewport_size,
+        );
         ctx_state.timers = std::mem::take(&mut self.timers);
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         if let Some(path) = path {
@@ -353,7 +443,12 @@ impl ScriptEngine {
                 if let Some(ast) = self.ast_cache.get(&path) {
                     let scope = self.scopes.entry(actor_id).or_default();
                     let entity_ctx = ctx.with_entity(actor_id as i64);
-                    if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_input", (actor_id as i64, entity_ctx)) {
+                    if let Err(e) = self.engine.call_fn::<()>(
+                        scope,
+                        ast,
+                        "on_input",
+                        (actor_id as i64, entity_ctx),
+                    ) {
                         if !Self::is_missing_optional_fn(&e, "on_input") {
                             log.push(LogEntry::error(format!("on_input '{}': {}", path, e)));
                             self.disabled_scripts.insert(path.clone());
@@ -374,9 +469,41 @@ impl ScriptEngine {
     /// *same* step's `on_input` pass (for a `Local` actor) already
     /// committed — see `PlayState::update`'s call order.
     #[allow(clippy::too_many_arguments)]
-    pub fn run_on_turn(&mut self, world: &mut World, snapshot: Rc<WorldSnapshot>, log: &mut Vec<LogEntry>, actor_id: EntityId, delta_time: f32, elapsed: f32, spawns: &[(String, f32, f32)], globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, persistent: &mut BTreeMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, commands: BTreeMap<i64, Command>, turn_number: i64, viewport_size: (usize, usize)) -> ScriptUpdateResult {
+    pub fn run_on_turn(
+        &mut self,
+        world: &mut World,
+        snapshot: Rc<WorldSnapshot>,
+        log: &mut Vec<LogEntry>,
+        actor_id: EntityId,
+        delta_time: f32,
+        elapsed: f32,
+        spawns: &[(String, f32, f32)],
+        globals: BTreeMap<String, rhai::Dynamic>,
+        clips: BTreeMap<String, AnimationClip>,
+        persistent: &mut BTreeMap<String, rhai::Dynamic>,
+        camera_pos: crate::math::Vec2,
+        commands: BTreeMap<i64, Command>,
+        turn_number: i64,
+        viewport_size: (usize, usize),
+    ) -> ScriptUpdateResult {
         let path = world.scripts.get(&actor_id).map(|s| s.path.clone());
-        let mut ctx_state = ScriptState::from_snapshot(snapshot, world.next_id, delta_time, elapsed, InputSnapshot::default(), MouseSnapshot::default(), GamepadSnapshot::default(), spawns, globals, clips, std::mem::take(persistent), camera_pos, commands, turn_number, viewport_size);
+        let mut ctx_state = ScriptState::from_snapshot(
+            snapshot,
+            world.next_id,
+            delta_time,
+            elapsed,
+            InputSnapshot::default(),
+            MouseSnapshot::default(),
+            GamepadSnapshot::default(),
+            spawns,
+            globals,
+            clips,
+            std::mem::take(persistent),
+            camera_pos,
+            commands,
+            turn_number,
+            viewport_size,
+        );
         ctx_state.timers = std::mem::take(&mut self.timers);
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         if let Some(path) = path {
@@ -384,7 +511,12 @@ impl ScriptEngine {
                 if let Some(ast) = self.ast_cache.get(&path) {
                     let scope = self.scopes.entry(actor_id).or_default();
                     let entity_ctx = ctx.with_entity(actor_id as i64);
-                    if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_turn", (actor_id as i64, entity_ctx)) {
+                    if let Err(e) = self.engine.call_fn::<()>(
+                        scope,
+                        ast,
+                        "on_turn",
+                        (actor_id as i64, entity_ctx),
+                    ) {
                         if !Self::is_missing_optional_fn(&e, "on_turn") {
                             log.push(LogEntry::error(format!("on_turn '{}': {}", path, e)));
                             self.disabled_scripts.insert(path.clone());
@@ -403,7 +535,25 @@ impl ScriptEngine {
     // `EventBus::new()` just to satisfy the signature. Collision events are
     // populated by `World::detect_collisions` and consumed by `late_step`
     // directly; this pass never touched them.
-    pub fn run_scripts(&mut self, world: &mut World, snapshot: Rc<WorldSnapshot>, log: &mut Vec<LogEntry>, delta_time: f32, elapsed: f32, input: InputSnapshot, mouse: MouseSnapshot, gamepad: GamepadSnapshot, spawns: &[(String, f32, f32)], globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, persistent: &mut BTreeMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, commands: BTreeMap<i64, Command>, turn_number: i64, viewport_size: (usize, usize)) -> ScriptUpdateResult {
+    pub fn run_scripts(
+        &mut self,
+        world: &mut World,
+        snapshot: Rc<WorldSnapshot>,
+        log: &mut Vec<LogEntry>,
+        delta_time: f32,
+        elapsed: f32,
+        input: InputSnapshot,
+        mouse: MouseSnapshot,
+        gamepad: GamepadSnapshot,
+        spawns: &[(String, f32, f32)],
+        globals: BTreeMap<String, rhai::Dynamic>,
+        clips: BTreeMap<String, AnimationClip>,
+        persistent: &mut BTreeMap<String, rhai::Dynamic>,
+        camera_pos: crate::math::Vec2,
+        commands: BTreeMap<i64, Command>,
+        turn_number: i64,
+        viewport_size: (usize, usize),
+    ) -> ScriptUpdateResult {
         // Phase 6 Step 6: throttled here, at the one call site (`run_scripts`
         // runs exactly once per simulation step), rather than inside
         // `check_hot_reload` itself — that function's own unit test
@@ -427,7 +577,23 @@ impl ScriptEngine {
         // instead means a skipped pass just leaves last frame's draws
         // rendering unchanged.
         self.pending_hud_draws.clear();
-        let mut ctx_state = ScriptState::from_snapshot(snapshot, world.next_id, delta_time, elapsed, input, mouse, gamepad, spawns, globals, clips, std::mem::take(persistent), camera_pos, commands, turn_number, viewport_size);
+        let mut ctx_state = ScriptState::from_snapshot(
+            snapshot,
+            world.next_id,
+            delta_time,
+            elapsed,
+            input,
+            mouse,
+            gamepad,
+            spawns,
+            globals,
+            clips,
+            std::mem::take(persistent),
+            camera_pos,
+            commands,
+            turn_number,
+            viewport_size,
+        );
         ctx_state.timers = std::mem::take(&mut self.timers);
         // Decay happens exactly once per real step, here — `run_scripts` is
         // the one call site the engine's own `update()` invokes unconditionally
@@ -437,16 +603,23 @@ impl ScriptEngine {
         // (no more `__timer_` prefix filtering needed: this map holds nothing
         // else), so decaying is a plain nested `values_mut()` walk.
         for entity_timers in ctx_state.timers.values_mut() {
-            for val in entity_timers.values_mut() { *val -= delta_time as f64; }
+            for val in entity_timers.values_mut() {
+                *val -= delta_time as f64;
+            }
         }
-        let scripted: Vec<(i64, String)> = world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
+        let scripted: Vec<(i64, String)> =
+            world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         for (entity_id, path) in scripted {
-            if self.disabled_scripts.contains(&path) { continue; }
+            if self.disabled_scripts.contains(&path) {
+                continue;
+            }
             let Some(ast) = self.ast_cache.get(&path) else { continue };
             let scope = self.scopes.entry(entity_id as EntityId).or_default();
             let entity_ctx = ctx.with_entity(entity_id);
-            if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_update", (entity_id, entity_ctx)) {
+            if let Err(e) =
+                self.engine.call_fn::<()>(scope, ast, "on_update", (entity_id, entity_ctx))
+            {
                 if !Self::is_missing_optional_fn(&e, "on_update") {
                     log.push(LogEntry::error(format!("Runtime '{}': {}", path, e)));
                     self.disabled_scripts.insert(path.clone());
@@ -457,12 +630,30 @@ impl ScriptEngine {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn run_collisions(&mut self, world: &mut World, pairs: &[(EntityId, EntityId)], log: &mut Vec<LogEntry>, delta_time: f32, elapsed: f32, spawns: &[(String, f32, f32)], globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, persistent: &mut BTreeMap<String, rhai::Dynamic>, camera_pos: crate::math::Vec2, viewport_size: (usize, usize)) -> ScriptUpdateResult {
-        let scripted_paths: HashMap<EntityId, String> = world.scripts.iter().map(|(id, s)| (*id, s.path.clone())).collect();
+    pub fn run_collisions(
+        &mut self,
+        world: &mut World,
+        pairs: &[(EntityId, EntityId)],
+        log: &mut Vec<LogEntry>,
+        delta_time: f32,
+        elapsed: f32,
+        spawns: &[(String, f32, f32)],
+        globals: BTreeMap<String, rhai::Dynamic>,
+        clips: BTreeMap<String, AnimationClip>,
+        persistent: &mut BTreeMap<String, rhai::Dynamic>,
+        camera_pos: crate::math::Vec2,
+        viewport_size: (usize, usize),
+    ) -> ScriptUpdateResult {
+        let scripted_paths: HashMap<EntityId, String> =
+            world.scripts.iter().map(|(id, s)| (*id, s.path.clone())).collect();
         let mut calls: Vec<(i64, i64, String)> = Vec::new();
         for &(a, b) in pairs {
-            if let Some(p) = scripted_paths.get(&a) { calls.push((a as i64, b as i64, p.clone())); }
-            if let Some(p) = scripted_paths.get(&b) { calls.push((b as i64, a as i64, p.clone())); }
+            if let Some(p) = scripted_paths.get(&a) {
+                calls.push((a as i64, b as i64, p.clone()));
+            }
+            if let Some(p) = scripted_paths.get(&b) {
+                calls.push((b as i64, a as i64, p.clone()));
+            }
         }
 
         // Phase 6 Step 5 (docs/ember2d-phase6-plan.md): `calls` is built
@@ -485,23 +676,55 @@ impl ScriptEngine {
         // submitted).
         if calls.is_empty() {
             return ScriptUpdateResult {
-                pending_level: None, pending_save: None, pending_load: None,
-                globals, clips, persistent: std::mem::take(persistent),
-                camera_override: None, shake_state: None, clear_hud: false,
-                particles: Vec::new(), commands: BTreeMap::new(), act_cost: None,
-                despawned: Vec::new(), animations: Vec::new(),
+                pending_level: None,
+                pending_save: None,
+                pending_load: None,
+                globals,
+                clips,
+                persistent: std::mem::take(persistent),
+                camera_override: None,
+                shake_state: None,
+                clear_hud: false,
+                particles: Vec::new(),
+                commands: BTreeMap::new(),
+                act_cost: None,
+                despawned: Vec::new(),
+                animations: Vec::new(),
             };
         }
 
-        let mut ctx_state = ScriptState::from_world(world, &self.layers, delta_time, elapsed, InputSnapshot::default(), MouseSnapshot::default(), GamepadSnapshot::default(), spawns, globals, clips, std::mem::take(persistent), camera_pos, BTreeMap::new(), 0, viewport_size);
+        let mut ctx_state = ScriptState::from_world(
+            world,
+            &self.layers,
+            delta_time,
+            elapsed,
+            InputSnapshot::default(),
+            MouseSnapshot::default(),
+            GamepadSnapshot::default(),
+            spawns,
+            globals,
+            clips,
+            std::mem::take(persistent),
+            camera_pos,
+            BTreeMap::new(),
+            0,
+            viewport_size,
+        );
         ctx_state.timers = std::mem::take(&mut self.timers);
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         for (entity_id, other_id, path) in calls {
-            if self.disabled_scripts.contains(&path) { continue; }
+            if self.disabled_scripts.contains(&path) {
+                continue;
+            }
             let Some(ast) = self.ast_cache.get(&path) else { continue };
             let scope = self.scopes.entry(entity_id as EntityId).or_default();
             let entity_ctx = ctx.with_entity(entity_id);
-            if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_collide", (entity_id, other_id, entity_ctx)) {
+            if let Err(e) = self.engine.call_fn::<()>(
+                scope,
+                ast,
+                "on_collide",
+                (entity_id, other_id, entity_ctx),
+            ) {
                 if !Self::is_missing_optional_fn(&e, "on_collide") {
                     log.push(LogEntry::error(format!("on_collide '{}': {}", path, e)));
                     self.disabled_scripts.insert(path.clone());
@@ -518,13 +741,11 @@ impl ScriptEngine {
         // on disk. `fs::metadata` on one is a guaranteed-failing syscall,
         // every time, for every graph-scripted tile. Skipping them here
         // means this loop only ever stats a path that's actually a file.
-        let paths: Vec<String> = self.ast_cache.keys()
-            .filter(|k| !k.starts_with("__script_"))
-            .cloned()
-            .collect();
+        let paths: Vec<String> =
+            self.ast_cache.keys().filter(|k| !k.starts_with("__script_")).cloned().collect();
         for path in paths {
             let Ok(meta) = fs::metadata(&path) else { continue };
-            let Ok(t)    = meta.modified()     else { continue };
+            let Ok(t) = meta.modified() else { continue };
             if self.mod_times.get(&path).map(|old| t > *old).unwrap_or(false) {
                 match self.engine.compile_file(path.clone().into()) {
                     Ok(ast) => {
@@ -541,7 +762,9 @@ impl ScriptEngine {
                         // script that changed. Only those entities need a
                         // fresh scope; everyone else's state must survive
                         // untouched.
-                        let affected: Vec<EntityId> = world.scripts.iter()
+                        let affected: Vec<EntityId> = world
+                            .scripts
+                            .iter()
                             .filter(|(_, s)| s.path == path)
                             .map(|(&id, _)| id)
                             .collect();
@@ -552,10 +775,15 @@ impl ScriptEngine {
                         // timer from before the reload (the same leak-on-
                         // despawn hazard `apply_ctx`'s despawn loop already
                         // guards against, here on the hot-reload path instead).
-                        for id in affected { self.scopes.remove(&id); self.timers.remove(&id); }
+                        for id in affected {
+                            self.scopes.remove(&id);
+                            self.timers.remove(&id);
+                        }
                         log.push(LogEntry::info(format!("Hot-reloaded: {}", path)));
                     }
-                    Err(e) => { log.push(LogEntry::error(format!("Reload '{}': {}", path, e))); }
+                    Err(e) => {
+                        log.push(LogEntry::error(format!("Reload '{}': {}", path, e)));
+                    }
                 }
             }
         }

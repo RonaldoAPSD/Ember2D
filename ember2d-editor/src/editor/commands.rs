@@ -13,8 +13,8 @@
 // The caller in mod.rs is responsible for applying/reversing the command's
 // effect on the grid after popping.
 
+use ember2d_sim::level::{PlayerRecord, TileRecord};
 use std::collections::VecDeque;
-use ember2d_sim::level::{TileRecord, PlayerRecord};
 
 // ── Command ───────────────────────────────────────────────────────────────────
 
@@ -25,18 +25,13 @@ pub enum Command {
     ///
     /// Undo: remove `after`, restore `before`.
     /// Redo: restore `after` (ignoring `before`).
-    PlaceTile {
-        before: Option<TileRecord>,
-        after:  TileRecord,
-    },
+    PlaceTile { before: Option<TileRecord>, after: TileRecord },
 
     /// Erase a single tile.
     ///
     /// Undo: put `before` back.
     /// Redo: erase at `before.x / before.y` again.
-    EraseTile {
-        before: TileRecord,
-    },
+    EraseTile { before: TileRecord },
 
     /// A multi-cell batch edit recorded as one undoable step.
     ///
@@ -48,36 +43,25 @@ pub enum Command {
     ///
     /// Undo: for each cell, restore `before` (place or erase).
     /// Redo: for each cell, apply `after` (place or erase).
-    Batch {
-        cells: Vec<(i32, i32, u8, Option<TileRecord>, Option<TileRecord>)>,
-    },
+    Batch { cells: Vec<(i32, i32, u8, Option<TileRecord>, Option<TileRecord>)> },
 
     /// Undo/redo level resizing.
     ResizeLevel {
         before_w: usize,
         before_h: usize,
         before_tiles: Vec<TileRecord>,
-        after_w:  usize,
-        after_h:  usize,
+        after_w: usize,
+        after_h: usize,
     },
 
     /// Move the primary player spawn point.
-    MoveSpawn {
-        before: (f32, f32),
-        after:  (f32, f32),
-    },
+    MoveSpawn { before: (f32, f32), after: (f32, f32) },
 
     /// Update player entity metadata (tag, glyph, script, etc).
-    UpdatePlayer {
-        before: PlayerRecord,
-        after:  PlayerRecord,
-    },
+    UpdatePlayer { before: PlayerRecord, after: PlayerRecord },
 
     /// Update the list of named entity spawns.
-    UpdateExtraSpawns {
-        before: Vec<(String, f32, f32)>,
-        after:  Vec<(String, f32, f32)>,
-    },
+    UpdateExtraSpawns { before: Vec<(String, f32, f32)>, after: Vec<(String, f32, f32)> },
 }
 
 // ── UndoStack ─────────────────────────────────────────────────────────────────
@@ -140,14 +124,22 @@ impl UndoStack {
     }
 
     /// True if there is at least one action to undo.
-    pub fn can_undo(&self) -> bool { !self.undo.is_empty() }
+    pub fn can_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
 
     /// True if there is at least one action to redo.
-    pub fn can_redo(&self) -> bool { !self.redo.is_empty() }
+    pub fn can_redo(&self) -> bool {
+        !self.redo.is_empty()
+    }
 
     /// Number of undo steps available.
-    pub fn len(&self) -> usize { self.undo.len() }
+    pub fn len(&self) -> usize {
+        self.undo.len()
+    }
 
     /// Number of redo steps available.
-    pub fn redo_len(&self) -> usize { self.redo.len() }
+    pub fn redo_len(&self) -> usize {
+        self.redo.len()
+    }
 }

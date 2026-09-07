@@ -8,16 +8,16 @@ use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::platform::pump_events::EventLoopExtPumpEvents;
 
-use ember2d_sim::event::EventBus;
 use crate::gamepad::GamepadState;
 use crate::input::{InputManager, Key};
+use crate::mouse::{MouseButton, MouseState};
+use crate::project::{GameplayLoop, StartResult};
+use crate::renderer::{AssetManager, Renderer};
+use crate::sim;
+use ember2d_sim::event::EventBus;
 use ember2d_sim::level::LevelData;
 use ember2d_sim::math::Vec2;
-use crate::mouse::{MouseState, MouseButton};
-use crate::renderer::{Renderer, AssetManager};
-use crate::sim;
 use ember2d_sim::world::{EntityId, World};
-use crate::project::{GameplayLoop, StartResult};
 
 // ── Mode transition ───────────────────────────────────────────────────────────
 
@@ -110,15 +110,32 @@ pub trait GameState {
     /// calls made from a script's `on_start` actually survive (defect D2 in
     /// docs/ember2d-refactor-plan.md §3 — previously PlayState::on_start
     /// ran scripts against a fresh, discarded `HashMap`).
-    fn on_start(&mut self, _world: &mut World, _events: &mut EventBus, _viewport_width: usize, _viewport_height: usize, _persistent: &mut BTreeMap<String, rhai::Dynamic>) {}
+    fn on_start(
+        &mut self,
+        _world: &mut World,
+        _events: &mut EventBus,
+        _viewport_width: usize,
+        _viewport_height: usize,
+        _persistent: &mut BTreeMap<String, rhai::Dynamic>,
+    ) {
+    }
     fn on_stop(&mut self, _world: &mut World, _events: &mut EventBus) {}
     fn on_pause(&mut self) {}
-    fn on_resume(&mut self, _world: &mut World, _events: &mut EventBus, _viewport_width: usize, _viewport_height: usize) {}
+    fn on_resume(
+        &mut self,
+        _world: &mut World,
+        _events: &mut EventBus,
+        _viewport_width: usize,
+        _viewport_height: usize,
+    ) {
+    }
 
     fn update(&mut self, ctx: UpdateContext);
     fn late_update(&mut self, _ctx: UpdateContext) {}
     fn render(&mut self, ctx: RenderContext);
-    fn take_transition(&mut self) -> Option<Transition> { None }
+    fn take_transition(&mut self) -> Option<Transition> {
+        None
+    }
 }
 
 // ── Engine ────────────────────────────────────────────────────────────────────
@@ -127,12 +144,12 @@ pub struct Engine {
     pub renderer: Renderer,
     pub event_loop: EventLoop<()>,
     pub gameplay_loop: GameplayLoop,
-    pub assets:   AssetManager,
-    pub world:    World,
-    pub input:    InputManager,
-    pub mouse:    MouseState,
-    pub gamepad:  GamepadState,
-    pub events:   EventBus,
+    pub assets: AssetManager,
+    pub world: World,
+    pub input: InputManager,
+    pub mouse: MouseState,
+    pub gamepad: GamepadState,
+    pub events: EventBus,
     pub width: usize,
     pub height: usize,
     /// `BTreeMap`, not `HashMap` (Step 5b, docs/ember2d-phase5-plan.md) — see
@@ -157,7 +174,8 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(width: usize, height: usize, title: &str) -> io::Result<Self> {
-        let event_loop = EventLoop::new().map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        let event_loop =
+            EventLoop::new().map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
         let renderer = Renderer::new(width, height, title, &event_loop)?;
 
         Ok(Engine {
@@ -165,9 +183,9 @@ impl Engine {
             event_loop,
             gameplay_loop: GameplayLoop::RealTime,
             assets: AssetManager::new(),
-            world:  World::new(),
-            input:  InputManager::new(),
-            mouse:  MouseState::new(),
+            world: World::new(),
+            input: InputManager::new(),
+            mouse: MouseState::new(),
             gamepad: GamepadState::new(),
             events: EventBus::new(),
             width,
@@ -183,7 +201,13 @@ impl Engine {
         if let Some(top) = self.state_stack.last_mut() {
             top.on_pause();
         }
-        state.on_start(&mut self.world, &mut self.events, self.width, self.height, &mut self.persistent);
+        state.on_start(
+            &mut self.world,
+            &mut self.events,
+            self.width,
+            self.height,
+            &mut self.persistent,
+        );
         self.state_stack.push(state);
         // R19 (7A-2, docs/ember2d-master-plan.md): the deepest legitimate
         // stack today is EditorState -> PlayState -> PauseMenuState (3). A
@@ -205,7 +229,7 @@ impl Engine {
     }
 
     pub fn reset_world(&mut self) {
-        self.world  = World::new();
+        self.world = World::new();
         self.events = EventBus::new();
     }
 
@@ -232,8 +256,11 @@ impl Engine {
                     WindowEvent::KeyboardInput { event: key_event, .. } => {
                         // 1. Physical key for state tracking (held/pressed)
                         if let Some(key) = Key::from_winit(key_event.physical_key) {
-                            if key_event.state.is_pressed() { input.handle_pressed(key); } 
-                            else { input.handle_released(key); }
+                            if key_event.state.is_pressed() {
+                                input.handle_pressed(key);
+                            } else {
+                                input.handle_released(key);
+                            }
                         }
 
                         // 2. Logical key for text entry (characters, symbols, etc.)
@@ -253,15 +280,20 @@ impl Engine {
                     }
                     WindowEvent::MouseInput { state, button, .. } => {
                         let btn = MouseButton::from_winit(button);
-                        if state.is_pressed() { mouse.handle_pressed(btn); } 
-                        else { mouse.handle_released(btn); }
-                    }
-                    WindowEvent::MouseWheel { delta, .. } => {
-                        match delta {
-                            winit::event::MouseScrollDelta::LineDelta(x, y) => mouse.handle_scroll(x, y),
-                            winit::event::MouseScrollDelta::PixelDelta(pos) => mouse.handle_scroll(pos.x as f32 / 8.0, pos.y as f32 / 16.0),
+                        if state.is_pressed() {
+                            mouse.handle_pressed(btn);
+                        } else {
+                            mouse.handle_released(btn);
                         }
                     }
+                    WindowEvent::MouseWheel { delta, .. } => match delta {
+                        winit::event::MouseScrollDelta::LineDelta(x, y) => {
+                            mouse.handle_scroll(x, y)
+                        }
+                        winit::event::MouseScrollDelta::PixelDelta(pos) => {
+                            mouse.handle_scroll(pos.x as f32 / 8.0, pos.y as f32 / 16.0)
+                        }
+                    },
                     WindowEvent::Resized(_) => {
                         if renderer.try_handle_resize() {
                             *engine_width = renderer.width;
@@ -287,7 +319,7 @@ impl Engine {
 
     /// Main engine execution loop.
     ///
-    /// NOTE: At least one state MUST be pushed to the stack (via `push_state`) 
+    /// NOTE: At least one state MUST be pushed to the stack (via `push_state`)
     /// before calling this, or it will return `Ok(None)` immediately.
     pub fn run(&mut self) -> io::Result<Option<Transition>> {
         let start_time = Instant::now();
@@ -295,11 +327,13 @@ impl Engine {
 
         loop {
             self.poll_events();
-            if self.input.quit_requested { return Ok(Some(Transition::Quit)); }
+            if self.input.quit_requested {
+                return Ok(Some(Transition::Quit));
+            }
 
             let now = Instant::now();
             let delta_time = now.duration_since(last_frame).as_secs_f32();
-            let elapsed    = now.duration_since(start_time).as_secs_f32();
+            let elapsed = now.duration_since(start_time).as_secs_f32();
             last_frame = now;
 
             self.simulation_accumulator += delta_time;
@@ -328,14 +362,30 @@ impl Engine {
                         // late phase (physics/collisions/late_update) always
                         // runs every step in realtime mode, unconditionally.
                         let result = sim::step(
-                            state.as_mut(), &mut self.world, &mut self.input, &mut self.mouse, &mut self.gamepad,
-                            &mut self.events, &mut self.persistent, &mut self.prev_positions_buf, SIM_DT, SIM_DT, SIM_DT, elapsed,
-                            self.width, self.height, false,
+                            state.as_mut(),
+                            &mut self.world,
+                            &mut self.input,
+                            &mut self.mouse,
+                            &mut self.gamepad,
+                            &mut self.events,
+                            &mut self.persistent,
+                            &mut self.prev_positions_buf,
+                            SIM_DT,
+                            SIM_DT,
+                            SIM_DT,
+                            elapsed,
+                            self.width,
+                            self.height,
+                            false,
                         );
-                        if result.should_quit { return Ok(Some(Transition::Quit)); }
+                        if result.should_quit {
+                            return Ok(Some(Transition::Quit));
+                        }
                         self.simulation_accumulator -= SIM_DT;
                     }
-                    if steps >= MAX_SIM_STEPS { self.simulation_accumulator = 0.0; }
+                    if steps >= MAX_SIM_STEPS {
+                        self.simulation_accumulator = 0.0;
+                    }
                 } else {
                     // Turn-based mode still only runs one step per frame,
                     // but a buffered press may have been waiting several
@@ -356,11 +406,25 @@ impl Engine {
                     // decision, Step 5f — there's no more script-callable
                     // `ctx.trigger_turn()`).
                     let result = sim::step(
-                        state.as_mut(), &mut self.world, &mut self.input, &mut self.mouse, &mut self.gamepad,
-                        &mut self.events, &mut self.persistent, &mut self.prev_positions_buf, SIM_DT, delta_time, 1.0, elapsed,
-                        self.width, self.height, true,
+                        state.as_mut(),
+                        &mut self.world,
+                        &mut self.input,
+                        &mut self.mouse,
+                        &mut self.gamepad,
+                        &mut self.events,
+                        &mut self.persistent,
+                        &mut self.prev_positions_buf,
+                        SIM_DT,
+                        delta_time,
+                        1.0,
+                        elapsed,
+                        self.width,
+                        self.height,
+                        true,
                     );
-                    if result.should_quit { return Ok(Some(Transition::Quit)); }
+                    if result.should_quit {
+                        return Ok(Some(Transition::Quit));
+                    }
                     self.simulation_accumulator = 0.0;
                 }
             }
@@ -377,10 +441,10 @@ impl Engine {
             self.renderer.clear();
             for state in &mut self.state_stack {
                 state.render(RenderContext {
-                    world:    &self.world,
+                    world: &self.world,
                     renderer: &mut self.renderer,
-                    assets:   &mut self.assets,
-                    mouse:    &self.mouse,
+                    assets: &mut self.assets,
+                    mouse: &self.mouse,
                     delta_time,
                     elapsed,
                     persistent: &self.persistent,
@@ -392,10 +456,21 @@ impl Engine {
             if let Some(state) = self.state_stack.last_mut() {
                 if let Some(t) = state.take_transition() {
                     match t {
-                        Transition::Push(new_state) => { self.push_state(new_state); }
-                        Transition::Pop => { self.pop_state(); if self.state_stack.is_empty() { return Ok(None); } }
-                        Transition::Quit => { return Ok(Some(Transition::Quit)); }
-                        other => { return Ok(Some(other)); } // Handle ToPlay, ToEditor etc externally for now
+                        Transition::Push(new_state) => {
+                            self.push_state(new_state);
+                        }
+                        Transition::Pop => {
+                            self.pop_state();
+                            if self.state_stack.is_empty() {
+                                return Ok(None);
+                            }
+                        }
+                        Transition::Quit => {
+                            return Ok(Some(Transition::Quit));
+                        }
+                        other => {
+                            return Ok(Some(other));
+                        } // Handle ToPlay, ToEditor etc externally for now
                     }
                 }
             } else {

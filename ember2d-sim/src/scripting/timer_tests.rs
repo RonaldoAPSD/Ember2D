@@ -32,7 +32,9 @@ use crate::components::Script;
 /// Mirrors `engine_tests.rs`'s own `test_layers()` — duplicated rather than
 /// shared across the two sibling test files, since sharing it would need its
 /// own plumbing (a `pub(super)` helper module) for one line of code.
-fn test_layers() -> crate::layers::LayerRegistry { crate::layers::LayerRegistry::new(&["solid".to_string()]) }
+fn test_layers() -> crate::layers::LayerRegistry {
+    crate::layers::LayerRegistry::new(&["solid".to_string()])
+}
 
 /// Mirrors `engine_tests.rs`'s own `test_temp_dir()` (7A-8) — duplicated for
 /// the same reason `test_layers()` is.
@@ -46,7 +48,11 @@ fn test_temp_dir() -> std::path::PathBuf {
 fn a_timer_reports_done_only_once_decay_carries_it_to_zero_or_below() {
     let mut script = test_temp_dir();
     script.push("ember2d_test_timer_decay.rhai");
-    std::fs::write(&script, r#"fn on_update(id, ctx) { ctx.set_global("done", ctx.timer_done("t")); }"#).unwrap();
+    std::fs::write(
+        &script,
+        r#"fn on_update(id, ctx) { ctx.set_global("done", ctx.timer_done("t")); }"#,
+    )
+    .unwrap();
     let path = script.to_string_lossy().to_string();
 
     let mut engine = ScriptEngine::new(42, test_layers());
@@ -66,17 +72,53 @@ fn a_timer_reports_done_only_once_decay_carries_it_to_zero_or_below() {
     let mut persistent = BTreeMap::new();
     let snapshot1 = Rc::new(WorldSnapshot::build(&world, &engine.layers));
     let r1 = engine.run_scripts(
-        &mut world, snapshot1, &mut log, 1.0 / 60.0, 0.0, crate::command::InputSnapshot::default(), crate::command::MouseSnapshot::default(), crate::command::GamepadSnapshot::default(),
-        &[], BTreeMap::new(), BTreeMap::new(), &mut persistent, crate::math::Vec2::ZERO, BTreeMap::new(), 0, (80, 24),
+        &mut world,
+        snapshot1,
+        &mut log,
+        1.0 / 60.0,
+        0.0,
+        crate::command::InputSnapshot::default(),
+        crate::command::MouseSnapshot::default(),
+        crate::command::GamepadSnapshot::default(),
+        &[],
+        BTreeMap::new(),
+        BTreeMap::new(),
+        &mut persistent,
+        crate::math::Vec2::ZERO,
+        BTreeMap::new(),
+        0,
+        (80, 24),
     );
-    assert_eq!(r1.globals.get("done").and_then(|d| d.as_bool().ok()), Some(false), "must not report done before decay carries it past zero");
+    assert_eq!(
+        r1.globals.get("done").and_then(|d| d.as_bool().ok()),
+        Some(false),
+        "must not report done before decay carries it past zero"
+    );
 
     let snapshot2 = Rc::new(WorldSnapshot::build(&world, &engine.layers));
     let r2 = engine.run_scripts(
-        &mut world, snapshot2, &mut log, 1.0 / 60.0, 0.0, crate::command::InputSnapshot::default(), crate::command::MouseSnapshot::default(), crate::command::GamepadSnapshot::default(),
-        &[], BTreeMap::new(), BTreeMap::new(), &mut persistent, crate::math::Vec2::ZERO, BTreeMap::new(), 0, (80, 24),
+        &mut world,
+        snapshot2,
+        &mut log,
+        1.0 / 60.0,
+        0.0,
+        crate::command::InputSnapshot::default(),
+        crate::command::MouseSnapshot::default(),
+        crate::command::GamepadSnapshot::default(),
+        &[],
+        BTreeMap::new(),
+        BTreeMap::new(),
+        &mut persistent,
+        crate::math::Vec2::ZERO,
+        BTreeMap::new(),
+        0,
+        (80, 24),
     );
-    assert_eq!(r2.globals.get("done").and_then(|d| d.as_bool().ok()), Some(true), "must report done once decay carries it to zero or below");
+    assert_eq!(
+        r2.globals.get("done").and_then(|d| d.as_bool().ok()),
+        Some(true),
+        "must report done once decay carries it to zero or below"
+    );
 
     let _ = std::fs::remove_file(&script);
 }
@@ -100,11 +142,28 @@ fn despawn_removes_the_entitys_timers() {
     let mut persistent = BTreeMap::new();
     let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers));
     engine.run_scripts(
-        &mut world, snapshot, &mut log, 1.0 / 60.0, 0.0, crate::command::InputSnapshot::default(), crate::command::MouseSnapshot::default(), crate::command::GamepadSnapshot::default(),
-        &[], BTreeMap::new(), BTreeMap::new(), &mut persistent, crate::math::Vec2::ZERO, BTreeMap::new(), 0, (80, 24),
+        &mut world,
+        snapshot,
+        &mut log,
+        1.0 / 60.0,
+        0.0,
+        crate::command::InputSnapshot::default(),
+        crate::command::MouseSnapshot::default(),
+        crate::command::GamepadSnapshot::default(),
+        &[],
+        BTreeMap::new(),
+        BTreeMap::new(),
+        &mut persistent,
+        crate::math::Vec2::ZERO,
+        BTreeMap::new(),
+        0,
+        (80, 24),
     );
 
-    assert!(!engine.timers.contains_key(&entity), "a despawned entity's timers must not leak forever (mirrors the existing scopes cleanup)");
+    assert!(
+        !engine.timers.contains_key(&entity),
+        "a despawned entity's timers must not leak forever (mirrors the existing scopes cleanup)"
+    );
     let _ = std::fs::remove_file(&script);
 }
 
@@ -138,8 +197,14 @@ fn hot_reload_clears_only_the_reloaded_scripts_entities_timers() {
     engine.mod_times.insert(path_a.clone(), std::time::SystemTime::UNIX_EPOCH);
     engine.check_hot_reload(&world, &mut log);
 
-    assert!(!engine.timers.contains_key(&entity_a), "the reloaded script's entity must lose its stale timers, same as its scope");
-    assert!(engine.timers.contains_key(&entity_b), "an unrelated entity's timers must survive another script's hot-reload");
+    assert!(
+        !engine.timers.contains_key(&entity_a),
+        "the reloaded script's entity must lose its stale timers, same as its scope"
+    );
+    assert!(
+        engine.timers.contains_key(&entity_b),
+        "an unrelated entity's timers must survive another script's hot-reload"
+    );
 
     let _ = std::fs::remove_file(&script_a);
     let _ = std::fs::remove_file(&script_b);

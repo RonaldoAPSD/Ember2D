@@ -27,8 +27,8 @@
 // scans the current directory for project subfolders and returns their names.
 // The user picks one, and `levels_in(folder)` returns all .level files inside it.
 
-use std::fs;
 use serde::{Deserialize, Serialize};
+use std::fs;
 
 // ── ProjectData ───────────────────────────────────────────────────────────────
 
@@ -77,30 +77,45 @@ pub struct ProjectData {
     pub pixels_per_unit: f32,
 }
 
-fn default_visual_style() -> VisualStyle { VisualStyle::ClassicASCII }
-fn default_gameplay_loop() -> GameplayLoop { GameplayLoop::RealTime }
-fn default_start_level() -> Option<String> { Some("main.level".to_string()) }
+fn default_visual_style() -> VisualStyle {
+    VisualStyle::ClassicASCII
+}
+fn default_gameplay_loop() -> GameplayLoop {
+    GameplayLoop::RealTime
+}
+fn default_start_level() -> Option<String> {
+    Some("main.level".to_string())
+}
 // pub so both PlayState (play.rs, same crate) and main.rs (the binary
 // crate) can use this exact constant as their own fallback default, instead
 // of a second hardcoded "8.0" drifting from this one.
-pub fn default_pixels_per_unit() -> f32 { 8.0 }
+pub fn default_pixels_per_unit() -> f32 {
+    8.0
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum StartTemplate { Empty, BasicRoom }
+pub enum StartTemplate {
+    Empty,
+    BasicRoom,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartResult {
     pub project_folder: String,
-    pub project_name:   String,
-    pub level_path:     String,
-    pub template:       Option<StartTemplate>,
-    pub visual_style:   VisualStyle,
-    pub gameplay_loop:  GameplayLoop,
+    pub project_name: String,
+    pub level_path: String,
+    pub template: Option<StartTemplate>,
+    pub visual_style: VisualStyle,
+    pub gameplay_loop: GameplayLoop,
 }
 
 impl ProjectData {
     /// Create a new ProjectData with the given settings.
-    pub fn new(name: impl Into<String>, visual_style: VisualStyle, gameplay_loop: GameplayLoop) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        visual_style: VisualStyle,
+        gameplay_loop: GameplayLoop,
+    ) -> Self {
         ProjectData {
             name: name.into(),
             visual_style,
@@ -115,9 +130,9 @@ impl ProjectData {
     /// Creates (or overwrites) `<folder>/project.ron` with the serialized data.
     /// Returns an error if the folder doesn't exist or can't be written.
     pub fn save(&self, folder: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let path   = format!("{}/project.ron", folder);
+        let path = format!("{}/project.ron", folder);
         let config = ron::ser::PrettyConfig::new().depth_limit(2).new_line("\n".to_string());
-        let text   = ron::ser::to_string_pretty(self, config)?;
+        let text = ron::ser::to_string_pretty(self, config)?;
         fs::write(path, text)?;
         Ok(())
     }
@@ -127,7 +142,7 @@ impl ProjectData {
     /// Returns Err if the file is missing or malformed. The caller can then
     /// fall back to using the folder name (see `name_for()` below).
     pub fn load(folder: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let path    = format!("{}/project.ron", folder);
+        let path = format!("{}/project.ron", folder);
         let content = fs::read_to_string(path)?;
         Ok(ron::de::from_str(&content)?)
     }
@@ -140,15 +155,13 @@ impl ProjectData {
     /// This is the "safe" way to get a project name — always returns something
     /// human-readable even for folders without a `project.ron`.
     pub fn name_for(folder: &str) -> String {
-        ProjectData::load(folder)
-            .map(|p| p.name)
-            .unwrap_or_else(|_| {
-                // Extract just the final path component (the folder's own name).
-                std::path::Path::new(folder)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| folder.to_string())
-            })
+        ProjectData::load(folder).map(|p| p.name).unwrap_or_else(|_| {
+            // Extract just the final path component (the folder's own name).
+            std::path::Path::new(folder)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| folder.to_string())
+        })
     }
 
     /// List all `.level` files inside `folder`, returned as sorted full paths.
@@ -194,10 +207,12 @@ impl ProjectData {
             .filter(|e| {
                 let path = e.path();
                 // Qualify: has project.ron OR has at least one .level file.
-                let has_ron   = path.join("project.ron").exists();
+                let has_ron = path.join("project.ron").exists();
                 let has_level = fs::read_dir(&path)
-                    .map(|rd| rd.filter_map(|x| x.ok())
-                         .any(|x| x.file_name().to_string_lossy().ends_with(".level")))
+                    .map(|rd| {
+                        rd.filter_map(|x| x.ok())
+                            .any(|x| x.file_name().to_string_lossy().ends_with(".level"))
+                    })
                     .unwrap_or(false);
                 has_ron || has_level
             })

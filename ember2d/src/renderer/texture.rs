@@ -1,7 +1,7 @@
 // renderer/texture.rs — Texture management for Sprites2D mode.
 
-use std::path::Path;
 use image::GenericImageView;
+use std::path::Path;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -25,7 +25,7 @@ pub struct TextureId(pub u64);
 #[derive(Clone)]
 pub struct Texture {
     pub id: u64,
-    pub width:  u32,
+    pub width: u32,
     pub height: u32,
     pub pixels: Vec<u32>,
 }
@@ -42,20 +42,15 @@ impl Texture {
                 let p = img.get_pixel(x, y);
                 // Store as 0xAABBGGRR so little-endian bytes are [R, G, B, A]
                 // This matches wgpu::TextureFormat::Rgba8Unorm expectations.
-                let rgba = ((p[3] as u32) << 24) |
-                           ((p[2] as u32) << 16) |
-                           ((p[1] as u32) << 8)  |
-                            (p[0] as u32);
+                let rgba = ((p[3] as u32) << 24)
+                    | ((p[2] as u32) << 16)
+                    | ((p[1] as u32) << 8)
+                    | (p[0] as u32);
                 pixels.push(rgba);
             }
         }
 
-        Ok(Texture { 
-            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
-            width, 
-            height, 
-            pixels 
-        })
+        Ok(Texture { id: NEXT_ID.fetch_add(1, Ordering::Relaxed), width, height, pixels })
     }
 
     /// Create a 1x1 solid color texture.

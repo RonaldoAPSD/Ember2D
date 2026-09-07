@@ -1,18 +1,30 @@
 // gamepad.rs — Gamepad input support via gilrs.
 
-use serde::{Serialize, Deserialize};
-use std::collections::{HashMap, HashSet};
-use gilrs::{Gilrs, Button, Axis, Event, EventType};
 use crate::input::INPUT_BUFFER_WINDOW;
+use gilrs::{Axis, Button, Event, EventType, Gilrs};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 /// A backend-agnostic representation of a gamepad button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum GamepadButton {
-    South, East, North, West,
-    LeftTrigger, RightTrigger, LeftTrigger2, RightTrigger2,
-    Select, Start, Mode,
-    LeftThumb, RightThumb,
-    DPadUp, DPadDown, DPadLeft, DPadRight,
+    South,
+    East,
+    North,
+    West,
+    LeftTrigger,
+    RightTrigger,
+    LeftTrigger2,
+    RightTrigger2,
+    Select,
+    Start,
+    Mode,
+    LeftThumb,
+    RightThumb,
+    DPadUp,
+    DPadDown,
+    DPadLeft,
+    DPadRight,
     Unknown,
 }
 
@@ -48,9 +60,12 @@ impl GamepadButton {
 /// A backend-agnostic representation of a gamepad axis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum GamepadAxis {
-    LeftStickX, LeftStickY,
-    RightStickX, RightStickY,
-    LeftTrigger, RightTrigger,
+    LeftStickX,
+    LeftStickY,
+    RightStickX,
+    RightStickY,
+    LeftTrigger,
+    RightTrigger,
     Unknown,
 }
 
@@ -91,7 +106,7 @@ pub struct GamepadState {
 
 impl GamepadState {
     pub fn new() -> Self {
-        // Safe initialization: if gilrs fails (e.g. no display server), 
+        // Safe initialization: if gilrs fails (e.g. no display server),
         // we just run without gamepad support instead of panicking.
         let gilrs = Gilrs::new().ok();
         if gilrs.is_none() {
@@ -125,7 +140,10 @@ impl GamepadState {
     /// Call once per frame (real delta time) after the frame's simulation
     /// steps have had their chance to consume them.
     pub fn decay(&mut self, dt: f32) {
-        self.pending.retain(|_, remaining| { *remaining -= dt; *remaining > 0.0 });
+        self.pending.retain(|_, remaining| {
+            *remaining -= dt;
+            *remaining > 0.0
+        });
     }
 
     pub fn poll(&mut self) {
@@ -173,7 +191,11 @@ impl GamepadState {
     pub fn get_axis(&self, gamepad_id: usize, axis: GamepadAxis) -> f32 {
         let v = self.axes.get(&(gamepad_id, axis)).copied().unwrap_or(0.0);
         // Apply deadzone to prevent input drift at rest
-        if v.abs() < 0.1 { 0.0 } else { v }
+        if v.abs() < 0.1 {
+            0.0
+        } else {
+            v
+        }
     }
 
     /// Returns the ID of the first connected gamepad, or None.
@@ -188,9 +210,15 @@ impl GamepadState {
         let mut held = HashSet::new();
         let mut pressed = HashSet::new();
         let mut axes = HashMap::new();
-        for &(id, btn) in &self.held { held.insert((id, btn.to_string())); }
-        for &(id, btn) in &self.consumed { pressed.insert((id, btn.to_string())); }
-        for (&(id, ax), &val) in &self.axes { axes.insert((id, ax.to_string()), val); }
+        for &(id, btn) in &self.held {
+            held.insert((id, btn.to_string()));
+        }
+        for &(id, btn) in &self.consumed {
+            pressed.insert((id, btn.to_string()));
+        }
+        for (&(id, ax), &val) in &self.axes {
+            axes.insert((id, ax.to_string()), val);
+        }
         ember2d_sim::command::GamepadSnapshot { held, pressed, axes }
     }
 }

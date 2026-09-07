@@ -15,7 +15,12 @@ use ember2d_editor::prelude::EditorState;
 /// natural-texture-sizing setting (Step 3b) — threaded through the same way
 /// for the same reason: `PlayState::from_level` takes only a `LevelData`,
 /// not a `ProjectData`.
-pub fn run_editor_app(engine: &mut Engine, editor: EditorState, play_gameplay_loop: GameplayLoop, pixels_per_unit: f32) -> io::Result<bool> {
+pub fn run_editor_app(
+    engine: &mut Engine,
+    editor: EditorState,
+    play_gameplay_loop: GameplayLoop,
+    pixels_per_unit: f32,
+) -> io::Result<bool> {
     engine.gameplay_loop = GameplayLoop::RealTime;
     engine.push_state(Box::new(editor));
 
@@ -39,15 +44,24 @@ pub fn run_editor_app(engine: &mut Engine, editor: EditorState, play_gameplay_lo
                         let (turn_number, scheduler) = (save.turn_number, save.scheduler);
                         engine.world = save.world;
                         engine.persistent = save.persistent;
-                        level_data = LevelData::load(&save.level_path)
-                            .map_err(|e| { eprintln!("Error loading level: {}", e); io::Error::new(io::ErrorKind::Other, "Level load failed") })?;
-                        PlayState::from_save(level_data.clone(), engine.persistent.clone(), globals, clips, turn_number, scheduler)
+                        level_data = LevelData::load(&save.level_path).map_err(|e| {
+                            eprintln!("Error loading level: {}", e);
+                            io::Error::new(io::ErrorKind::Other, "Level load failed")
+                        })?;
+                        PlayState::from_save(
+                            level_data.clone(),
+                            engine.persistent.clone(),
+                            globals,
+                            clips,
+                            turn_number,
+                            scheduler,
+                        )
                     } else {
                         PlayState::from_level(level_data.clone(), engine.persistent.clone())
                     };
                     play.set_pixels_per_unit(pixels_per_unit);
                     engine.push_state(Box::new(play));
-                    
+
                     match engine.run()? {
                         Some(Transition::ToEditor) => {
                             while engine.state_stack_len() > 1 {
@@ -102,7 +116,10 @@ pub fn run_editor_app(engine: &mut Engine, editor: EditorState, play_gameplay_lo
             // start screen, e.g. via File > Start Screen. Popping it before
             // returning is what keeps `main.rs`'s next `push_state` landing
             // on an empty stack instead of stacking a second EditorState.
-            Transition::ToStart => { engine.pop_state(); return Ok(true); }
+            Transition::ToStart => {
+                engine.pop_state();
+                return Ok(true);
+            }
             Transition::Quit => break,
             _ => {}
         }
@@ -111,7 +128,11 @@ pub fn run_editor_app(engine: &mut Engine, editor: EditorState, play_gameplay_lo
     Ok(false)
 }
 
-pub fn run_play_app(engine: &mut Engine, mut data: LevelData, pixels_per_unit: f32) -> io::Result<()> {
+pub fn run_play_app(
+    engine: &mut Engine,
+    mut data: LevelData,
+    pixels_per_unit: f32,
+) -> io::Result<()> {
     let mut pending_save: Option<SaveState> = None;
     loop {
         engine.reset_world();
@@ -126,15 +147,24 @@ pub fn run_play_app(engine: &mut Engine, mut data: LevelData, pixels_per_unit: f
             let (turn_number, scheduler) = (save.turn_number, save.scheduler);
             engine.world = save.world;
             engine.persistent = save.persistent;
-            data = LevelData::load(&save.level_path)
-                .map_err(|e| { eprintln!("Error loading level: {}", e); io::Error::new(io::ErrorKind::Other, "Level load failed") })?;
-            PlayState::from_save(data.clone(), engine.persistent.clone(), globals, clips, turn_number, scheduler)
+            data = LevelData::load(&save.level_path).map_err(|e| {
+                eprintln!("Error loading level: {}", e);
+                io::Error::new(io::ErrorKind::Other, "Level load failed")
+            })?;
+            PlayState::from_save(
+                data.clone(),
+                engine.persistent.clone(),
+                globals,
+                clips,
+                turn_number,
+                scheduler,
+            )
         } else {
             PlayState::from_level(data.clone(), engine.persistent.clone())
         };
         play.set_pixels_per_unit(pixels_per_unit);
         engine.push_state(Box::new(play));
-        
+
         match engine.run()? {
             Some(Transition::ToPlay(next)) => {
                 engine.pop_state();

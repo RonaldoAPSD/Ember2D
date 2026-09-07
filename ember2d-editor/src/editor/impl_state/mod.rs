@@ -7,17 +7,17 @@
 // version; only the `#[cfg(test)] mod tests { ... }` block moved out to its
 // own file.
 
+use super::commands::Command;
+use super::panel::PanelId;
+use super::ui::{bresenham, transform_offset, ToolKind, ToolbarAction};
+use super::EditorState;
+use ember2d::engine::Transition;
+use ember2d::play::resolve_exit_path;
+use ember2d_sim::graph as node_graph;
+use ember2d_sim::level::LevelData;
+use ember2d_sim::scripting::LogEntry;
 use std::collections::VecDeque;
 use std::path::Path;
-use ember2d::engine::Transition;
-use ember2d_sim::level::LevelData;
-use ember2d::play::resolve_exit_path;
-use ember2d_sim::scripting::LogEntry;
-use super::EditorState;
-use super::commands::Command;
-use ember2d_sim::graph as node_graph;
-use super::ui::{ToolKind, ToolbarAction, transform_offset, bresenham};
-use super::panel::PanelId;
 
 impl EditorState {
     pub(super) fn save(&mut self) {
@@ -25,12 +25,12 @@ impl EditorState {
         self.migrate_graph_sidecars(&mut data);
         match data.save(&self.save_path) {
             Ok(()) => {
-                self.unsaved            = false;
-                self.save_message       = Some(format!("Saved → {}", self.save_path));
+                self.unsaved = false;
+                self.save_message = Some(format!("Saved → {}", self.save_path));
                 self.save_message_timer = 0;
             }
             Err(e) => {
-                self.save_message       = Some(format!("Save FAILED: {}", e));
+                self.save_message = Some(format!("Save FAILED: {}", e));
                 self.save_message_timer = 0;
             }
         }
@@ -57,7 +57,8 @@ impl EditorState {
     /// graph fully editable after a save.
     fn migrate_graph_sidecars(&self, data: &mut LevelData) {
         let level_path = Path::new(&self.save_path);
-        let dir = level_path.parent()
+        let dir = level_path
+            .parent()
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
         let stem = level_path.file_stem().and_then(|s| s.to_str()).unwrap_or("level");
@@ -106,14 +107,23 @@ impl EditorState {
         //    loses nothing: every panel's own rect is still exactly
         //    cell-aligned as of Part 1c, so this reproduces the identical
         //    boolean result the old cell-based comparison gave.
-        if let Some(pid) = self.panels.panel_at(cell_x as f32 * ember2d::renderer::CELL_W as f32, cell_y as f32 * ember2d::renderer::CELL_H as f32) {
-            if pid != PanelId::Viewport { return None; }
+        if let Some(pid) = self.panels.panel_at(
+            cell_x as f32 * ember2d::renderer::CELL_W as f32,
+            cell_y as f32 * ember2d::renderer::CELL_H as f32,
+        ) {
+            if pid != PanelId::Viewport {
+                return None;
+            }
         }
 
         let l = &self.layout;
         // 2. Localize to canvas space
-        if cell_x < l.canvas_x || cell_x >= l.canvas_x + l.canvas_w { return None; }
-        if cell_y < l.canvas_y || cell_y >= l.canvas_y + l.canvas_h { return None; }
+        if cell_x < l.canvas_x || cell_x >= l.canvas_x + l.canvas_w {
+            return None;
+        }
+        if cell_y < l.canvas_y || cell_y >= l.canvas_y + l.canvas_h {
+            return None;
+        }
 
         let local_x = (cell_x - l.canvas_x) as f32;
         let local_y = (cell_y - l.canvas_y) as f32;
@@ -132,7 +142,7 @@ impl EditorState {
     }
 
     pub(super) fn clamp_scroll(&mut self) {
-        let max_x = (self.grid.width  as f32 - self.layout.canvas_w as f32 / self.zoom).max(0.0);
+        let max_x = (self.grid.width as f32 - self.layout.canvas_w as f32 / self.zoom).max(0.0);
         let max_y = (self.grid.height as f32 - self.layout.canvas_h as f32 / self.zoom).max(0.0);
         self.target_scroll.0 = self.target_scroll.0.clamp(0.0, max_x);
         self.target_scroll.1 = self.target_scroll.1.clamp(0.0, max_y);
@@ -140,13 +150,21 @@ impl EditorState {
 
     pub(super) fn apply_command(&mut self, cmd: &Command) {
         match cmd {
-            Command::PlaceTile { after, .. } => { self.grid.place(after.x, after.y, after.layer, after.clone()); }
-            Command::EraseTile { before }    => { self.grid.erase(before.x, before.y, before.layer); }
+            Command::PlaceTile { after, .. } => {
+                self.grid.place(after.x, after.y, after.layer, after.clone());
+            }
+            Command::EraseTile { before } => {
+                self.grid.erase(before.x, before.y, before.layer);
+            }
             Command::Batch { cells } => {
                 for &(x, y, layer, _, ref after) in cells {
                     match after {
-                        Some(t) => { self.grid.place(x, y, layer, t.clone()); }
-                        None    => { self.grid.erase(x, y, layer); }
+                        Some(t) => {
+                            self.grid.place(x, y, layer, t.clone());
+                        }
+                        None => {
+                            self.grid.erase(x, y, layer);
+                        }
                     }
                 }
             }
@@ -169,14 +187,22 @@ impl EditorState {
         match cmd {
             Command::PlaceTile { before, after } => {
                 self.grid.erase(after.x, after.y, after.layer);
-                if let Some(prev) = before { self.grid.place(prev.x, prev.y, prev.layer, prev.clone()); }
+                if let Some(prev) = before {
+                    self.grid.place(prev.x, prev.y, prev.layer, prev.clone());
+                }
             }
-            Command::EraseTile { before } => { self.grid.place(before.x, before.y, before.layer, before.clone()); }
+            Command::EraseTile { before } => {
+                self.grid.place(before.x, before.y, before.layer, before.clone());
+            }
             Command::Batch { cells } => {
                 for &(x, y, layer, ref before, _) in cells {
                     match before {
-                        Some(t) => { self.grid.place(x, y, layer, t.clone()); }
-                        None    => { self.grid.erase(x, y, layer); }
+                        Some(t) => {
+                            self.grid.place(x, y, layer, t.clone());
+                        }
+                        None => {
+                            self.grid.erase(x, y, layer);
+                        }
                     }
                 }
             }
@@ -208,58 +234,80 @@ impl EditorState {
         let lyr = self.active_layer;
         for gy in y0..=y1 {
             for gx in x0..=x1 {
-                if !self.grid.in_bounds(gx, gy) { continue; }
+                if !self.grid.in_bounds(gx, gy) {
+                    continue;
+                }
                 let new_tile = self.palette.current().to_tile_record(gx, gy);
-                let before   = self.grid.get(gx, gy, lyr).cloned();
+                let before = self.grid.get(gx, gy, lyr).cloned();
                 self.grid.place(gx, gy, lyr, new_tile.clone());
                 cells.push((gx, gy, lyr, before, Some(new_tile)));
             }
         }
-        if !cells.is_empty() { self.undo.push(Command::Batch { cells }); self.unsaved = true; }
+        if !cells.is_empty() {
+            self.undo.push(Command::Batch { cells });
+            self.unsaved = true;
+        }
     }
 
     pub(super) fn stamp_line(&mut self, anchor: (i32, i32), end: (i32, i32)) {
         let mut cells = Vec::new();
         let lyr = self.active_layer;
         for (gx, gy) in bresenham(anchor, end) {
-            if !self.grid.in_bounds(gx, gy) { continue; }
+            if !self.grid.in_bounds(gx, gy) {
+                continue;
+            }
             let new_tile = self.palette.current().to_tile_record(gx, gy);
-            let before   = self.grid.get(gx, gy, lyr).cloned();
+            let before = self.grid.get(gx, gy, lyr).cloned();
             self.grid.place(gx, gy, lyr, new_tile.clone());
             cells.push((gx, gy, lyr, before, Some(new_tile)));
         }
-        if !cells.is_empty() { self.undo.push(Command::Batch { cells }); self.unsaved = true; }
+        if !cells.is_empty() {
+            self.undo.push(Command::Batch { cells });
+            self.unsaved = true;
+        }
     }
 
     pub(super) fn flood_fill(&mut self, sx: i32, sy: i32) {
         let lyr = self.active_layer;
         let target_tile = self.grid.get(sx, sy, lyr).cloned();
-        let new_def     = self.palette.current();
+        let new_def = self.palette.current();
         if let Some(t) = &target_tile {
-            if t.glyph == new_def.glyph && t.solid == new_def.solid && t.tag == new_def.tag { return; }
+            if t.glyph == new_def.glyph && t.solid == new_def.solid && t.tag == new_def.tag {
+                return;
+            }
         }
-        let mut cells   = Vec::new();
-        let mut queue   = VecDeque::new();
+        let mut cells = Vec::new();
+        let mut queue = VecDeque::new();
         let mut visited = std::collections::HashSet::new();
         queue.push_back((sx, sy));
         visited.insert((sx, sy));
         while let Some((gx, gy)) = queue.pop_front() {
-            if !self.grid.in_bounds(gx, gy) { continue; }
+            if !self.grid.in_bounds(gx, gy) {
+                continue;
+            }
             let cell = self.grid.get(gx, gy, lyr).cloned();
             let matches = match (&cell, &target_tile) {
-                (None, None)       => true,
+                (None, None) => true,
                 (Some(a), Some(b)) => a.glyph == b.glyph && a.solid == b.solid && a.tag == b.tag,
-                _                  => false,
+                _ => false,
             };
-            if !matches { continue; }
+            if !matches {
+                continue;
+            }
             let new_tile = new_def.to_tile_record(gx, gy);
             self.grid.place(gx, gy, lyr, new_tile.clone());
             cells.push((gx, gy, lyr, cell, Some(new_tile)));
-            for (nx, ny) in [(gx-1,gy),(gx+1,gy),(gx,gy-1),(gx,gy+1)] {
-                if !visited.contains(&(nx, ny)) { visited.insert((nx, ny)); queue.push_back((nx, ny)); }
+            for (nx, ny) in [(gx - 1, gy), (gx + 1, gy), (gx, gy - 1), (gx, gy + 1)] {
+                if !visited.contains(&(nx, ny)) {
+                    visited.insert((nx, ny));
+                    queue.push_back((nx, ny));
+                }
             }
         }
-        if !cells.is_empty() { self.undo.push(Command::Batch { cells }); self.unsaved = true; }
+        if !cells.is_empty() {
+            self.undo.push(Command::Batch { cells });
+            self.unsaved = true;
+        }
     }
 
     pub(super) fn erase_brush(&mut self, gx: i32, gy: i32) {
@@ -286,17 +334,26 @@ impl EditorState {
     }
 
     pub(super) fn stamp_paste(&mut self, cursor: (i32, i32)) {
-        let max_dx = self.clipboard.iter().map(|(dx,_,_)| *dx).max().unwrap_or(0);
-        let max_dy = self.clipboard.iter().map(|(_,dy,_)| *dy).max().unwrap_or(0);
+        let max_dx = self.clipboard.iter().map(|(dx, _, _)| *dx).max().unwrap_or(0);
+        let max_dy = self.clipboard.iter().map(|(_, dy, _)| *dy).max().unwrap_or(0);
         let mut cells = Vec::new();
         let lyr = self.active_layer;
         let clipboard = std::mem::take(&mut self.clipboard);
         for (dx, dy, ref tile) in &clipboard {
-            let (tdx, tdy) = transform_offset(*dx, *dy, max_dx, max_dy,
-                                              self.paste_flip_x, self.paste_flip_y, self.paste_rotate);
+            let (tdx, tdy) = transform_offset(
+                *dx,
+                *dy,
+                max_dx,
+                max_dy,
+                self.paste_flip_x,
+                self.paste_flip_y,
+                self.paste_rotate,
+            );
             let gx = cursor.0 + tdx;
             let gy = cursor.1 + tdy;
-            if !self.grid.in_bounds(gx, gy) { continue; }
+            if !self.grid.in_bounds(gx, gy) {
+                continue;
+            }
             let mut new_tile = tile.clone();
             new_tile.x = gx;
             new_tile.y = gy;
@@ -306,7 +363,10 @@ impl EditorState {
             cells.push((gx, gy, lyr, before, Some(new_tile)));
         }
         self.clipboard = clipboard;
-        if !cells.is_empty() { self.undo.push(Command::Batch { cells }); self.unsaved = true; }
+        if !cells.is_empty() {
+            self.undo.push(Command::Batch { cells });
+            self.unsaved = true;
+        }
     }
 
     pub(super) fn copy_selection(&mut self, anchor: (i32, i32), current: (i32, i32)) {
@@ -343,7 +403,10 @@ impl EditorState {
                 }
             }
         }
-        if !cells.is_empty() { self.undo.push(Command::Batch { cells }); self.unsaved = true; }
+        if !cells.is_empty() {
+            self.undo.push(Command::Batch { cells });
+            self.unsaved = true;
+        }
     }
 
     pub(super) fn refresh_project_files(&mut self) {
@@ -397,14 +460,16 @@ impl EditorState {
         if let Some(ref folder) = self.project_folder {
             let path = format!("{}/{}", folder, name);
             if let Ok(content) = std::fs::read_to_string(&path) {
-                self.script_path    = Some(name.to_string());
-                self.script_buffer  = content.lines().map(|s| s.to_string()).collect();
-                if self.script_buffer.is_empty() { self.script_buffer.push(String::new()); }
-                self.script_cursor  = (0, 0);
-                self.script_scroll  = 0;
+                self.script_path = Some(name.to_string());
+                self.script_buffer = content.lines().map(|s| s.to_string()).collect();
+                if self.script_buffer.is_empty() {
+                    self.script_buffer.push(String::new());
+                }
+                self.script_cursor = (0, 0);
+                self.script_scroll = 0;
                 self.script_unsaved = false;
-                self.script_mode    = true;
-                self.focused_panel  = Some(PanelId::ScriptEditor);
+                self.script_mode = true;
+                self.focused_panel = Some(PanelId::ScriptEditor);
             } else {
                 self.console_log.push(LogEntry::error(format!("Failed to load script: {}", name)));
             }
@@ -429,11 +494,16 @@ impl EditorState {
         let sp = self.grid.spawn_point;
         let pr = &self.grid.player;
         ember2d_sim::level::TileRecord {
-            x: sp.0 as i32, y: sp.1 as i32,
+            x: sp.0 as i32,
+            y: sp.1 as i32,
             layer: 1,
-            glyph: pr.glyph, fg: pr.fg, bg: pr.bg,
-            solid: pr.solid, trigger: pr.trigger,
-            tag: pr.tag.clone(), script: pr.script.clone(),
+            glyph: pr.glyph,
+            fg: pr.fg,
+            bg: pr.bg,
+            solid: pr.solid,
+            trigger: pr.trigger,
+            tag: pr.tag.clone(),
+            script: pr.script.clone(),
             collider_layer: pr.collider_layer.clone(),
             collider_mask: pr.collider_mask.clone(),
             camera_follow: pr.camera_follow,
@@ -458,49 +528,126 @@ impl EditorState {
 
     pub(super) fn clear_tool_modes(&mut self) {
         self.select_mode = false;
-        self.selecting   = false;
-        self.cutting     = false;
-        self.pasting     = false;
-        self.sel_anchor  = None;
+        self.selecting = false;
+        self.cutting = false;
+        self.pasting = false;
+        self.sel_anchor = None;
         self.line_anchor = None;
         self.rect_anchor = None;
     }
 
     pub(super) fn dispatch_toolbar_action(&mut self, action: ToolbarAction) {
-        use super::grid::LevelGrid;
         use super::commands::UndoStack;
+        use super::grid::LevelGrid;
         use super::TextInput;
         use super::TextInputPurpose;
         match action {
-            ToolbarAction::SetTool(ToolKind::Paint) => { self.clear_tool_modes(); self.active_tool = ToolKind::Paint; }
-            ToolbarAction::SetTool(ToolKind::Select) => { self.clear_tool_modes(); self.select_mode = true; self.active_tool = ToolKind::Select; }
-            ToolbarAction::SetTool(ToolKind::Rect) => { self.clear_tool_modes(); self.active_tool = ToolKind::Rect; }
-            ToolbarAction::SetTool(ToolKind::Line) => { self.clear_tool_modes(); self.active_tool = ToolKind::Line; }
-            ToolbarAction::SetTool(ToolKind::Fill) => { self.clear_tool_modes(); self.active_tool = ToolKind::Fill; }
-            ToolbarAction::SetTool(ToolKind::Copy) => { self.clear_tool_modes(); self.selecting = true; self.active_tool = ToolKind::Copy; }
-            ToolbarAction::SetTool(ToolKind::Cut) => { self.clear_tool_modes(); self.cutting = true; self.active_tool = ToolKind::Cut; }
-            ToolbarAction::SetTool(ToolKind::Paste) => { if !self.clipboard.is_empty() { self.clear_tool_modes(); self.pasting = true; self.active_tool = ToolKind::Paste; } }
-            ToolbarAction::Undo => { if let Some(cmd) = self.undo.pop_undo() { self.reverse_command(&cmd); self.unsaved = true; } }
-            ToolbarAction::Redo => { if let Some(cmd) = self.undo.pop_redo() { self.apply_command(&cmd); self.unsaved = true; } }
-            ToolbarAction::ToggleGrid      => { self.show_grid = !self.show_grid; }
-            ToolbarAction::ToggleInspector => { self.panels.toggle(PanelId::Inspector); }
-            ToolbarAction::ToggleConsole   => { self.panels.toggle(PanelId::Console); }
-            ToolbarAction::TogglePalette   => { self.panels.toggle(PanelId::Palette); }
-            ToolbarAction::ToggleHierarchy => { self.panels.toggle(PanelId::Hierarchy); }
-            ToolbarAction::ToggleScriptEditor => { self.panels.toggle(PanelId::ScriptEditor); }
-            ToolbarAction::ToggleFileBrowser  => { self.panels.toggle(PanelId::FileBrowser); }
-            ToolbarAction::TogglePhysics   => { self.show_physics = !self.show_physics; }
-            ToolbarAction::ToggleStats     => { self.panels.toggle(PanelId::Stats); }
-            ToolbarAction::ToggleHelp      => { self.show_help = !self.show_help; }
-            ToolbarAction::Save   => { self.save(); }
-            ToolbarAction::SaveAs => { self.text_input = Some(TextInput { buffer: self.save_path.clone(), purpose: TextInputPurpose::SaveAs }); }
-            ToolbarAction::Export => { self.export_game(); }
-            ToolbarAction::NewLevel  => { self.grid = LevelGrid::new(super::DEFAULT_LEVEL_W, super::DEFAULT_LEVEL_H); self.undo = UndoStack::new(); self.unsaved = false; self.save_message = Some("New level created".to_string()); self.save_message_timer = 0; }
+            ToolbarAction::SetTool(ToolKind::Paint) => {
+                self.clear_tool_modes();
+                self.active_tool = ToolKind::Paint;
+            }
+            ToolbarAction::SetTool(ToolKind::Select) => {
+                self.clear_tool_modes();
+                self.select_mode = true;
+                self.active_tool = ToolKind::Select;
+            }
+            ToolbarAction::SetTool(ToolKind::Rect) => {
+                self.clear_tool_modes();
+                self.active_tool = ToolKind::Rect;
+            }
+            ToolbarAction::SetTool(ToolKind::Line) => {
+                self.clear_tool_modes();
+                self.active_tool = ToolKind::Line;
+            }
+            ToolbarAction::SetTool(ToolKind::Fill) => {
+                self.clear_tool_modes();
+                self.active_tool = ToolKind::Fill;
+            }
+            ToolbarAction::SetTool(ToolKind::Copy) => {
+                self.clear_tool_modes();
+                self.selecting = true;
+                self.active_tool = ToolKind::Copy;
+            }
+            ToolbarAction::SetTool(ToolKind::Cut) => {
+                self.clear_tool_modes();
+                self.cutting = true;
+                self.active_tool = ToolKind::Cut;
+            }
+            ToolbarAction::SetTool(ToolKind::Paste) => {
+                if !self.clipboard.is_empty() {
+                    self.clear_tool_modes();
+                    self.pasting = true;
+                    self.active_tool = ToolKind::Paste;
+                }
+            }
+            ToolbarAction::Undo => {
+                if let Some(cmd) = self.undo.pop_undo() {
+                    self.reverse_command(&cmd);
+                    self.unsaved = true;
+                }
+            }
+            ToolbarAction::Redo => {
+                if let Some(cmd) = self.undo.pop_redo() {
+                    self.apply_command(&cmd);
+                    self.unsaved = true;
+                }
+            }
+            ToolbarAction::ToggleGrid => {
+                self.show_grid = !self.show_grid;
+            }
+            ToolbarAction::ToggleInspector => {
+                self.panels.toggle(PanelId::Inspector);
+            }
+            ToolbarAction::ToggleConsole => {
+                self.panels.toggle(PanelId::Console);
+            }
+            ToolbarAction::TogglePalette => {
+                self.panels.toggle(PanelId::Palette);
+            }
+            ToolbarAction::ToggleHierarchy => {
+                self.panels.toggle(PanelId::Hierarchy);
+            }
+            ToolbarAction::ToggleScriptEditor => {
+                self.panels.toggle(PanelId::ScriptEditor);
+            }
+            ToolbarAction::ToggleFileBrowser => {
+                self.panels.toggle(PanelId::FileBrowser);
+            }
+            ToolbarAction::TogglePhysics => {
+                self.show_physics = !self.show_physics;
+            }
+            ToolbarAction::ToggleStats => {
+                self.panels.toggle(PanelId::Stats);
+            }
+            ToolbarAction::ToggleHelp => {
+                self.show_help = !self.show_help;
+            }
+            ToolbarAction::Save => {
+                self.save();
+            }
+            ToolbarAction::SaveAs => {
+                self.text_input = Some(TextInput {
+                    buffer: self.save_path.clone(),
+                    purpose: TextInputPurpose::SaveAs,
+                });
+            }
+            ToolbarAction::Export => {
+                self.export_game();
+            }
+            ToolbarAction::NewLevel => {
+                self.grid = LevelGrid::new(super::DEFAULT_LEVEL_W, super::DEFAULT_LEVEL_H);
+                self.undo = UndoStack::new();
+                self.unsaved = false;
+                self.save_message = Some("New level created".to_string());
+                self.save_message_timer = 0;
+            }
             ToolbarAction::NewScript => {
-                self.text_input = Some(TextInput { buffer: String::new(), purpose: TextInputPurpose::NewScriptName });
+                self.text_input = Some(TextInput {
+                    buffer: String::new(),
+                    purpose: TextInputPurpose::NewScriptName,
+                });
             }
             ToolbarAction::Play => {
-
                 let mut data = self.grid.to_level_data();
                 data.path = self.save_path.clone();
                 self.pending_transition = Some(Transition::ToPlay(data));
@@ -508,7 +655,9 @@ impl EditorState {
             ToolbarAction::OpenDocs => {
                 #[cfg(target_os = "windows")]
                 {
-                    let _ = std::process::Command::new("cmd").args(["/C", "start", "index.html"]).spawn();
+                    let _ = std::process::Command::new("cmd")
+                        .args(["/C", "start", "index.html"])
+                        .spawn();
                 }
                 #[cfg(target_os = "macos")]
                 {
@@ -523,7 +672,12 @@ impl EditorState {
             }
             ToolbarAction::SetLayer(l) => {
                 self.active_layer = l;
-                let name = match l { 0 => "Background", 1 => "Main", 2 => "Foreground", _ => "Unknown" };
+                let name = match l {
+                    0 => "Background",
+                    1 => "Main",
+                    2 => "Foreground",
+                    _ => "Unknown",
+                };
                 self.save_message = Some(format!("LAYER: {}", name));
                 self.save_message_timer = 0;
             }

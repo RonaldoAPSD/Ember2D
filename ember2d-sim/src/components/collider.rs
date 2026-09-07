@@ -59,7 +59,7 @@
 
 use crate::layers::LayerRegistry;
 use crate::math::Rect;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Defines the bounding box used for collision detection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,7 +114,16 @@ pub struct Collider {
 impl Collider {
     /// Create a solid collider with the given dimensions.
     pub fn new(width: f32, height: f32) -> Self {
-        Collider { width, height, solid: true, layer: String::new(), mask: Vec::new(), layer_bits: 0, mask_bits: 0, locked: false }
+        Collider {
+            width,
+            height,
+            solid: true,
+            layer: String::new(),
+            mask: Vec::new(),
+            layer_bits: 0,
+            mask_bits: 0,
+            locked: false,
+        }
     }
 
     /// A 1×1 solid collider — the standard size for a single-character entity.
@@ -128,7 +137,16 @@ impl Collider {
     /// Trigger colliders fire Collision events but don't block movement.
     /// Use them for: pickups, damage areas, door triggers, room boundaries.
     pub fn trigger(width: f32, height: f32) -> Self {
-        Collider { width, height, solid: false, layer: String::new(), mask: Vec::new(), layer_bits: 0, mask_bits: 0, locked: false }
+        Collider {
+            width,
+            height,
+            solid: false,
+            layer: String::new(),
+            mask: Vec::new(),
+            layer_bits: 0,
+            mask_bits: 0,
+            locked: false,
+        }
     }
 
     /// Compute the world-space bounding Rect for this collider given the
@@ -140,10 +158,18 @@ impl Collider {
         Rect::new(pos_x, pos_y, self.width, self.height)
     }
 
-    pub fn layer(&self) -> &str { &self.layer }
-    pub fn mask(&self) -> &[String] { &self.mask }
-    pub fn layer_bits(&self) -> u32 { self.layer_bits }
-    pub fn mask_bits(&self) -> u32 { self.mask_bits }
+    pub fn layer(&self) -> &str {
+        &self.layer
+    }
+    pub fn mask(&self) -> &[String] {
+        &self.mask
+    }
+    pub fn layer_bits(&self) -> u32 {
+        self.layer_bits
+    }
+    pub fn mask_bits(&self) -> u32 {
+        self.mask_bits
+    }
 
     /// Set this collider's layer, resolving its bit against `registry` in
     /// the same call — the only way to change `layer` from outside this

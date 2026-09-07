@@ -23,7 +23,7 @@
 // directly instead of relying on `on_start` to rebuild them.
 
 use crate::math::Rect;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Per-entity playback state for a `SpriteSource::Clip`-sourced sprite.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,7 +58,15 @@ pub struct Animator {
 impl Animator {
     /// Start playing `clip` from frame 0, looping, at normal speed.
     pub fn new(clip: impl Into<String>) -> Self {
-        Animator { clip: clip.into(), frame: 0, elapsed: 0.0, playing: true, speed: 1.0, oneshot: false, just_finished: false }
+        Animator {
+            clip: clip.into(),
+            frame: 0,
+            elapsed: 0.0,
+            playing: true,
+            speed: 1.0,
+            oneshot: false,
+            just_finished: false,
+        }
     }
 
     /// Advance playback by `delta_time`, using `clip`'s fps and (unless
@@ -68,9 +76,13 @@ impl Animator {
     /// so this doubles as the "just" edge `clip_finished(id)` reads.
     pub fn advance(&mut self, clip: &AnimationClip, delta_time: f32) {
         self.just_finished = false;
-        if !self.playing || clip.fps <= 0.0 { return; }
+        if !self.playing || clip.fps <= 0.0 {
+            return;
+        }
         let frame_count = clip.frame_count();
-        if frame_count == 0 { return; }
+        if frame_count == 0 {
+            return;
+        }
         let looping = clip.looping && !self.oneshot;
         self.elapsed += delta_time * self.speed;
         let frame_duration = 1.0 / clip.fps;
@@ -155,7 +167,11 @@ mod tests {
     use super::*;
 
     fn glyph_clip(frames: &str, fps: f32, looping: bool) -> AnimationClip {
-        AnimationClip { frames: ClipFrames::Glyphs { frames: frames.chars().collect() }, fps, looping }
+        AnimationClip {
+            frames: ClipFrames::Glyphs { frames: frames.chars().collect() },
+            fps,
+            looping,
+        }
     }
 
     #[test]
@@ -175,7 +191,10 @@ mod tests {
         a.advance(&clip, 0.35); // would wrap past 'c' if looping
         assert_eq!(a.frame, 2, "a non-looping clip must clamp to its last frame, not wrap");
         assert!(!a.playing, "a finished non-looping clip must stop playing");
-        assert!(a.just_finished, "the exact tick playback reaches the end must report just_finished");
+        assert!(
+            a.just_finished,
+            "the exact tick playback reaches the end must report just_finished"
+        );
     }
 
     #[test]

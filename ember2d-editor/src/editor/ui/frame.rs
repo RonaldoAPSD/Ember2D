@@ -78,7 +78,16 @@ pub enum WidgetId {
 /// See `WidgetId::InspectorRow`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InspectorField {
-    Glyph, Tag, Solid, Trigger, CameraFollow, Script, Exit, Layer, Mask, GraphBtn,
+    Glyph,
+    Tag,
+    Solid,
+    Trigger,
+    CameraFollow,
+    Script,
+    Exit,
+    Layer,
+    Mask,
+    GraphBtn,
 }
 
 pub struct UiHit {
@@ -153,7 +162,11 @@ mod tests {
         frame.push(WidgetId::TitleBar(PanelId::Inspector), UiRect::new(0.0, 0.0, 100.0, 20.0));
         frame.push(WidgetId::CloseBtn(PanelId::Inspector), UiRect::new(80.0, 0.0, 20.0, 20.0));
         assert_eq!(frame.hit(90.0, 10.0), Some(WidgetId::CloseBtn(PanelId::Inspector)), "the more specific, later-pushed close button must win over the broader title bar underneath it");
-        assert_eq!(frame.hit(10.0, 10.0), Some(WidgetId::TitleBar(PanelId::Inspector)), "outside the close button's rect, the title bar still wins");
+        assert_eq!(
+            frame.hit(10.0, 10.0),
+            Some(WidgetId::TitleBar(PanelId::Inspector)),
+            "outside the close button's rect, the title bar still wins"
+        );
     }
 
     #[test]
@@ -171,6 +184,10 @@ mod tests {
         let mut frame = UiFrame::new();
         frame.push(WidgetId::ResizeHandle(PanelId::Console), UiRect::new(0.0, 0.0, 10.0, 10.0));
         frame.clear();
-        assert_eq!(frame.hit(5.0, 5.0), None, "a cleared frame must not remember last frame's hits");
+        assert_eq!(
+            frame.hit(5.0, 5.0),
+            None,
+            "a cleared frame must not remember last frame's hits"
+        );
     }
 }

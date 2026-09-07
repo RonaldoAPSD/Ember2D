@@ -19,15 +19,18 @@ use kira::{
 };
 
 pub struct AudioEngine {
-    manager:      Option<AudioManager<DefaultBackend>>,
+    manager: Option<AudioManager<DefaultBackend>>,
     music_handle: Option<StaticSoundHandle>,
 }
 
 impl AudioEngine {
     pub fn new() -> Self {
         let manager = match AudioManager::<DefaultBackend>::new(AudioManagerSettings::default()) {
-            Ok(m)  => Some(m),
-            Err(e) => { eprintln!("[audio] init failed: {}", e); None }
+            Ok(m) => Some(m),
+            Err(e) => {
+                eprintln!("[audio] init failed: {}", e);
+                None
+            }
         };
         AudioEngine { manager, music_handle: None }
     }
@@ -36,11 +39,11 @@ impl AudioEngine {
     pub fn play_sound(&mut self, path: &str, volume: f64) {
         let Some(ref mut mgr) = self.manager else { return };
         match StaticSoundData::from_file(path) {
-            Ok(mut data) => { 
+            Ok(mut data) => {
                 data.settings.volume = kira::tween::Value::Fixed(kira::Volume::Amplitude(volume));
-                let _ = mgr.play(data); 
+                let _ = mgr.play(data);
             }
-            Err(e)   => eprintln!("[audio] play_sound '{}': {}", path, e),
+            Err(e) => eprintln!("[audio] play_sound '{}': {}", path, e),
         }
     }
 
@@ -52,8 +55,10 @@ impl AudioEngine {
             Ok(data) => {
                 let looping = data.loop_region(..);
                 match mgr.play(looping) {
-                    Ok(handle) => { self.music_handle = Some(handle); }
-                    Err(e)     => eprintln!("[audio] play_music '{}': {}", path, e),
+                    Ok(handle) => {
+                        self.music_handle = Some(handle);
+                    }
+                    Err(e) => eprintln!("[audio] play_music '{}': {}", path, e),
                 }
             }
             Err(e) => eprintln!("[audio] load_music '{}': {}", path, e),

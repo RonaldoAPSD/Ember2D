@@ -20,7 +20,9 @@ use crate::components::{ClipFrames, Script, Transform};
 /// Mirrors `engine_tests.rs`'s and `timer_tests.rs`'s own `test_layers()` —
 /// duplicated rather than shared, same reasoning `timer_tests.rs`'s own
 /// comment on this gives.
-fn test_layers() -> crate::layers::LayerRegistry { crate::layers::LayerRegistry::new(&["solid".to_string()]) }
+fn test_layers() -> crate::layers::LayerRegistry {
+    crate::layers::LayerRegistry::new(&["solid".to_string()])
+}
 
 /// Mirrors `engine_tests.rs`'s own `test_temp_dir()` (7A-8) — duplicated for
 /// the same reason `test_layers()` is.
@@ -37,8 +39,22 @@ fn run_scripts_once(engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<
     let mut persistent = BTreeMap::new();
     let snapshot = Rc::new(WorldSnapshot::build(world, &engine.layers));
     engine.run_scripts(
-        world, snapshot, log, 1.0 / 60.0, 0.0, crate::command::InputSnapshot::default(), crate::command::MouseSnapshot::default(), crate::command::GamepadSnapshot::default(),
-        &[], BTreeMap::new(), BTreeMap::new(), &mut persistent, crate::math::Vec2::ZERO, BTreeMap::new(), 0, (80, 24),
+        world,
+        snapshot,
+        log,
+        1.0 / 60.0,
+        0.0,
+        crate::command::InputSnapshot::default(),
+        crate::command::MouseSnapshot::default(),
+        crate::command::GamepadSnapshot::default(),
+        &[],
+        BTreeMap::new(),
+        BTreeMap::new(),
+        &mut persistent,
+        crate::math::Vec2::ZERO,
+        BTreeMap::new(),
+        0,
+        (80, 24),
     );
 }
 
@@ -68,7 +84,10 @@ fn run_source(name: &str, source: &str) -> (World, Vec<LogEntry>) {
 /// driver gets a `Transform` for the same reason `run_source_with_driver`'s
 /// own doc comment (engine_tests.rs) gives — R10's ghost-entity guard in
 /// `apply_ctx` treats "has a Transform" as "exists."
-fn run_source_with_engine(name: &str, source: &str) -> (ScriptEngine, World, EntityId, Vec<LogEntry>) {
+fn run_source_with_engine(
+    name: &str,
+    source: &str,
+) -> (ScriptEngine, World, EntityId, Vec<LogEntry>) {
     let mut script = test_temp_dir();
     script.push(format!("ember2d_test_safety_{}.rhai", name));
     std::fs::write(&script, source).unwrap();
@@ -92,34 +111,56 @@ fn run_source_with_engine(name: &str, source: &str) -> (ScriptEngine, World, Ent
 
 #[test]
 fn a_script_with_an_unbounded_loop_is_disabled_after_one_step_with_an_error_logged() {
-    let (engine, _world, _driver, log) = run_source_with_engine("infinite_loop", r#"
+    let (engine, _world, _driver, log) = run_source_with_engine(
+        "infinite_loop",
+        r#"
         fn on_update(id, ctx) { loop {} }
-    "#);
-    assert!(log.iter().any(|e| e.level == LogLevel::Error), "hitting the operation limit must log an error, same as any other runtime failure");
+    "#,
+    );
+    assert!(
+        log.iter().any(|e| e.level == LogLevel::Error),
+        "hitting the operation limit must log an error, same as any other runtime failure"
+    );
     // The path is whatever run_source_with_engine wrote to temp — recover it
     // the same way the disabled-script check elsewhere in this crate does:
     // by asking the engine directly rather than re-deriving the path here.
-    assert_eq!(engine.disabled_scripts.len(), 1, "the runaway script must be disabled, not left running every subsequent step");
+    assert_eq!(
+        engine.disabled_scripts.len(),
+        1,
+        "the runaway script must be disabled, not left running every subsequent step"
+    );
 }
 
 // ── R2/R3: random_int/random_bool must not panic on bad arguments ──────────
 
 #[test]
 fn random_int_with_max_less_than_min_still_returns_a_value_in_the_implied_range() {
-    let (_world, log) = run_source("random_int_reversed", r#"
+    let (_world, log) = run_source(
+        "random_int_reversed",
+        r#"
         fn on_update(id, ctx) { ctx.log(ctx.random_int(5, 1).to_string()); }
-    "#);
-    let msg = log.iter().find(|e| e.level == LogLevel::Info).expect("random_int(5, 1) must return a value, not panic");
+    "#,
+    );
+    let msg = log
+        .iter()
+        .find(|e| e.level == LogLevel::Info)
+        .expect("random_int(5, 1) must return a value, not panic");
     let n: i64 = msg.text.parse().expect("logged value must be an integer");
     assert!((1..=5).contains(&n), "random_int(5, 1) must still draw from {{1..=5}}, got {}", n);
 }
 
 #[test]
 fn random_bool_with_a_nan_chance_returns_false_without_panicking() {
-    let (_world, log) = run_source("random_bool_nan", r#"
+    let (_world, log) = run_source(
+        "random_bool_nan",
+        r#"
         fn on_update(id, ctx) { ctx.log(ctx.random_bool(0.0 / 0.0).to_string()); }
-    "#);
-    let msg = log.iter().find(|e| e.level == LogLevel::Info).expect("random_bool(NaN) must return a value, not panic");
+    "#,
+    );
+    let msg = log
+        .iter()
+        .find(|e| e.level == LogLevel::Info)
+        .expect("random_bool(NaN) must return a value, not panic");
     assert_eq!(msg.text, "false", "a non-finite chance must be treated as 0.0 (never true)");
 }
 
@@ -127,35 +168,48 @@ fn random_bool_with_a_nan_chance_returns_false_without_panicking() {
 
 #[test]
 fn set_tint_with_non_ascii_hex_leaves_the_tint_unchanged() {
-    let (world, log) = run_source("set_tint_non_ascii", r##"
+    let (world, log) = run_source(
+        "set_tint_non_ascii",
+        r##"
         fn on_update(id, ctx) {
             let e = ctx.spawn_entity("Q", 0.0, 0.0, "thing");
             ctx.set_tint(e, "#€€", "White");
         }
-    "##);
+    "##,
+    );
 
     let spawned = world.find_by_tag("thing").expect("spawned entity should exist");
     let sp = world.sprites.get(&spawned).unwrap();
     assert_eq!(sp.tint, crate::color::Color::White, "a malformed color must leave the previous tint (the spawn default) unchanged, not overwrite it with Reset or panic");
-    assert!(log.iter().any(|e| e.level == LogLevel::Info), "the malformed string must still be logged once so the author can find it");
+    assert!(
+        log.iter().any(|e| e.level == LogLevel::Info),
+        "the malformed string must still be logged once so the author can find it"
+    );
 }
 
 // ── R5: an extreme clip speed must not hang Animator::advance ──────────────
 
 #[test]
 fn set_clip_speed_with_an_extreme_value_terminates_within_a_bounded_number_of_steps() {
-    let (_engine, mut world, driver, _log) = run_source_with_engine("extreme_clip_speed", r#"
+    let (_engine, mut world, driver, _log) = run_source_with_engine(
+        "extreme_clip_speed",
+        r#"
         fn on_update(id, ctx) {
             ctx.register_clip("spin", "abc", 10.0, true);
             ctx.play_clip(id, "spin");
             ctx.set_clip_speed(id, 1000000000.0);
         }
-    "#);
+    "#,
+    );
 
     let animator = world.animators.get_mut(&driver).expect("play_clip must create an Animator");
     assert!(animator.speed <= 64.0, "set_clip_speed must clamp an extreme scripted value before it reaches Animator.speed, got {}", animator.speed);
 
-    let clip = crate::components::AnimationClip { frames: ClipFrames::Glyphs { frames: vec!['a', 'b', 'c'] }, fps: 10.0, looping: true };
+    let clip = crate::components::AnimationClip {
+        frames: ClipFrames::Glyphs { frames: vec!['a', 'b', 'c'] },
+        fps: 10.0,
+        looping: true,
+    };
     // R5's actual bug was Animator::advance never returning at a large
     // enough speed (f32 precision absorption made `elapsed -= frame_duration`
     // a no-op) — 1,000 steps completing at all, not any particular frame
@@ -169,16 +223,23 @@ fn set_clip_speed_with_an_extreme_value_terminates_within_a_bounded_number_of_st
 
 #[test]
 fn set_position_with_a_nan_coordinate_is_a_no_op() {
-    let (world, _log) = run_source("set_position_nan", r#"
+    let (world, _log) = run_source(
+        "set_position_nan",
+        r#"
         fn on_update(id, ctx) {
             let e = ctx.spawn_entity("Q", 3.0, 4.0, "thing");
             ctx.set_position(e, 0.0 / 0.0, 0.0 / 0.0);
         }
-    "#);
+    "#,
+    );
 
     let spawned = world.find_by_tag("thing").expect("spawned entity should exist");
     let tf = world.transforms.get(&spawned).unwrap();
-    assert_eq!((tf.position.x, tf.position.y), (3.0, 4.0), "a non-finite set_position call must leave the entity's position unchanged");
+    assert_eq!(
+        (tf.position.x, tf.position.y),
+        (3.0, 4.0),
+        "a non-finite set_position call must leave the entity's position unchanged"
+    );
 }
 
 #[test]
@@ -205,7 +266,9 @@ fn detect_collisions_does_not_panic_when_a_collider_has_a_nan_position() {
 fn clear_all_persistent_empties_a_populated_store() {
     let mut script = test_temp_dir();
     script.push("ember2d_test_safety_clear_all_persistent.rhai");
-    std::fs::write(&script, r#"
+    std::fs::write(
+        &script,
+        r#"
         fn on_update(id, ctx) {
             if ctx.has_global("phase2") {
                 ctx.clear_all_persistent();
@@ -215,7 +278,9 @@ fn clear_all_persistent_empties_a_populated_store() {
                 ctx.set_global("phase2", true);
             }
         }
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     let path = script.to_string_lossy().to_string();
 
     let mut engine = ScriptEngine::new(1, test_layers());
@@ -232,8 +297,22 @@ fn clear_all_persistent_empties_a_populated_store() {
     // Pass 1: populate the store.
     let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers));
     let result = engine.run_scripts(
-        &mut world, snapshot, &mut log, 1.0 / 60.0, 0.0, crate::command::InputSnapshot::default(), crate::command::MouseSnapshot::default(), crate::command::GamepadSnapshot::default(),
-        &[], globals, BTreeMap::new(), &mut persistent, crate::math::Vec2::ZERO, BTreeMap::new(), 0, (80, 24),
+        &mut world,
+        snapshot,
+        &mut log,
+        1.0 / 60.0,
+        0.0,
+        crate::command::InputSnapshot::default(),
+        crate::command::MouseSnapshot::default(),
+        crate::command::GamepadSnapshot::default(),
+        &[],
+        globals,
+        BTreeMap::new(),
+        &mut persistent,
+        crate::math::Vec2::ZERO,
+        BTreeMap::new(),
+        0,
+        (80, 24),
     );
     globals = result.globals;
     persistent = result.persistent;
@@ -243,8 +322,22 @@ fn clear_all_persistent_empties_a_populated_store() {
     // (already-empty) pending write queue instead of this store — a no-op.
     let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers));
     let result = engine.run_scripts(
-        &mut world, snapshot, &mut log, 1.0 / 60.0, 0.0, crate::command::InputSnapshot::default(), crate::command::MouseSnapshot::default(), crate::command::GamepadSnapshot::default(),
-        &[], globals, BTreeMap::new(), &mut persistent, crate::math::Vec2::ZERO, BTreeMap::new(), 0, (80, 24),
+        &mut world,
+        snapshot,
+        &mut log,
+        1.0 / 60.0,
+        0.0,
+        crate::command::InputSnapshot::default(),
+        crate::command::MouseSnapshot::default(),
+        crate::command::GamepadSnapshot::default(),
+        &[],
+        globals,
+        BTreeMap::new(),
+        &mut persistent,
+        crate::math::Vec2::ZERO,
+        BTreeMap::new(),
+        0,
+        (80, 24),
     );
     persistent = result.persistent;
     assert!(persistent.is_empty(), "clear_all_persistent must empty the real store");
@@ -256,21 +349,39 @@ fn clear_all_persistent_empties_a_populated_store() {
 
 #[test]
 fn set_tag_on_a_missing_entity_does_not_create_a_ghost_entity() {
-    let (world, _log) = run_source("set_tag_missing_entity", r#"
+    let (world, _log) = run_source(
+        "set_tag_missing_entity",
+        r#"
         fn on_update(id, ctx) { ctx.set_tag(9999, "x"); }
-    "#);
-    assert!(!world.tags.contains_key(&9999), "set_tag on a nonexistent id must not insert a ghost Tag component");
-    assert!(!world.entity_ids().contains(&9999), "no entity at all should exist at that id afterward");
+    "#,
+    );
+    assert!(
+        !world.tags.contains_key(&9999),
+        "set_tag on a nonexistent id must not insert a ghost Tag component"
+    );
+    assert!(
+        !world.entity_ids().contains(&9999),
+        "no entity at all should exist at that id afterward"
+    );
 }
 
 #[test]
 fn play_clip_on_a_missing_entity_does_not_create_a_ghost_entity() {
-    let (world, _log) = run_source("play_clip_missing_entity", r#"
+    let (world, _log) = run_source(
+        "play_clip_missing_entity",
+        r#"
         fn on_update(id, ctx) {
             ctx.register_clip("flicker", "*+#", 6.0, true);
             ctx.play_clip(9999, "flicker");
         }
-    "#);
-    assert!(!world.animators.contains_key(&9999), "play_clip on a nonexistent id must not insert a ghost Animator component");
-    assert!(!world.entity_ids().contains(&9999), "no entity at all should exist at that id afterward");
+    "#,
+    );
+    assert!(
+        !world.animators.contains_key(&9999),
+        "play_clip on a nonexistent id must not insert a ghost Animator component"
+    );
+    assert!(
+        !world.entity_ids().contains(&9999),
+        "no entity at all should exist at that id afterward"
+    );
 }

@@ -39,7 +39,7 @@ use ember2d_sim::level::{LevelData, PlayerRecord, TileRecord};
 /// Call `from_level_data()` to load a save file back into the editor.
 pub struct LevelGrid {
     /// Width of the level canvas in character columns.
-    pub width:  usize,
+    pub width: usize,
 
     /// Height of the level canvas in character rows.
     pub height: usize,
@@ -48,20 +48,20 @@ pub struct LevelGrid {
     ///
     /// Only cells with a tile exist as entries — empty cells are simply absent.
     /// This means a brand-new empty level has `tiles.len() == 0`.
-    pub tiles:  HashMap<(i32, i32, u8), TileRecord>,
+    pub tiles: HashMap<(i32, i32, u8), TileRecord>,
 
     /// The position (column, row) where the player entity spawns when playing.
     /// Displayed as the green '@' marker on the canvas.
-    pub spawn_point:   (f32, f32),
+    pub spawn_point: (f32, f32),
 
     /// Additional named spawn points placed with Shift+P.
     ///
     /// Each entry is (name, column, row). Game logic can look these up by name
     /// to spawn enemies, NPCs, or scripted entities at the right location.
-    pub extra_spawns:  Vec<(String, f32, f32)>,
+    pub extra_spawns: Vec<(String, f32, f32)>,
 
     /// Human-readable level name shown in the editor title bar and saved in the file.
-    pub name:   String,
+    pub name: String,
 
     /// Properties of the player entity (glyph, color, script, camera, etc.).
     /// Editable through the inspector when the Player entry in the hierarchy is selected.
@@ -93,12 +93,12 @@ impl LevelGrid {
         LevelGrid {
             width,
             height,
-            tiles:        HashMap::new(),
-            spawn_point:  (1.0, 1.0),
+            tiles: HashMap::new(),
+            spawn_point: (1.0, 1.0),
             extra_spawns: Vec::new(),
-            name:         "Untitled".to_string(),
-            player:       PlayerRecord::default(),
-            seed:         rand::random(),
+            name: "Untitled".to_string(),
+            player: PlayerRecord::default(),
+            seed: rand::random(),
             collision_layers: ember2d_sim::level::default_collision_layers(),
         }
     }
@@ -162,7 +162,7 @@ impl LevelGrid {
     /// Newly exposed area (if the canvas grows) is left empty — no tiles are added.
     /// Spawn points are clamped to the new bounds so they stay on the canvas.
     pub fn resize(&mut self, new_w: usize, new_h: usize) {
-        self.width  = new_w;
+        self.width = new_w;
         self.height = new_h;
 
         // Remove tiles outside the new canvas. `retain` keeps entries where
@@ -193,16 +193,16 @@ impl LevelGrid {
     /// but the renderer in play mode sorts by z_order before drawing anyway.
     pub fn to_level_data(&self) -> LevelData {
         LevelData {
-            version:      ember2d_sim::level::LEVEL_FORMAT_VERSION,
-            name:         self.name.clone(),
-            width:        self.width,
-            height:       self.height,
-            spawn_point:  self.spawn_point,
+            version: ember2d_sim::level::LEVEL_FORMAT_VERSION,
+            name: self.name.clone(),
+            width: self.width,
+            height: self.height,
+            spawn_point: self.spawn_point,
             extra_spawns: self.extra_spawns.clone(),
-            tiles:        self.tiles.values().cloned().collect(),
-            player:       self.player.clone(),
-            path:         String::new(),
-            seed:         self.seed,
+            tiles: self.tiles.values().cloned().collect(),
+            player: self.player.clone(),
+            path: String::new(),
+            seed: self.seed,
             collision_layers: self.collision_layers.clone(),
         }
     }
@@ -214,11 +214,11 @@ impl LevelGrid {
     /// one tile at a time, keyed by each tile's (x, y) position.
     pub fn from_level_data(data: &LevelData) -> Self {
         let mut grid = LevelGrid::new(data.width, data.height);
-        grid.name         = data.name.clone();
-        grid.spawn_point  = data.spawn_point;
+        grid.name = data.name.clone();
+        grid.spawn_point = data.spawn_point;
         grid.extra_spawns = data.extra_spawns.clone();
-        grid.player       = data.player.clone();
-        grid.seed         = data.seed;
+        grid.player = data.player.clone();
+        grid.seed = data.seed;
         grid.collision_layers = data.collision_layers.clone();
 
         for tile in &data.tiles {

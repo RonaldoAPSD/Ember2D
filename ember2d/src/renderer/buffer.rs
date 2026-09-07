@@ -46,12 +46,7 @@ impl Cell {
     /// An empty cell: a space character with the terminal's default colors.
     /// This is what "nothing drawn here" looks like.
     pub fn empty() -> Self {
-        Cell {
-            ch: ' ',
-            fg: Color::Reset,
-            bg: Color::Reset,
-            scale: 1.0,
-        }
+        Cell { ch: ' ', fg: Color::Reset, bg: Color::Reset, scale: 1.0 }
     }
 
     /// Create a cell with specific character and colors.
@@ -87,11 +82,7 @@ pub struct Buffer {
 impl Buffer {
     /// Allocate a new buffer filled entirely with empty (space) cells.
     pub fn new(width: usize, height: usize) -> Self {
-        Buffer {
-            width,
-            height,
-            cells: vec![Cell::empty(); width * height],
-        }
+        Buffer { width, height, cells: vec![Cell::empty(); width * height] }
     }
 
     /// Convert 2-D (column, row) coordinates into a 1-D array index.

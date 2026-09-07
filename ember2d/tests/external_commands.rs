@@ -39,19 +39,26 @@ fn an_externally_supplied_command_resolves_a_turn_with_no_key_ever_pressed() {
     let gamepad = GamepadSnapshot::default();
     let external = [Command { actor: player, action: "move".to_string(), params: vec![0.0, -1.0] }];
 
-    let outcome = h.sim.step(&mut h.world, StepInput {
-        input: &empty_input,
-        mouse,
-        gamepad: &gamepad,
-        external_commands: &external,
-        camera_origin: Vec2::ZERO,
-        sim_dt: 1.0 / 60.0,
-        elapsed: h.elapsed,
-        viewport_w: h.viewport_width,
-        viewport_h: h.viewport_height,
-    }, &mut h.persistent);
+    let outcome = h.sim.step(
+        &mut h.world,
+        StepInput {
+            input: &empty_input,
+            mouse,
+            gamepad: &gamepad,
+            external_commands: &external,
+            camera_origin: Vec2::ZERO,
+            sim_dt: 1.0 / 60.0,
+            elapsed: h.elapsed,
+            viewport_w: h.viewport_width,
+            viewport_h: h.viewport_height,
+        },
+        &mut h.persistent,
+    );
 
-    assert!(outcome.turn_triggered, "an externally-supplied command must resolve a turn exactly like a real keypress would");
+    assert!(
+        outcome.turn_triggered,
+        "an externally-supplied command must resolve a turn exactly like a real keypress would"
+    );
     assert_eq!(
         h.player_pos(), Vec2::new(before.x, before.y - 1.0),
         "the injected \"move\" command's [dx, dy] = [0.0, -1.0] must move the player exactly like on_input's own \"w\" -> [0.0, -1.0] translation would (see tests/roguelike_floor1.rs's own \"w\" test)"
@@ -72,20 +79,32 @@ fn an_external_command_for_an_actor_not_awaiting_input_is_silently_ignored_this_
     let empty_input = InputSnapshot::default();
     let mouse = MouseSnapshot::default();
     let gamepad = GamepadSnapshot::default();
-    let external = [Command { actor: bogus_actor, action: "move".to_string(), params: vec![0.0, -1.0] }];
+    let external =
+        [Command { actor: bogus_actor, action: "move".to_string(), params: vec![0.0, -1.0] }];
 
-    let outcome = h.sim.step(&mut h.world, StepInput {
-        input: &empty_input,
-        mouse,
-        gamepad: &gamepad,
-        external_commands: &external,
-        camera_origin: Vec2::ZERO,
-        sim_dt: 1.0 / 60.0,
-        elapsed: h.elapsed,
-        viewport_w: h.viewport_width,
-        viewport_h: h.viewport_height,
-    }, &mut h.persistent);
+    let outcome = h.sim.step(
+        &mut h.world,
+        StepInput {
+            input: &empty_input,
+            mouse,
+            gamepad: &gamepad,
+            external_commands: &external,
+            camera_origin: Vec2::ZERO,
+            sim_dt: 1.0 / 60.0,
+            elapsed: h.elapsed,
+            viewport_w: h.viewport_width,
+            viewport_h: h.viewport_height,
+        },
+        &mut h.persistent,
+    );
 
-    assert!(!outcome.turn_triggered, "a command addressed to an actor whose turn it isn't must not resolve any turn");
-    assert_eq!(h.player_pos(), before, "the player must not move when the injected command targets a different actor id");
+    assert!(
+        !outcome.turn_triggered,
+        "a command addressed to an actor whose turn it isn't must not resolve any turn"
+    );
+    assert_eq!(
+        h.player_pos(),
+        before,
+        "the player must not move when the injected command targets a different actor id"
+    );
 }

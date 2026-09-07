@@ -55,8 +55,12 @@ impl UiRect {
         }
     }
 
-    pub fn right(self) -> f32 { self.x + self.w }
-    pub fn bottom(self) -> f32 { self.y + self.h }
+    pub fn right(self) -> f32 {
+        self.x + self.w
+    }
+    pub fn bottom(self) -> f32 {
+        self.y + self.h
+    }
 
     /// Half-open: the far edge (`right()`/`bottom()`) is excluded, matching
     /// `ember2d_sim::math::Rect::contains_point`'s own convention.
@@ -78,7 +82,10 @@ impl UiRect {
     /// the remainder never goes negative.
     pub fn split_left(self, w: f32) -> (Self, Self) {
         let w = w.clamp(0.0, self.w);
-        (UiRect::new(self.x, self.y, w, self.h), UiRect::new(self.x + w, self.y, self.w - w, self.h))
+        (
+            UiRect::new(self.x, self.y, w, self.h),
+            UiRect::new(self.x + w, self.y, self.w - w, self.h),
+        )
     }
 
     /// Split off a `w`-pixel-wide strip from the right edge. Returns
@@ -86,14 +93,20 @@ impl UiRect {
     /// side, matching `split_left`'s "peeled piece first" convention.
     pub fn split_right(self, w: f32) -> (Self, Self) {
         let w = w.clamp(0.0, self.w);
-        (UiRect::new(self.right() - w, self.y, w, self.h), UiRect::new(self.x, self.y, self.w - w, self.h))
+        (
+            UiRect::new(self.right() - w, self.y, w, self.h),
+            UiRect::new(self.x, self.y, self.w - w, self.h),
+        )
     }
 
     /// Split off an `h`-pixel-tall strip from the top edge. Returns
     /// `(strip, remainder)`.
     pub fn split_top(self, h: f32) -> (Self, Self) {
         let h = h.clamp(0.0, self.h);
-        (UiRect::new(self.x, self.y, self.w, h), UiRect::new(self.x, self.y + h, self.w, self.h - h))
+        (
+            UiRect::new(self.x, self.y, self.w, h),
+            UiRect::new(self.x, self.y + h, self.w, self.h - h),
+        )
     }
 
     /// Split off an `h`-pixel-tall strip from the bottom edge. Returns
@@ -101,7 +114,10 @@ impl UiRect {
     /// `split_right`'s convention.
     pub fn split_bottom(self, h: f32) -> (Self, Self) {
         let h = h.clamp(0.0, self.h);
-        (UiRect::new(self.x, self.bottom() - h, self.w, h), UiRect::new(self.x, self.y, self.w, self.h - h))
+        (
+            UiRect::new(self.x, self.bottom() - h, self.w, h),
+            UiRect::new(self.x, self.y, self.w, self.h - h),
+        )
     }
 }
 
@@ -152,7 +168,11 @@ mod tests {
         assert_eq!(r, UiRect::new(2.0, 2.0, 16.0, 6.0));
 
         let tiny = UiRect::new(0.0, 0.0, 2.0, 2.0).inset(5.0);
-        assert_eq!((tiny.w, tiny.h), (0.0, 0.0), "an inset larger than the rect must clamp to zero, not go negative");
+        assert_eq!(
+            (tiny.w, tiny.h),
+            (0.0, 0.0),
+            "an inset larger than the rect must clamp to zero, not go negative"
+        );
     }
 
     #[test]

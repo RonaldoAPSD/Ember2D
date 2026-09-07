@@ -28,20 +28,23 @@
 // (screen coordinates labeled "World"). The camera conversion happens once,
 // in `render`, via `Camera::world_to_screen`.
 
-use ember2d_sim::components::SpriteSource;
-use ember2d_sim::math::Vec2;
 use crate::renderer::color::Color;
 use crate::renderer::Renderer;
-use ember2d_sim::world::{EntityId, World};
+use ember2d_sim::components::SpriteSource;
+use ember2d_sim::math::Vec2;
 use ember2d_sim::scripting::{HudDraw, LogEntry, LogLevel, ShakeState};
-use rand::Rng;
+use ember2d_sim::world::{EntityId, World};
 use rand::rngs::SmallRng;
+use rand::Rng;
 
 /// World vs. screen space — every command built today is `World`; `Screen`
 /// exists so HUD/particle work in later phases has somewhere to go without
 /// another format change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Space { World, Screen }
+pub enum Space {
+    World,
+    Screen,
+}
 
 pub struct DrawCommand<'w> {
     pub space: Space,
@@ -74,16 +77,27 @@ impl<'w> DrawList<'w> {
     /// without a live GPU-backed `Renderer`. No camera involved here at
     /// all — that conversion happens per-command in `render`.
     pub(super) fn from_world(world: &'w World) -> Self {
-        let mut commands: Vec<DrawCommand<'w>> = world.transforms.keys().filter_map(|&id| {
-            let pos = world.get_global_position(id);
-            world.sprites.get(&id).and_then(|sp| {
-                if !sp.visible { return None; }
-                Some(DrawCommand {
-                    space: Space::World, z: sp.layer, id, world_pos: pos,
-                    source: &sp.source, tint: sp.tint, size: sp.size,
+        let mut commands: Vec<DrawCommand<'w>> = world
+            .transforms
+            .keys()
+            .filter_map(|&id| {
+                let pos = world.get_global_position(id);
+                world.sprites.get(&id).and_then(|sp| {
+                    if !sp.visible {
+                        return None;
+                    }
+                    Some(DrawCommand {
+                        space: Space::World,
+                        z: sp.layer,
+                        id,
+                        world_pos: pos,
+                        source: &sp.source,
+                        tint: sp.tint,
+                        size: sp.size,
+                    })
                 })
             })
-        }).collect();
+            .collect();
 
         commands.sort_unstable_by_key(|c| (c.space, c.z, texture_sort_key(c.source), c.id));
         DrawList { commands }
@@ -94,11 +108,15 @@ impl<'w> DrawList<'w> {
 /// size — the texture's pixel dimensions divided by `pixels_per_unit`
 /// (Step 3b; replaces the old hardcoded `* 4.0` magic scale). Free function
 /// so it's testable without a live GPU-backed `Renderer` or `AssetManager`.
-pub(super) fn sprite_size(size: Option<Vec2>, texture_width: u32, texture_height: u32, pixels_per_unit: f32) -> Vec2 {
-    size.unwrap_or_else(|| Vec2::new(
-        texture_width as f32 / pixels_per_unit,
-        texture_height as f32 / pixels_per_unit,
-    ))
+pub(super) fn sprite_size(
+    size: Option<Vec2>,
+    texture_width: u32,
+    texture_height: u32,
+    pixels_per_unit: f32,
+) -> Vec2 {
+    size.unwrap_or_else(|| {
+        Vec2::new(texture_width as f32 / pixels_per_unit, texture_height as f32 / pixels_per_unit)
+    })
 }
 
 /// True if a screen cell at (col, row) falls inside the playable viewport —
@@ -118,11 +136,18 @@ pub(super) fn in_viewport(col: i32, row: i32, width: usize, height: usize) -> bo
 /// comment gives). `render_rng` must be `PlayState::render_rng`, never
 /// `rng` — see that field's own doc comment for why the two must stay
 /// independent streams.
-pub(super) fn camera_shake_jitter(render_rng: &mut SmallRng, shake_state: Option<ShakeState>, shake_timer: f32) -> Vec2 {
+pub(super) fn camera_shake_jitter(
+    render_rng: &mut SmallRng,
+    shake_state: Option<ShakeState>,
+    shake_timer: f32,
+) -> Vec2 {
     match shake_state.filter(|s| s.duration > 0.0) {
         Some(shake) => {
             let intensity = shake.intensity * (shake_timer / shake.duration);
-            Vec2::new(render_rng.gen_range(-intensity..=intensity), render_rng.gen_range(-intensity..=intensity))
+            Vec2::new(
+                render_rng.gen_range(-intensity..=intensity),
+                render_rng.gen_range(-intensity..=intensity),
+            )
         }
         None => Vec2::ZERO,
     }
@@ -139,27 +164,66 @@ pub(super) fn camera_shake_jitter(render_rng: &mut SmallRng, shake_state: Option
 /// The F3 debug overlay: level name, camera position, backend, FPS — see
 /// `PlayState::show_debug`'s own doc comment (play.rs) for why this is a
 /// toggle, not permanent chrome.
-pub(super) fn draw_debug_overlay(renderer: &mut Renderer, level_name: &str, camera_pos: Vec2, fps: f32) {
+pub(super) fn draw_debug_overlay(
+    renderer: &mut Renderer,
+    level_name: &str,
+    camera_pos: Vec2,
+    fps: f32,
+) {
     renderer.draw_rect_filled(0, 0, renderer.width, 1, ' ', Color::Black, Color::DarkBlue);
     renderer.draw_str(0, 0, &format!(" DEBUG: {}", level_name), Color::White, Color::DarkBlue);
-    renderer.draw_str(38, 0, &format!("x:{:.1} y:{:.1}", camera_pos.x, camera_pos.y), Color::Green, Color::DarkBlue);
-    renderer.draw_str(renderer.width.saturating_sub(18), 0, &format!("Mode:{}", renderer.backend_name()), Color::Cyan, Color::DarkBlue);
-    renderer.draw_str(renderer.width.saturating_sub(6), 0, &format!("FPS:{}", fps.round()), Color::White, Color::DarkBlue);
+    renderer.draw_str(
+        38,
+        0,
+        &format!("x:{:.1} y:{:.1}", camera_pos.x, camera_pos.y),
+        Color::Green,
+        Color::DarkBlue,
+    );
+    renderer.draw_str(
+        renderer.width.saturating_sub(18),
+        0,
+        &format!("Mode:{}", renderer.backend_name()),
+        Color::Cyan,
+        Color::DarkBlue,
+    );
+    renderer.draw_str(
+        renderer.width.saturating_sub(6),
+        0,
+        &format!("FPS:{}", fps.round()),
+        Color::White,
+        Color::DarkBlue,
+    );
 }
 
 /// Draws whatever a script queued via `ctx.draw_hud`/`draw_menu`/etc. this
 /// frame — `Simulation::pending_hud_draws`'s own doc comment covers the
 /// queue's lifecycle; this is purely the dispatch-by-variant drawing.
-pub(super) fn draw_hud_queue<'a>(renderer: &mut Renderer, draws: impl Iterator<Item = &'a HudDraw>) {
+pub(super) fn draw_hud_queue<'a>(
+    renderer: &mut Renderer,
+    draws: impl Iterator<Item = &'a HudDraw>,
+) {
     for hud in draws {
         match hud {
-            HudDraw::Text { x, y, text, fg, bg } => if *x < renderer.width && *y < renderer.height { renderer.draw_str(*x, *y, text, *fg, *bg); }
-            HudDraw::Box { x, y, w, h, fg, bg } => renderer.draw_rect_outline(*x, *y, *w, *h, *fg, *bg),
-            HudDraw::Fill { x, y, w, h, ch, fg, bg } => renderer.draw_rect_filled(*x, *y, *w, *h, *ch, *fg, *bg),
-            HudDraw::Menu { x, y, w, options, selected, fg, bg, sel_fg, sel_bg } =>
-                crate::ui::Menu::new(*x, *y, *w, options.clone(), *selected).with_colors(*fg, *bg, *sel_fg, *sel_bg).draw(renderer),
-            HudDraw::Panel { x, y, w, h, title, fg, bg } =>
-                crate::ui::Panel::new(*x, *y, *w, *h).with_title(title).with_colors(*fg, *bg).draw(renderer),
+            HudDraw::Text { x, y, text, fg, bg } => {
+                if *x < renderer.width && *y < renderer.height {
+                    renderer.draw_str(*x, *y, text, *fg, *bg);
+                }
+            }
+            HudDraw::Box { x, y, w, h, fg, bg } => {
+                renderer.draw_rect_outline(*x, *y, *w, *h, *fg, *bg)
+            }
+            HudDraw::Fill { x, y, w, h, ch, fg, bg } => {
+                renderer.draw_rect_filled(*x, *y, *w, *h, *ch, *fg, *bg)
+            }
+            HudDraw::Menu { x, y, w, options, selected, fg, bg, sel_fg, sel_bg } => {
+                crate::ui::Menu::new(*x, *y, *w, options.clone(), *selected)
+                    .with_colors(*fg, *bg, *sel_fg, *sel_bg)
+                    .draw(renderer)
+            }
+            HudDraw::Panel { x, y, w, h, title, fg, bg } => crate::ui::Panel::new(*x, *y, *w, *h)
+                .with_title(title)
+                .with_colors(*fg, *bg)
+                .draw(renderer),
         }
     }
 }

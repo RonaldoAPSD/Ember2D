@@ -21,7 +21,7 @@
 
 use crate::math::Vec2;
 use crate::world::EntityId;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Stores an entity's world-space position and movement velocity.
 ///
@@ -42,20 +42,12 @@ pub struct Transform {
 impl Transform {
     /// Create a Transform at position (x, y) with zero velocity.
     pub fn new(x: f32, y: f32) -> Self {
-        Transform {
-            position: Vec2::new(x, y),
-            velocity: Vec2::ZERO,
-            parent: None,
-        }
+        Transform { position: Vec2::new(x, y), velocity: Vec2::ZERO, parent: None }
     }
 
     /// Create a Transform with both an initial position and velocity.
     pub fn with_velocity(x: f32, y: f32, vx: f32, vy: f32) -> Self {
-        Transform {
-            position: Vec2::new(x, y),
-            velocity: Vec2::new(vx, vy),
-            parent: None,
-        }
+        Transform { position: Vec2::new(x, y), velocity: Vec2::new(vx, vy), parent: None }
     }
 
     /// Apply velocity to position, scaled by delta_time.

@@ -1,22 +1,22 @@
 // renderer/mod.rs — The Wgpu-backed renderer.
 
+pub mod assets;
+pub mod backend;
 pub mod buffer;
 pub mod color;
-pub mod backend;
-pub mod texture;
-pub mod assets;
 pub mod font;
+pub mod texture;
 
 use std::io;
 use std::sync::Arc;
-use winit::window::{Window, WindowBuilder};
 use winit::event_loop::EventLoop;
+use winit::window::{Window, WindowBuilder};
 
-pub use color::{Color, DEFAULT_FG, DEFAULT_BG};
-pub use texture::{Texture, TextureId};
-pub use backend::{RenderBackend, WgpuBackend};
 pub use assets::AssetManager;
-pub use font::{Font, GlyphInfo, BitmapFont, TtfFont};
+pub use backend::{RenderBackend, WgpuBackend};
+pub use color::{Color, DEFAULT_BG, DEFAULT_FG};
+pub use font::{BitmapFont, Font, GlyphInfo, TtfFont};
+pub use texture::{Texture, TextureId};
 
 // `pub` since Phase 7 Part 1e (docs/ember2d-phase7-plan.md, E2) — the
 // editor previously re-derived this exact pixel size as duplicated local
@@ -33,12 +33,12 @@ pub struct Renderer {
     pub height: usize,
     pub pixel_width: usize,
     pub pixel_height: usize,
-    
+
     // WGPU core objects
-    surface:  wgpu::Surface<'static>,
-    device:   wgpu::Device,
-    queue:    wgpu::Queue,
-    config:   wgpu::SurfaceConfiguration,
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
 
     backend: Box<dyn RenderBackend>,
 
@@ -54,34 +54,44 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(width: usize, height: usize, title: &str, event_loop: &EventLoop<()>) -> io::Result<Self> {
-        let pixel_width  = width  * CELL_W;
+    pub fn new(
+        width: usize,
+        height: usize,
+        title: &str,
+        event_loop: &EventLoop<()>,
+    ) -> io::Result<Self> {
+        let pixel_width = width * CELL_W;
         let pixel_height = height * CELL_H;
 
-        let window = Arc::new(WindowBuilder::new()
-            .with_title(title)
-            .with_inner_size(winit::dpi::LogicalSize::new(pixel_width as f32 * SCALE as f32, pixel_height as f32 * SCALE as f32))
-            .build(event_loop)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?);
+        let window = Arc::new(
+            WindowBuilder::new()
+                .with_title(title)
+                .with_inner_size(winit::dpi::LogicalSize::new(
+                    pixel_width as f32 * SCALE as f32,
+                    pixel_height as f32 * SCALE as f32,
+                ))
+                .build(event_loop)
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?,
+        );
 
         // ── WGPU Initialization ───────────────────────────────────────────
-        
+
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
 
         // wgpu 0.19+ accepts Arc<Window> as SurfaceTarget
-        let surface = instance.create_surface(Arc::clone(&window))
+        let surface = instance
+            .create_surface(Arc::clone(&window))
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
 
-        let adapter = pollster::block_on(instance.request_adapter(
-            &wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::LowPower,
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            },
-        )).expect("Failed to find an appropriate adapter");
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: Some(&surface),
+            force_fallback_adapter: false,
+        }))
+        .expect("Failed to find an appropriate adapter");
 
         let (device, queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
@@ -90,10 +100,13 @@ impl Renderer {
                 required_limits: wgpu::Limits::default(),
             },
             None,
-        )).expect("Failed to create device");
+        ))
+        .expect("Failed to create device");
 
         let surface_caps = surface.get_capabilities(&adapter);
-        let surface_format = surface_caps.formats.iter()
+        let surface_format = surface_caps
+            .formats
+            .iter()
             .copied()
             .find(|f| !f.is_srgb()) // Prefer non-SRGB for linear behavior
             .unwrap_or(surface_caps.formats[0]);
@@ -128,7 +141,9 @@ impl Renderer {
         })
     }
 
-    pub fn backend_name(&self) -> &str { self.backend.name() }
+    pub fn backend_name(&self) -> &str {
+        self.backend.name()
+    }
     pub fn set_backend(&mut self, backend: Box<dyn RenderBackend>) {
         self.backend = backend;
         self.width = self.backend.width();
@@ -158,7 +173,15 @@ impl Renderer {
         self.backend.draw_char(x, y, ch, fg, bg);
     }
 
-    pub fn draw_char_scaled_pixels(&mut self, px: i32, py: i32, ch: char, fg: Color, bg: Color, scale: f32) {
+    pub fn draw_char_scaled_pixels(
+        &mut self,
+        px: i32,
+        py: i32,
+        ch: char,
+        fg: Color,
+        bg: Color,
+        scale: f32,
+    ) {
         self.backend.draw_char_scaled_pixels(px, py, ch, fg, bg, scale);
     }
 
@@ -174,7 +197,10 @@ impl Renderer {
         self.backend.upload_texture(&self.device, &self.queue, texture);
         // Preserves the exact size/rotation/tint this always had before the
         // backend gained real per-axis size, rotation, and tint (Step 2c).
-        let size = [texture.width as f32 * scale / CELL_W as f32, texture.height as f32 * scale / CELL_H as f32];
+        let size = [
+            texture.width as f32 * scale / CELL_W as f32,
+            texture.height as f32 * scale / CELL_H as f32,
+        ];
         self.backend.draw_texture(px, py, texture, size, 0.0, Color::White, None);
     }
 
@@ -184,7 +210,14 @@ impl Renderer {
     /// pixel-snapped convention `draw_char_scaled_pixels` already uses (the
     /// editor's zoomed viewport does the identical conversion by hand in
     /// `editor/ui/canvas.rs::grid_to_pixel`).
-    pub fn draw_char_world(&mut self, camera: &crate::camera::Camera, world_pos: ember2d_sim::math::Vec2, ch: char, fg: Color, bg: Color) {
+    pub fn draw_char_world(
+        &mut self,
+        camera: &crate::camera::Camera,
+        world_pos: ember2d_sim::math::Vec2,
+        ch: char,
+        fg: Color,
+        bg: Color,
+    ) {
         let (px, py) = screen_cell_to_pixel(camera.world_to_screen(world_pos));
         self.draw_char_scaled_pixels(px, py, ch, fg, bg, camera.zoom);
     }
@@ -197,16 +230,27 @@ impl Renderer {
     /// (Step 2b's shader change). `src` is an optional pixel-space sub-rect
     /// of `texture` to sample (`SpriteSource::Texture::src`, Step 3b) —
     /// `None` samples the whole texture.
-    pub fn draw_texture_world(&mut self, camera: &crate::camera::Camera, world_pos: ember2d_sim::math::Vec2, texture: &Texture, size: ember2d_sim::math::Vec2, rotation: f32, tint: Color, src: Option<ember2d_sim::math::Rect>) {
+    pub fn draw_texture_world(
+        &mut self,
+        camera: &crate::camera::Camera,
+        world_pos: ember2d_sim::math::Vec2,
+        texture: &Texture,
+        size: ember2d_sim::math::Vec2,
+        rotation: f32,
+        tint: Color,
+        src: Option<ember2d_sim::math::Rect>,
+    ) {
         self.backend.upload_texture(&self.device, &self.queue, texture);
         let (px, py) = screen_cell_to_pixel(camera.world_to_screen(world_pos));
         let cell_size = [size.x * camera.zoom, size.y * camera.zoom];
-        let uv_rect = src.map(|r| [
-            r.x / texture.width as f32,
-            r.y / texture.height as f32,
-            r.w / texture.width as f32,
-            r.h / texture.height as f32,
-        ]);
+        let uv_rect = src.map(|r| {
+            [
+                r.x / texture.width as f32,
+                r.y / texture.height as f32,
+                r.w / texture.width as f32,
+                r.h / texture.height as f32,
+            ]
+        });
         self.backend.draw_texture(px, py, texture, cell_size, rotation, tint, uv_rect);
     }
 
@@ -227,11 +271,25 @@ impl Renderer {
     /// pixels; `src` is an optional pixel-space sub-rect of `texture`
     /// (`None` samples the whole thing, matching `draw_texture_world`'s own
     /// `src` convention).
-    pub fn draw_texture_px(&mut self, dest: ember2d_sim::math::Rect, texture: &Texture, src: Option<ember2d_sim::math::Rect>, tint: Color) {
+    pub fn draw_texture_px(
+        &mut self,
+        dest: ember2d_sim::math::Rect,
+        texture: &Texture,
+        src: Option<ember2d_sim::math::Rect>,
+        tint: Color,
+    ) {
         self.backend.upload_texture(&self.device, &self.queue, texture);
         let size = pixel_size_to_cells(dest.w, dest.h);
         let uv_rect = src.map(|r| uv_rect_for(texture.width, texture.height, r));
-        self.backend.draw_texture(dest.x.round() as i32, dest.y.round() as i32, texture, size, 0.0, tint, uv_rect);
+        self.backend.draw_texture(
+            dest.x.round() as i32,
+            dest.y.round() as i32,
+            texture,
+            size,
+            0.0,
+            tint,
+            uv_rect,
+        );
     }
 
     /// Draw `text` through `font` at `px`, baseline-positioned (Phase 7
@@ -261,7 +319,14 @@ impl Renderer {
     /// every call is wasteful for a large atlas redrawn every frame —
     /// fine for now since nothing does that yet; worth a second look
     /// whenever this does get wired into a live per-frame draw path.
-    pub fn draw_text_px(&mut self, font: &mut dyn Font, text: &str, pos: ember2d_sim::math::Vec2, px: f32, color: Color) -> f32 {
+    pub fn draw_text_px(
+        &mut self,
+        font: &mut dyn Font,
+        text: &str,
+        pos: ember2d_sim::math::Vec2,
+        px: f32,
+        color: Color,
+    ) -> f32 {
         let glyphs: Vec<GlyphInfo> = text.chars().filter_map(|ch| font.glyph(ch, px)).collect();
 
         let dirty = font.take_dirty();
@@ -272,13 +337,21 @@ impl Renderer {
         if dirty {
             self.backend.invalidate_texture(tex_id.0);
         }
-        let atlas = real_texture.unwrap_or_else(|| Texture { id: tex_id.0, width: tex_w, height: tex_h, pixels: Vec::new() });
+        let atlas = real_texture.unwrap_or_else(|| Texture {
+            id: tex_id.0,
+            width: tex_w,
+            height: tex_h,
+            pixels: Vec::new(),
+        });
 
         let mut pen_x = pos.x;
         for g in glyphs {
             if g.atlas_rect.w > 0.0 && g.atlas_rect.h > 0.0 {
                 let dest = ember2d_sim::math::Rect::new(
-                    pen_x + g.offset.x, pos.y + g.offset.y, g.atlas_rect.w, g.atlas_rect.h,
+                    pen_x + g.offset.x,
+                    pos.y + g.offset.y,
+                    g.atlas_rect.w,
+                    g.atlas_rect.h,
                 );
                 self.draw_texture_px(dest, &atlas, Some(g.atlas_rect), color);
             }
@@ -296,7 +369,13 @@ impl Renderer {
     /// combined borders. See `nine_slice_quads` for the actual per-quad
     /// math, pulled out as a free function so it's testable without a live
     /// GPU-backed `Renderer` — same reasoning as `screen_cell_to_pixel`.
-    pub fn draw_nine_slice(&mut self, dest: ember2d_sim::math::Rect, texture: &Texture, border: (f32, f32, f32, f32), tint: Color) {
+    pub fn draw_nine_slice(
+        &mut self,
+        dest: ember2d_sim::math::Rect,
+        texture: &Texture,
+        border: (f32, f32, f32, f32),
+        tint: Color,
+    ) {
         for (d, s) in nine_slice_quads(dest, texture.width as f32, texture.height as f32, border) {
             self.draw_texture_px(d, texture, Some(s), tint);
         }
@@ -314,8 +393,18 @@ impl Renderer {
         }
     }
 
-    pub fn draw_rect_outline(&mut self, x: usize, y: usize, w: usize, h: usize, fg: Color, bg: Color) {
-        if w < 2 || h < 2 { return; }
+    pub fn draw_rect_outline(
+        &mut self,
+        x: usize,
+        y: usize,
+        w: usize,
+        h: usize,
+        fg: Color,
+        bg: Color,
+    ) {
+        if w < 2 || h < 2 {
+            return;
+        }
         for col in (x + 1)..(x + w - 1) {
             self.draw_char(col, y, '-', fg, bg);
             self.draw_char(col, y + h - 1, '-', fg, bg);
@@ -330,7 +419,16 @@ impl Renderer {
         self.draw_char(x + w - 1, y + h - 1, '+', fg, bg);
     }
 
-    pub fn draw_rect_filled(&mut self, x: usize, y: usize, w: usize, h: usize, ch: char, fg: Color, bg: Color) {
+    pub fn draw_rect_filled(
+        &mut self,
+        x: usize,
+        y: usize,
+        w: usize,
+        h: usize,
+        ch: char,
+        fg: Color,
+        bg: Color,
+    ) {
         for row in y..(y + h) {
             for col in x..(x + w) {
                 self.draw_char(col, row, ch, fg, bg);
@@ -364,7 +462,13 @@ impl Renderer {
         let surface_size = output.texture.size();
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.backend.render(&self.device, &self.queue, &view, surface_size.width, surface_size.height);
+        self.backend.render(
+            &self.device,
+            &self.queue,
+            &view,
+            surface_size.width,
+            surface_size.height,
+        );
 
         output.present();
 
@@ -377,17 +481,19 @@ impl Renderer {
             self.config.width = size.width;
             self.config.height = size.height;
             self.surface.configure(&self.device, &self.config);
-            
+
             let new_w = ((size.width as usize + (SCALE * CELL_W - 1)) / SCALE / CELL_W).max(20);
             let new_h = ((size.height as usize + (SCALE * CELL_H - 1)) / SCALE / CELL_H).max(6);
-            
-            if new_w == self.width && new_h == self.height { return false; }
-            
+
+            if new_w == self.width && new_h == self.height {
+                return false;
+            }
+
             self.width = new_w;
             self.height = new_h;
             self.pixel_width = new_w * CELL_W;
             self.pixel_height = new_h * CELL_H;
-            
+
             self.backend.resize(new_w, new_h);
             return true;
         }
@@ -434,7 +540,12 @@ fn uv_rect_for(texture_w: u32, texture_h: u32, src: ember2d_sim::math::Rect) -> 
 /// stretched, as long as `dest` is at least as large as the combined
 /// left+right / top+bottom borders — a smaller `dest` clamps the
 /// middle column/row to zero width/height rather than going negative.
-fn nine_slice_quads(dest: ember2d_sim::math::Rect, tex_w: f32, tex_h: f32, border: (f32, f32, f32, f32)) -> Vec<(ember2d_sim::math::Rect, ember2d_sim::math::Rect)> {
+fn nine_slice_quads(
+    dest: ember2d_sim::math::Rect,
+    tex_w: f32,
+    tex_h: f32,
+    border: (f32, f32, f32, f32),
+) -> Vec<(ember2d_sim::math::Rect, ember2d_sim::math::Rect)> {
     use ember2d_sim::math::Rect;
 
     let (bl, bt, br, bb) = border;
@@ -536,22 +647,36 @@ mod tests {
         // shared width/height with.
         for &i in &[0, 2, 6, 8] {
             let (d, s) = quads[i];
-            assert_eq!((d.w, d.h), (0.0, 0.0), "corner quad {i} should be degenerate in both axes with a zero border");
-            assert_eq!((s.w, s.h), (0.0, 0.0), "corner quad {i} should be degenerate in both axes with a zero border");
+            assert_eq!(
+                (d.w, d.h),
+                (0.0, 0.0),
+                "corner quad {i} should be degenerate in both axes with a zero border"
+            );
+            assert_eq!(
+                (s.w, s.h),
+                (0.0, 0.0),
+                "corner quad {i} should be degenerate in both axes with a zero border"
+            );
         }
-        for &i in &[1, 7] { // top edge, bottom edge: zero height, full width
+        for &i in &[1, 7] {
+            // top edge, bottom edge: zero height, full width
             let (d, _) = quads[i];
             assert_eq!(d.h, 0.0, "edge quad {i} should be degenerate along its border axis");
             assert_eq!(d.w, dest.w);
         }
-        for &i in &[3, 5] { // left edge, right edge: zero width, full height
+        for &i in &[3, 5] {
+            // left edge, right edge: zero width, full height
             let (d, _) = quads[i];
             assert_eq!(d.w, 0.0, "edge quad {i} should be degenerate along its border axis");
             assert_eq!(d.h, dest.h);
         }
         let (center_d, center_s) = quads[4];
         assert_eq!(center_d, dest, "with a zero border the center dest must cover the whole rect");
-        assert_eq!(center_s, Rect::new(0.0, 0.0, 8.0, 8.0), "with a zero border the center src must cover the whole texture");
+        assert_eq!(
+            center_s,
+            Rect::new(0.0, 0.0, 8.0, 8.0),
+            "with a zero border the center src must cover the whole texture"
+        );
     }
 
     #[test]

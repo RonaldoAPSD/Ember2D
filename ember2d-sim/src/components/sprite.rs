@@ -16,9 +16,9 @@
 //   By sorting entities by `layer` before drawing, we get predictable
 //   layering: 0 = floor tiles (drawn first), 1 = items, 2 = walls, etc.
 
-use crate::math::{Rect, Vec2};
 use crate::color::Color;
-use serde::{Serialize, Deserialize};
+use crate::math::{Rect, Vec2};
+use serde::{Deserialize, Serialize};
 
 /// What a Sprite draws. `tint`/`size`/`layer`/`visible` (on `Sprite` itself)
 /// apply uniformly regardless of which variant this is.
@@ -65,13 +65,7 @@ pub struct Sprite {
 impl Sprite {
     /// A glyph sprite — the common case for ASCII tiles/entities.
     pub fn glyph(ch: char, tint: Color, bg: Color, layer: i32) -> Self {
-        Sprite {
-            source: SpriteSource::Glyph { ch, bg },
-            tint,
-            size: None,
-            layer,
-            visible: true,
-        }
+        Sprite { source: SpriteSource::Glyph { ch, bg }, tint, size: None, layer, visible: true }
     }
 
     /// A texture sprite at natural size (see `size`'s doc comment).
@@ -132,14 +126,24 @@ mod tests {
     #[test]
     fn texture_constructor_produces_a_texture_source_with_white_tint() {
         let sp = Sprite::texture("assets/coin.png", 5);
-        assert_eq!(sp.source, SpriteSource::Texture { path: "assets/coin.png".to_string(), src: None });
-        assert_eq!(sp.tint, Color::White, "white tint means \"no tint\" — a texture shows its own colors by default");
+        assert_eq!(
+            sp.source,
+            SpriteSource::Texture { path: "assets/coin.png".to_string(), src: None }
+        );
+        assert_eq!(
+            sp.tint,
+            Color::White,
+            "white tint means \"no tint\" — a texture shows its own colors by default"
+        );
         assert_eq!(sp.layer, 5);
     }
 
     #[test]
     fn new_is_equivalent_to_glyph_for_the_many_existing_positional_call_sites() {
-        assert_eq!(Sprite::new('x', Color::Red, Color::Black, 1).source, Sprite::glyph('x', Color::Red, Color::Black, 1).source);
+        assert_eq!(
+            Sprite::new('x', Color::Red, Color::Black, 1).source,
+            Sprite::glyph('x', Color::Red, Color::Black, 1).source
+        );
     }
 
     #[test]

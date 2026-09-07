@@ -41,15 +41,18 @@ pub struct Camera {
 
 impl Camera {
     pub fn new(viewport_width: f32, viewport_height: f32) -> Self {
-        Camera { position: Vec2::ZERO, zoom: 1.0, viewport_width, viewport_height, viewport_origin: Vec2::ZERO }
+        Camera {
+            position: Vec2::ZERO,
+            zoom: 1.0,
+            viewport_width,
+            viewport_height,
+            viewport_origin: Vec2::ZERO,
+        }
     }
 
     /// Half the visible world extent along each axis, in world units.
     fn half_extent(&self) -> Vec2 {
-        Vec2::new(
-            self.viewport_width / 2.0 / self.zoom,
-            self.viewport_height / 2.0 / self.zoom,
-        )
+        Vec2::new(self.viewport_width / 2.0 / self.zoom, self.viewport_height / 2.0 / self.zoom)
     }
 
     /// World-space position of the viewport's top-left corner.
@@ -85,7 +88,8 @@ mod tests {
         cam.position = Vec2::new(37.5, 12.25);
         cam.zoom = 2.0;
 
-        for p in [Vec2::new(0.0, 0.0), Vec2::new(100.0, 50.0), Vec2::new(-10.0, -3.0), cam.position] {
+        for p in [Vec2::new(0.0, 0.0), Vec2::new(100.0, 50.0), Vec2::new(-10.0, -3.0), cam.position]
+        {
             approx_eq(cam.screen_to_world(cam.world_to_screen(p)), p);
         }
     }
@@ -113,9 +117,12 @@ mod tests {
     fn zooming_in_halves_the_visible_world_span() {
         let mut cam = Camera::new(80.0, 24.0);
         cam.zoom = 2.0;
-        let left  = cam.screen_to_world(Vec2::new(0.0, 0.0));
+        let left = cam.screen_to_world(Vec2::new(0.0, 0.0));
         let right = cam.screen_to_world(Vec2::new(80.0, 0.0));
-        assert!((right.x - left.x - 40.0).abs() < 1e-4, "zoom 2.0 over an 80-cell viewport should show 40 world units");
+        assert!(
+            (right.x - left.x - 40.0).abs() < 1e-4,
+            "zoom 2.0 over an 80-cell viewport should show 40 world units"
+        );
     }
 
     #[test]

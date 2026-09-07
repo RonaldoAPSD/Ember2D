@@ -118,7 +118,11 @@ impl TurnScheduler {
     /// `insert` needs; an entry whose actor no longer exists (a hand-edited
     /// save file claiming a despawned id — can't happen through normal
     /// play) is silently skipped rather than guessed at.
-    pub fn restore(&mut self, entries: &[(EntityId, u64)], controller_of: impl Fn(EntityId) -> Option<Controller>) {
+    pub fn restore(
+        &mut self,
+        entries: &[(EntityId, u64)],
+        controller_of: impl Fn(EntityId) -> Option<Controller>,
+    ) {
         self.queue.clear();
         for &(id, due) in entries {
             if let Some(controller) = controller_of(id) {
@@ -141,7 +145,11 @@ mod tests {
         s.insert(1, Controller::Ai);
         s.insert(2, Controller::Ai);
         s.insert(99, Controller::Local(0));
-        assert_eq!(s.peek(), Some(99), "the local player must be checked first despite the highest id");
+        assert_eq!(
+            s.peek(),
+            Some(99),
+            "the local player must be checked first despite the highest id"
+        );
     }
 
     #[test]
@@ -158,7 +166,11 @@ mod tests {
             let controller = if actor == 10 { Controller::Local(0) } else { Controller::Ai };
             s.advance(actor, controller, ALTERNATING_COST);
         }
-        assert_eq!(order, vec![10, 20, 30, 10, 20, 30], "with uniform cost, every actor gets exactly one turn per round, in a stable order");
+        assert_eq!(
+            order,
+            vec![10, 20, 30, 10, 20, 30],
+            "with uniform cost, every actor gets exactly one turn per round, in a stable order"
+        );
     }
 
     #[test]
@@ -196,20 +208,36 @@ mod tests {
         let snap = s.snapshot();
         let mut restored = TurnScheduler::new();
         let controllers: std::collections::HashMap<EntityId, Controller> =
-            [(1, Controller::Local(0)), (2, Controller::Ai), (3, Controller::Ai)].into_iter().collect();
+            [(1, Controller::Local(0)), (2, Controller::Ai), (3, Controller::Ai)]
+                .into_iter()
+                .collect();
         restored.restore(&snap, |id| controllers.get(&id).copied());
 
         // The actor scheduler had NOT yet advanced (lowest due) must still
         // be picked first after restore — a plain rebuild-from-scratch
         // (`insert` for every actor) would instead reset everyone to the
         // same due time and lose this ordering.
-        assert_eq!(restored.peek(), s.peek(), "restore must reproduce the exact same next-actor decision as the original scheduler");
+        assert_eq!(
+            restored.peek(),
+            s.peek(),
+            "restore must reproduce the exact same next-actor decision as the original scheduler"
+        );
     }
 
     #[test]
     fn restore_skips_an_entry_whose_actor_no_longer_exists() {
         let mut restored = TurnScheduler::new();
-        restored.restore(&[(1, 0), (2, 100)], |id| if id == 1 { Some(Controller::Local(0)) } else { None });
-        assert_eq!(restored.peek(), Some(1), "an entry with no resolvable controller must be skipped, not guessed at");
+        restored.restore(&[(1, 0), (2, 100)], |id| {
+            if id == 1 {
+                Some(Controller::Local(0))
+            } else {
+                None
+            }
+        });
+        assert_eq!(
+            restored.peek(),
+            Some(1),
+            "an entry with no resolvable controller must be skipped, not guessed at"
+        );
     }
 }

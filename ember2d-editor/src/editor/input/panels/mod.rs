@@ -23,33 +23,59 @@
 //   inspector             — Inspector panel field clicks (the last section;
 //                          nothing follows it, so it needs no bool return)
 
-use ember2d::input::Key;
-use super::super::EditorState;
 use super::super::panel::PanelId;
 use super::super::ui::WidgetId;
+use super::super::EditorState;
+use ember2d::input::Key;
 
 mod context_menu_trigger;
-mod menu_bar;
 mod file_and_script;
 mod hierarchy_and_palette;
 mod inspector;
+mod menu_bar;
 
 impl EditorState {
-    pub(super) fn handle_panel_input(&mut self, input: &ember2d::input::InputManager, mouse: &ember2d::mouse::MouseState) {
+    pub(super) fn handle_panel_input(
+        &mut self,
+        input: &ember2d::input::InputManager,
+        mouse: &ember2d::mouse::MouseState,
+    ) {
         // F-key panel toggles (work in any mode).
-        if input.just_pressed(Key::F1) { self.panels.toggle(PanelId::Console); }
-        if input.just_pressed(Key::F2) { self.panels.toggle(PanelId::Inspector); }
-        if input.just_pressed(Key::F3) { self.console_log.clear(); }
+        if input.just_pressed(Key::F1) {
+            self.panels.toggle(PanelId::Console);
+        }
+        if input.just_pressed(Key::F2) {
+            self.panels.toggle(PanelId::Inspector);
+        }
+        if input.just_pressed(Key::F3) {
+            self.console_log.clear();
+        }
 
-        if self.handle_panel_chrome_click(mouse) { return; }
-        if self.handle_panel_context_menu_trigger(mouse) { return; }
+        if self.handle_panel_chrome_click(mouse) {
+            return;
+        }
+        if self.handle_panel_context_menu_trigger(mouse) {
+            return;
+        }
         self.update_panel_drag_and_resize(mouse);
-        if self.handle_menu_bar_click(mouse) { return; }
-        if self.handle_menu_dropdown_click(input, mouse) { return; }
-        if self.handle_file_browser_click(mouse) { return; }
-        if self.handle_script_editor_click(mouse) { return; }
-        if self.handle_hierarchy_click(mouse) { return; }
-        if self.handle_palette_click(mouse) { return; }
+        if self.handle_menu_bar_click(mouse) {
+            return;
+        }
+        if self.handle_menu_dropdown_click(input, mouse) {
+            return;
+        }
+        if self.handle_file_browser_click(mouse) {
+            return;
+        }
+        if self.handle_script_editor_click(mouse) {
+            return;
+        }
+        if self.handle_hierarchy_click(mouse) {
+            return;
+        }
+        if self.handle_palette_click(mouse) {
+            return;
+        }
         self.handle_inspector_click(mouse);
     }
 
@@ -88,17 +114,23 @@ impl EditorState {
 
             match hit {
                 Some(WidgetId::CloseBtn(pid)) => {
-                    if pid != PanelId::Viewport { self.panels.hide(pid); }
+                    if pid != PanelId::Viewport {
+                        self.panels.hide(pid);
+                    }
                     self.ignore_drag = true;
                     return true;
                 }
                 Some(WidgetId::ResizeHandle(pid)) => {
-                    if pid != PanelId::Viewport { self.panels.start_resize(pid, px, py); }
+                    if pid != PanelId::Viewport {
+                        self.panels.start_resize(pid, px, py);
+                    }
                     self.ignore_drag = true;
                     return true;
                 }
                 Some(WidgetId::TitleBar(pid)) => {
-                    if pid != PanelId::Viewport { self.panels.start_drag(pid, px, py); }
+                    if pid != PanelId::Viewport {
+                        self.panels.start_drag(pid, px, py);
+                    }
                     self.ignore_drag = true;
                     return true;
                 }

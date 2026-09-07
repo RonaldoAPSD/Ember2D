@@ -46,8 +46,8 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use ember2d_sim::command::{GamepadSnapshot, InputSnapshot, MouseSnapshot};
 use ember2d_sim::color::Color;
+use ember2d_sim::command::{GamepadSnapshot, InputSnapshot, MouseSnapshot};
 use ember2d_sim::event::EventBus;
 use ember2d_sim::layers::LayerRegistry;
 use ember2d_sim::level::{ActorRecord, LevelData, TileRecord};
@@ -118,11 +118,16 @@ fn synth_level(n_tiles: usize, n_actors: usize, seed: u64) -> LevelData {
         for x in 0..side {
             let border = x == 0 || y == 0 || x == side - 1 || y == side - 1;
             let solid = border || (x + y) % 3 != 0;
-            if !solid { floor_cells.push((x, y)); }
+            if !solid {
+                floor_cells.push((x, y));
+            }
             let glyph = if solid { '#' } else { '.' };
             let tag = if solid { "wall" } else { "floor" };
-            let mut tile = TileRecord::new(x, y, 1, glyph, Color::White, Color::Reset, solid, false, tag);
-            if solid { tile.collider_layer = "solid".to_string(); }
+            let mut tile =
+                TileRecord::new(x, y, 1, glyph, Color::White, Color::Reset, solid, false, tag);
+            if solid {
+                tile.collider_layer = "solid".to_string();
+            }
             data.tiles.push(tile);
         }
     }
@@ -170,7 +175,13 @@ struct StepCost {
     bytes: usize,
 }
 
-fn run_steps(world: &mut World, sim: &mut Simulation, persistent: &mut BTreeMap<String, rhai::Dynamic>, n_steps: usize, viewport: (usize, usize)) -> Vec<StepCost> {
+fn run_steps(
+    world: &mut World,
+    sim: &mut Simulation,
+    persistent: &mut BTreeMap<String, rhai::Dynamic>,
+    n_steps: usize,
+    viewport: (usize, usize),
+) -> Vec<StepCost> {
     // Cycle through a few keys so *some* turn resolves most steps —
     // realistic content has the player acting most frames, not sitting idle.
     let keys = ["w", "d", "s", "a", "space"];
@@ -186,34 +197,54 @@ fn run_steps(world: &mut World, sim: &mut Simulation, persistent: &mut BTreeMap<
         let (alloc_before, bytes_before) = alloc_snapshot();
         let start = Instant::now();
 
-        let outcome = sim.step(world, StepInput {
-            input: &input,
-            mouse,
-            gamepad: &gamepad,
-            external_commands: &[],
-            camera_origin: Vec2::ZERO,
-            sim_dt: BENCH_DT,
-            elapsed: i as f32 * BENCH_DT,
-            viewport_w: viewport.0,
-            viewport_h: viewport.1,
-        }, persistent);
+        let outcome = sim.step(
+            world,
+            StepInput {
+                input: &input,
+                mouse,
+                gamepad: &gamepad,
+                external_commands: &[],
+                camera_origin: Vec2::ZERO,
+                sim_dt: BENCH_DT,
+                elapsed: i as f32 * BENCH_DT,
+                viewport_w: viewport.0,
+                viewport_h: viewport.1,
+            },
+            persistent,
+        );
 
         if outcome.turn_triggered {
             let prev_positions = world.snapshot_positions();
             let mut events = EventBus::new();
             world.detect_collisions(&mut events);
-            sim.late_step(world, &events, &prev_positions, Vec2::ZERO, BENCH_DT, i as f32 * BENCH_DT, viewport.0, viewport.1, persistent);
+            sim.late_step(
+                world,
+                &events,
+                &prev_positions,
+                Vec2::ZERO,
+                BENCH_DT,
+                i as f32 * BENCH_DT,
+                viewport.0,
+                viewport.1,
+                persistent,
+            );
         }
 
         let duration = start.elapsed();
         let (alloc_after, bytes_after) = alloc_snapshot();
-        costs.push(StepCost { duration, allocs: alloc_after - alloc_before, bytes: bytes_after - bytes_before });
+        costs.push(StepCost {
+            duration,
+            allocs: alloc_after - alloc_before,
+            bytes: bytes_after - bytes_before,
+        });
     }
     costs
 }
 
 fn percentile(sorted: &[Duration], p: f64) -> Duration {
-    if sorted.is_empty() { return Duration::ZERO; }
+    if sorted.is_empty() {
+        return Duration::ZERO;
+    }
     let idx = ((sorted.len() as f64 - 1.0) * p).round() as usize;
     sorted[idx]
 }
@@ -295,7 +326,10 @@ fn bench_real_level(path: &str, n_steps: usize) {
     }
     let data = match LevelData::load(path) {
         Ok(d) => d,
-        Err(e) => { eprintln!("skipping {}: {}", path, e); return; }
+        Err(e) => {
+            eprintln!("skipping {}: {}", path, e);
+            return;
+        }
     };
     let mut world = World::new();
     let mut persistent = BTreeMap::new();
@@ -321,8 +355,14 @@ fn main() {
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
-            "--level" => { i += 1; single_level = args.get(i).cloned(); }
-            "--steps" => { i += 1; steps = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(300); }
+            "--level" => {
+                i += 1;
+                single_level = args.get(i).cloned();
+            }
+            "--steps" => {
+                i += 1;
+                steps = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(300);
+            }
             _ => {}
         }
         i += 1;

@@ -8,4 +8,4 @@
 // legitimately uses `Color` for every draw call, so this re-export is
 // honest, not a shim scheduled for deletion.
 
-pub use ember2d_sim::color::{Color, DEFAULT_FG, DEFAULT_BG};
+pub use ember2d_sim::color::{Color, DEFAULT_BG, DEFAULT_FG};

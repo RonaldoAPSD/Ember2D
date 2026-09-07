@@ -10,15 +10,15 @@
 // miss). Neither implementation is wired into any live UI draw call yet
 // — that's Part 2c's `measure_text` audit and Part 4's actual restyle.
 
-use ember2d_sim::math::{Rect, Vec2};
 use super::texture::{Texture, TextureId};
+use ember2d_sim::math::{Rect, Vec2};
 
-mod bitmap;
 mod atlas;
+mod bitmap;
 mod ttf;
 
-pub use bitmap::BitmapFont;
 pub use atlas::GlyphAtlas;
+pub use bitmap::BitmapFont;
 pub use ttf::TtfFont;
 
 /// One glyph's atlas placement and pen-advance metrics, resolved for one
@@ -74,13 +74,17 @@ pub trait Font {
     /// atlas (`Renderer::draw_text_px`) needs real pixels only for the
     /// kind of `Font` whose atlas can change after its first upload;
     /// `BitmapFont`'s never does; there's nothing to upload, ever.
-    fn atlas_texture(&self) -> Option<&Texture> { None }
+    fn atlas_texture(&self) -> Option<&Texture> {
+        None
+    }
 
     /// Whether this `Font`'s atlas texture has changed since the last
     /// call, clearing the flag either way (Phase 7 Part 2d). `BitmapFont`
     /// never needs to override this — its atlas is immutable — so `false`
     /// is the correct default, not just a placeholder.
-    fn take_dirty(&mut self) -> bool { false }
+    fn take_dirty(&mut self) -> bool {
+        false
+    }
 
     /// Rasterize (or fetch from cache) one glyph at one pixel size.
     /// Returns its atlas sub-rect and layout metrics, or `None` if this
@@ -128,7 +132,9 @@ pub trait Font {
     /// lines — a text box showing "nothing" still has one line's worth of
     /// height to reserve, not none.
     fn wrap_text(&mut self, text: &str, px: f32, max_w: f32) -> Vec<String> {
-        if text.trim().is_empty() { return vec![String::new()]; }
+        if text.trim().is_empty() {
+            return vec![String::new()];
+        }
 
         let mut lines = Vec::new();
         let mut current = String::new();
@@ -170,7 +176,9 @@ pub trait Font {
     /// `draw_text_input` already used before this method existed.
     fn truncate_to_width(&mut self, text: &str, px: f32, max_w: f32) -> String {
         let (full_w, _) = self.measure(text, px);
-        if full_w <= max_w { return text.to_string(); }
+        if full_w <= max_w {
+            return text.to_string();
+        }
 
         const MARKER: &str = "..";
         let (marker_w, _) = self.measure(MARKER, px);
@@ -180,7 +188,9 @@ pub trait Font {
         let mut w = 0.0f32;
         for ch in text.chars() {
             let cw = self.glyph(ch, px).map(|g| g.advance).unwrap_or(0.0);
-            if w + cw > budget { break; }
+            if w + cw > budget {
+                break;
+            }
             out.push(ch);
             w += cw;
         }
@@ -202,7 +212,11 @@ mod tests {
     fn wrap_text_of_empty_input_returns_one_empty_line() {
         let mut font = BitmapFont::new();
         assert_eq!(font.wrap_text("", 8.0, 100.0), vec![String::new()]);
-        assert_eq!(font.wrap_text("   ", 8.0, 100.0), vec![String::new()], "all-whitespace input is also empty");
+        assert_eq!(
+            font.wrap_text("   ", 8.0, 100.0),
+            vec![String::new()],
+            "all-whitespace input is also empty"
+        );
     }
 
     #[test]
@@ -238,7 +252,10 @@ mod tests {
         let mut font = BitmapFont::new();
         // Word widths @ 8px: the=24, quick=40, brown=40, fox=24, jumps=40; space=8.
         let lines = font.wrap_text("the quick brown fox jumps", 8.0, 100.0);
-        assert_eq!(lines, vec!["the quick".to_string(), "brown fox".to_string(), "jumps".to_string()]);
+        assert_eq!(
+            lines,
+            vec!["the quick".to_string(), "brown fox".to_string(), "jumps".to_string()]
+        );
     }
 
     #[test]

@@ -1,8 +1,8 @@
 // editor/input/script_editor.rs — Typing logic for the in-engine script editor.
 
-use ember2d::input::Key;
-use super::super::EditorState;
 use super::super::panel::PanelId;
+use super::super::EditorState;
+use ember2d::input::Key;
 
 /// R11 (7A-2, docs/ember2d-master-plan.md): `script_cursor.0` is a CHARACTER
 /// index — arrow-key movement increments/decrements it by one character, and
@@ -22,9 +22,17 @@ impl EditorState {
     // (impl_state/tests.rs, a sibling module of `editor::input`) drives this
     // directly rather than through a full `InputManager`/event-loop harness
     // — the headless input harness 7C-5 adds is the real long-term answer.
-    pub(crate) fn handle_script_mode_input(&mut self, input: &mut ember2d::input::InputManager, mouse: &ember2d::mouse::MouseState) {
-        if self.focused_panel != Some(PanelId::ScriptEditor) && !self.script_mode { return; }
-        if self.script_path.is_none() { return; }
+    pub(crate) fn handle_script_mode_input(
+        &mut self,
+        input: &mut ember2d::input::InputManager,
+        mouse: &ember2d::mouse::MouseState,
+    ) {
+        if self.focused_panel != Some(PanelId::ScriptEditor) && !self.script_mode {
+            return;
+        }
+        if self.script_path.is_none() {
+            return;
+        }
 
         let p = self.panels.get(PanelId::ScriptEditor);
 
@@ -49,30 +57,36 @@ impl EditorState {
             if mouse.wheel_y != 0.0 {
                 let delta = if mouse.wheel_y > 0.0 { -2i32 } else { 2i32 };
                 let max_scroll = self.script_buffer.len().saturating_sub(text_h);
-                self.script_scroll = (self.script_scroll as i32 + delta).clamp(0, max_scroll as i32) as usize;
+                self.script_scroll =
+                    (self.script_scroll as i32 + delta).clamp(0, max_scroll as i32) as usize;
                 return;
             }
 
             // 2. Click to place cursor
             if mouse.left_just_pressed()
-                && mouse.cell_x >= cx && mouse.cell_x < cx + cw && mouse.cell_y >= text_y && mouse.cell_y < text_y + text_h {
-                    let row_in_view = mouse.cell_y - text_y;
-                    let target_row = self.script_scroll + row_in_view;
+                && mouse.cell_x >= cx
+                && mouse.cell_x < cx + cw
+                && mouse.cell_y >= text_y
+                && mouse.cell_y < text_y + text_h
+            {
+                let row_in_view = mouse.cell_y - text_y;
+                let target_row = self.script_scroll + row_in_view;
 
-                    if target_row < self.script_buffer.len() {
-                        self.script_cursor.1 = target_row;
-                        let line_start_x = cx + gutter_w;
-                        let col = mouse.cell_x as i32 - line_start_x as i32;
-                        // R11: clamp against the CHARACTER count, not the
-                        // byte length — a line with any multi-byte character
-                        // has fewer chars than bytes, so `.len()` here let
-                        // the cursor land past the last real character,
-                        // producing an out-of-range char index for every
-                        // mutation site below.
-                        self.script_cursor.0 = (col.max(0) as usize).min(self.script_buffer[target_row].chars().count());
-                        return;
-                    }
+                if target_row < self.script_buffer.len() {
+                    self.script_cursor.1 = target_row;
+                    let line_start_x = cx + gutter_w;
+                    let col = mouse.cell_x as i32 - line_start_x as i32;
+                    // R11: clamp against the CHARACTER count, not the
+                    // byte length — a line with any multi-byte character
+                    // has fewer chars than bytes, so `.len()` here let
+                    // the cursor land past the last real character,
+                    // producing an out-of-range char index for every
+                    // mutation site below.
+                    self.script_cursor.0 =
+                        (col.max(0) as usize).min(self.script_buffer[target_row].chars().count());
+                    return;
                 }
+            }
         }
 
         let ctrl = input.is_held(Key::LeftCtrl) || input.is_held(Key::RightCtrl);
@@ -85,16 +99,16 @@ impl EditorState {
             return;
         }
 
-        if input.just_pressed(Key::Up)
-            && self.script_cursor.1 > 0 {
-                self.script_cursor.1 -= 1;
-                self.script_cursor.0 = self.script_cursor.0.min(self.script_buffer[self.script_cursor.1].chars().count());
-            }
-        if input.just_pressed(Key::Down)
-            && self.script_cursor.1 + 1 < self.script_buffer.len() {
-                self.script_cursor.1 += 1;
-                self.script_cursor.0 = self.script_cursor.0.min(self.script_buffer[self.script_cursor.1].chars().count());
-            }
+        if input.just_pressed(Key::Up) && self.script_cursor.1 > 0 {
+            self.script_cursor.1 -= 1;
+            self.script_cursor.0 =
+                self.script_cursor.0.min(self.script_buffer[self.script_cursor.1].chars().count());
+        }
+        if input.just_pressed(Key::Down) && self.script_cursor.1 + 1 < self.script_buffer.len() {
+            self.script_cursor.1 += 1;
+            self.script_cursor.0 =
+                self.script_cursor.0.min(self.script_buffer[self.script_cursor.1].chars().count());
+        }
         if input.just_pressed(Key::Left) {
             if self.script_cursor.0 > 0 {
                 self.script_cursor.0 -= 1;
@@ -111,8 +125,12 @@ impl EditorState {
                 self.script_cursor.0 = 0;
             }
         }
-        if input.just_pressed(Key::Home) { self.script_cursor.0 = 0; }
-        if input.just_pressed(Key::End)  { self.script_cursor.0 = self.script_buffer[self.script_cursor.1].chars().count(); }
+        if input.just_pressed(Key::Home) {
+            self.script_cursor.0 = 0;
+        }
+        if input.just_pressed(Key::End) {
+            self.script_cursor.0 = self.script_buffer[self.script_cursor.1].chars().count();
+        }
 
         // ── Shortcuts ─────────────────────────────────────────────────────────
         if ctrl && input.just_pressed(Key::S) {

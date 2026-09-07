@@ -1,7 +1,7 @@
 // renderer/assets.rs — Asset management and texture caching.
 
-use std::collections::HashMap;
 use crate::renderer::texture::{Texture, TextureId};
+use std::collections::HashMap;
 
 /// Manages loaded textures to avoid redundant disk I/O and memory usage.
 ///
@@ -17,10 +17,7 @@ pub struct AssetManager {
 
 impl AssetManager {
     pub fn new() -> Self {
-        AssetManager {
-            textures: HashMap::new(),
-            path_to_id: HashMap::new(),
-        }
+        AssetManager { textures: HashMap::new(), path_to_id: HashMap::new() }
     }
 
     /// Resolve `path` to a stable `TextureId`, loading from disk on first
@@ -81,7 +78,11 @@ mod tests {
         // fixtures on disk.
         let id = assets.load("__no_such_texture__.png");
         let tex = assets.get(id).expect("load() must insert before returning");
-        assert_eq!((tex.width, tex.height), (1, 1), "a failed load should cache the 1x1 placeholder");
+        assert_eq!(
+            (tex.width, tex.height),
+            (1, 1),
+            "a failed load should cache the 1x1 placeholder"
+        );
     }
 
     #[test]
@@ -89,7 +90,10 @@ mod tests {
         let mut assets = AssetManager::new();
         let a = assets.load("__missing_a__.png");
         let b = assets.load("__missing_a__.png");
-        assert_eq!(a, b, "the same path must dedupe to the same handle, not allocate a new texture");
+        assert_eq!(
+            a, b,
+            "the same path must dedupe to the same handle, not allocate a new texture"
+        );
     }
 
     #[test]

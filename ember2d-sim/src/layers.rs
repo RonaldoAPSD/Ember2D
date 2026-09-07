@@ -93,7 +93,9 @@ impl LayerRegistry {
     /// everything") one, exactly matching the old string behavior where an
     /// empty layer name was never explicitly listed in anyone's mask.
     pub fn bit_for(&self, name: &str) -> u32 {
-        if name.is_empty() { return 0; }
+        if name.is_empty() {
+            return 0;
+        }
         self.bits.get(name).copied().unwrap_or(0)
     }
 
@@ -115,8 +117,12 @@ impl LayerRegistry {
     /// ever cause an unregistered-layer mask to match nothing, never
     /// something real.
     pub fn mask_bits(&self, names: &[String]) -> u32 {
-        if names.is_empty() { return 0; }
-        names.iter().fold(0u32, |acc, name| acc | self.bits.get(name).copied().unwrap_or(LAYER_UNKNOWN))
+        if names.is_empty() {
+            return 0;
+        }
+        names
+            .iter()
+            .fold(0u32, |acc, name| acc | self.bits.get(name).copied().unwrap_or(LAYER_UNKNOWN))
     }
 }
 
@@ -126,7 +132,8 @@ mod tests {
 
     #[test]
     fn names_get_bits_in_registration_order() {
-        let reg = LayerRegistry::new(&["solid".to_string(), "enemy".to_string(), "pickup".to_string()]);
+        let reg =
+            LayerRegistry::new(&["solid".to_string(), "enemy".to_string(), "pickup".to_string()]);
         assert_eq!(reg.bit_for("solid"), 1 << 0);
         assert_eq!(reg.bit_for("enemy"), 1 << 1);
         assert_eq!(reg.bit_for("pickup"), 1 << 2);
@@ -134,8 +141,13 @@ mod tests {
 
     #[test]
     fn a_repeated_name_keeps_its_first_bit() {
-        let reg = LayerRegistry::new(&["solid".to_string(), "enemy".to_string(), "solid".to_string()]);
-        assert_eq!(reg.bit_for("solid"), 1 << 0, "the second 'solid' entry must not steal or overwrite the first bit");
+        let reg =
+            LayerRegistry::new(&["solid".to_string(), "enemy".to_string(), "solid".to_string()]);
+        assert_eq!(
+            reg.bit_for("solid"),
+            1 << 0,
+            "the second 'solid' entry must not steal or overwrite the first bit"
+        );
         assert_eq!(reg.bit_for("enemy"), 1 << 1);
     }
 
@@ -156,7 +168,10 @@ mod tests {
     fn a_mask_naming_an_unregistered_layer_ors_in_layer_unknown_not_zero() {
         let reg = LayerRegistry::new(&["solid".to_string()]);
         let bits = reg.mask_bits(&["no_such_layer".to_string()]);
-        assert_ne!(bits, 0, "an unregistered mask entry must not silently resolve to \"matches everything\"");
+        assert_ne!(
+            bits, 0,
+            "an unregistered mask entry must not silently resolve to \"matches everything\""
+        );
         assert_eq!(bits, LAYER_UNKNOWN);
     }
 
@@ -172,7 +187,11 @@ mod tests {
         let names: Vec<String> = (0..40).map(|i| format!("layer{}", i)).collect();
         let reg = LayerRegistry::new(&names);
         assert_eq!(reg.bit_for("layer0"), 1 << 0);
-        assert_eq!(reg.bit_for("layer30"), 1 << 30, "the 31st name (index 30) is the last real bit");
+        assert_eq!(
+            reg.bit_for("layer30"),
+            1 << 30,
+            "the 31st name (index 30) is the last real bit"
+        );
         assert_eq!(reg.bit_for("layer31"), 0, "the 32nd name and beyond must not register at all");
     }
 }

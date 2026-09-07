@@ -14,6 +14,6 @@ pub mod editor;
 /// `ember2d`'s own `lib.rs` for why that orchestration couldn't stay in
 /// `ember2d` itself without a dependency cycle).
 pub mod prelude {
-    pub use crate::editor::EditorState;
     pub use crate::editor::start_screen::StartScreen;
+    pub use crate::editor::EditorState;
 }

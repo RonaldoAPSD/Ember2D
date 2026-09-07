@@ -7,10 +7,15 @@
 // hard limit — no behavioral change from being grouped this way. See
 // `../panels/mod.rs` for the split's overall shape (`chrome`/`dock`/`modals`).
 
-use ember2d::renderer::{color::Color, Font, Renderer};
 use super::super::types::*;
+use ember2d::renderer::{color::Color, Font, Renderer};
 
-pub fn draw_palette_editor_modal(renderer: &mut Renderer, pal: &crate::editor::palette::TileDefinition, focus: Option<&crate::editor::PaletteField>, layout: &Layout) {
+pub fn draw_palette_editor_modal(
+    renderer: &mut Renderer,
+    pal: &crate::editor::palette::TileDefinition,
+    focus: Option<&crate::editor::PaletteField>,
+    layout: &Layout,
+) {
     let mw = 36usize;
     let mh = 18usize;
     let mx = (layout.screen_w.saturating_sub(mw)) / 2;
@@ -45,28 +50,70 @@ pub fn draw_palette_editor_modal(renderer: &mut Renderer, pal: &crate::editor::p
     let is_name_focused = matches!(focus, Some(crate::editor::PaletteField::Name));
     let name_val = if is_name_focused { format!("{}█", pal.name) } else { pal.name.clone() };
     renderer.draw_str(cx, my + 2, "Name: ", Color::White, Color::DarkGrey);
-    renderer.draw_str(cx + 7, my + 2, &format!("[{:<20}]", name_val), if is_name_focused { focus_fg } else { Color::White }, Color::Black);
+    renderer.draw_str(
+        cx + 7,
+        my + 2,
+        &format!("[{:<20}]", name_val),
+        if is_name_focused { focus_fg } else { Color::White },
+        Color::Black,
+    );
 
     // Glyph
     let is_glyph_focused = matches!(focus, Some(crate::editor::PaletteField::Glyph));
     let glyph_val = if is_glyph_focused { '█' } else { pal.glyph };
     renderer.draw_str(cx, my + 3, "Glyph:", Color::White, Color::DarkGrey);
-    renderer.draw_str(cx + 7, my + 3, &format!("['{}']", glyph_val), if is_glyph_focused { focus_fg } else { Color::White }, Color::Black);
+    renderer.draw_str(
+        cx + 7,
+        my + 3,
+        &format!("['{}']", glyph_val),
+        if is_glyph_focused { focus_fg } else { Color::White },
+        Color::Black,
+    );
     renderer.draw_char(cx + 9, my + 3, pal.glyph, pal.fg, pal.bg);
 
     // Toggles
-    renderer.draw_str(cx, my + 4, &format!("Solid: [{}]   Trigger: [{}]", if pal.solid {'x'} else {' '}, if pal.trigger {'x'} else {' '}), Color::White, Color::DarkGrey);
+    renderer.draw_str(
+        cx,
+        my + 4,
+        &format!(
+            "Solid: [{}]   Trigger: [{}]",
+            if pal.solid { 'x' } else { ' ' },
+            if pal.trigger { 'x' } else { ' ' }
+        ),
+        Color::White,
+        Color::DarkGrey,
+    );
 
     // Tag
     let is_tag_focused = matches!(focus, Some(crate::editor::PaletteField::Tag));
     let tag_val = if is_tag_focused { format!("{}█", pal.tag) } else { pal.tag.clone() };
     renderer.draw_str(cx, my + 5, "Tag:  ", Color::White, Color::DarkGrey);
-    renderer.draw_str(cx + 7, my + 5, &format!("[{:<20}]", tag_val), if is_tag_focused { focus_fg } else { Color::White }, Color::Black);
+    renderer.draw_str(
+        cx + 7,
+        my + 5,
+        &format!("[{:<20}]", tag_val),
+        if is_tag_focused { focus_fg } else { Color::White },
+        Color::Black,
+    );
 
     // Color Grids
     let colors = [
-        Color::Black, Color::White, Color::Red, Color::Green, Color::Yellow, Color::Blue, Color::Cyan, Color::Magenta,
-        Color::DarkGrey, Color::Grey, Color::DarkRed, Color::DarkGreen, Color::DarkBlue, Color::DarkYellow, Color::DarkCyan, Color::DarkMagenta,
+        Color::Black,
+        Color::White,
+        Color::Red,
+        Color::Green,
+        Color::Yellow,
+        Color::Blue,
+        Color::Cyan,
+        Color::Magenta,
+        Color::DarkGrey,
+        Color::Grey,
+        Color::DarkRed,
+        Color::DarkGreen,
+        Color::DarkBlue,
+        Color::DarkYellow,
+        Color::DarkCyan,
+        Color::DarkMagenta,
     ];
 
     renderer.draw_str(cx, my + 7, "Foreground Color:", Color::Yellow, Color::DarkGrey);
@@ -80,7 +127,13 @@ pub fn draw_palette_editor_modal(renderer: &mut Renderer, pal: &crate::editor::p
         Color::Rgb(r, g, b) => format!("#{:02X}{:02X}{:02X}", r, g, b),
         _ => "Advanced".to_string(),
     };
-    renderer.draw_str(cx, my + 10, &format!("[ {} ]", fg_custom_label), Color::White, Color::DarkBlue);
+    renderer.draw_str(
+        cx,
+        my + 10,
+        &format!("[ {} ]", fg_custom_label),
+        Color::White,
+        Color::DarkBlue,
+    );
 
     renderer.draw_str(cx, my + 11, "Background Color:", Color::Yellow, Color::DarkGrey);
     for (i, &col) in colors.iter().enumerate() {
@@ -93,7 +146,13 @@ pub fn draw_palette_editor_modal(renderer: &mut Renderer, pal: &crate::editor::p
         Color::Rgb(r, g, b) => format!("#{:02X}{:02X}{:02X}", r, g, b),
         _ => "Advanced".to_string(),
     };
-    renderer.draw_str(cx, my + 14, &format!("[ {} ]", bg_custom_label), Color::White, Color::DarkBlue);
+    renderer.draw_str(
+        cx,
+        my + 14,
+        &format!("[ {} ]", bg_custom_label),
+        Color::White,
+        Color::DarkBlue,
+    );
 
     // Buttons at the bottom
     let btn_y = my + mh - 2;
@@ -101,7 +160,12 @@ pub fn draw_palette_editor_modal(renderer: &mut Renderer, pal: &crate::editor::p
     renderer.draw_str(mx + 22, btn_y, " [ Delete ] ", Color::White, Color::DarkRed);
 }
 
-pub fn draw_color_picker_modal(renderer: &mut Renderer, hsv: (f32, f32, f32), is_fg: bool, layout: &Layout) {
+pub fn draw_color_picker_modal(
+    renderer: &mut Renderer,
+    hsv: (f32, f32, f32),
+    is_fg: bool,
+    layout: &Layout,
+) {
     let mw = 44usize;
     let mh = 16usize;
     let mx = (layout.screen_w.saturating_sub(mw)) / 2;
@@ -168,7 +232,13 @@ pub fn draw_color_picker_modal(renderer: &mut Renderer, hsv: (f32, f32, f32), is
     renderer.draw_rect_filled(mx + 30, my + 7, 8, 3, ' ', Color::Reset, current_col);
 
     if let Color::Rgb(r, g, b) = current_col {
-        renderer.draw_str(mx + 30, my + 11, &format!("#{:02X}{:02X}{:02X}", r, g, b), Color::Cyan, Color::DarkGrey);
+        renderer.draw_str(
+            mx + 30,
+            my + 11,
+            &format!("#{:02X}{:02X}{:02X}", r, g, b),
+            Color::Cyan,
+            Color::DarkGrey,
+        );
     }
 
     // Buttons
@@ -179,8 +249,22 @@ pub fn draw_color_picker_modal(renderer: &mut Renderer, hsv: (f32, f32, f32), is
 
 pub fn draw_color_picker(renderer: &mut Renderer, x: usize, y: usize, w: usize) {
     let colors = [
-        Color::Black, Color::White, Color::Red, Color::Green, Color::Yellow, Color::Blue, Color::Cyan, Color::Magenta,
-        Color::DarkGrey, Color::Grey, Color::DarkRed, Color::DarkGreen, Color::DarkBlue, Color::DarkYellow, Color::DarkCyan, Color::DarkMagenta,
+        Color::Black,
+        Color::White,
+        Color::Red,
+        Color::Green,
+        Color::Yellow,
+        Color::Blue,
+        Color::Cyan,
+        Color::Magenta,
+        Color::DarkGrey,
+        Color::Grey,
+        Color::DarkRed,
+        Color::DarkGreen,
+        Color::DarkBlue,
+        Color::DarkYellow,
+        Color::DarkCyan,
+        Color::DarkMagenta,
     ];
     renderer.draw_rect_filled(x, y, w, 3, ' ', Color::White, Color::Black);
     for (i, &col) in colors.iter().enumerate() {
@@ -191,14 +275,19 @@ pub fn draw_color_picker(renderer: &mut Renderer, x: usize, y: usize, w: usize) 
 }
 
 pub fn draw_help_overlay(renderer: &mut Renderer, font: &mut dyn Font, layout: &Layout) {
-    let cx = layout.canvas_x; let cw = layout.canvas_w; let cy = layout.canvas_y; let ch = layout.canvas_h;
+    let cx = layout.canvas_x;
+    let cw = layout.canvas_w;
+    let cy = layout.canvas_y;
+    let ch = layout.canvas_h;
     renderer.draw_rect_filled(cx, cy, cw, ch, ' ', Color::White, Color::Black);
     let title = " EMBER2D EDITOR — KEYBOARD SHORTCUTS ";
     renderer.draw_str(cx + 1, cy + 1, title, Color::Cyan, Color::Black);
     let sep: String = std::iter::repeat_n('-', cw.saturating_sub(2)).collect();
     renderer.draw_str(cx + 1, cy + 2, &sep, Color::DarkGrey, Color::Black);
     let col_w = (cw.saturating_sub(4)) / 3;
-    let c1 = cx + 1; let c2 = c1 + col_w + 1; let c3 = c2 + col_w + 1;
+    let c1 = cx + 1;
+    let c2 = c1 + col_w + 1;
+    let c3 = c2 + col_w + 1;
     let row = |n: usize| cy + 4 + n;
     renderer.draw_str(c1, row(0), "TOOLS", Color::Yellow, Color::Black);
     renderer.draw_str(c1, row(1), " 1-3  Layers", Color::White, Color::Black);

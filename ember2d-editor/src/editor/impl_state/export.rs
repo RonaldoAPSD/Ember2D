@@ -5,9 +5,9 @@
 // self-contained feature (one `EditorState` method plus its own private
 // recursive-copy helper) with no behavioral change from being its own file.
 
-use ember2d_sim::scripting::LogEntry;
-use super::EditorState;
 use super::super::panel::PanelId;
+use super::EditorState;
+use ember2d_sim::scripting::LogEntry;
 
 impl EditorState {
     pub(super) fn export_game(&mut self) {
@@ -36,16 +36,22 @@ impl EditorState {
 
             let export_root = out_dir.join(format!("{}_Export", project_name));
             if let Err(e) = std::fs::create_dir_all(&export_root) {
-                self.console_log.push(LogEntry::error(format!("Export failed (create dir): {}", e)));
+                self.console_log
+                    .push(LogEntry::error(format!("Export failed (create dir): {}", e)));
                 return;
             }
 
             // 1. Copy executable
             if let Ok(exe_path) = std::env::current_exe() {
                 let mut target_exe = export_root.join(&project_name);
-                if cfg!(windows) { target_exe.set_extension("exe"); }
+                if cfg!(windows) {
+                    target_exe.set_extension("exe");
+                }
                 if let Err(e) = std::fs::copy(&exe_path, &target_exe) {
-                    self.console_log.push(LogEntry::warn(format!("Executable copy failed: {}. You may need to copy it manually.", e)));
+                    self.console_log.push(LogEntry::warn(format!(
+                        "Executable copy failed: {}. You may need to copy it manually.",
+                        e
+                    )));
                 }
             }
 
@@ -56,7 +62,8 @@ impl EditorState {
                 if src.exists() {
                     let dst = export_root.join(folder);
                     if let Err(e) = copy_dir_all(&src, &dst) {
-                        self.console_log.push(LogEntry::warn(format!("Failed to copy {}: {}", folder, e)));
+                        self.console_log
+                            .push(LogEntry::warn(format!("Failed to copy {}: {}", folder, e)));
                     }
                 }
             }
@@ -67,7 +74,10 @@ impl EditorState {
                     let p = entry.path();
                     if p.is_file() {
                         let name = p.file_name().unwrap().to_string_lossy();
-                        if name == "project.ron" || name.ends_with(".level") || name.ends_with(".palette.ron") {
+                        if name == "project.ron"
+                            || name.ends_with(".level")
+                            || name.ends_with(".palette.ron")
+                        {
                             let _ = std::fs::copy(&p, export_root.join(&*name));
                         }
                     }
@@ -78,7 +88,8 @@ impl EditorState {
             if let Err(e) = std::fs::write(export_root.join(".standalone"), "") {
                 self.console_log.push(LogEntry::error(format!("Failed to create marker: {}", e)));
             } else {
-                self.console_log.push(LogEntry::info(format!("SUCCESS: Game exported to {:?}", export_root)));
+                self.console_log
+                    .push(LogEntry::info(format!("SUCCESS: Game exported to {:?}", export_root)));
                 self.panels.show(PanelId::Console);
             }
         }

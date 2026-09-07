@@ -1,18 +1,27 @@
 // editor/input/canvas.rs — Canvas interaction, painting, tools, and scrolling.
 
-use ember2d::input::Key;
-use super::super::EditorState;
-use super::super::ui::ToolKind;
 use super::super::commands::Command;
+use super::super::ui::ToolKind;
+use super::super::EditorState;
+use ember2d::input::Key;
 
 impl EditorState {
-    pub(super) fn handle_canvas_input(&mut self, input: &ember2d::input::InputManager, mouse: &ember2d::mouse::MouseState) {
+    pub(super) fn handle_canvas_input(
+        &mut self,
+        input: &ember2d::input::InputManager,
+        mouse: &ember2d::mouse::MouseState,
+    ) {
         let shift = input.is_held(Key::LeftShift) || input.is_held(Key::RightShift);
-        let alt   = input.is_held(Key::LeftAlt)   || input.is_held(Key::RightAlt);
+        let alt = input.is_held(Key::LeftAlt) || input.is_held(Key::RightAlt);
 
         // ── Middle-mouse drag pan ─────────────────────────────────────────────
         if mouse.middle_just_pressed() {
-            self.pan_anchor = Some((mouse.cell_x, mouse.cell_y, self.target_scroll.0.round() as i32, self.target_scroll.1.round() as i32));
+            self.pan_anchor = Some((
+                mouse.cell_x,
+                mouse.cell_y,
+                self.target_scroll.0.round() as i32,
+                self.target_scroll.1.round() as i32,
+            ));
         }
         if mouse.middle_held() {
             if let Some((ax, ay, sx, sy)) = self.pan_anchor {
@@ -23,7 +32,9 @@ impl EditorState {
                 self.clamp_scroll();
             }
         }
-        if mouse.middle_just_released() { self.pan_anchor = None; }
+        if mouse.middle_just_released() {
+            self.pan_anchor = None;
+        }
 
         // ── Paste mode ────────────────────────────────────────────────────────
         if self.pasting && !self.ignore_drag {
@@ -32,14 +43,22 @@ impl EditorState {
                 self.active_tool = ToolKind::Paint;
                 return;
             }
-            if input.just_pressed(Key::H) { self.paste_flip_x = !self.paste_flip_x; }
-            if input.just_pressed(Key::LeftBracket)  { self.paste_rotate = (self.paste_rotate + 3) % 4; }
-            if input.just_pressed(Key::RightBracket) { self.paste_rotate = (self.paste_rotate + 1) % 4; }
-            if input.just_pressed(Key::J) { self.paste_flip_y = !self.paste_flip_y; }
+            if input.just_pressed(Key::H) {
+                self.paste_flip_x = !self.paste_flip_x;
+            }
+            if input.just_pressed(Key::LeftBracket) {
+                self.paste_rotate = (self.paste_rotate + 3) % 4;
+            }
+            if input.just_pressed(Key::RightBracket) {
+                self.paste_rotate = (self.paste_rotate + 1) % 4;
+            }
+            if input.just_pressed(Key::J) {
+                self.paste_flip_y = !self.paste_flip_y;
+            }
             if mouse.left_just_pressed() {
                 if let Some(cursor) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
                     self.stamp_paste(cursor);
-                    self.pasting     = false;
+                    self.pasting = false;
                     self.active_tool = ToolKind::Paint;
                     self.ignore_drag = true;
                 }
@@ -50,9 +69,9 @@ impl EditorState {
         // ── Copy/Cut select mode ──────────────────────────────────────────────
         if self.selecting || self.cutting {
             if input.just_pressed(Key::Escape) {
-                self.selecting   = false;
-                self.cutting     = false;
-                self.sel_anchor  = None;
+                self.selecting = false;
+                self.cutting = false;
+                self.sel_anchor = None;
                 self.active_tool = ToolKind::Paint;
                 return;
             }
@@ -64,18 +83,21 @@ impl EditorState {
                     }
                 }
                 if mouse.left_just_released() {
-                    if let (Some(anchor), Some(current)) = (
-                        self.sel_anchor, self.mouse_to_grid(mouse.cell_x, mouse.cell_y),
-                    ) {
-                        if self.cutting { self.cut_selection(anchor, current); }
-                        else            { self.copy_selection(anchor, current); }
+                    if let (Some(anchor), Some(current)) =
+                        (self.sel_anchor, self.mouse_to_grid(mouse.cell_x, mouse.cell_y))
+                    {
+                        if self.cutting {
+                            self.cut_selection(anchor, current);
+                        } else {
+                            self.copy_selection(anchor, current);
+                        }
                     }
 
                     // Only finish/reset if we actually started a selection or if it was a deliberate click
                     if self.sel_anchor.is_some() {
-                        self.selecting   = false;
-                        self.cutting     = false;
-                        self.sel_anchor  = None;
+                        self.selecting = false;
+                        self.cutting = false;
+                        self.sel_anchor = None;
                         self.active_tool = ToolKind::Paint;
                     }
                 }
@@ -107,33 +129,46 @@ impl EditorState {
         }
 
         // ── Canvas scrolling (Arrow keys + Wheel) ──────────────────────────────
-        
+
         // Arrow keys — scroll canvas (smooth: fire on frame 1, then every 2 frames after a 12-frame delay).
-        let any_arrow = input.is_held(Key::Left) || input.is_held(Key::Right)
-            || input.is_held(Key::Up) || input.is_held(Key::Down);
-        if any_arrow { self.scroll_repeat = self.scroll_repeat.saturating_add(1); }
-        else { self.scroll_repeat = 0; }
+        let any_arrow = input.is_held(Key::Left)
+            || input.is_held(Key::Right)
+            || input.is_held(Key::Up)
+            || input.is_held(Key::Down);
+        if any_arrow {
+            self.scroll_repeat = self.scroll_repeat.saturating_add(1);
+        } else {
+            self.scroll_repeat = 0;
+        }
         let do_scroll = self.scroll_repeat == 1
             || (self.scroll_repeat > 12 && self.scroll_repeat.is_multiple_of(2));
         if do_scroll {
             let scroll_speed = if shift { 5.0f32 } else { 1.0f32 };
-            if input.is_held(Key::Left)  { self.target_scroll.0 -= scroll_speed; }
-            if input.is_held(Key::Right) { self.target_scroll.0 += scroll_speed; }
-            if input.is_held(Key::Up)    { self.target_scroll.1 -= scroll_speed; }
-            if input.is_held(Key::Down)  { self.target_scroll.1 += scroll_speed; }
+            if input.is_held(Key::Left) {
+                self.target_scroll.0 -= scroll_speed;
+            }
+            if input.is_held(Key::Right) {
+                self.target_scroll.0 += scroll_speed;
+            }
+            if input.is_held(Key::Up) {
+                self.target_scroll.1 -= scroll_speed;
+            }
+            if input.is_held(Key::Down) {
+                self.target_scroll.1 += scroll_speed;
+            }
             self.clamp_scroll();
         }
 
         // Mouse wheel — zoom canvas (ctrl+wheel for faster zoom).
         if on_canvas && mouse.wheel_y != 0.0 {
             let ctrl = input.is_held(Key::LeftCtrl) || input.is_held(Key::RightCtrl);
-            
+
             // 1. Capture grid position under mouse before zoom
             let mx = mouse.cell_x as f32;
             let my = mouse.cell_y as f32;
             let cx = self.layout.canvas_x as f32;
             let cy = self.layout.canvas_y as f32;
-            
+
             let gx_before = (mx - cx) / self.zoom + self.target_scroll.0;
             let gy_before = (my - cy) / self.zoom + self.target_scroll.1;
 
@@ -149,7 +184,7 @@ impl EditorState {
             // 3. Adjust scroll to keep the same grid point under the mouse
             self.target_scroll.0 = gx_before - (mx - cx) / self.zoom;
             self.target_scroll.1 = gy_before - (my - cy) / self.zoom;
-            
+
             self.clamp_scroll();
         }
         if mouse.wheel_x != 0.0 {
@@ -159,7 +194,9 @@ impl EditorState {
         }
 
         // In select mode, no painting or erasing — only selection.
-        if self.select_mode { return; }
+        if self.select_mode {
+            return;
+        }
 
         // ── Toolbar sticky tools (no modifier needed) ─────────────────────────
         if !shift && !alt {
@@ -246,10 +283,9 @@ impl EditorState {
                 }
             }
             if mouse.left_just_released() {
-                if let (Some(anchor), Some(current)) = (
-                    self.rect_anchor.take(),
-                    self.mouse_to_grid(mouse.cell_x, mouse.cell_y),
-                ) {
+                if let (Some(anchor), Some(current)) =
+                    (self.rect_anchor.take(), self.mouse_to_grid(mouse.cell_x, mouse.cell_y))
+                {
                     self.stamp_rect(anchor, current);
                 }
             }
@@ -261,13 +297,16 @@ impl EditorState {
         // ── Mouse: alt+drag = scatter paint ──────────────────────────────────
         if alt && mouse.left_held() && !self.ignore_drag {
             if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
-                if !self.grid.in_bounds(gx, gy) { return; }
+                if !self.grid.in_bounds(gx, gy) {
+                    return;
+                }
                 let lyr = self.active_layer;
                 if (gx * 1234 + gy * 5678 + self.undo.len() as i32) % 2 == 0 {
                     let mut new_tile = self.palette.current().to_tile_record(gx, gy);
                     new_tile.layer = lyr;
                     let existing = self.grid.get(gx, gy, lyr).cloned();
-                    self.undo.push(Command::PlaceTile { before: existing, after: new_tile.clone() });
+                    self.undo
+                        .push(Command::PlaceTile { before: existing, after: new_tile.clone() });
                     self.grid.place(gx, gy, lyr, new_tile);
                     self.unsaved = true;
                 }
@@ -278,17 +317,25 @@ impl EditorState {
         // ── Normal left-click paint ───────────────────────────────────────────
         if mouse.left_held() && !self.ignore_drag {
             if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
-                if !self.grid.in_bounds(gx, gy) { return; }
+                if !self.grid.in_bounds(gx, gy) {
+                    return;
+                }
                 let lyr = self.active_layer;
                 let mut new_tile = self.palette.current().to_tile_record(gx, gy);
                 new_tile.layer = lyr;
                 let existing = self.grid.get(gx, gy, lyr).cloned();
-                let same = existing.as_ref().map(|t| {
-                    t.glyph == new_tile.glyph && t.solid == new_tile.solid
-                        && t.trigger == new_tile.trigger && t.tag == new_tile.tag
-                }).unwrap_or(false);
+                let same = existing
+                    .as_ref()
+                    .map(|t| {
+                        t.glyph == new_tile.glyph
+                            && t.solid == new_tile.solid
+                            && t.trigger == new_tile.trigger
+                            && t.tag == new_tile.tag
+                    })
+                    .unwrap_or(false);
                 if !same {
-                    self.undo.push(Command::PlaceTile { before: existing, after: new_tile.clone() });
+                    self.undo
+                        .push(Command::PlaceTile { before: existing, after: new_tile.clone() });
                     self.grid.place(gx, gy, lyr, new_tile);
                     self.unsaved = true;
                 }

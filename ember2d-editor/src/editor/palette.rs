@@ -25,10 +25,10 @@
 //   │ 5: ~ Water     │
 //   └────────────────┘
 
-use std::collections::{HashMap, HashSet};
-use serde::{Serialize, Deserialize};
 use ember2d::renderer::color::Color;
 use ember2d_sim::level::TileRecord;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 // ── TileDefinition ────────────────────────────────────────────────────────────
 
@@ -68,10 +68,12 @@ impl TileDefinition {
     /// Called when the user left-clicks on the canvas.
     pub fn to_tile_record(&self, x: i32, y: i32) -> TileRecord {
         TileRecord::new(
-            x, y,
+            x,
+            y,
             0, // Default layer, will be overwritten by grid.place()
             self.glyph,
-            self.fg, self.bg,
+            self.fg,
+            self.bg,
             self.solid,
             self.trigger,
             &self.tag,
@@ -116,7 +118,7 @@ impl TilePalette {
             // Apply search filter
             if !query.is_empty() {
                 let name = tile.name.to_uppercase();
-                let tag  = tile.tag.to_uppercase();
+                let tag = tile.tag.to_uppercase();
                 if !name.contains(&query) && !tag.contains(&query) {
                     continue;
                 }
@@ -128,9 +130,13 @@ impl TilePalette {
 
         let mut sorted_keys: Vec<_> = grouped.keys().cloned().collect();
         sorted_keys.sort_by(|a, b| {
-            if a.is_empty() { std::cmp::Ordering::Less }
-            else if b.is_empty() { std::cmp::Ordering::Greater }
-            else { a.cmp(b) }
+            if a.is_empty() {
+                std::cmp::Ordering::Less
+            } else if b.is_empty() {
+                std::cmp::Ordering::Greater
+            } else {
+                a.cmp(b)
+            }
         });
 
         let mut layout = Vec::new();
@@ -138,7 +144,7 @@ impl TilePalette {
             if !key.is_empty() {
                 layout.push(PaletteRow::Header(key.clone()));
             }
-            
+
             if key.is_empty() || !self.collapsed.contains(&key) {
                 if let Some(indices) = grouped.get(&key) {
                     for &idx in indices {
@@ -155,85 +161,85 @@ impl TilePalette {
         TilePalette {
             tiles: vec![
                 TileDefinition {
-                    name:    "Wall".into(),
-                    glyph:   '#',
-                    fg:      Color::Grey,
-                    bg:      Color::Reset,
-                    solid:   true,
+                    name: "Wall".into(),
+                    glyph: '#',
+                    fg: Color::Grey,
+                    bg: Color::Reset,
+                    solid: true,
                     trigger: false,
-                    tag:     "".into(),
+                    tag: "".into(),
                 },
                 TileDefinition {
-                    name:    "Floor".into(),
-                    glyph:   '.',
-                    fg:      Color::DarkGrey,
-                    bg:      Color::Reset,
-                    solid:   false,
+                    name: "Floor".into(),
+                    glyph: '.',
+                    fg: Color::DarkGrey,
+                    bg: Color::Reset,
+                    solid: false,
                     trigger: false,
-                    tag:     "".into(),
+                    tag: "".into(),
                 },
                 TileDefinition {
-                    name:    "Item".into(),
-                    glyph:   '*',
-                    fg:      Color::Yellow,
-                    bg:      Color::Reset,
-                    solid:   false,
+                    name: "Item".into(),
+                    glyph: '*',
+                    fg: Color::Yellow,
+                    bg: Color::Reset,
+                    solid: false,
                     trigger: true,
-                    tag:     "".into(),
+                    tag: "".into(),
                 },
                 TileDefinition {
-                    name:    "Spawn".into(),
-                    glyph:   '@',
-                    fg:      Color::Green,
-                    bg:      Color::Reset,
-                    solid:   false,
+                    name: "Spawn".into(),
+                    glyph: '@',
+                    fg: Color::Green,
+                    bg: Color::Reset,
+                    solid: false,
                     trigger: false,
-                    tag:     "".into(),
+                    tag: "".into(),
                 },
                 TileDefinition {
-                    name:    "Water".into(),
-                    glyph:   '~',
-                    fg:      Color::Cyan,
-                    bg:      Color::DarkBlue,
-                    solid:   false,
+                    name: "Water".into(),
+                    glyph: '~',
+                    fg: Color::Cyan,
+                    bg: Color::DarkBlue,
+                    solid: false,
                     trigger: true,
-                    tag:     "".into(),
+                    tag: "".into(),
                 },
                 TileDefinition {
-                    name:    "Door".into(),
-                    glyph:   '+',
-                    fg:      Color::DarkYellow,
-                    bg:      Color::Reset,
-                    solid:   true,
+                    name: "Door".into(),
+                    glyph: '+',
+                    fg: Color::DarkYellow,
+                    bg: Color::Reset,
+                    solid: true,
                     trigger: false,
-                    tag:     "".into(),
+                    tag: "".into(),
                 },
                 TileDefinition {
-                    name:    "Chest".into(),
-                    glyph:   '$',
-                    fg:      Color::Yellow,
-                    bg:      Color::Reset,
-                    solid:   false,
+                    name: "Chest".into(),
+                    glyph: '$',
+                    fg: Color::Yellow,
+                    bg: Color::Reset,
+                    solid: false,
                     trigger: true,
-                    tag:     "".into(),
+                    tag: "".into(),
                 },
                 TileDefinition {
-                    name:    "Pillar".into(),
-                    glyph:   'O',
-                    fg:      Color::White,
-                    bg:      Color::Reset,
-                    solid:   true,
+                    name: "Pillar".into(),
+                    glyph: 'O',
+                    fg: Color::White,
+                    bg: Color::Reset,
+                    solid: true,
                     trigger: false,
-                    tag:     "".into(),
+                    tag: "".into(),
                 },
                 TileDefinition {
-                    name:    "Danger".into(),
-                    glyph:   '^',
-                    fg:      Color::Red,
-                    bg:      Color::Reset,
-                    solid:   false,
+                    name: "Danger".into(),
+                    glyph: '^',
+                    fg: Color::Red,
+                    bg: Color::Reset,
+                    solid: false,
                     trigger: true,
-                    tag:     "".into(),
+                    tag: "".into(),
                 },
             ],
             selected: 0,

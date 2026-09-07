@@ -5,8 +5,8 @@
 // `bool` "did this section consume the input" convention every extracted
 // section follows.
 
-use super::super::super::EditorState;
 use super::super::super::panel::PanelId;
+use super::super::super::EditorState;
 
 impl EditorState {
     pub(super) fn handle_file_browser_click(&mut self, mouse: &ember2d::mouse::MouseState) -> bool {
@@ -19,8 +19,11 @@ impl EditorState {
                 // Mouse wheel scroll
                 if mouse.wheel_y != 0.0 {
                     let delta = -(mouse.wheel_y as i32);
-                    let max_scroll = self.file_browser_files.len().saturating_sub(ch.saturating_sub(1));
-                    self.file_browser_scroll = (self.file_browser_scroll as i32 + delta).clamp(0, max_scroll as i32) as usize;
+                    let max_scroll =
+                        self.file_browser_files.len().saturating_sub(ch.saturating_sub(1));
+                    self.file_browser_scroll = (self.file_browser_scroll as i32 + delta)
+                        .clamp(0, max_scroll as i32)
+                        as usize;
                 }
 
                 if mouse.left_just_pressed() && mouse.cell_y > cy {
@@ -32,9 +35,13 @@ impl EditorState {
 
                         // 1. Navigation (UP)
                         if raw_name.contains("[UP]") {
-                            if let Some(parent) = std::path::Path::new(&self.current_folder).parent() {
+                            if let Some(parent) =
+                                std::path::Path::new(&self.current_folder).parent()
+                            {
                                 self.current_folder = parent.to_string_lossy().to_string();
-                                if self.current_folder.is_empty() { self.current_folder = ".".to_string(); }
+                                if self.current_folder.is_empty() {
+                                    self.current_folder = ".".to_string();
+                                }
                             } else {
                                 self.current_folder = ".".to_string();
                             }
@@ -60,7 +67,9 @@ impl EditorState {
 
                         // 3. Files
                         let clean_name = if raw_name.len() > 3 { raw_name[3..].trim() } else { "" };
-                        if clean_name.is_empty() { return true; }
+                        if clean_name.is_empty() {
+                            return true;
+                        }
 
                         let relative_path = if self.current_folder == "." {
                             clean_name.to_string()
@@ -74,9 +83,11 @@ impl EditorState {
                             if let Some(ref folder) = self.project_folder {
                                 let path = format!("{}/{}", folder, relative_path);
                                 self.modal = Some(crate::editor::Modal {
-                                    title:   "Switch Level?".to_string(),
+                                    title: "Switch Level?".to_string(),
                                     message: format!("Load {}?", clean_name),
-                                    purpose: crate::editor::ModalPurpose::ConfirmSwitchLevel { path },
+                                    purpose: crate::editor::ModalPurpose::ConfirmSwitchLevel {
+                                        path,
+                                    },
                                 });
                             }
                         }
@@ -88,7 +99,10 @@ impl EditorState {
         false
     }
 
-    pub(super) fn handle_script_editor_click(&mut self, mouse: &ember2d::mouse::MouseState) -> bool {
+    pub(super) fn handle_script_editor_click(
+        &mut self,
+        mouse: &ember2d::mouse::MouseState,
+    ) -> bool {
         if self.panels.visible(PanelId::ScriptEditor) && mouse.in_bounds {
             let p = self.panels.get(PanelId::ScriptEditor);
             if p.contains(mouse.pixel_x, mouse.pixel_y) {
@@ -99,7 +113,8 @@ impl EditorState {
                 if mouse.wheel_y != 0.0 {
                     let delta = -(mouse.wheel_y as i32);
                     let max_scroll = self.script_buffer.len().saturating_sub(ch.saturating_sub(1));
-                    self.script_scroll = (self.script_scroll as i32 + delta).clamp(0, max_scroll as i32) as usize;
+                    self.script_scroll =
+                        (self.script_scroll as i32 + delta).clamp(0, max_scroll as i32) as usize;
                 }
 
                 if mouse.left_just_pressed() && mouse.cell_y > cy {
@@ -114,7 +129,8 @@ impl EditorState {
                         // — see script_editor.rs's `char_byte_offset` doc
                         // comment for why a byte-length bound produces an
                         // out-of-range char index on any multi-byte line.
-                        self.script_cursor.0 = (col.max(0) as usize).min(self.script_buffer[row_idx].chars().count());
+                        self.script_cursor.0 =
+                            (col.max(0) as usize).min(self.script_buffer[row_idx].chars().count());
                     }
                     return true;
                 }

@@ -1,15 +1,23 @@
 // renderer/backend.rs — Abstracted rendering backends.
 
-use std::collections::HashMap;
 use crate::renderer::color::{Color, DEFAULT_BG, DEFAULT_FG};
 use crate::renderer::texture::Texture;
 use bytemuck::{Pod, Zeroable};
+use std::collections::HashMap;
 
 pub trait RenderBackend {
     fn name(&self) -> &str;
     fn clear(&mut self);
     fn draw_char(&mut self, x: usize, y: usize, ch: char, fg: Color, bg: Color);
-    fn draw_char_scaled_pixels(&mut self, px: i32, py: i32, ch: char, fg: Color, bg: Color, scale: f32);
+    fn draw_char_scaled_pixels(
+        &mut self,
+        px: i32,
+        py: i32,
+        ch: char,
+        fg: Color,
+        bg: Color,
+        scale: f32,
+    );
     /// `size` is the instance's on-screen size in cell units (post-zoom —
     /// same convention as `draw_char_scaled_pixels`'s `scale`, but per-axis
     /// so non-square sprites and world-space sizing (Step 2c) are possible).
@@ -17,12 +25,28 @@ pub trait RenderBackend {
     /// `uv_rect` is a normalized `[x, y, w, h]` (0..1) sub-rect of the
     /// texture to sample — `None` samples the whole thing. This is what
     /// `SpriteSource::Texture::src` (Step 3b) backs, e.g. for sprite sheets.
-    fn draw_texture(&mut self, px: i32, py: i32, texture: &Texture, size: [f32; 2], rotation: f32, tint: Color, uv_rect: Option<[f32; 4]>);
+    fn draw_texture(
+        &mut self,
+        px: i32,
+        py: i32,
+        texture: &Texture,
+        size: [f32; 2],
+        rotation: f32,
+        tint: Color,
+        uv_rect: Option<[f32; 4]>,
+    );
     /// `surface_width`/`surface_height` are the *actual* physical pixel size
     /// of the render target (`Renderer`'s `wgpu::SurfaceConfiguration`) —
     /// the backend needs these to clamp scissor rects; see the comment at
     /// their one use site for why a recomputed value isn't safe to trust.
-    fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, view: &wgpu::TextureView, surface_width: u32, surface_height: u32);
+    fn render(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        view: &wgpu::TextureView,
+        surface_width: u32,
+        surface_height: u32,
+    );
     fn resize(&mut self, width: usize, height: usize);
     fn width(&self) -> usize;
     fn height(&self) -> usize;
@@ -49,7 +73,8 @@ pub struct Vertex {
 }
 
 impl Vertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 2] = wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2];
+    const ATTRIBS: [wgpu::VertexAttribute; 2] =
+        wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2];
 
     fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
@@ -64,15 +89,15 @@ impl Vertex {
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct SpriteInstance {
     pub position: [f32; 2],
-    pub size:     [f32; 2],
+    pub size: [f32; 2],
     pub uv_offset: [f32; 2],
-    pub uv_size:   [f32; 2],
-    pub color_fg:  [f32; 4],
-    pub color_bg:  [f32; 4],
-    pub mode:      u32, // 0 = ASCII, 1 = Sprite
+    pub uv_size: [f32; 2],
+    pub color_fg: [f32; 4],
+    pub color_bg: [f32; 4],
+    pub mode: u32, // 0 = ASCII, 1 = Sprite
     /// Radians, applied in the vertex shader around the instance's own
     /// center (Phase 2 — replaces what used to be unused padding here).
-    pub rotation:  f32,
+    pub rotation: f32,
 }
 
 impl SpriteInstance {
@@ -108,29 +133,35 @@ pub struct WgpuBackend {
     width: usize,
     height: usize,
     pub is_sprite_mode: bool,
-    pub render_scale:   f32,
-    
+    pub render_scale: f32,
+
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
-    index_buffer:  wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
     instance_buffer: wgpu::Buffer,
     instance_buffer_capacity: usize,
-    
+
     instances: Vec<SpriteInstance>,
-    batches:   Vec<Batch>,
+    batches: Vec<Batch>,
     current_scissor: Option<(u32, u32, u32, u32)>,
-    
+
     font_texture_id: u64,
-    texture_cache:   HashMap<u64, wgpu::BindGroup>,
-    sampler:         wgpu::Sampler,
+    texture_cache: HashMap<u64, wgpu::BindGroup>,
+    sampler: wgpu::Sampler,
     texture_bind_group_layout: wgpu::BindGroupLayout,
 
-    globals_buffer:  wgpu::Buffer,
+    globals_buffer: wgpu::Buffer,
     globals_bind_group: wgpu::BindGroup,
 }
 
 impl WgpuBackend {
-    pub fn new(width: usize, height: usize, device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
+    pub fn new(
+        width: usize,
+        height: usize,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        format: wgpu::TextureFormat,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
         // ── Sampler ──────────────────────────────────────────────────────
@@ -143,23 +174,28 @@ impl WgpuBackend {
         });
 
         // ── Texture Bind Group Layout ────────────────────────────────────
-        let texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Texture Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture { multisampled: false, view_dimension: wgpu::TextureViewDimension::D2, sample_type: wgpu::TextureSampleType::Float { filterable: true } },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Texture Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
 
         // ── Create Font Atlas ─────────────────────────────────────────────
         use font8x8::legacy::BASIC_LEGACY;
@@ -203,9 +239,18 @@ impl WgpuBackend {
             view_formats: &[],
         });
         queue.write_texture(
-            wgpu::ImageCopyTexture { texture: &font_texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::ImageCopyTexture {
+                texture: &font_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
             &font_data,
-            wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(8 * 4), rows_per_image: Some(1024) },
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(8 * 4),
+                rows_per_image: Some(1024),
+            },
             wgpu::Extent3d { width: 8, height: 1024, depth_or_array_layers: 1 },
         );
         let font_view = font_texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -215,8 +260,14 @@ impl WgpuBackend {
             label: Some("Font Bind Group"),
             layout: &texture_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&font_view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&font_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
             ],
         });
 
@@ -231,20 +282,28 @@ impl WgpuBackend {
             mapped_at_creation: false,
         });
 
-        let globals_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Globals Bind Group Layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
-                count: None,
-            }],
-        });
+        let globals_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Globals Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
 
         let globals_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Globals Bind Group"),
             layout: &globals_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry { binding: 0, resource: globals_buffer.as_entire_binding() }],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: globals_buffer.as_entire_binding(),
+            }],
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -298,7 +357,7 @@ impl WgpuBackend {
             contents: bytemuck::cast_slice(&indices),
             usage: wgpu::BufferUsages::INDEX,
         });
-        
+
         let instance_buffer_capacity = 16384; // Start with 16k capacity
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Instance Buffer"),
@@ -308,12 +367,17 @@ impl WgpuBackend {
         });
 
         WgpuBackend {
-            width, height, is_sprite_mode: false,
+            width,
+            height,
+            is_sprite_mode: false,
             render_scale: 1.0,
-            pipeline, vertex_buffer, index_buffer, instance_buffer,
+            pipeline,
+            vertex_buffer,
+            index_buffer,
+            instance_buffer,
             instance_buffer_capacity,
             instances: Vec::with_capacity(instance_buffer_capacity),
-            batches:   Vec::new(),
+            batches: Vec::new(),
             current_scissor: None,
             font_texture_id,
             texture_cache,
@@ -325,7 +389,8 @@ impl WgpuBackend {
     }
 
     fn update_globals(&self, queue: &wgpu::Queue) {
-        let projection = glam::Mat4::orthographic_lh(0.0, self.width as f32, self.height as f32, 0.0, -1.0, 1.0);
+        let projection =
+            glam::Mat4::orthographic_lh(0.0, self.width as f32, self.height as f32, 0.0, -1.0, 1.0);
         let globals = Globals { projection: projection.to_cols_array_2d() };
         queue.write_buffer(&self.globals_buffer, 0, bytemuck::cast_slice(&[globals]));
     }
@@ -337,7 +402,7 @@ impl WgpuBackend {
             }
             last.instance_range.end = self.instances.len() as u32;
         }
-        
+
         self.batches.push(Batch {
             texture_id,
             instance_range: (self.instances.len() as u32)..(self.instances.len() as u32),
@@ -346,9 +411,15 @@ impl WgpuBackend {
     }
 
     fn upload_texture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, texture: &Texture) {
-        if self.texture_cache.contains_key(&texture.id) { return; }
+        if self.texture_cache.contains_key(&texture.id) {
+            return;
+        }
 
-        let size = wgpu::Extent3d { width: texture.width, height: texture.height, depth_or_array_layers: 1 };
+        let size = wgpu::Extent3d {
+            width: texture.width,
+            height: texture.height,
+            depth_or_array_layers: 1,
+        };
         let wgpu_tex = device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size,
@@ -361,9 +432,18 @@ impl WgpuBackend {
         });
 
         queue.write_texture(
-            wgpu::ImageCopyTexture { texture: &wgpu_tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::ImageCopyTexture {
+                texture: &wgpu_tex,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
             bytemuck::cast_slice(&texture.pixels),
-            wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(4 * texture.width), rows_per_image: Some(texture.height) },
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * texture.width),
+                rows_per_image: Some(texture.height),
+            },
             size,
         );
 
@@ -372,8 +452,14 @@ impl WgpuBackend {
             label: None,
             layout: &self.texture_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
             ],
         });
 
@@ -382,8 +468,14 @@ impl WgpuBackend {
 }
 
 impl RenderBackend for WgpuBackend {
-    fn name(&self) -> &str { if self.is_sprite_mode { "WGPU Sprites" } else { "WGPU ASCII" } }
-    
+    fn name(&self) -> &str {
+        if self.is_sprite_mode {
+            "WGPU Sprites"
+        } else {
+            "WGPU ASCII"
+        }
+    }
+
     fn clear(&mut self) {
         self.instances.clear();
         self.batches.clear();
@@ -392,12 +484,12 @@ impl RenderBackend for WgpuBackend {
 
     fn draw_char(&mut self, x: usize, y: usize, ch: char, fg: Color, bg: Color) {
         self.ensure_batch(self.font_texture_id);
-        
+
         let fg_rgba = fg.to_rgba(DEFAULT_FG);
         let bg_rgba = bg.to_rgba(DEFAULT_BG);
         let ch_idx = ch as usize % 128;
         let uv_y = ch_idx as f32 / 128.0;
-        
+
         self.instances.push(SpriteInstance {
             position: [x as f32, y as f32],
             size: [1.0, 1.0],
@@ -410,16 +502,24 @@ impl RenderBackend for WgpuBackend {
         });
     }
 
-    fn draw_char_scaled_pixels(&mut self, px: i32, py: i32, ch: char, fg: Color, bg: Color, scale: f32) {
+    fn draw_char_scaled_pixels(
+        &mut self,
+        px: i32,
+        py: i32,
+        ch: char,
+        fg: Color,
+        bg: Color,
+        scale: f32,
+    ) {
         self.ensure_batch(self.font_texture_id);
-        
+
         let fg_rgba = fg.to_rgba(DEFAULT_FG);
         let bg_rgba = bg.to_rgba(DEFAULT_BG);
         let ch_idx = ch as usize % 128;
         let uv_y = ch_idx as f32 / 128.0;
         let cell_x = px as f32 / 8.0;
         let cell_y = py as f32 / 16.0;
-        
+
         self.instances.push(SpriteInstance {
             position: [cell_x, cell_y],
             size: [scale, scale],
@@ -432,7 +532,16 @@ impl RenderBackend for WgpuBackend {
         });
     }
 
-    fn draw_texture(&mut self, px: i32, py: i32, texture: &Texture, size: [f32; 2], rotation: f32, tint: Color, uv_rect: Option<[f32; 4]>) {
+    fn draw_texture(
+        &mut self,
+        px: i32,
+        py: i32,
+        texture: &Texture,
+        size: [f32; 2],
+        rotation: f32,
+        tint: Color,
+        uv_rect: Option<[f32; 4]>,
+    ) {
         self.ensure_batch(texture.id);
 
         let cell_x = px as f32 / 8.0;
@@ -460,11 +569,20 @@ impl RenderBackend for WgpuBackend {
         self.current_scissor = rect;
     }
 
-    fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, view: &wgpu::TextureView, surface_width: u32, surface_height: u32) {
+    fn render(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        view: &wgpu::TextureView,
+        surface_width: u32,
+        surface_height: u32,
+    ) {
         self.update_globals(queue);
 
-        if self.instances.is_empty() { return; }
-        
+        if self.instances.is_empty() {
+            return;
+        }
+
         // Finalize last batch range
         if let Some(last) = self.batches.last_mut() {
             last.instance_range.end = self.instances.len() as u32;
@@ -475,15 +593,18 @@ impl RenderBackend for WgpuBackend {
             self.instance_buffer_capacity = self.instances.len().next_power_of_two();
             self.instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("Instance Buffer (Resized)"),
-                size: (std::mem::size_of::<SpriteInstance>() * self.instance_buffer_capacity) as u64,
+                size: (std::mem::size_of::<SpriteInstance>() * self.instance_buffer_capacity)
+                    as u64,
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
         }
-        
+
         queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&self.instances));
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("WgpuBackend Encoder") });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("WgpuBackend Encoder"),
+        });
         {
             let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("WgpuBackend Render Pass"),
@@ -553,9 +674,15 @@ impl RenderBackend for WgpuBackend {
         self.width = width;
         self.height = height;
     }
-    fn width(&self) -> usize { self.width }
-    fn height(&self) -> usize { self.height }
-    fn set_sprite_mode(&mut self, enabled: bool) { self.is_sprite_mode = enabled; }
+    fn width(&self) -> usize {
+        self.width
+    }
+    fn height(&self) -> usize {
+        self.height
+    }
+    fn set_sprite_mode(&mut self, enabled: bool) {
+        self.is_sprite_mode = enabled;
+    }
 
     fn upload_texture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, texture: &Texture) {
         self.upload_texture(device, queue, texture);

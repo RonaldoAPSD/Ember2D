@@ -15,10 +15,10 @@
 // (Part 4) — this module only owns rasterizing and packing glyph bytes
 // correctly, not getting them onto a GPU surface.
 
-use std::collections::HashMap;
 use super::super::texture::{Texture, TextureId};
 use super::GlyphInfo;
 use ember2d_sim::math::{Rect, Vec2};
+use std::collections::HashMap;
 
 pub struct GlyphAtlas {
     pub texture: Texture,
@@ -55,7 +55,9 @@ impl GlyphAtlas {
         }
     }
 
-    pub fn texture_id(&self) -> TextureId { TextureId(self.texture.id) }
+    pub fn texture_id(&self) -> TextureId {
+        TextureId(self.texture.id)
+    }
 
     /// Returns whether `texture.pixels` has changed since the last call,
     /// clearing the flag either way (a caller checks this once per draw,
@@ -77,13 +79,17 @@ impl GlyphAtlas {
     /// `w`/`h` alone exceeds the atlas's own dimensions, or every shelf
     /// (current and any future one within `texture.height`) is full.
     fn pack(&mut self, w: u32, h: u32) -> Option<(u32, u32)> {
-        if w > self.texture.width || h > self.texture.height { return None; }
+        if w > self.texture.width || h > self.texture.height {
+            return None;
+        }
         if self.shelf_x + w > self.texture.width {
             self.shelf_y += self.shelf_h;
             self.shelf_x = 0;
             self.shelf_h = 0;
         }
-        if self.shelf_y + h > self.texture.height { return None; }
+        if self.shelf_y + h > self.texture.height {
+            return None;
+        }
         let pos = (self.shelf_x, self.shelf_y);
         self.shelf_x += w;
         self.shelf_h = self.shelf_h.max(h);
@@ -95,9 +101,17 @@ impl GlyphAtlas {
     /// caller's own identifier (distinct `TtfFont` instances must pass
     /// distinct ids if they ever share one atlas) — this module has no
     /// opinion on how ids are assigned.
-    pub fn get_or_rasterize(&mut self, font: &fontdue::Font, font_id: usize, ch: char, px: f32) -> Option<GlyphInfo> {
+    pub fn get_or_rasterize(
+        &mut self,
+        font: &fontdue::Font,
+        font_id: usize,
+        ch: char,
+        px: f32,
+    ) -> Option<GlyphInfo> {
         let key = (font_id, ch, Self::quantize_px(px));
-        if let Some(info) = self.cache.get(&key) { return Some(*info); }
+        if let Some(info) = self.cache.get(&key) {
+            return Some(*info);
+        }
 
         let (metrics, bitmap) = font.rasterize(ch, px);
 

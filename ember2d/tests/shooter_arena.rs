@@ -79,25 +79,36 @@ impl RealtimeHarness {
         let keys: BTreeSet<String> = held.iter().map(|k| k.to_string()).collect();
         let input = InputSnapshot { held: keys.clone(), pressed: keys };
 
-        let outcome = self.sim.step(&mut self.world, StepInput {
-            input: &input,
-            mouse,
-            gamepad: &GamepadSnapshot::default(),
-            external_commands: &[],
-            camera_origin: Vec2::ZERO,
-            sim_dt: DT,
-            elapsed: self.elapsed,
-            viewport_w: 80,
-            viewport_h: 24,
-        }, &mut self.persistent);
+        let outcome = self.sim.step(
+            &mut self.world,
+            StepInput {
+                input: &input,
+                mouse,
+                gamepad: &GamepadSnapshot::default(),
+                external_commands: &[],
+                camera_origin: Vec2::ZERO,
+                sim_dt: DT,
+                elapsed: self.elapsed,
+                viewport_w: 80,
+                viewport_h: 24,
+            },
+            &mut self.persistent,
+        );
         self.logs.extend(outcome.logs);
 
         self.world.integrate_physics(DT);
         let mut events = EventBus::new();
         self.world.detect_collisions(&mut events);
         let late = self.sim.late_step(
-            &mut self.world, &events, &prev_positions, Vec2::ZERO,
-            DT, self.elapsed, 80, 24, &mut self.persistent,
+            &mut self.world,
+            &events,
+            &prev_positions,
+            Vec2::ZERO,
+            DT,
+            self.elapsed,
+            80,
+            24,
+            &mut self.persistent,
         );
         self.logs.extend(late.logs);
 
@@ -132,7 +143,9 @@ impl RealtimeHarness {
     /// would keep running with a dead director or a dead player controller and
     /// never say so. Always assert this, in every test.
     fn assert_no_script_errors(&self) {
-        let errors: Vec<&str> = self.logs.iter()
+        let errors: Vec<&str> = self
+            .logs
+            .iter()
             .filter(|l| l.level == LogLevel::Error)
             .map(|l| l.text.as_str())
             .collect();
@@ -264,7 +277,10 @@ fn all_ten_waves_run_in_order_and_then_the_run_is_won() {
     for _ in 0..2400 {
         h.step(&[]);
 
-        let live: Vec<EntityId> = h.world.tags.iter()
+        let live: Vec<EntityId> = h
+            .world
+            .tags
+            .iter()
             .filter(|(_, t)| t.name == "grunt" || t.name == "swarmer" || t.name == "brute")
             .map(|(&id, _)| id)
             .collect();
@@ -307,5 +323,9 @@ fn a_long_run_under_continuous_input_never_errors() {
     // The player is the only entity the engine's solid resolver acts on, so
     // driving into a wall for seconds at a time must not push it through one.
     let p = h.world.get_global_position(h.first_tagged("player").expect("player"));
-    assert!(p.x > 0.0 && p.x < 79.0 && p.y > 0.0 && p.y < 23.0, "player escaped the arena at {:?}", p);
+    assert!(
+        p.x > 0.0 && p.x < 79.0 && p.y > 0.0 && p.y < 23.0,
+        "player escaped the arena at {:?}",
+        p
+    );
 }
