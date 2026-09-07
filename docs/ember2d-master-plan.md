@@ -290,6 +290,8 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R46 | S4 | `WindowEvent::MouseWheel`'s `PixelDelta` branch still hardcodes `/ 8.0`/`/ 16.0` — the same class of gap 7B-2 fixed for click position, just for scroll delta instead. Found while fixing R21 (7B-2); not in that step's own Change list (only `backend.rs`/`mouse.rs`'s position-mapping sites were named), and `PixelDelta` scroll events are rare in practice (most mice/touchpads report `LineDelta`), so left as a follow-up rather than expanding 7B-2's scope | `ember2d/src/engine.rs` (`EventPump::window_event`, `MouseWheel` arm) | `[ ]` unscheduled |
 | R47 | S4 | `cargo clippy -p ember2d --all-targets` reports dead code in `ember2d/tests/common/mod.rs` (`TurnHarness`'s own test helpers): `find_tagged_entity_at`, `test_temp_dir`, and `TurnHarness::load`/`player_id`/`player_pos` are never called by any current test. Found while checking 7B-3's own "no dead code in `ember2d`" done-when criterion — confirmed pre-existing (identical warnings before 7B-3's changes) and unrelated to that step's named Change list (renderer resource hygiene only), so not fixed there | `ember2d/tests/common/mod.rs:74, 223, 227, 238, 254` | `[ ]` unscheduled |
 | R48 | S2 | 7B-2's DPI-derived `scale` floored at `1.0` — correct per R21's own "land on a whole physical pixel" wording, but on any standard 100%-scale display (the common case, not a corner case) `window.scale_factor()` is exactly `1.0`, so every cell rendered at its literal native 8×16 physical pixels: half the size the pre-7B-2 hardcoded `SCALE = 2` always gave, and hard to read on a modern display. Found by the user testing 7B-2 live, right after it was marked done | `renderer/mod.rs` (`Renderer::new`, `recompute_layout`); `engine.rs` (`WindowInit::resumed`'s pre-window guess) | `[x]` 7B-2 follow-up — new `MIN_UI_SCALE = 2.0` constant floors all three sites (was `.max(1.0)`); restores the old default size on ordinary displays, still scales up correctly above it on genuine HiDPI (150%/200%+ already rounds to 2+). A real user-facing scale *setting* is 7D-3, not this — by user direction, this is a scoped tuning fix only |
+| R49 | S4 | `BitmapFont`'s `Font`-trait glyph model represents a native glyph as a literal, unstretched 8×8 square, but the dedicated font8x8 GPU path (`WgpuBackend::draw_char`) has always stretched that same 8×8 bitmap 2x vertically to fill the 8×16 `CELL_W`×`CELL_H` cell — the two disagree on what "native size" looks like. Found building 7B-5 (before/after screenshot comparison caught the shrink); currently dormant because `draw_str`'s default path deliberately keeps calling `draw_char` directly rather than routing through the `Font` abstraction (see 7B-5's "Landed as" note) | `renderer/font/bitmap.rs` (`BitmapFont::glyph`/`ascent`/`line_height`); `renderer/backend.rs` (`WgpuBackend::draw_char`) | `[ ]` unscheduled — blocks ever fully unifying `draw_str` onto `draw_text_px` for the bitmap case without either changing `BitmapFont`'s glyph model or `draw_text_px`'s destination-sizing logic (see R50) |
+| R50 | S4 | `Renderer::draw_text_px`'s glyph destination rect always uses `GlyphInfo::atlas_rect.w`/`.h` directly as the drawn size — correct for `TtfFont` (whose atlas rasterizes each glyph AT the requested px, so `atlas_rect` already IS the intended render size) but wrong for `BitmapFont` at any non-native px: `atlas_rect` stays fixed at the native 8×8 texture region regardless of the requested size (only `advance`/`offset` scale), so a `BitmapFont` glyph requested at e.g. 16px would advance the pen 16px per character without the glyph itself actually being drawn any larger than 8×8 — a gap that predates 7B-5 but was undiscovered until this step's investigation, since `draw_text_px` had no live caller before it (its own doc comment used to say so) | `renderer/text.rs` (`draw_text_px`, dest rect construction) | `[ ]` unscheduled — not hit by 7B-5's own usage: `draw_str`'s new `draw_text_px` call is reached only when `ui_font_kind` is `Ttf`, so it never passes a `BitmapFont` in the first place (see R49, 7B-5's "Landed as" note) |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -1194,7 +1196,7 @@ draws. Doing these after the theme lands would mean redoing the theme.
   being the same mechanism the unit tests already exercise for other
   key types.
 
-#### `[ ]` 7B-5 — Finish Phase 7 Part 2: text actually renders through `Font`
+#### `[x]` 7B-5 — Finish Phase 7 Part 2: text actually renders through `Font` (`6ccf9a1`)
 
 - **Why:** Part 2's done-criterion ("editor renders through the Font trait,
   swapping to TtfFont renders legibly") is half met: the editor *measures*
@@ -1210,6 +1212,51 @@ draws. Doing these after the theme lands would mean redoing the theme.
 - **Done when:** setting a debug env var `EMBER_UI_FONT=ttf` renders the
   whole editor in Cascadia at 16 px legibly, with hit-tests still landing.
 - **Scope:** `ember2d`, `ember2d-editor`.
+- **Landed as:** built the literal Change first (`draw_str` unconditionally
+  routing through `draw_text_px` + `BitmapFont` at native 8px) and screenshot-
+  compared it against the original before writing anything else, per this
+  step's own Test line — the comparison showed a real regression, not a
+  refactor: the dedicated font8x8 GPU path (`WgpuBackend::draw_char`) has
+  always stretched its native 8×8 bitmap 2x vertically to fill the 8×16
+  `CELL_W`×`CELL_H` cell, but `BitmapFont`'s `Font` implementation models a
+  glyph as a literal, unstretched 8×8 square — routing the default case
+  through `draw_text_px` shrank every character in the editor to roughly
+  half its familiar height (see the before/after crops shown to the user).
+  Confirmed with the user rather than silently picking a direction; logged
+  the underlying model mismatch as R49 (and a related, still-latent
+  `draw_text_px` destination-sizing gap it exposed as R50) rather than
+  fixing either — both are deeper `Font`-trait/`BitmapFont` design questions
+  outside this step's scope. Landed instead: `Renderer::draw_str` now
+  branches on a new `UiFontKind` (`Bitmap`/`Ttf`, returned alongside the
+  font itself by a new shared `ui_font_from_env` — one function reading
+  `EMBER_UI_FONT`, tried via `ui_font_for(Option<&str>)` for testability
+  without mutating process-global env state) — the `Bitmap` case still
+  calls `draw_char` per character, byte-for-byte the original
+  implementation (confirmed pixel-identical via screenshot); only the `Ttf`
+  case (bundled Cascadia Mono at 16px) routes through `draw_text_px`, via a
+  `mem::replace` swap of the new `Renderer::ui_font` field (can't borrow it
+  and call `draw_text_px`, which takes its font as a caller-owned `&mut dyn
+  Font`, simultaneously). `draw_text_px`/`draw_str` moved to a new sibling
+  `renderer/text.rs` (mod.rs crossed 750 lines). Also fixed
+  `GlyphAtlas::get_or_rasterize` rasterizing at the raw requested `px`
+  while caching keyed on the quantized one (`atlas.rs`) — dormant before
+  this step (nothing called it live), now real since `draw_str`'s `Ttf`
+  path is a genuine caller. `ui/types.rs`/`start_screen/drawing.rs`'s
+  `cells()` helpers and `EditorState`/`StartScreen`'s own separate
+  `font: Box<dyn Font>` field (used only for hit-test/layout measuring)
+  were deliberately left untouched — they stay `BitmapFont`-at-8px always,
+  regardless of `EMBER_UI_FONT`; the Done-when's "hit-tests still landing"
+  holds because click detection reads `mouse.cell_x`/`cell_y` (from
+  `ScreenMapping`, independent of any font) against hit-rects sized by
+  those unchanged 8px-based measurements — confirmed live by opening the
+  File menu at its original click coordinates under `EMBER_UI_FONT=ttf` and
+  watching it open correctly, even though the Cascadia label text visibly
+  overflows that same (narrower, BitmapFont-sized) rect. Verified: full
+  workspace build + `cargo test --workspace` (all green, new
+  `ui_font_for`/`GlyphAtlas` tests included) + `check.ps1` + `cargo fmt
+  --all --check`; screenshots confirm the default path is visually
+  unchanged, `EMBER_UI_FONT=ttf` renders the whole editor legibly in
+  Cascadia, and a File-menu click still lands under `ttf` mode.
 
 **Phase 7B gate:** §0.5, then tag `v0.5.7b`.
 
