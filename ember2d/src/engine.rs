@@ -2,11 +2,14 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::io;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use winit::event::{Event, WindowEvent};
-use winit::event_loop::EventLoop;
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::platform::pump_events::EventLoopExtPumpEvents;
+use winit::window::{Window, WindowId};
 
 use crate::gamepad::GamepadState;
 use crate::input::{InputManager, Key};
@@ -138,6 +141,134 @@ pub trait GameState {
     }
 }
 
+// ── winit 0.30 ApplicationHandler shims ─────────────────────────────────────
+//
+// 7B-1 (docs/ember2d-master-plan.md §5.2): winit 0.30 replaced direct,
+// eager window creation (the old `WindowBuilder::new()...build(&event_loop)`,
+// callable any time) with `ActiveEventLoop::create_window`, reachable only
+// from inside an `ApplicationHandler` callback — `resumed()`, specifically,
+// which fires once the platform is ready to create windows/GL contexts.
+// Two small handlers, not one, because they run at two different points
+// with two different jobs: `WindowInit` runs exactly once, synchronously,
+// inside `Engine::new` (pumped in a loop until `resumed()` fires and hands
+// back a window) so `Renderer::new` — and therefore `Engine::new` itself —
+// keeps returning a fully-initialized, ready-to-use `Engine`, exactly as
+// every caller already expects; `EventPump` runs every frame from
+// `poll_events`, replacing the closure `pump_events` (deprecated in favor
+// of `pump_app_events`) used to take, with the identical `WindowEvent`
+// handling that closure had. Same `loop {}`-per-frame shape either way —
+// see `Engine::run`'s own loop, unchanged by this split.
+
+/// Exists only to receive the one `resumed()` call `Engine::new` pumps for.
+struct WindowInit {
+    width: usize,
+    height: usize,
+    title: String,
+    window: Option<Arc<Window>>,
+}
+
+impl ApplicationHandler for WindowInit {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return; // Already created — resumed() can in principle fire again.
+        }
+        let pixel_width = self.width * crate::renderer::CELL_W;
+        let pixel_height = self.height * crate::renderer::CELL_H;
+        let attrs = Window::default_attributes().with_title(&self.title).with_inner_size(
+            winit::dpi::LogicalSize::new(
+                pixel_width as f32 * crate::renderer::SCALE as f32,
+                pixel_height as f32 * crate::renderer::SCALE as f32,
+            ),
+        );
+        if let Ok(window) = event_loop.create_window(attrs) {
+            self.window = Some(Arc::new(window));
+        }
+    }
+
+    fn window_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _window_id: WindowId,
+        _event: WindowEvent,
+    ) {
+        // Nothing to do before a window (and therefore a Renderer) exists.
+    }
+}
+
+/// The real per-frame window-event handler, built fresh each `poll_events`
+/// call from whichever `Engine` fields it needs to mutate — same fields
+/// the old closure captured by `&mut` reference.
+struct EventPump<'a> {
+    input: &'a mut InputManager,
+    mouse: &'a mut MouseState,
+    renderer: &'a mut Renderer,
+    engine_width: &'a mut usize,
+    engine_height: &'a mut usize,
+}
+
+impl<'a> ApplicationHandler for EventPump<'a> {
+    fn resumed(&mut self, _event_loop: &ActiveEventLoop) {
+        // The window already exists by the time this pump runs (created in
+        // Engine::new via WindowInit) — nothing to do even if the platform
+        // re-fires resumed() (e.g. after a suspend/resume cycle).
+    }
+
+    fn window_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        match event {
+            WindowEvent::CloseRequested => self.input.quit_requested = true,
+            WindowEvent::KeyboardInput { event: key_event, .. } => {
+                // 1. Physical key for state tracking (held/pressed)
+                if let Some(key) = Key::from_winit(key_event.physical_key) {
+                    if key_event.state.is_pressed() {
+                        self.input.handle_pressed(key);
+                    } else {
+                        self.input.handle_released(key);
+                    }
+                }
+
+                // 2. Logical key for text entry (characters, symbols, etc.)
+                // R44 (7A-11, docs/ember2d-master-plan.md §5.1): was
+                // `if let Key::Character(text) = ...` only — see
+                // `logical_key_text`'s own doc comment for why that
+                // silently dropped every Space press.
+                if key_event.state.is_pressed() {
+                    self.input.text_buffer.push_str(&Key::logical_key_text(&key_event.logical_key));
+                }
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                let scale = self.renderer.scale_factor();
+                self.mouse.handle_move(position.x as f32 / scale, position.y as f32 / scale);
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                let btn = MouseButton::from_winit(button);
+                if state.is_pressed() {
+                    self.mouse.handle_pressed(btn);
+                } else {
+                    self.mouse.handle_released(btn);
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => match delta {
+                winit::event::MouseScrollDelta::LineDelta(x, y) => self.mouse.handle_scroll(x, y),
+                winit::event::MouseScrollDelta::PixelDelta(pos) => {
+                    self.mouse.handle_scroll(pos.x as f32 / 8.0, pos.y as f32 / 16.0)
+                }
+            },
+            WindowEvent::Resized(_) => {
+                if self.renderer.try_handle_resize() {
+                    *self.engine_width = self.renderer.width;
+                    *self.engine_height = self.renderer.height;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 // ── Engine ────────────────────────────────────────────────────────────────────
 
 pub struct Engine {
@@ -174,9 +305,21 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(width: usize, height: usize, title: &str) -> io::Result<Self> {
-        let event_loop =
+        let mut event_loop =
             EventLoop::new().map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-        let renderer = Renderer::new(width, height, title, &event_loop)?;
+
+        // 7B-1 (docs/ember2d-master-plan.md §5.2): pump until WindowInit's
+        // resumed() fires and hands back a window — see that struct's own
+        // doc comment. Desktop platforms (this project's only targets)
+        // fire resumed() on the very first pump; looping is defensive, not
+        // load-bearing, in case a platform ever needs more than one.
+        let mut window_init = WindowInit { width, height, title: title.to_string(), window: None };
+        while window_init.window.is_none() {
+            event_loop.pump_app_events(Some(Duration::ZERO), &mut window_init);
+        }
+        let window = window_init.window.take().unwrap();
+
+        let renderer = Renderer::new(width, height, window)?;
 
         Ok(Engine {
             renderer,
@@ -241,70 +384,19 @@ impl Engine {
         self.input.clear();
         self.mouse.clear();
         self.gamepad.clear();
-
-        let input = &mut self.input;
-        let mouse = &mut self.mouse;
         self.gamepad.poll();
-        let renderer = &mut self.renderer;
-        let engine_width = &mut self.width;
-        let engine_height = &mut self.height;
 
-        let _ = self.event_loop.pump_events(Some(Duration::ZERO), |event, _| {
-            match event {
-                Event::WindowEvent { event, .. } => match event {
-                    WindowEvent::CloseRequested => input.quit_requested = true,
-                    WindowEvent::KeyboardInput { event: key_event, .. } => {
-                        // 1. Physical key for state tracking (held/pressed)
-                        if let Some(key) = Key::from_winit(key_event.physical_key) {
-                            if key_event.state.is_pressed() {
-                                input.handle_pressed(key);
-                            } else {
-                                input.handle_released(key);
-                            }
-                        }
-
-                        // 2. Logical key for text entry (characters, symbols, etc.)
-                        // R44 (7A-11, docs/ember2d-master-plan.md §5.1): was
-                        // `if let Key::Character(text) = ...` only — see
-                        // `logical_key_text`'s own doc comment for why that
-                        // silently dropped every Space press.
-                        if key_event.state.is_pressed() {
-                            input
-                                .text_buffer
-                                .push_str(&Key::logical_key_text(&key_event.logical_key));
-                        }
-                    }
-                    WindowEvent::CursorMoved { position, .. } => {
-                        let scale = renderer.scale_factor();
-                        mouse.handle_move(position.x as f32 / scale, position.y as f32 / scale);
-                    }
-                    WindowEvent::MouseInput { state, button, .. } => {
-                        let btn = MouseButton::from_winit(button);
-                        if state.is_pressed() {
-                            mouse.handle_pressed(btn);
-                        } else {
-                            mouse.handle_released(btn);
-                        }
-                    }
-                    WindowEvent::MouseWheel { delta, .. } => match delta {
-                        winit::event::MouseScrollDelta::LineDelta(x, y) => {
-                            mouse.handle_scroll(x, y)
-                        }
-                        winit::event::MouseScrollDelta::PixelDelta(pos) => {
-                            mouse.handle_scroll(pos.x as f32 / 8.0, pos.y as f32 / 16.0)
-                        }
-                    },
-                    WindowEvent::Resized(_) => {
-                        if renderer.try_handle_resize() {
-                            *engine_width = renderer.width;
-                            *engine_height = renderer.height;
-                        }
-                    }
-                    _ => {}
-                },
-                _ => {}
-            }
-        });
+        // 7B-1 (docs/ember2d-master-plan.md §5.2): pump_events deprecated
+        // in favor of pump_app_events, which wants an ApplicationHandler
+        // rather than a closure — see EventPump's own doc comment above.
+        let mut pump = EventPump {
+            input: &mut self.input,
+            mouse: &mut self.mouse,
+            renderer: &mut self.renderer,
+            engine_width: &mut self.width,
+            engine_height: &mut self.height,
+        };
+        let _ = self.event_loop.pump_app_events(Some(Duration::ZERO), &mut pump);
 
         // R12 (7A-2, docs/ember2d-master-plan.md): the other half of
         // InputManager's text-capture mechanism — see

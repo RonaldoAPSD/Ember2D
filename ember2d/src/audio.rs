@@ -12,10 +12,18 @@
 // even if the audio device can't be opened (headless CI, no speakers, etc.).
 // In that case every method is a silent no-op.
 
+// 7B-1 (docs/ember2d-master-plan.md §5.2): kira 0.9 -> 0.12 flattened
+// `manager`/`tween` into top-level re-exports (`kira::AudioManager`,
+// `kira::Tween`, etc. instead of `kira::manager::AudioManager` — both
+// modules are `mod` now, not `pub mod`) and replaced the amplitude-based
+// `Volume` enum with `Decibels`, a plain `f32` newtype — see
+// `amplitude_to_decibels` below for why `play_sound`'s `volume: f64`
+// parameter (still an amplitude ratio, matching the scripting API's own
+// documented `0.0..=1.0+` range in `docs/ember2d-scripting-api.md`) needs
+// converting rather than a straight rename.
 use kira::{
-    manager::{backend::DefaultBackend, AudioManager, AudioManagerSettings},
     sound::static_sound::{StaticSoundData, StaticSoundHandle},
-    tween::Tween,
+    AudioManager, AudioManagerSettings, Decibels, DefaultBackend, Tween, Value,
 };
 
 pub struct AudioEngine {
@@ -40,7 +48,7 @@ impl AudioEngine {
         let Some(ref mut mgr) = self.manager else { return };
         match StaticSoundData::from_file(path) {
             Ok(mut data) => {
-                data.settings.volume = kira::tween::Value::Fixed(kira::Volume::Amplitude(volume));
+                data.settings.volume = Value::Fixed(amplitude_to_decibels(volume));
                 let _ = mgr.play(data);
             }
             Err(e) => eprintln!("[audio] play_sound '{}': {}", path, e),
@@ -71,5 +79,23 @@ impl AudioEngine {
             let _ = handle.stop(Tween::default());
         }
         self.music_handle = None;
+    }
+}
+
+/// `play_sound`'s `volume` is an amplitude ratio (`0.0..=1.0+`, matching
+/// `docs/ember2d-scripting-api.md`'s documented range for `ctx.play_sound`)
+/// — kira 0.12's `Decibels` is a logarithmic scale, so this converts rather
+/// than wrapping the value directly. `0.0` (and anything at or below it)
+/// maps to `Decibels::SILENCE` rather than `-infinity` from `log10(0.0)`,
+/// matching kira's own `Decibels::SILENCE` "sounds silent below this"
+/// convention. Presentation-only (audio has no bearing on replay
+/// determinism), so the `log10` here isn't the transcendental-math
+/// restriction that applies inside `ember2d-sim` (CLAUDE.md's Determinism
+/// section).
+fn amplitude_to_decibels(amplitude: f64) -> Decibels {
+    if amplitude <= 0.0 {
+        Decibels::SILENCE
+    } else {
+        Decibels(20.0 * (amplitude as f32).log10())
     }
 }

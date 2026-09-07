@@ -238,15 +238,18 @@ impl WgpuBackend {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
+        // 7B-1 (docs/ember2d-master-plan.md §5.2): ImageCopyTexture/
+        // ImageDataLayout renamed to TexelCopyTextureInfo/TexelCopyBufferLayout
+        // in wgpu 30 — same fields, name only.
         queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &font_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             &font_data,
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(8 * 4),
                 rows_per_image: Some(1024),
@@ -306,10 +309,19 @@ impl WgpuBackend {
             }],
         });
 
+        // 7B-1 (docs/ember2d-master-plan.md §5.2): wgpu 30 wraps each bind
+        // group layout entry in `Option` (a `None` gap means "unbound" —
+        // not used here, both slots are always filled) and renamed
+        // `push_constant_ranges` to `immediate_size: u32` (wgpu's "push
+        // constants" -> "immediates" rename) — this pipeline never used
+        // either, so `0` is the same "no immediates" as the old `&[]`.
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[&texture_bind_group_layout, &globals_bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[
+                Some(&texture_bind_group_layout),
+                Some(&globals_bind_group_layout),
+            ],
+            immediate_size: 0,
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -317,17 +329,19 @@ impl WgpuBackend {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
-                buffers: &[Vertex::desc(), SpriteInstance::desc()],
+                entry_point: Some("vs_main"),
+                buffers: &[Some(Vertex::desc()), Some(SpriteInstance::desc())],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -335,7 +349,12 @@ impl WgpuBackend {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            // `multiview` renamed `multiview_mask` (wgpu 30); this pipeline
+            // never used multiview rendering either way. `cache` is new —
+            // an optional `PipelineCache` for faster recompiles, not needed
+            // here.
+            multiview_mask: None,
+            cache: None,
         });
 
         let vertices = [
@@ -389,8 +408,19 @@ impl WgpuBackend {
     }
 
     fn update_globals(&self, queue: &wgpu::Queue) {
-        let projection =
-            glam::Mat4::orthographic_lh(0.0, self.width as f32, self.height as f32, 0.0, -1.0, 1.0);
+        // 7B-1 (docs/ember2d-master-plan.md §5.2): glam 0.33 deprecated the
+        // flat `Mat4::orthographic_lh` free function in favor of this
+        // module path — same six args, same left-handed DirectX-style
+        // convention (`top`/`bottom` swapped from a math-convention ortho,
+        // which is what flips our screen-space Y-down into clip space).
+        let projection = glam::camera::lh::proj::directx::orthographic(
+            0.0,
+            self.width as f32,
+            self.height as f32,
+            0.0,
+            -1.0,
+            1.0,
+        );
         let globals = Globals { projection: projection.to_cols_array_2d() };
         queue.write_buffer(&self.globals_buffer, 0, bytemuck::cast_slice(&[globals]));
     }
@@ -432,14 +462,14 @@ impl WgpuBackend {
         });
 
         queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &wgpu_tex,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             bytemuck::cast_slice(&texture.pixels),
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * texture.width),
                 rows_per_image: Some(texture.height),
@@ -610,6 +640,10 @@ impl RenderBackend for WgpuBackend {
                 label: Some("WgpuBackend Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view,
+                    // New in wgpu 30, for indexing a single slice of a 3D
+                    // texture view — `view` here is always a plain 2D
+                    // surface texture view, so `None` (not applicable).
+                    depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
@@ -619,6 +653,9 @@ impl RenderBackend for WgpuBackend {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                // Multiview layer mask (wgpu 30) — this pass never renders
+                // to a multiview target.
+                multiview_mask: None,
             });
 
             rp.set_pipeline(&self.pipeline);

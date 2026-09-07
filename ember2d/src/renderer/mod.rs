@@ -9,8 +9,7 @@ pub mod texture;
 
 use std::io;
 use std::sync::Arc;
-use winit::event_loop::EventLoop;
-use winit::window::{Window, WindowBuilder};
+use winit::window::Window;
 
 pub use assets::AssetManager;
 pub use backend::{RenderBackend, WgpuBackend};
@@ -26,6 +25,21 @@ pub use texture::{Texture, TextureId};
 pub const CELL_W: usize = 8;
 pub const CELL_H: usize = 16;
 pub const SCALE: usize = 2;
+
+/// R29 (7B-1, docs/ember2d-master-plan.md §5.2): shows a native error
+/// dialog then exits — the two `Renderer::new` call sites that used to be
+/// bare `.expect()` panics on unsupported hardware. A panic's message goes
+/// to stderr, which a user launching the built exe directly (no attached
+/// console — the common case) never sees; this makes the failure visible
+/// before the process disappears.
+fn fatal_gpu_error(message: &str) -> ! {
+    rfd::MessageDialog::new()
+        .set_title("Ember2D — Graphics Error")
+        .set_description(message)
+        .set_level(rfd::MessageLevel::Error)
+        .show();
+    std::process::exit(1);
+}
 
 pub struct Renderer {
     window: Arc<Window>,
@@ -54,31 +68,28 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(
-        width: usize,
-        height: usize,
-        title: &str,
-        event_loop: &EventLoop<()>,
-    ) -> io::Result<Self> {
+    /// 7B-1 (docs/ember2d-master-plan.md §5.2): takes an already-created
+    /// `Window` instead of a `title`/`&EventLoop` pair and building one
+    /// itself — winit 0.30's `ApplicationHandler` split removed
+    /// `WindowBuilder`/direct-from-`EventLoop` window creation entirely; a
+    /// window can only be created via `ActiveEventLoop::create_window`
+    /// inside a `resumed()` callback. `Engine::new` (`engine.rs`) does that
+    /// creation (title, size, `SCALE` all applied there now) and hands the
+    /// result in here, so this constructor's own job — everything from wgpu
+    /// initialization down — is unchanged.
+    pub fn new(width: usize, height: usize, window: Arc<Window>) -> io::Result<Self> {
         let pixel_width = width * CELL_W;
         let pixel_height = height * CELL_H;
 
-        let window = Arc::new(
-            WindowBuilder::new()
-                .with_title(title)
-                .with_inner_size(winit::dpi::LogicalSize::new(
-                    pixel_width as f32 * SCALE as f32,
-                    pixel_height as f32 * SCALE as f32,
-                ))
-                .build(event_loop)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?,
-        );
-
         // ── WGPU Initialization ───────────────────────────────────────────
 
+        // 7B-1: InstanceDescriptor no longer implements Default (wgpu 30) —
+        // new_without_display_handle() is the documented equivalent (we
+        // don't need a platform display handle; that's only for GLES on
+        // Wayland, and this project doesn't ship a GLES backend).
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
-            ..Default::default()
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
 
         // wgpu 0.19+ accepts Arc<Window> as SurfaceTarget
@@ -86,22 +97,38 @@ impl Renderer {
             .create_surface(Arc::clone(&window))
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
 
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::LowPower,
-            compatible_surface: Some(&surface),
-            force_fallback_adapter: false,
-        }))
-        .expect("Failed to find an appropriate adapter");
+        // R29 (7B-1): both `.expect()`s below used to panic with no
+        // user-facing message on unsupported hardware — nothing a user
+        // launching the exe directly (no attached console) would ever see.
+        // `fatal_gpu_error` shows a native dialog first.
+        let adapter =
+            match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+                // Limit-bucketing mitigates GPU fingerprinting for untrusted
+                // content (e.g. a browser embedding wgpu) — not applicable to
+                // a native desktop app that owns its own process.
+                apply_limit_buckets: false,
+            })) {
+                Ok(a) => a,
+                Err(e) => {
+                    fatal_gpu_error(&format!("No compatible graphics adapter was found.\n\n{e}"))
+                }
+            };
 
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
+        let (device, queue) =
+            match pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
                 label: None,
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::default(),
-            },
-            None,
-        ))
-        .expect("Failed to create device");
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                memory_hints: wgpu::MemoryHints::default(),
+                trace: wgpu::Trace::Off,
+            })) {
+                Ok(dq) => dq,
+                Err(e) => fatal_gpu_error(&format!("Failed to create a graphics device.\n\n{e}")),
+            };
 
         let surface_caps = surface.get_capabilities(&adapter);
         let surface_format = surface_caps
@@ -115,6 +142,10 @@ impl Renderer {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
+            // New in wgpu 30 — `Auto` matches this project's pre-30
+            // behavior (whatever color space the surface's own format
+            // implies) exactly, so this is not a visible change.
+            color_space: wgpu::SurfaceColorSpace::Auto,
             width: size.width,
             height: size.height,
             present_mode: wgpu::PresentMode::Fifo,
@@ -437,17 +468,29 @@ impl Renderer {
     }
 
     pub fn present(&mut self) -> io::Result<()> {
+        // 7B-1 (docs/ember2d-master-plan.md §5.2): get_current_texture()
+        // returns CurrentSurfaceTexture directly now, not
+        // Result<SurfaceTexture, SurfaceError> — same branches as before
+        // (reconfigure-and-retry-next-frame for Outdated/Lost, skip the
+        // frame for a transient condition, surface a real error otherwise),
+        // plus two new variants wgpu 30 added: Timeout and Occluded (the
+        // window minimized or fully behind another) — both are exactly the
+        // "skip this frame, try again later" case Outdated/Lost's
+        // reconfigure branch already isn't (those need `configure()`
+        // first; these don't, the surface itself is still fine).
         let output = match self.surface.get_current_texture() {
-            Ok(frame) => frame,
-            Err(wgpu::SurfaceError::Outdated) => {
+            wgpu::CurrentSurfaceTexture::Success(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
                 self.surface.configure(&self.device, &self.config);
                 return Ok(());
             }
-            Err(wgpu::SurfaceError::Lost) => {
-                self.surface.configure(&self.device, &self.config);
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
                 return Ok(());
             }
-            Err(e) => return Err(io::Error::new(io::ErrorKind::Other, e.to_string())),
+            wgpu::CurrentSurfaceTexture::Validation => {
+                return Err(io::Error::new(io::ErrorKind::Other, "wgpu surface validation error"));
+            }
         };
 
         // Sync scale factor for scissor clipping
@@ -470,7 +513,9 @@ impl Renderer {
             surface_size.height,
         );
 
-        output.present();
+        // 7B-1: SurfaceTexture::present() replaced by Queue::present() in
+        // wgpu 30.
+        self.queue.present(output);
 
         Ok(())
     }
