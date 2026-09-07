@@ -289,6 +289,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R45 | S2 | `ember2d-app`'s `--editor <path>` CLI branch called `EditorState::load` but never set `project_folder` (only the start-screen "Open Project" flow, via `new_from_result`, did) — the level itself rendered fine, but the Files panel showed "(empty folder)" and New Script silently did nothing, since both require `project_folder: Some(_)`. Found live in the same manual regression pass, right after confirming R44's fix | `ember2d-app/src/main.rs:29-56` (before fix) | `[x]` 7A-12 — new `EditorState::open_project_folder` (`pub`, wraps the existing `pub(super) load_palette`/`refresh_project_files`) called from the `--editor <path>` branch, mirroring what `new_from_result` already did for the start-screen path |
 | R46 | S4 | `WindowEvent::MouseWheel`'s `PixelDelta` branch still hardcodes `/ 8.0`/`/ 16.0` — the same class of gap 7B-2 fixed for click position, just for scroll delta instead. Found while fixing R21 (7B-2); not in that step's own Change list (only `backend.rs`/`mouse.rs`'s position-mapping sites were named), and `PixelDelta` scroll events are rare in practice (most mice/touchpads report `LineDelta`), so left as a follow-up rather than expanding 7B-2's scope | `ember2d/src/engine.rs` (`EventPump::window_event`, `MouseWheel` arm) | `[ ]` unscheduled |
 | R47 | S4 | `cargo clippy -p ember2d --all-targets` reports dead code in `ember2d/tests/common/mod.rs` (`TurnHarness`'s own test helpers): `find_tagged_entity_at`, `test_temp_dir`, and `TurnHarness::load`/`player_id`/`player_pos` are never called by any current test. Found while checking 7B-3's own "no dead code in `ember2d`" done-when criterion — confirmed pre-existing (identical warnings before 7B-3's changes) and unrelated to that step's named Change list (renderer resource hygiene only), so not fixed there | `ember2d/tests/common/mod.rs:74, 223, 227, 238, 254` | `[ ]` unscheduled |
+| R48 | S2 | 7B-2's DPI-derived `scale` floored at `1.0` — correct per R21's own "land on a whole physical pixel" wording, but on any standard 100%-scale display (the common case, not a corner case) `window.scale_factor()` is exactly `1.0`, so every cell rendered at its literal native 8×16 physical pixels: half the size the pre-7B-2 hardcoded `SCALE = 2` always gave, and hard to read on a modern display. Found by the user testing 7B-2 live, right after it was marked done | `renderer/mod.rs` (`Renderer::new`, `recompute_layout`); `engine.rs` (`WindowInit::resumed`'s pre-window guess) | `[x]` 7B-2 follow-up — new `MIN_UI_SCALE = 2.0` constant floors all three sites (was `.max(1.0)`); restores the old default size on ordinary displays, still scales up correctly above it on genuine HiDPI (150%/200%+ already rounds to 2+). A real user-facing scale *setting* is 7D-3, not this — by user direction, this is a scoped tuning fix only |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -1041,6 +1042,12 @@ draws. Doing these after the theme lands would mean redoing the theme.
   input-injection tool available) — the `physical_to_logical` unit tests
   pin the math exactly; an interactive click-test at a non-exact window
   size is worth doing before trusting this at the Phase 7B gate.
+
+  **Follow-up, found live on a real 100%-scale display right after this
+  step landed — see R48:** the DPI-derived `scale`'s `.max(1.0)` floor
+  made the whole UI render at literal native pixel size (tiny) on an
+  ordinary monitor, not just genuine HiDPI ones. Fixed by raising the
+  floor to `MIN_UI_SCALE = 2.0`.
 
 #### `[x]` 7B-3 — Renderer resource hygiene (`af582e3`)
 
