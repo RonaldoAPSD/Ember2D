@@ -101,7 +101,7 @@ impl EditorState {
                     if self.grid.get(gx, gy, self.active_layer).is_some() {
                         match hit {
                             Some(WidgetId::InspectorRow(InspectorField::GraphBtn)) => {
-                                if self.grid.get(gx, gy, self.active_layer).map_or(false, |t| t.graph.is_none()) {
+                                if self.grid.get(gx, gy, self.active_layer).is_some_and(|t| t.graph.is_none()) {
                                     if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {
                                         let mut new_tile = tile.clone();
                                         new_tile.graph = Some(NodeGraph::default());

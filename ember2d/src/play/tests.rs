@@ -12,6 +12,16 @@ use ember2d_sim::components::{Sprite, Transform};
 use ember2d_sim::event::GameEvent;
 use ember2d_sim::world::EntityId;
 
+/// A per-process scratch dir under the OS temp dir (7A-8) — every test
+/// script/level this file writes lives under here instead of directly in
+/// the shared OS temp root, so two `cargo test` processes can never
+/// collide on the same filename.
+fn test_temp_dir() -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("ember2d-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
 // ── Tests: D5 draw order, D13 viewport culling (ember2d-refactor-plan.md §3) ───
 
 fn spawn_at(world: &mut World, x: f32, y: f32, z: i32, glyph: char) -> EntityId {
@@ -133,7 +143,7 @@ use crate::mouse::MouseState;
 /// its own target file, both so cleanup in one test can't race a load in
 /// another and so a stale file from a previous run can't mask a real bug.
 fn level_with_exit(name: &str) -> (LevelData, std::path::PathBuf) {
-    let mut target_path = std::env::temp_dir();
+    let mut target_path = test_temp_dir();
     target_path.push(format!("ember2d_test_exit_target_{}.level", name));
     LevelData::empty(4, 4).save(target_path.to_str().unwrap()).expect("write hermetic exit target");
 
@@ -493,7 +503,7 @@ fn render_time_shake_jitter_never_touches_the_deterministic_rng_stream() {
 
 #[test]
 fn get_elapsed_derives_from_step_count_not_the_wall_clock_value_passed_in() {
-    let mut script_path = std::env::temp_dir();
+    let mut script_path = test_temp_dir();
     script_path.push("ember2d_test_get_elapsed_step_count.rhai");
     std::fs::write(&script_path, r#"
         fn on_update(id, ctx) { ctx.set_global("elapsed_seen", ctx.get_elapsed()); }

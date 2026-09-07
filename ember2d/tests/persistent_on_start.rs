@@ -6,9 +6,11 @@
 use std::collections::BTreeMap;
 use ember2d::prelude::*;
 
+mod common;
+
 #[test]
 fn set_persistent_in_on_start_survives() {
-    let mut script_path = std::env::temp_dir();
+    let mut script_path = common::test_temp_dir();
     script_path.push("ember2d_test_on_start_persist.rhai");
     std::fs::write(&script_path, r#"
         fn on_start(id, ctx) {

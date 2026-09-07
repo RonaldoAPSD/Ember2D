@@ -96,7 +96,7 @@ impl EditorState {
                         }
                     }
                     TextInputPurpose::ResizeLevel => {
-                        let s = ti.buffer.replace('x', " ").replace('X', " ").replace(',', " ");
+                        let s = ti.buffer.replace(['x', 'X', ','], " ");
                         let parts: Vec<&str> = s.split_whitespace().collect();
                         let parsed = if parts.len() == 2 {
                             parts[0].parse::<usize>().ok().zip(parts[1].parse::<usize>().ok())

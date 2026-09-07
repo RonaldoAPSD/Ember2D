@@ -55,6 +55,12 @@ pub struct TurnScheduler {
     queue: BinaryHeap<Reverse<(u64, u8, EntityId)>>,
 }
 
+impl Default for TurnScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TurnScheduler {
     pub fn new() -> Self {
         TurnScheduler { queue: BinaryHeap::new() }

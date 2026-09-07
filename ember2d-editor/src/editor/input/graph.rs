@@ -207,12 +207,11 @@ impl EditorState {
                 }
             }
         }
-        if released {
-            if self.graph_dragging_node.is_some() {
+        if released
+            && self.graph_dragging_node.is_some() {
                 self.graph_dragging_node = None;
                 self.unsaved = true;
             }
-        }
 
         // ── Right click → open palette ────────────────────────────────────────
         if rclick {

@@ -13,7 +13,9 @@ use ember2d::renderer::color::Color;
 /// and the sidecar `.rhai` file actually contains the generated code.
 #[test]
 fn graph_migrates_to_a_sidecar_script_and_never_appears_in_saved_output() {
-    let dir = std::env::temp_dir().join("ember2d_test_graph_sidecar");
+    // Scoped by process id (7A-8) so two `cargo test` processes can never
+    // collide on the same path.
+    let dir = std::env::temp_dir().join(format!("ember2d-{}", std::process::id())).join("graph_sidecar");
     std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
     let level_path = dir.join("test_level.level");
     let sidecar_path = dir.join("test_level_graph_5_5_1.rhai");
@@ -253,7 +255,9 @@ fn script_editor_click_past_a_multibyte_character_then_typing_does_not_panic() {
 fn loading_a_palette_with_an_out_of_range_selected_index_clamps_it() {
     use crate::editor::palette::TilePalette;
 
-    let dir = std::env::temp_dir().join("ember2d_test_palette_clamp");
+    // Scoped by process id (7A-8) so two `cargo test` processes can never
+    // collide on the same path.
+    let dir = std::env::temp_dir().join(format!("ember2d-{}", std::process::id())).join("palette_clamp");
     std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
     let path = dir.join("bad_selected.palette.ron");
     std::fs::write(&path, r#"(tiles: [(name: "Wall", glyph: '#', fg: White, bg: Reset, solid: true, trigger: false, tag: "")], selected: 99, collapsed: [])"#).unwrap();

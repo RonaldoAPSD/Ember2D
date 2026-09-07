@@ -22,6 +22,14 @@ use crate::components::{ClipFrames, Script, Transform};
 /// comment on this gives.
 fn test_layers() -> crate::layers::LayerRegistry { crate::layers::LayerRegistry::new(&["solid".to_string()]) }
 
+/// Mirrors `engine_tests.rs`'s own `test_temp_dir()` (7A-8) — duplicated for
+/// the same reason `test_layers()` is.
+fn test_temp_dir() -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("ember2d-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
 /// Mirrors `engine_tests.rs`'s own `run_scripts_once` — duplicated for the
 /// same reason `test_layers()` is; this file has no access to that one
 /// (private to `engine_tests.rs`'s own module).
@@ -36,7 +44,7 @@ fn run_scripts_once(engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<
 
 /// Mirrors `engine_tests.rs`'s own `run_source`.
 fn run_source(name: &str, source: &str) -> (World, Vec<LogEntry>) {
-    let mut script = std::env::temp_dir();
+    let mut script = test_temp_dir();
     script.push(format!("ember2d_test_safety_{}.rhai", name));
     std::fs::write(&script, source).unwrap();
     let path = script.to_string_lossy().to_string();
@@ -61,7 +69,7 @@ fn run_source(name: &str, source: &str) -> (World, Vec<LogEntry>) {
 /// own doc comment (engine_tests.rs) gives — R10's ghost-entity guard in
 /// `apply_ctx` treats "has a Transform" as "exists."
 fn run_source_with_engine(name: &str, source: &str) -> (ScriptEngine, World, EntityId, Vec<LogEntry>) {
-    let mut script = std::env::temp_dir();
+    let mut script = test_temp_dir();
     script.push(format!("ember2d_test_safety_{}.rhai", name));
     std::fs::write(&script, source).unwrap();
     let path = script.to_string_lossy().to_string();
@@ -195,7 +203,7 @@ fn detect_collisions_does_not_panic_when_a_collider_has_a_nan_position() {
 
 #[test]
 fn clear_all_persistent_empties_a_populated_store() {
-    let mut script = std::env::temp_dir();
+    let mut script = test_temp_dir();
     script.push("ember2d_test_safety_clear_all_persistent.rhai");
     std::fs::write(&script, r#"
         fn on_update(id, ctx) {

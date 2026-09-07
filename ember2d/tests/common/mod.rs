@@ -208,3 +208,14 @@ pub fn find_tagged_entity_at(world: &World, tag: &str, x: f32, y: f32) -> Option
             if (pos.x - x).abs() < 0.01 && (pos.y - y).abs() < 0.01 { Some(id) } else { None }
         })
 }
+
+/// A per-process scratch dir under the OS temp dir (7A-8) — every test
+/// script this crate's integration tests write lives under here instead of
+/// directly in the shared OS temp root, so two `cargo test` processes (the
+/// two CI matrix legs, or a stray leftover from a killed run) can never
+/// collide on the same filename.
+pub fn test_temp_dir() -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("ember2d-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}

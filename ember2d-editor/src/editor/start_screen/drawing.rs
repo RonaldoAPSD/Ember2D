@@ -74,7 +74,7 @@ pub(super) fn draw_main_menu(renderer: &mut Renderer, font: &mut dyn Font, sw: u
     let box_w: usize = 44;
     let box_x = (sw.saturating_sub(box_w)) / 2;
     let box_y: usize = 3;
-    let pulse = if (elapsed * 1.5) as u32 % 2 == 0 { Color::Cyan } else { Color::Yellow };
+    let pulse = if ((elapsed * 1.5) as u32).is_multiple_of(2) { Color::Cyan } else { Color::Yellow };
     renderer.draw_rect_outline(box_x, box_y, box_w, 5, pulse, Color::Black);
     // These three lines used to center on hardcoded magic-number widths
     // (18/22/6) instead of even a `.len()` call — same bug class the

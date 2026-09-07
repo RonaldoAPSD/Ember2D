@@ -229,11 +229,10 @@ impl EditorState {
         }
 
         // ── Ignore drag state ─────────────────────────────────────────────────
-        if self.ignore_drag {
-            if !mouse.left_held() {
+        if self.ignore_drag
+            && !mouse.left_held() {
                 self.ignore_drag = false;
             }
-        }
 
         // Graph editor mode swallows all input.
         if self.graph_mode.is_some() {

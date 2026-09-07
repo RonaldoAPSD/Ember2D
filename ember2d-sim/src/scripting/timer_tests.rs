@@ -34,9 +34,17 @@ use crate::components::Script;
 /// own plumbing (a `pub(super)` helper module) for one line of code.
 fn test_layers() -> crate::layers::LayerRegistry { crate::layers::LayerRegistry::new(&["solid".to_string()]) }
 
+/// Mirrors `engine_tests.rs`'s own `test_temp_dir()` (7A-8) — duplicated for
+/// the same reason `test_layers()` is.
+fn test_temp_dir() -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("ember2d-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
 #[test]
 fn a_timer_reports_done_only_once_decay_carries_it_to_zero_or_below() {
-    let mut script = std::env::temp_dir();
+    let mut script = test_temp_dir();
     script.push("ember2d_test_timer_decay.rhai");
     std::fs::write(&script, r#"fn on_update(id, ctx) { ctx.set_global("done", ctx.timer_done("t")); }"#).unwrap();
     let path = script.to_string_lossy().to_string();
@@ -75,7 +83,7 @@ fn a_timer_reports_done_only_once_decay_carries_it_to_zero_or_below() {
 
 #[test]
 fn despawn_removes_the_entitys_timers() {
-    let mut script = std::env::temp_dir();
+    let mut script = test_temp_dir();
     script.push("ember2d_test_despawn_timer_cleanup.rhai");
     std::fs::write(&script, "fn on_update(id, ctx) { ctx.despawn(id); }\n").unwrap();
     let path = script.to_string_lossy().to_string();
@@ -102,11 +110,11 @@ fn despawn_removes_the_entitys_timers() {
 
 #[test]
 fn hot_reload_clears_only_the_reloaded_scripts_entities_timers() {
-    let mut script_a = std::env::temp_dir();
+    let mut script_a = test_temp_dir();
     script_a.push("ember2d_test_hot_reload_timer_a.rhai");
     std::fs::write(&script_a, "fn on_update(id, ctx) {}\n").unwrap();
 
-    let mut script_b = std::env::temp_dir();
+    let mut script_b = test_temp_dir();
     script_b.push("ember2d_test_hot_reload_timer_b.rhai");
     std::fs::write(&script_b, "fn on_update(id, ctx) {}\n").unwrap();
 

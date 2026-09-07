@@ -30,7 +30,7 @@ const FLOOR2: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../roguelike/floor2.l
 
 #[test]
 fn a_scripts_set_global_survives_a_real_ron_round_trip_through_save_and_load() {
-    let mut script_path = std::env::temp_dir();
+    let mut script_path = common::test_temp_dir();
     script_path.push("ember2d_test_save_load_globals.rhai");
     std::fs::write(&script_path, r#"
         fn on_update(id, ctx) {

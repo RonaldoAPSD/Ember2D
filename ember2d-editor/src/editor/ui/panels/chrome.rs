@@ -110,7 +110,7 @@ pub fn draw_text_input(renderer: &mut Renderer, font: &mut dyn Font, prompt: &st
         renderer.draw_char(mx, row, '|', bfg, bbg);
         renderer.draw_char(mx + mw - 1, row, '|', bfg, bbg);
     }
-    let bot_line: String = std::iter::repeat('-').take(mw).collect();
+    let bot_line: String = std::iter::repeat_n('-', mw).collect();
     renderer.draw_str(mx, my + mh - 1, &bot_line, bfg, bbg);
     renderer.draw_char(mx, my, '+', Color::White, Color::DarkBlue);
     renderer.draw_char(mx + mw - 1, my, '+', Color::White, Color::DarkBlue);
@@ -194,7 +194,7 @@ pub fn draw_context_menu(renderer: &mut Renderer, menu: &ContextMenu) {
         renderer.draw_char(mx, row, '│', bfg, bbg);
         renderer.draw_char(mx + mw - 1, row, '│', bfg, bbg);
     }
-    let top_line: String = std::iter::repeat('─').take(mw).collect();
+    let top_line: String = std::iter::repeat_n('─', mw).collect();
     renderer.draw_str(mx, my, &top_line, bfg, bbg);
     renderer.draw_str(mx, my + mh - 1, &top_line, bfg, bbg);
     renderer.draw_char(mx, my, '┌', bfg, bbg);

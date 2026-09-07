@@ -25,8 +25,8 @@ impl EditorState {
             }
 
             // Mouse interaction
-            if mouse.left_just_pressed() && mouse.in_bounds {
-                if mouse.cell_y == btn_y {
+            if mouse.left_just_pressed() && mouse.in_bounds
+                && mouse.cell_y == btn_y {
                     // YES button
                     if mouse.cell_x >= yes_x && mouse.cell_x < yes_x + 9 {
                         self.confirm_modal();
@@ -35,10 +35,8 @@ impl EditorState {
                     // NO button
                     if mouse.cell_x >= no_x && mouse.cell_x < no_x + 9 {
                         self.modal = None;
-                        return;
                     }
                 }
-            }
         }
     }
 

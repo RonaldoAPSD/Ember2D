@@ -476,8 +476,10 @@ mod tests {
     /// `LevelData::load` needs a real path on disk, not just a RON string
     /// (unlike most of this crate's (de)serialization tests), since the
     /// version check runs as part of `load` itself, not `ron::de::from_str`.
+    /// The dir is scoped by process id (7A-8) rather than a fixed name, so
+    /// two `cargo test` processes can never collide on the same path.
     fn write_temp_level(name: &str, ron: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join("ember2d_test_level_version");
+        let dir = std::env::temp_dir().join(format!("ember2d-{}", std::process::id())).join("level_version");
         std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
         let path = dir.join(name);
         std::fs::write(&path, ron).expect("write temp level");

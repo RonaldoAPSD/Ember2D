@@ -21,6 +21,8 @@
 use std::collections::{BTreeMap, HashMap};
 use ember2d::prelude::*;
 
+mod common;
+
 const FRAME_DT: f32 = 1.0 / 60.0;
 
 fn step(play: &mut PlayState, world: &mut World, persistent: &mut BTreeMap<String, rhai::Dynamic>) {
@@ -81,7 +83,7 @@ fn a_key_pressed_while_an_animation_plays_is_not_lost() {
     // needed) — the failure mode is identical either way, since it lives in
     // `PlayState::update`'s own animation-gate branch, not in anything
     // enemy-specific.
-    let mut script_path = std::env::temp_dir();
+    let mut script_path = common::test_temp_dir();
     script_path.push("ember2d_test_d19_buffered_press.rhai");
     std::fs::write(&script_path, r#"
         fn on_input(id, ctx) {
@@ -152,7 +154,7 @@ fn the_scheduler_waits_for_the_animation_queue_to_drain_before_the_next_turn() {
     // that the assertions below aren't sensitive to float-rounding right at
     // the boundary (they check well inside/outside the 5-frame window, not
     // exactly on it).
-    let mut script_path = std::env::temp_dir();
+    let mut script_path = common::test_temp_dir();
     script_path.push("ember2d_test_turn_animation.rhai");
     std::fs::write(&script_path, r#"
         fn on_input(id, ctx) {
@@ -206,7 +208,7 @@ fn two_actors_animations_overlap_instead_of_stacking() {
     // this test's own final assertions would fail: the player's turn count
     // would stay stuck at 1 while the AI's animation drains, instead of
     // advancing to 2 immediately.
-    let mut player_script = std::env::temp_dir();
+    let mut player_script = common::test_temp_dir();
     player_script.push("ember2d_test_d20_player.rhai");
     std::fs::write(&player_script, r#"
         fn on_input(id, ctx) { ctx.submit(id, "tick", []); }
@@ -218,7 +220,7 @@ fn two_actors_animations_overlap_instead_of_stacking() {
         }
     "#).expect("write temp script");
 
-    let mut ai_script = std::env::temp_dir();
+    let mut ai_script = common::test_temp_dir();
     ai_script.push("ember2d_test_d20_ai.rhai");
     std::fs::write(&ai_script, r#"
         fn on_turn(id, ctx) {

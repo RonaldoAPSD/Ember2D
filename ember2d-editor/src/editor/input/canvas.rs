@@ -114,7 +114,7 @@ impl EditorState {
         if any_arrow { self.scroll_repeat = self.scroll_repeat.saturating_add(1); }
         else { self.scroll_repeat = 0; }
         let do_scroll = self.scroll_repeat == 1
-            || (self.scroll_repeat > 12 && self.scroll_repeat % 2 == 0);
+            || (self.scroll_repeat > 12 && self.scroll_repeat.is_multiple_of(2));
         if do_scroll {
             let scroll_speed = if shift { 5.0f32 } else { 1.0f32 };
             if input.is_held(Key::Left)  { self.target_scroll.0 -= scroll_speed; }

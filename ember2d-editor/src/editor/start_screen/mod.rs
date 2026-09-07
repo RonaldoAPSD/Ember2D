@@ -58,6 +58,12 @@ pub struct StartScreen {
     font: Box<dyn ember2d::renderer::Font>,
 }
 
+impl Default for StartScreen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StartScreen {
     pub fn new() -> Self {
         StartScreen {

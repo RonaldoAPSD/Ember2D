@@ -131,15 +131,15 @@ impl StartScreen {
                 if input.just_pressed(Key::Enter) && !self.name_buf.is_empty() { self.style_sel = 0; self.screen = Screen::NewStyle; }
             }
             Screen::NewStyle => {
-                if input.just_pressed(Key::Left) || input.just_pressed(Key::Up) { if self.style_sel > 0 { self.style_sel -= 1; } }
-                if input.just_pressed(Key::Right) || input.just_pressed(Key::Down) { if self.style_sel + 1 < STYLE_LABELS.len() { self.style_sel += 1; } }
+                if (input.just_pressed(Key::Left) || input.just_pressed(Key::Up)) && self.style_sel > 0 { self.style_sel -= 1; }
+                if (input.just_pressed(Key::Right) || input.just_pressed(Key::Down)) && self.style_sel + 1 < STYLE_LABELS.len() { self.style_sel += 1; }
                 if input.just_pressed(Key::Escape) { self.screen = Screen::NewName; }
                 if input.just_pressed(Key::Enter) { self.loop_sel = 0; self.screen = Screen::NewLoop; }
                 if mouse.in_bounds { for i in 0..STYLE_LABELS.len() { if template_item_hit(sw, mx, my, i) { self.style_sel = i; if click { self.loop_sel = 0; self.screen = Screen::NewLoop; } } } }
             }
             Screen::NewLoop => {
-                if input.just_pressed(Key::Left) || input.just_pressed(Key::Up) { if self.loop_sel > 0 { self.loop_sel -= 1; } }
-                if input.just_pressed(Key::Right) || input.just_pressed(Key::Down) { if self.loop_sel + 1 < LOOP_LABELS.len() { self.loop_sel += 1; } }
+                if (input.just_pressed(Key::Left) || input.just_pressed(Key::Up)) && self.loop_sel > 0 { self.loop_sel -= 1; }
+                if (input.just_pressed(Key::Right) || input.just_pressed(Key::Down)) && self.loop_sel + 1 < LOOP_LABELS.len() { self.loop_sel += 1; }
                 if input.just_pressed(Key::Escape) { self.screen = Screen::NewStyle; }
                 if input.just_pressed(Key::Enter) { self.init_fb(); self.screen = Screen::FolderBrowser; }
                 if mouse.in_bounds { for i in 0..LOOP_LABELS.len() { if template_item_hit(sw, mx, my, i) { self.loop_sel = i; if click { self.init_fb(); self.screen = Screen::FolderBrowser; } } } }
@@ -177,8 +177,8 @@ impl StartScreen {
                 }
             }
             Screen::NewTemplate => {
-                if input.just_pressed(Key::Left) || input.just_pressed(Key::Up) { if self.template_sel > 0 { self.template_sel -= 1; } }
-                if input.just_pressed(Key::Right) || input.just_pressed(Key::Down) { if self.template_sel + 1 < TEMPLATE_LABELS.len() { self.template_sel += 1; } }
+                if (input.just_pressed(Key::Left) || input.just_pressed(Key::Up)) && self.template_sel > 0 { self.template_sel -= 1; }
+                if (input.just_pressed(Key::Right) || input.just_pressed(Key::Down)) && self.template_sel + 1 < TEMPLATE_LABELS.len() { self.template_sel += 1; }
                 if input.just_pressed(Key::Escape) { self.screen = Screen::FolderBrowser; }
                 if input.just_pressed(Key::Enter) { self.confirm_template(quit); }
                 if mouse.in_bounds { for i in 0..TEMPLATE_LABELS.len() { if template_item_hit(sw, mx, my, i) { self.template_sel = i; if click { self.confirm_template(quit); } } } }

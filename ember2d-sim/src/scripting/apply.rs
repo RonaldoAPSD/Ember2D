@@ -112,11 +112,11 @@ impl ScriptEngine {
         // extreme scripted speed (or a NaN one) from getting there at all.
         for (id, speed) in state.pending_clip_speed.drain(..) { if let Some(a) = world.animators.get_mut(&(id as EntityId)) { a.speed = if speed.is_finite() { speed.clamp(0.0, 64.0) } else { 0.0 }; } }
         for (id, frame) in state.pending_set_frame.drain(..) { if let Some(a) = world.animators.get_mut(&(id as EntityId)) { a.frame = frame; a.elapsed = 0.0; } }
-        let clip_defs: Vec<(String, AnimationClip)> = state.pending_clip_defs.drain(..).collect();
+        let clip_defs: Vec<(String, AnimationClip)> = std::mem::take(&mut state.pending_clip_defs);
         for (name, clip) in clip_defs { state.clips.insert(name, clip); }
-        self.pending_hud_draws.extend(state.pending_hud_draws.drain(..));
-        self.pending_sounds.extend(state.pending_sounds.drain(..));
-        self.pending_spatial_sounds.extend(state.pending_spatial_sounds.drain(..));
+        self.pending_hud_draws.append(&mut state.pending_hud_draws);
+        self.pending_sounds.append(&mut state.pending_sounds);
+        self.pending_spatial_sounds.append(&mut state.pending_spatial_sounds);
         if state.pending_music.is_some() { self.pending_music = state.pending_music.take(); }
         if state.stop_music { self.stop_music = true; state.stop_music = false; }
         for msg in state.pending_logs.drain(..) { log.push(LogEntry::info(msg)); }
@@ -154,7 +154,7 @@ impl ScriptEngine {
         // `state.timers.entry(...)` can't be live at once — the borrow
         // checker can't see the two fields are disjoint through the
         // `DerefMut` boundary the way it can for a plain struct.
-        let pending_timers: Vec<(EntityId, String, f64)> = state.pending_timers.drain(..).collect();
+        let pending_timers: Vec<(EntityId, String, f64)> = std::mem::take(&mut state.pending_timers);
         for (id, name, duration) in pending_timers {
             let entry = state.timers.entry(id).or_default();
             if duration < -900.0 { entry.insert(name, -1.0); } else { entry.insert(name, duration); }
@@ -173,7 +173,7 @@ impl ScriptEngine {
         // `on_start`/`late_step`, and each `run_*` method's own
         // `persistent` take) — together they turn what used to be 18-24
         // full map clones per step into pointer swaps.
-        let result = ScriptUpdateResult { pending_level: state.pending_level.take(), pending_save: state.pending_save.take(), pending_load: state.pending_load.take(), globals: std::mem::take(&mut state.globals), clips: std::mem::take(&mut state.clips), persistent: std::mem::take(&mut state.persistent), camera_override: state.pending_camera.take(), shake_state: state.pending_shake.take(), clear_hud: state.clear_hud, particles: state.pending_particles.drain(..).collect(), commands, act_cost, despawned: state.despawn_queue.iter().map(|&id| id as EntityId).collect(), animations: state.pending_animations.drain(..).collect() };
+        let result = ScriptUpdateResult { pending_level: state.pending_level.take(), pending_save: state.pending_save.take(), pending_load: state.pending_load.take(), globals: std::mem::take(&mut state.globals), clips: std::mem::take(&mut state.clips), persistent: std::mem::take(&mut state.persistent), camera_override: state.pending_camera.take(), shake_state: state.pending_shake.take(), clear_hud: state.clear_hud, particles: std::mem::take(&mut state.pending_particles), commands, act_cost, despawned: state.despawn_queue.iter().map(|&id| id as EntityId).collect(), animations: std::mem::take(&mut state.pending_animations) };
         // Phase 6 Step 9: the matching half of every call site's own
         // `ctx_state.timers = std::mem::take(&mut self.timers)` — timers
         // never surface through `ScriptUpdateResult` (they're purely

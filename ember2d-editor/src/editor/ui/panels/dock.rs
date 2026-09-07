@@ -158,7 +158,7 @@ pub fn draw_inspector(renderer: &mut Renderer, tile: Option<&TileRecord>, pos: O
     let mode_line = format!(" {:<width$}", mode_tag, width = iw.saturating_sub(1));
     renderer.draw_str(ix, cy, &mode_line, Color::Black, Color::Cyan);
 
-    let sep: String = std::iter::once(' ').chain(std::iter::repeat('-').take(iw.saturating_sub(1))).collect();
+    let sep: String = std::iter::once(' ').chain(std::iter::repeat_n('-', iw.saturating_sub(1))).collect();
 
     let Some(tile) = tile else {
         let hint = if pos.is_some() { "(empty cell)" } else { "hover a tile" };
@@ -217,7 +217,7 @@ pub fn draw_inspector(renderer: &mut Renderer, tile: Option<&TileRecord>, pos: O
         if tile.graph.is_some() {
             let n = tile.graph.as_ref().map(|g| g.nodes.len()).unwrap_or(0);
             let e = tile.graph.as_ref().map(|g| g.edges.len()).unwrap_or(0);
-            let btn = format!("  [Edit Graph]");
+            let btn = "  [Edit Graph]".to_string();
             let btn: String = format!("{:<width$}", btn, width = iw).chars().take(iw).collect();
             renderer.draw_str(ix, cy + INSP_GRAPH_BTN, &btn, Color::Black, Color::Cyan);
             if cy + 19 < cy + ch {
@@ -226,7 +226,7 @@ pub fn draw_inspector(renderer: &mut Renderer, tile: Option<&TileRecord>, pos: O
                 renderer.draw_str(ix, cy + 19, &info, Color::DarkGrey, Color::DarkGrey);
             }
         } else {
-            let btn = format!("  [New Graph]");
+            let btn = "  [New Graph]".to_string();
             let btn: String = format!("{:<width$}", btn, width = iw).chars().take(iw).collect();
             renderer.draw_str(ix, cy + INSP_GRAPH_BTN, &btn, Color::Black, Color::DarkGreen);
         }
@@ -251,7 +251,7 @@ pub fn draw_inspector(renderer: &mut Renderer, tile: Option<&TileRecord>, pos: O
 
 pub fn draw_hierarchy(renderer: &mut Renderer, grid: &LevelGrid, hier_sel: Option<HierarchySelection>, hx: usize, hy: usize, hw: usize, hh: usize) {
     renderer.draw_rect_filled(hx, hy, hw, hh, ' ', Color::White, Color::DarkGrey);
-    let sep: String = std::iter::repeat('-').take(hw).collect();
+    let sep: String = std::iter::repeat_n('-', hw).collect();
     renderer.draw_str(hx, hy, &sep, Color::DarkGrey, Color::DarkGrey);
     if hh > 1 {
         let player_sel = hier_sel == Some(HierarchySelection::Player);

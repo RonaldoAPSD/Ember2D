@@ -59,7 +59,7 @@ impl EditorState {
                         }
 
                         // 3. Files
-                        let clean_name = if raw_name.len() > 3 { &raw_name[3..].trim() } else { "" };
+                        let clean_name = if raw_name.len() > 3 { raw_name[3..].trim() } else { "" };
                         if clean_name.is_empty() { return true; }
 
                         let relative_path = if self.current_folder == "." {

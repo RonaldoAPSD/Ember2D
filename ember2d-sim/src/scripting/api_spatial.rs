@@ -47,7 +47,7 @@ impl ScriptCtx {
                 if r1.intersects(r2) { found.push(Dynamic::from(id)); }
             }
         }
-        found.into()
+        found
     }
     // Phase 6 Step 12 (docs/ember2d-phase6-plan.md, §5.2 H2): `get_distance`
     // is rewritten from `.powi(2)` to explicit `dx*dx` — not because `powi`
@@ -118,7 +118,7 @@ impl ScriptCtx {
         if closest_id != -1 {
             let hit_x = ox + dx * closest_t;
             let hit_y = oy + dy * closest_t;
-            vec![Dynamic::from(closest_id), Dynamic::from(hit_x as f64), Dynamic::from(hit_y as f64)].into()
+            vec![Dynamic::from(closest_id), Dynamic::from(hit_x as f64), Dynamic::from(hit_y as f64)]
         } else {
             Array::new()
         }
@@ -219,7 +219,7 @@ impl ScriptCtx {
                 if let Some(&prev) = came_from.get(&curr) { curr = prev; } else { break; }
             }
             path.reverse();
-            path.into()
+            path
         } else {
             Array::new()
         }

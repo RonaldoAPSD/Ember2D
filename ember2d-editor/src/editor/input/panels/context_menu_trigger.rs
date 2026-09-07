@@ -62,7 +62,7 @@ impl EditorState {
                     PanelId::Hierarchy => {
                         let p = self.panels.get(pid);
                         let cy = p.content_y();
-                        if row >= cy + 1 {
+                        if row > cy {
                             let hier_row = row - cy;
                             let sel = if hier_row == 1 { Some(HierarchySelection::Player) }
                                      else { Some(HierarchySelection::Spawn(hier_row - 2)) };

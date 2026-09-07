@@ -15,6 +15,17 @@ use crate::color::Color;
 /// the real default a level with no explicit `collision_layers` gets.
 fn test_layers() -> crate::layers::LayerRegistry { crate::layers::LayerRegistry::new(&["solid".to_string()]) }
 
+/// A per-process scratch dir under the OS temp dir (7A-8) — every test
+/// script this file writes lives under here instead of directly in the
+/// shared OS temp root, so two `cargo test` processes (e.g. the two CI
+/// matrix legs, or a stray leftover from a killed run) can never collide
+/// on the same filename.
+fn test_temp_dir() -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("ember2d-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
 /// Unwraps a Glyph-sourced sprite's (char, bg) — panics for any other
 /// source, which is correct for these tests since they all spawn glyphs.
 fn glyph_and_bg(sp: &Sprite) -> (char, Color) {
@@ -56,11 +67,11 @@ fn different_seeds_produce_different_random_sequences() {
 
 #[test]
 fn hot_reload_clears_only_the_reloaded_scripts_entities() {
-    let mut script_a = std::env::temp_dir();
+    let mut script_a = test_temp_dir();
     script_a.push("ember2d_test_hot_reload_a.rhai");
     std::fs::write(&script_a, "fn on_update(id, ctx) {}\n").unwrap();
 
-    let mut script_b = std::env::temp_dir();
+    let mut script_b = test_temp_dir();
     script_b.push("ember2d_test_hot_reload_b.rhai");
     std::fs::write(&script_b, "fn on_update(id, ctx) {}\n").unwrap();
 
@@ -106,7 +117,7 @@ fn hot_reload_clears_only_the_reloaded_scripts_entities() {
 
 #[test]
 fn check_hot_reload_only_runs_once_every_throttle_interval() {
-    let mut script = std::env::temp_dir();
+    let mut script = test_temp_dir();
     script.push("ember2d_test_hot_reload_throttle.rhai");
     std::fs::write(&script, "fn on_update(id, ctx) {}\n").unwrap();
     let path = script.to_string_lossy().to_string();
@@ -158,7 +169,7 @@ fn run_scripts_once(engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<
 
 #[test]
 fn a_script_that_errors_is_disabled_and_stops_being_called() {
-    let mut script = std::env::temp_dir();
+    let mut script = test_temp_dir();
     script.push("ember2d_test_disable_on_error.rhai");
     std::fs::write(&script, "fn on_update(id, ctx) { throw \"boom\"; }\n").unwrap();
     let path = script.to_string_lossy().to_string();
@@ -242,7 +253,7 @@ fn a_script_with_no_on_update_function_is_silently_fine() {
 /// within one process, so anything derived from the process id alone
 /// would collide across the tests that share this helper.
 fn run_source(name: &str, source: &str) -> (World, Vec<LogEntry>) {
-    let mut script = std::env::temp_dir();
+    let mut script = test_temp_dir();
     script.push(format!("ember2d_test_spawn_{}.rhai", name));
     std::fs::write(&script, source).unwrap();
     let path = script.to_string_lossy().to_string();
@@ -374,7 +385,7 @@ fn pending_hud_draws_are_cleared_at_the_start_of_run_scripts_not_by_the_renderer
     // HUD text vanished the instant the game paused. The fix: clear at the
     // START of run_scripts instead, so the queue only resets when a real
     // script pass actually happens.
-    let mut script = std::env::temp_dir();
+    let mut script = test_temp_dir();
     script.push("ember2d_test_hud_persist.rhai");
     std::fs::write(&script, r#"
         fn on_update(id, ctx) { ctx.draw_hud(1, 1, "hp: 10", "White", "Reset"); }
@@ -422,7 +433,7 @@ fn pending_hud_draws_are_cleared_at_the_start_of_run_scripts_not_by_the_renderer
 /// would (correctly, for a script targeting a truly nonexistent id) have
 /// its own `play_clip(id, ...)` call silently no-op.
 fn run_source_with_driver(name: &str, source: &str) -> (World, EntityId, Vec<LogEntry>) {
-    let mut script = std::env::temp_dir();
+    let mut script = test_temp_dir();
     script.push(format!("ember2d_test_clip_{}.rhai", name));
     std::fs::write(&script, source).unwrap();
     let path = script.to_string_lossy().to_string();
@@ -475,7 +486,7 @@ fn clip_finished_reports_true_for_entities_whose_animator_just_finished_this_tic
     // Animator::advance in there, not in the script engine), so this pins
     // just the read side: clip_finished(id) must reflect whatever
     // Animator::just_finished the World already carries into this frame.
-    let mut script = std::env::temp_dir();
+    let mut script = test_temp_dir();
     script.push("ember2d_test_clip_finished.rhai");
     std::fs::write(&script, r#"
         fn on_update(id, ctx) { ctx.set_global("finished", ctx.clip_finished(id)); }

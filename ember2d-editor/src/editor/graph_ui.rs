@@ -31,7 +31,7 @@ pub fn port_screen_pos(font: &mut dyn Font, node: &Node, port: &PortSpec, port_d
     let (w, _h) = node_size(font, &node.kind);
     let sx = node.x + view_ox;
     let sy = node.y + view_oy;
-    let row = (sy + 1 + port_dir_idx as i32) as i32;
+    let row = sy + 1 + port_dir_idx as i32;
     let col = match port.dir { PortDir::In  => sx, PortDir::Out => sx + w as i32 - 1 };
     Some((col, row))
 }
@@ -51,10 +51,10 @@ pub fn draw_node(renderer: &mut Renderer, font: &mut dyn Font, node: &Node, sele
 
     let body_rows = h.saturating_sub(2);
     for r in 0..body_rows {
-        let fill: String = std::iter::repeat(' ').take(w).collect();
+        let fill: String = std::iter::repeat_n(' ', w).collect();
         renderer.draw_str(sx, sy + 1 + r, &fill, Color::White, Color::DarkGrey);
     }
-    let bot_line: String = std::iter::once('+').chain(std::iter::repeat('-').take(w.saturating_sub(2))).chain(std::iter::once('+')).collect();
+    let bot_line: String = std::iter::once('+').chain(std::iter::repeat_n('-', w.saturating_sub(2))).chain(std::iter::once('+')).collect();
     if sy + h - 1 < screen_h { renderer.draw_str(sx, sy + h - 1, &bot_line, Color::DarkGrey, Color::DarkGrey); }
 
     let ports = ports_for(&node.kind);
@@ -124,7 +124,7 @@ pub fn draw_wire(renderer: &mut Renderer, ox: i32, oy: i32, ix: i32, iy: i32, ed
 }
 
 pub fn draw_graph(renderer: &mut Renderer, font: &mut dyn Font, graph: &NodeGraph, selected_node: Option<NodeId>, connecting: Option<(NodeId, usize)>, mouse_col: usize, mouse_row: usize, view_ox: i32, view_oy: i32, screen_w: usize, screen_h: usize) {
-    for y in 0..screen_h { let row: String = std::iter::repeat(' ').take(screen_w).collect(); renderer.draw_str(0, y, &row, Color::DarkGrey, Color::Black); }
+    for y in 0..screen_h { let row: String = std::iter::repeat_n(' ', screen_w).collect(); renderer.draw_str(0, y, &row, Color::DarkGrey, Color::Black); }
     let mut port_positions: Vec<(NodeId, Vec<(i32,i32)>, Vec<(i32,i32)>)> = Vec::new();
     for node in &graph.nodes {
         let ports = ports_for(&node.kind);
@@ -138,7 +138,7 @@ pub fn draw_graph(renderer: &mut Renderer, font: &mut dyn Font, graph: &NodeGrap
         let dst = port_positions.iter().find(|(id, _, _)| *id == edge.to_node);
         if let (Some((_, _, out_pos)), Some((_, in_pos, _))) = (src, dst) {
             if let (Some(&(ox,oy)), Some(&(ix,iy))) = (out_pos.get(edge.from_port), in_pos.get(edge.to_port)) {
-                let sel = selected_node.map_or(false, |s| s == edge.from_node || s == edge.to_node);
+                let sel = selected_node.is_some_and(|s| s == edge.from_node || s == edge.to_node);
                 let color = if sel { Color::Cyan } else { Color::DarkGrey };
                 draw_wire(renderer, ox, oy, ix, iy, ei, color, screen_w, screen_h);
             }

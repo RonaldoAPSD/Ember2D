@@ -579,7 +579,7 @@ pub fn draw_panel_chrome(renderer: &mut Renderer, panel: &Panel, frame: &mut UiF
         renderer.draw_char(x + w - 1, row, '|', border_fg, border_bg);
     }
     // Bottom
-    let bot_str: String = std::iter::repeat('-').take(w).collect();
+    let bot_str: String = std::iter::repeat_n('-', w).collect();
     renderer.draw_str(x, y + h - 1, &bot_str, border_fg, border_bg);
 
     // 4. Corners

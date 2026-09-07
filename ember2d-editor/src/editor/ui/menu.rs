@@ -119,7 +119,7 @@ fn menu_checkmark(action: &ToolbarAction, ms: &MenuState) -> char {
         ToolbarAction::ToggleHierarchy => if ms.show_hierarchy  { 'x' } else { ' ' },
         ToolbarAction::ToggleScriptEditor => if ms.show_script_editor { 'x' } else { ' ' },
         ToolbarAction::ToggleFileBrowser  => if ms.show_file_browser  { 'x' } else { ' ' },
-        ToolbarAction::SetLayer(l)     => if *l == ms.active_layer { 'x' } else { ' ' },
+        ToolbarAction::SetLayer(l) if *l == ms.active_layer => { 'x' },
         _ => ' ',
     }
 }
@@ -168,7 +168,7 @@ pub fn draw_menu_dropdown(renderer: &mut Renderer, menu: MenuKind, mouse_col: us
         let row = start_row + i;
         match entry {
             MenuEntry::Sep => {
-                let line: String = std::iter::repeat('-').take(MENU_W).collect();
+                let line: String = std::iter::repeat_n('-', MENU_W).collect();
                 renderer.draw_str(start_col, row, &line, Color::DarkGrey, Color::Black);
                 // No hit pushed — a separator was never clickable (the old
                 // `menu_item_at` returned `None` for a `Sep` row too).

@@ -319,7 +319,7 @@ impl ScriptEngine {
         for (entity_id, path) in &scripted {
             if self.disabled_scripts.contains(path) { continue; }
             let Some(ast) = self.ast_cache.get(path) else { continue };
-            let scope = self.scopes.entry(*entity_id as EntityId).or_insert_with(Scope::new);
+            let scope = self.scopes.entry(*entity_id as EntityId).or_default();
             let entity_ctx = ctx.with_entity(*entity_id);
             if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_start", (*entity_id, entity_ctx)) {
                 if !Self::is_missing_optional_fn(&e, "on_start") {
@@ -351,7 +351,7 @@ impl ScriptEngine {
         if let Some(path) = path {
             if !self.disabled_scripts.contains(&path) {
                 if let Some(ast) = self.ast_cache.get(&path) {
-                    let scope = self.scopes.entry(actor_id).or_insert_with(Scope::new);
+                    let scope = self.scopes.entry(actor_id).or_default();
                     let entity_ctx = ctx.with_entity(actor_id as i64);
                     if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_input", (actor_id as i64, entity_ctx)) {
                         if !Self::is_missing_optional_fn(&e, "on_input") {
@@ -382,7 +382,7 @@ impl ScriptEngine {
         if let Some(path) = path {
             if !self.disabled_scripts.contains(&path) {
                 if let Some(ast) = self.ast_cache.get(&path) {
-                    let scope = self.scopes.entry(actor_id).or_insert_with(Scope::new);
+                    let scope = self.scopes.entry(actor_id).or_default();
                     let entity_ctx = ctx.with_entity(actor_id as i64);
                     if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_turn", (actor_id as i64, entity_ctx)) {
                         if !Self::is_missing_optional_fn(&e, "on_turn") {
@@ -444,7 +444,7 @@ impl ScriptEngine {
         for (entity_id, path) in scripted {
             if self.disabled_scripts.contains(&path) { continue; }
             let Some(ast) = self.ast_cache.get(&path) else { continue };
-            let scope = self.scopes.entry(entity_id as EntityId).or_insert_with(Scope::new);
+            let scope = self.scopes.entry(entity_id as EntityId).or_default();
             let entity_ctx = ctx.with_entity(entity_id);
             if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_update", (entity_id, entity_ctx)) {
                 if !Self::is_missing_optional_fn(&e, "on_update") {
@@ -499,7 +499,7 @@ impl ScriptEngine {
         for (entity_id, other_id, path) in calls {
             if self.disabled_scripts.contains(&path) { continue; }
             let Some(ast) = self.ast_cache.get(&path) else { continue };
-            let scope = self.scopes.entry(entity_id as EntityId).or_insert_with(Scope::new);
+            let scope = self.scopes.entry(entity_id as EntityId).or_default();
             let entity_ctx = ctx.with_entity(entity_id);
             if let Err(e) = self.engine.call_fn::<()>(scope, ast, "on_collide", (entity_id, other_id, entity_ctx)) {
                 if !Self::is_missing_optional_fn(&e, "on_collide") {

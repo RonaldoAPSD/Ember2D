@@ -30,12 +30,12 @@ impl ScriptCtx {
     pub fn get_x(&mut self, id: i64) -> f64 { self.inner.borrow_mut().positions.get(&id).map(|(x, _)| *x as f64).unwrap_or(0.0) }
     pub fn get_y(&mut self, id: i64) -> f64 { self.inner.borrow_mut().positions.get(&id).map(|(_, y)| *y as f64).unwrap_or(0.0) }
     pub fn get_position(&mut self, id: i64) -> Array {
-        self.inner.borrow_mut().positions.get(&id).map(|&(x, y)| vec![Dynamic::from(x as f64), Dynamic::from(y as f64)]).unwrap_or_default().into()
+        self.inner.borrow_mut().positions.get(&id).map(|&(x, y)| vec![Dynamic::from(x as f64), Dynamic::from(y as f64)]).unwrap_or_default()
     }
     pub fn get_vel_x(&mut self, id: i64) -> f64 { self.inner.borrow_mut().velocities.get(&id).map(|(x, _)| *x as f64).unwrap_or(0.0) }
     pub fn get_vel_y(&mut self, id: i64) -> f64 { self.inner.borrow_mut().velocities.get(&id).map(|(_, y)| *y as f64).unwrap_or(0.0) }
     pub fn get_velocity(&mut self, id: i64) -> Array {
-        self.inner.borrow_mut().velocities.get(&id).map(|&(x, y)| vec![Dynamic::from(x as f64), Dynamic::from(y as f64)]).unwrap_or_default().into()
+        self.inner.borrow_mut().velocities.get(&id).map(|&(x, y)| vec![Dynamic::from(x as f64), Dynamic::from(y as f64)]).unwrap_or_default()
     }
 
     pub fn get_tag(&mut self, id: i64) -> String { self.inner.borrow_mut().tags.get(&id).map(|t| t.to_string()).unwrap_or_default() }
@@ -48,7 +48,7 @@ impl ScriptCtx {
     // doc comment. `color_to_name` runs here instead, only for whichever
     // entity a script actually asks about.
     pub fn get_color(&mut self, id: i64) -> Array {
-        self.inner.borrow_mut().colors.get(&id).map(|&(fg, bg)| vec![Dynamic::from(color_to_name(fg)), Dynamic::from(color_to_name(bg))]).unwrap_or_default().into()
+        self.inner.borrow_mut().colors.get(&id).map(|&(fg, bg)| vec![Dynamic::from(color_to_name(fg)), Dynamic::from(color_to_name(bg))]).unwrap_or_default()
     }
     pub fn get_texture(&mut self, id: i64) -> String { self.inner.borrow_mut().textures.get(&id).map(|p| p.to_string()).unwrap_or_default() }
     // `Rc<str>: Borrow<str>` (and its Hash/Eq/Ord delegate to `str`'s) is

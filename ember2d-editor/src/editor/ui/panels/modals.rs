@@ -18,7 +18,7 @@ pub fn draw_palette_editor_modal(renderer: &mut Renderer, pal: &crate::editor::p
 
     // Window borders
     renderer.draw_rect_filled(mx, my, mw, mh, ' ', Color::White, Color::DarkGrey);
-    let border_str: String = std::iter::repeat('-').take(mw).collect();
+    let border_str: String = std::iter::repeat_n('-', mw).collect();
     renderer.draw_str(mx, my, &border_str, Color::Grey, Color::DarkGrey);
     renderer.draw_str(mx, my + mh - 1, &border_str, Color::Grey, Color::DarkGrey);
     for row in (my + 1)..(my + mh - 1) {
@@ -109,7 +109,7 @@ pub fn draw_color_picker_modal(renderer: &mut Renderer, hsv: (f32, f32, f32), is
 
     // Window borders
     renderer.draw_rect_filled(mx, my, mw, mh, ' ', Color::White, Color::DarkGrey);
-    let border_str: String = std::iter::repeat('-').take(mw).collect();
+    let border_str: String = std::iter::repeat_n('-', mw).collect();
     renderer.draw_str(mx, my, &border_str, Color::Grey, Color::DarkGrey);
     renderer.draw_str(mx, my + mh - 1, &border_str, Color::Grey, Color::DarkGrey);
     for row in (my + 1)..(my + mh - 1) {
@@ -167,11 +167,8 @@ pub fn draw_color_picker_modal(renderer: &mut Renderer, hsv: (f32, f32, f32), is
     renderer.draw_str(mx + 30, my + 6, "Selected:", Color::White, Color::DarkGrey);
     renderer.draw_rect_filled(mx + 30, my + 7, 8, 3, ' ', Color::Reset, current_col);
 
-    match current_col {
-        Color::Rgb(r, g, b) => {
-            renderer.draw_str(mx + 30, my + 11, &format!("#{:02X}{:02X}{:02X}", r, g, b), Color::Cyan, Color::DarkGrey);
-        }
-        _ => {}
+    if let Color::Rgb(r, g, b) = current_col {
+        renderer.draw_str(mx + 30, my + 11, &format!("#{:02X}{:02X}{:02X}", r, g, b), Color::Cyan, Color::DarkGrey);
     }
 
     // Buttons
@@ -198,7 +195,7 @@ pub fn draw_help_overlay(renderer: &mut Renderer, font: &mut dyn Font, layout: &
     renderer.draw_rect_filled(cx, cy, cw, ch, ' ', Color::White, Color::Black);
     let title = " EMBER2D EDITOR — KEYBOARD SHORTCUTS ";
     renderer.draw_str(cx + 1, cy + 1, title, Color::Cyan, Color::Black);
-    let sep: String = std::iter::repeat('-').take(cw.saturating_sub(2)).collect();
+    let sep: String = std::iter::repeat_n('-', cw.saturating_sub(2)).collect();
     renderer.draw_str(cx + 1, cy + 2, &sep, Color::DarkGrey, Color::Black);
     let col_w = (cw.saturating_sub(4)) / 3;
     let c1 = cx + 1; let c2 = c1 + col_w + 1; let c3 = c2 + col_w + 1;

@@ -54,8 +54,8 @@ impl EditorState {
             }
 
             // 2. Click to place cursor
-            if mouse.left_just_pressed() {
-                if mouse.cell_x >= cx && mouse.cell_x < cx + cw && mouse.cell_y >= text_y && mouse.cell_y < text_y + text_h {
+            if mouse.left_just_pressed()
+                && mouse.cell_x >= cx && mouse.cell_x < cx + cw && mouse.cell_y >= text_y && mouse.cell_y < text_y + text_h {
                     let row_in_view = mouse.cell_y - text_y;
                     let target_row = self.script_scroll + row_in_view;
 
@@ -73,7 +73,6 @@ impl EditorState {
                         return;
                     }
                 }
-            }
         }
 
         let ctrl = input.is_held(Key::LeftCtrl) || input.is_held(Key::RightCtrl);
@@ -86,18 +85,16 @@ impl EditorState {
             return;
         }
 
-        if input.just_pressed(Key::Up) {
-            if self.script_cursor.1 > 0 {
+        if input.just_pressed(Key::Up)
+            && self.script_cursor.1 > 0 {
                 self.script_cursor.1 -= 1;
                 self.script_cursor.0 = self.script_cursor.0.min(self.script_buffer[self.script_cursor.1].chars().count());
             }
-        }
-        if input.just_pressed(Key::Down) {
-            if self.script_cursor.1 + 1 < self.script_buffer.len() {
+        if input.just_pressed(Key::Down)
+            && self.script_cursor.1 + 1 < self.script_buffer.len() {
                 self.script_cursor.1 += 1;
                 self.script_cursor.0 = self.script_cursor.0.min(self.script_buffer[self.script_cursor.1].chars().count());
             }
-        }
         if input.just_pressed(Key::Left) {
             if self.script_cursor.0 > 0 {
                 self.script_cursor.0 -= 1;

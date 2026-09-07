@@ -273,7 +273,6 @@ impl EditorState {
                 buffer:  String::new(),
                 purpose: TextInputPurpose::ResizeLevel,
             });
-            return;
         }
     }
 }

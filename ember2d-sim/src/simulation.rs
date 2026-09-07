@@ -338,7 +338,7 @@ impl Simulation {
             self.do_on_start(world, viewport_w, viewport_h, persistent, &mut logs);
             self.rebuild_scheduler(world);
         } else {
-            for (_, script) in &world.scripts { self.script_engine.compile(&script.path, &mut logs); }
+            for script in world.scripts.values() { self.script_engine.compile(&script.path, &mut logs); }
             if self.camera_entity.is_none() { self.camera_entity = local_player_ids(world).next(); }
             // Phase 6 Step 7 (docs/ember2d-phase6-plan.md): a loaded save's
             // `World` round-tripped through serialization, which skips

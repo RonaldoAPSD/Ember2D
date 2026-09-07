@@ -135,7 +135,7 @@ fn gen_node_stmt(
         }
         NodeKind::Branch => {
             let cond = resolve!(0);
-            let true_body  = exec_outs.get(0).map(|&p| gen_exec_chain(graph, node.id, p, depth + 1, tmp, spawn_vars)).unwrap_or_default();
+            let true_body  = exec_outs.first().map(|&p| gen_exec_chain(graph, node.id, p, depth + 1, tmp, spawn_vars)).unwrap_or_default();
             let false_body = exec_outs.get(1).map(|&p| gen_exec_chain(graph, node.id, p, depth + 1, tmp, spawn_vars)).unwrap_or_default();
             out += &format!("{}if {} {{\n{}{}}} else {{\n{}{}}}\n", ind, cond, true_body, ind, false_body, ind);
         }
