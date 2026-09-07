@@ -613,15 +613,14 @@ impl GameState for PlayState {
 
     fn render(&mut self, ctx: RenderContext) {
         let RenderContext { world, renderer, assets, .. } = ctx;
-        renderer.draw_rect_filled(
-            0,
-            0,
-            renderer.width,
-            renderer.height,
-            ' ',
-            Color::Reset,
-            Color::Reset,
-        );
+        // 7B-3 (docs/ember2d-master-plan.md §5.2): used to blank the whole
+        // viewport here with a width*height loop of individual blank-glyph
+        // draw calls — purely to get DEFAULT_BG as the background, since
+        // the render pass's own per-frame GPU clear was hardcoded to pure
+        // black. The clear color now matches DEFAULT_BG
+        // (renderer/backend.rs's `render()`), so the GPU clear alone
+        // already does this, comprehensively, for free — no per-cell
+        // instances needed.
 
         // self.camera's viewport/origin were already refreshed this frame by
         // update() (see script_camera_origin's doc comment). Shake jitters a

@@ -199,10 +199,6 @@ impl GamepadState {
     }
 
     /// Returns the ID of the first connected gamepad, or None.
-    pub fn first_gamepad(&self) -> Option<usize> {
-        self.gilrs.as_ref()?.gamepads().next().map(|(id, _)| id.into())
-    }
-
     /// The sim-safe half of this state — see `GamepadSnapshot`'s own doc
     /// comment (command.rs, Step 5i) for why scripting reads this instead
     /// of `&GamepadState` directly (which owns a live `gilrs::Gilrs` handle).

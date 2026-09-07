@@ -2,7 +2,6 @@
 
 pub mod assets;
 pub mod backend;
-pub mod buffer;
 pub mod color;
 pub mod font;
 pub mod texture;
@@ -12,7 +11,7 @@ use std::sync::Arc;
 use winit::window::Window;
 
 pub use assets::AssetManager;
-pub use backend::{RenderBackend, WgpuBackend};
+pub use backend::WgpuBackend;
 pub use color::{Color, DEFAULT_BG, DEFAULT_FG};
 pub use font::{BitmapFont, Font, GlyphInfo, TtfFont};
 pub use texture::{Texture, TextureId};
@@ -107,7 +106,7 @@ pub struct Renderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
 
-    backend: Box<dyn RenderBackend>,
+    backend: WgpuBackend,
 
     /// A 1×1 opaque white texture, built once here rather than fetched
     /// through `AssetManager` (Phase 7 Part 1a, docs/ember2d-phase7-plan.md)
@@ -226,7 +225,7 @@ impl Renderer {
         let pixel_width = width * CELL_W;
         let pixel_height = height * CELL_H;
 
-        let backend = Box::new(WgpuBackend::new(width, height, &device, &queue, surface_format));
+        let backend = WgpuBackend::new(width, height, &device, &queue, surface_format);
 
         Ok(Renderer {
             window,
@@ -248,11 +247,6 @@ impl Renderer {
     pub fn backend_name(&self) -> &str {
         self.backend.name()
     }
-    pub fn set_backend(&mut self, backend: Box<dyn RenderBackend>) {
-        self.backend = backend;
-        self.width = self.backend.width();
-        self.height = self.backend.height();
-    }
 
     /// Toggles between ASCII and 2D Sprite rendering modes (if supported by backend).
     pub fn set_sprite_mode(&mut self, enabled: bool) {
@@ -265,11 +259,6 @@ impl Renderer {
     /// comment for what this carries instead and why.
     pub fn screen_mapping(&self) -> ScreenMapping {
         self.mapping
-    }
-
-    #[cfg(target_os = "windows")]
-    pub fn maximize(&self) {
-        self.window.set_maximized(true);
     }
 
     pub fn clear(&mut self) {
@@ -294,6 +283,13 @@ impl Renderer {
 
     pub fn upload_texture(&mut self, texture: &Texture) {
         self.backend.upload_texture(&self.device, &self.queue, texture);
+    }
+
+    /// R27 (7B-3, docs/ember2d-master-plan.md §5.2): whether `id` is
+    /// already GPU-resident — see `draw_text_px`'s own doc comment for why
+    /// this matters.
+    pub fn has_texture(&self, id: u64) -> bool {
+        self.backend.has_texture(id)
     }
 
     pub fn set_scissor(&mut self, rect: Option<(u32, u32, u32, u32)>) {
@@ -422,10 +418,16 @@ impl Renderer {
     /// to invalidate the stale GPU copy and force a fresh upload.
     ///
     /// Not yet called from any live editor UI — that's Part 4's restyle.
-    /// Cloning `atlas_texture()`'s real `Texture` (when there is one) on
-    /// every call is wasteful for a large atlas redrawn every frame —
-    /// fine for now since nothing does that yet; worth a second look
-    /// whenever this does get wired into a live per-frame draw path.
+    ///
+    /// R27 (7B-3, docs/ember2d-master-plan.md §5.2): used to clone
+    /// `atlas_texture()`'s real `Texture` unconditionally on every call —
+    /// wasteful for a large atlas redrawn every frame, since
+    /// `draw_texture_px`'s own `upload_texture` call only ever reads
+    /// `.pixels` when this id isn't already GPU-resident (or was just
+    /// invalidated below). A lightweight id/width/height-only placeholder
+    /// (same shape `BitmapFont`'s `None` case already used) is a valid
+    /// stand-in on every other call — the overwhelming majority of frames,
+    /// once an atlas has been uploaded at least once.
     pub fn draw_text_px(
         &mut self,
         font: &mut dyn Font,
@@ -439,17 +441,21 @@ impl Renderer {
         let dirty = font.take_dirty();
         let tex_id = font.texture_id();
         let (tex_w, tex_h) = font.texture_size();
-        let real_texture = font.atlas_texture().cloned();
 
         if dirty {
             self.backend.invalidate_texture(tex_id.0);
         }
-        let atlas = real_texture.unwrap_or_else(|| Texture {
-            id: tex_id.0,
-            width: tex_w,
-            height: tex_h,
-            pixels: Vec::new(),
-        });
+        let needs_real_pixels = dirty || !self.backend.has_texture(tex_id.0);
+        let atlas = if needs_real_pixels {
+            font.atlas_texture().cloned().unwrap_or_else(|| Texture {
+                id: tex_id.0,
+                width: tex_w,
+                height: tex_h,
+                pixels: Vec::new(),
+            })
+        } else {
+            Texture { id: tex_id.0, width: tex_w, height: tex_h, pixels: Vec::new() }
+        };
 
         let mut pen_x = pos.x;
         for g in glyphs {
@@ -491,12 +497,6 @@ impl Renderer {
     pub fn draw_str(&mut self, x: usize, y: usize, s: &str, fg: Color, bg: Color) {
         for (i, ch) in s.chars().enumerate() {
             self.draw_char(x.saturating_add(i), y, ch, fg, bg);
-        }
-    }
-
-    pub fn draw_lines(&mut self, x: usize, y: usize, lines: &[&str], fg: Color, bg: Color) {
-        for (i, line) in lines.iter().enumerate() {
-            self.draw_str(x, y.saturating_add(i), line, fg, bg);
         }
     }
 
@@ -661,6 +661,16 @@ impl Renderer {
     }
 }
 
+/// R26 (7B-3, docs/ember2d-master-plan.md §5.2): `Renderer` is the real
+/// (only) implementor — see `TextureEvictor`'s own doc comment
+/// (renderer/assets.rs) for why `AssetManager::clear` depends on the trait
+/// rather than this concrete type directly.
+impl assets::TextureEvictor for Renderer {
+    fn evict_texture(&mut self, id: u64) {
+        self.backend.evict_texture(id);
+    }
+}
+
 /// The cell grid and `ScreenMapping` a window of `physical_w`×`physical_h`
 /// pixels produces at `scale` physical pixels per un-scaled `CELL_W`/
 /// `CELL_H` pixel (7B-2, docs/ember2d-master-plan.md §5.2, R21). Floor
@@ -700,7 +710,7 @@ fn screen_cell_to_pixel(screen: ember2d_sim::math::Vec2) -> (i32, i32) {
 }
 
 /// A pixel size converted to the "cell units" convention
-/// `SpriteInstance::size`/`RenderBackend::draw_texture`'s own `size`
+/// `SpriteInstance::size`/`WgpuBackend::draw_texture`'s own `size`
 /// parameter already use (see `Renderer::draw_texture`'s `scale`
 /// computation for the same divide) — pulled out so `fill_rect_px`/
 /// `draw_texture_px`'s coordinate math is testable without a live
@@ -710,7 +720,7 @@ fn pixel_size_to_cells(w: f32, h: f32) -> [f32; 2] {
 }
 
 /// A pixel-space sub-rect of a texture, normalized to the `[x, y, w, h]`
-/// (0..1) convention `RenderBackend::draw_texture`'s `uv_rect` expects — the
+/// (0..1) convention `WgpuBackend::draw_texture`'s `uv_rect` expects — the
 /// same computation `draw_texture_world` does inline, pulled out here
 /// (Phase 7 Part 1a) so it's independently testable.
 fn uv_rect_for(texture_w: u32, texture_h: u32, src: ember2d_sim::math::Rect) -> [f32; 4] {

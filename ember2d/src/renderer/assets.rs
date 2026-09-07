@@ -3,6 +3,16 @@
 use crate::renderer::texture::{Texture, TextureId};
 use std::collections::HashMap;
 
+/// R26 (7B-3, docs/ember2d-master-plan.md §5.2): lets `AssetManager::clear`
+/// free every GPU-resident texture it knows about without depending on
+/// `Renderer` (renderer/mod.rs) directly — constructing a real `Renderer`
+/// needs a live GPU device, which a headless unit test can't do, so
+/// `clear`'s own test uses a trivial recording mock instead. `Renderer` is
+/// the only real implementor.
+pub trait TextureEvictor {
+    fn evict_texture(&mut self, id: u64);
+}
+
 /// Manages loaded textures to avoid redundant disk I/O and memory usage.
 ///
 /// Id-primary as of Phase 3 (docs/ember2d-refactor-plan.md): `textures` is
@@ -51,16 +61,17 @@ impl AssetManager {
         self.textures.get(&id.0)
     }
 
-    /// Path-keyed convenience wrapper matching the pre-Phase-3 API shape.
-    /// Kept only until Step 3b migrates play.rs's one remaining caller onto
-    /// `load`/`get` directly — new code should prefer those.
-    pub fn load_texture(&mut self, path: &str) -> Result<&Texture, String> {
-        let id = self.load(path);
-        Ok(self.textures.get(&id.0).expect("load() always inserts before returning an id"))
-    }
-
-    /// Clear all cached assets.
-    pub fn clear(&mut self) {
+    /// Clear all cached assets, including their GPU-resident copies via
+    /// `evictor` (R26, 7B-3, docs/ember2d-master-plan.md §5.2). This used
+    /// to only clear the CPU-side maps here, leaving every
+    /// previously-uploaded GPU texture resident forever — worse, a later
+    /// reload of the "same" path got a fresh id (since `path_to_id` was
+    /// wiped too), so the leak compounded on every call rather than at
+    /// least reusing the old GPU copy.
+    pub fn clear(&mut self, evictor: &mut dyn TextureEvictor) {
+        for &id in self.textures.keys() {
+            evictor.evict_texture(id);
+        }
         self.textures.clear();
         self.path_to_id.clear();
     }
@@ -110,11 +121,43 @@ mod tests {
         assert!(assets.get(TextureId(999_999)).is_none());
     }
 
+    /// R26 (7B-3, docs/ember2d-master-plan.md §5.2): records every id it's
+    /// asked to evict — stands in for `Renderer` (the real
+    /// `TextureEvictor`), which needs a live GPU device to construct.
+    #[derive(Default)]
+    struct RecordingEvictor {
+        evicted: Vec<u64>,
+    }
+    impl TextureEvictor for RecordingEvictor {
+        fn evict_texture(&mut self, id: u64) {
+            self.evicted.push(id);
+        }
+    }
+
     #[test]
     fn clear_invalidates_previously_loaded_handles() {
         let mut assets = AssetManager::new();
         let id = assets.load("__missing__.png");
-        assets.clear();
+        let mut evictor = RecordingEvictor::default();
+        assets.clear(&mut evictor);
         assert!(assets.get(id).is_none());
+    }
+
+    #[test]
+    fn clear_evicts_the_gpu_texture_for_every_loaded_id() {
+        let mut assets = AssetManager::new();
+        let a = assets.load("__missing_a__.png");
+        let b = assets.load("__missing_b__.png");
+        let mut evictor = RecordingEvictor::default();
+        assets.clear(&mut evictor);
+
+        let mut evicted = evictor.evicted;
+        evicted.sort();
+        let mut expected = vec![a.0, b.0];
+        expected.sort();
+        assert_eq!(
+            evicted, expected,
+            "every id clear() forgets on the CPU side must also be evicted on the GPU side (R26)"
+        );
     }
 }

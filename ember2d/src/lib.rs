@@ -53,9 +53,7 @@ pub mod prelude {
 
     // ── Renderer ──────────────────────────────────────────────────────────
     // The terminal renderer and its color palette.
-    pub use crate::renderer::{
-        AssetManager, Color, RenderBackend, Renderer, Texture, TextureId, WgpuBackend,
-    };
+    pub use crate::renderer::{AssetManager, Color, Renderer, Texture, TextureId, WgpuBackend};
 
     // ── Components ────────────────────────────────────────────────────────
     // The core components every entity can have, plus Phase 3's animation

@@ -35,7 +35,7 @@ pub struct GlyphAtlas {
     /// docs/ember2d-phase7-plan.md) — a caller that actually uploads this
     /// texture to a GPU needs to know when to re-upload, since a texture
     /// once uploaded is normally assumed immutable (see
-    /// `RenderBackend::invalidate_texture`'s own doc comment).
+    /// `WgpuBackend::invalidate_texture`'s own doc comment).
     dirty: bool,
 }
 

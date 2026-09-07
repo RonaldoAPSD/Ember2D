@@ -140,10 +140,6 @@ impl MouseState {
         self.wheel_y += dy;
     }
 
-    pub fn set_in_bounds(&mut self, in_bounds: bool) {
-        self.in_bounds = in_bounds;
-    }
-
     // ── Button query methods ─────────────────────────────────────────────────
 
     pub fn is_held(&self, button: MouseButton) -> bool {
