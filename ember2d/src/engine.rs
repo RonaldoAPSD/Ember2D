@@ -269,7 +269,9 @@ impl Engine {
                         // `logical_key_text`'s own doc comment for why that
                         // silently dropped every Space press.
                         if key_event.state.is_pressed() {
-                            input.text_buffer.push_str(&Key::logical_key_text(&key_event.logical_key));
+                            input
+                                .text_buffer
+                                .push_str(&Key::logical_key_text(&key_event.logical_key));
                         }
                     }
                     WindowEvent::CursorMoved { position, .. } => {
