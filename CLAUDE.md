@@ -5,7 +5,7 @@
 Ember2D is a 2D/ASCII game engine and editor in Rust. GPU rendering via `wgpu` with
 `winit` windowing, `font8x8` glyph atlas, `rhai` scripting, `kira` audio, `gilrs` gamepad.
 
-**Current version:** 0.5.0
+**Current version:** 0.5.7-a (tag `v0.5.7a`, Phase 7A gate)
 **Status:** mid-refactor — read `docs/ember2d-master-plan.md` before writing code.
 
 ## Documentation — read before starting work

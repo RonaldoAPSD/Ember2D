@@ -147,10 +147,14 @@ Cargo workspace, four crates, one bin target (`ember2d-app`, binary name
 
 | Crate | Contents | Depends on | Lines |
 |---|---|---|---|
-| `ember2d-sim` | math, color, world, components, level, save, scripting, command, scheduler, graph, event, layers, simulation | serde, ron, rhai, rand only | ~6,900 |
-| `ember2d` | engine loop, renderer (wgpu), font system, input/mouse/gamepad, audio (kira), play, project, camera, `sim.rs` per-step pump | `ember2d-sim` | ~7,300 incl. tests |
-| `ember2d-editor` | level/script/graph editor, docking, start screen | both above | ~8,700 |
-| `ember2d-app` | `main.rs` + Editor↔Play orchestration | `ember2d`, `ember2d-editor` | ~225 |
+| `ember2d-sim` | math, color, world, components, level, save, scripting, command, scheduler, graph, event, layers, simulation | serde, ron, rhai, rand only | ~10,200 |
+| `ember2d` | engine loop, renderer (wgpu), font system, input/mouse/gamepad, audio (kira), play, project, camera, `sim.rs` per-step pump | `ember2d-sim` | ~9,700 incl. tests |
+| `ember2d-editor` | level/script/graph editor, docking, start screen | both above | ~11,900 |
+| `ember2d-app` | `main.rs` + Editor↔Play orchestration | `ember2d`, `ember2d-editor` | ~325 |
+
+Line counts jumped at 7A-9 (`cargo fmt --all`, one-time, no logic change —
+rustfmt's own line-wrapping expanded the whole tree by roughly a third; two
+files it pushed over the 750-line limit were split at 7A-10, R42/R43).
 
 `roguelike/` and `shooter/` (demo projects) and `docs/` sit at the repo root.
 
@@ -163,7 +167,7 @@ Cargo workspace, four crates, one bin target (`ember2d-app`, binary name
 | 5.5 | Headless `Simulation`, external commands, animation queue, CI | `[x]` `4e4da60` — A.7 |
 | 6 | Performance and data-model hardening (14 steps) | `[x]` `a1db60f` — A.8 |
 | 7 Parts 1–2 | Pixel-space `UiRect`/`UiFrame`, `Font` trait, glyph atlas, TTF | `[x]` `cf59f42` — A.9 |
-| **7A** | Stabilisation sprint | `[ ]` — §5.1 |
+| **7A** | Stabilisation sprint | `[x]` `v0.5.7a` — A.10 |
 | 7B | Renderer foundation | `[ ]` — §5.2 |
 | 7C | Editor foundation | `[ ]` — §5.3 |
 | 7D | Theme and restyle | `[ ]` — §5.4 |
@@ -174,19 +178,19 @@ Cargo workspace, four crates, one bin target (`ember2d-app`, binary name
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
 
-### 2.3 Baseline numbers (at `cf59f42`)
+### 2.3 Baseline numbers (at `v0.5.7a`)
 
 | Metric | Value | Where measured |
 |---|---|---|
-| Tests | 158 unit + 38 integration, all pass | `cargo test --workspace` |
-| Clippy | 0 errors, ~130 warnings | `cargo clippy --workspace --all-targets` |
-| rustfmt | not applied (1,397 diff hunks) | `cargo fmt --check` |
-| floor2 p50 ms/step | 1.817 ms (release) | `cargo run --release -p ember2d-sim --example bench_sim` |
-| floor2 allocs/step | 6,598 | same |
+| Tests | 186 unit + 42 integration + 1 doctest = 229, all pass | `cargo test --workspace` |
+| Clippy | 0 errors, 59 warnings at `--lib` scope (86 at `--all-targets`) | `cargo clippy --workspace --lib` / `--all-targets` |
+| rustfmt | applied (7A-9); `cargo fmt --check` enforced in CI | `cargo fmt --all -- --check` |
+| floor2 p50 ms/step | not re-measured this gate (no sim-path change in 7A) | `cargo run --release -p ember2d-sim --example bench_sim` |
+| floor2 allocs/step | not re-measured this gate (no sim-path change in 7A) | same |
 | `LEVEL_FORMAT_VERSION` | 3 (shipped levels regenerated to v3 as of 7A-4) | `ember2d-sim/src/level.rs:298` |
 | `API_VERSION` | 6 | `ember2d-sim/src/scripting/types.rs:25` |
-| Registered script functions | 123 | `grep -c register_fn` |
-| Files over 600 lines | 1 (`ember2d/src/play.rs`, 607) | `scripts/check.ps1` once it exists |
+| Registered script functions | 124 | `grep -c register_fn ember2d-sim/src/scripting/registry.rs` |
+| Files over 750 lines | 0 | `scripts/check.ps1` |
 | Dependencies | wgpu 0.19.4, winit 0.29.15, kira 0.9.6, glam 0.25, rand 0.8, gilrs 0.10, rhai 1.24, fontdue 0.9 | `Cargo.lock` |
 
 ---
@@ -359,7 +363,7 @@ compiles with no window, GPU, input-device, filesystem, or clock dependency.
 
 ## 5. Phases
 
-### 5.1 `[ ]` Phase 7A — Stabilisation sprint
+### 5.1 `[x]` Phase 7A — Stabilisation sprint (`v0.5.7a`)
 
 **Purpose.** Close every S1 and the cheap S2s from the review before more
 Phase 7 work lands on top of them. Everything here is small, independently
@@ -1696,7 +1700,7 @@ the commit message. "Appearance unchanged" is a claim that needs evidence.
 | Tag | After | Date | Tests | Clippy warnings | floor2 p50 | CI run |
 |---|---|---|---|---|---|---|
 | `v0.5.0-pre-refactor` | (retroactive, at `a7e3af0`) | — | 0 | — | — | — |
-| `v0.5.7a` | Phase 7A | | | 61 (7A-8: 133 → 61 after `cargo clippy --fix` on ember2d-sim/ember2d-editor; ember2d/ember2d-app's own 13+2 auto-fixable were out of 7A-8's scope, left for a later pass) | | |
+| `v0.5.7a` | Phase 7A | 2026-09-07 | 229 (186 unit + 42 integration + 1 doctest) | 59 at `--lib` scope, 86 at `--all-targets` (7A-8: 133 → 61 after `cargo clippy --fix`; final count moved slightly during 7A-9's rustfmt pass and the 7A-10/7A-11/7A-12 fixes, still a net decrease from the phase's own baseline) | not re-measured (no sim-path change in 7A) | local only — CI still blocked by the account billing lock (R37/R40); not yet confirmed green on either OS |
 | `v0.5.7b` | Phase 7B | | | | | |
 | `v0.5.7c` | Phase 7C | | | | | |
 | `v0.5.7d` | Phase 7D | | | | | |
@@ -1802,6 +1806,25 @@ primitives incl. `draw_nine_slice`, `Font` trait with `BitmapFont` and
 23 editor tests. Not met: Part 1's "no cell literals" and Part 2's "renders
 through the trait" (→ 7C-2, 7B-5). E4 and most of E5 still open (→ 7C-3,
 7C-1). `cf59f42`.
+
+**A.10 Phase 7A — Stabilisation sprint.** 12 steps. R1–R6/R9/R10 (scripts
+can't crash or hang the engine: operation limit, bad-argument panics,
+`Animator` runaway loop, NaN-position collision-sort panic, silent no-ops).
+R11–R14/R19/R20 (editor panics and input leaks: non-ASCII text, key-repeat
+flooding, painting-guard gaps, docked-panel focus, orphaned `EditorState`,
+empty-palette panic). R7/R8 (save/load exit-target and scheduler fidelity;
+level format version check, every shipped level regenerated to v3). R15/R16
+(presentation RNG and elapsed time no longer touch sim state). R35–R37
+(scripting API doc corrected, CLAUDE.md/checklist truth pass, CI restored —
+blocked on an account billing lock, not a workflow defect). R38–R40
+(hygiene: LICENSE, manifests, per-process temp dirs, clippy auto-fixes).
+rustfmt adopted (§7.6 Option A) — one-time reformat, `cargo fmt --check` in
+CI; the two files it pushed over the 750-line limit split (R42/R43). Two
+defects found live during this phase's own manual regression pass and
+fixed the same session: Space never reached any text field (R44,
+`Key::logical_key_text`) and `--editor <path>` never wired the Files panel
+(R45, `EditorState::open_project_folder`). `ddd386e` … `f4a4720`,
+`v0.5.7a`.
 
 ## Appendix B — Archived documents and what they still hold
 
