@@ -119,14 +119,19 @@ pub(super) fn sprite_size(
     })
 }
 
-/// True if a screen cell at (col, row) falls inside the playable viewport —
-/// i.e. on screen and above the bottom HUD bar (the last row is reserved).
+/// True if a screen cell at (col, row) falls inside the playable viewport.
 ///
 /// Shared by both the glyph and texture draw paths in `render` (defect D13:
 /// the texture path used to skip this check entirely, since it `continue`d
 /// before the bounds test ran).
+///
+/// R28 (7B-4, docs/ember2d-master-plan.md §5.2/§3): this used to also
+/// reject `row == height - 1` via a trailing `.saturating_sub(1)` on
+/// `height`, reserving a bottom HUD bar row that Phase 4 removed — nothing
+/// draws a HUD there anymore, so the reservation just silently culled the
+/// bottom row of every level's playable viewport instead.
 pub(super) fn in_viewport(col: i32, row: i32, width: usize, height: usize) -> bool {
-    col >= 0 && row >= 0 && (col as usize) < width && (row as usize) < height.saturating_sub(1)
+    col >= 0 && row >= 0 && (col as usize) < width && (row as usize) < height
 }
 
 /// This frame's camera-shake offset, or zero if inactive — pulled out of

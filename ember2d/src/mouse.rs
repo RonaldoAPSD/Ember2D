@@ -1,8 +1,8 @@
 // mouse.rs — Mouse input tracking, backend-agnostic.
 
 use crate::input::INPUT_BUFFER_WINDOW;
+use crate::press_buffer::PressBuffer;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 
 /// A backend-agnostic representation of a mouse button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -49,19 +49,10 @@ pub struct MouseState {
     /// Vertical scroll wheel delta this frame.
     pub wheel_y: f32,
 
-    /// Buttons currently held down.
-    held: Vec<MouseButton>,
-
-    /// Buttons pressed but not yet consumed by a simulation step, each with
-    /// its remaining buffer lifetime (seconds). See `input::INPUT_BUFFER_WINDOW`
-    /// for why button presses are buffered rather than frame-scoped (D1).
-    pending: HashMap<MouseButton, f32>,
-
-    /// The set of buttons the current simulation step sees as just-pressed.
-    consumed: HashSet<MouseButton>,
-
-    /// Buttons released this frame.
-    just_released: Vec<MouseButton>,
+    /// Held/pending/consumed/just-released bookkeeping — see
+    /// `crate::press_buffer::PressBuffer`'s module doc (7B-4) for why this
+    /// is shared machinery rather than fields of its own.
+    buffer: PressBuffer<MouseButton>,
 }
 
 impl MouseState {
@@ -74,17 +65,14 @@ impl MouseState {
             in_bounds: false,
             wheel_x: 0.0,
             wheel_y: 0.0,
-            held: Vec::new(),
-            pending: HashMap::new(),
-            consumed: HashSet::new(),
-            just_released: Vec::new(),
+            buffer: PressBuffer::new(),
         }
     }
 
     /// Clear transient per-frame state (just_released, scroll). Deliberately
-    /// does NOT touch `pending` — see `InputManager::clear`.
+    /// does NOT touch the buffered-press map — see `InputManager::clear`.
     pub fn clear(&mut self) {
-        self.just_released.clear();
+        self.buffer.clear();
         self.wheel_x = 0.0;
         self.wheel_y = 0.0;
     }
@@ -92,18 +80,14 @@ impl MouseState {
     /// Pull buffered presses into this simulation step's just-pressed set.
     /// Call once per simulation step, before running game/script update code.
     pub fn consume_step(&mut self) {
-        self.consumed = self.pending.keys().copied().collect();
-        self.pending.clear();
+        self.buffer.consume_step();
     }
 
     /// Age out buffered presses no simulation step claimed in time.
     /// Call once per frame (real delta time) after the frame's simulation
     /// steps have had their chance to consume them.
     pub fn decay(&mut self, dt: f32) {
-        self.pending.retain(|_, remaining| {
-            *remaining -= dt;
-            *remaining > 0.0
-        });
+        self.buffer.decay(dt);
     }
 
     /// Update mouse position from a raw physical cursor position (7B-2,
@@ -122,17 +106,11 @@ impl MouseState {
     }
 
     pub fn handle_pressed(&mut self, button: MouseButton) {
-        if !self.held.contains(&button) {
-            self.held.push(button);
-            self.pending.insert(button, INPUT_BUFFER_WINDOW);
-        }
+        self.buffer.handle_pressed(button, INPUT_BUFFER_WINDOW);
     }
 
     pub fn handle_released(&mut self, button: MouseButton) {
-        if let Some(pos) = self.held.iter().position(|&b| b == button) {
-            self.held.remove(pos);
-            self.just_released.push(button);
-        }
+        self.buffer.handle_released(button);
     }
 
     pub fn handle_scroll(&mut self, dx: f32, dy: f32) {
@@ -143,13 +121,13 @@ impl MouseState {
     // ── Button query methods ─────────────────────────────────────────────────
 
     pub fn is_held(&self, button: MouseButton) -> bool {
-        self.held.contains(&button)
+        self.buffer.is_held(button)
     }
     pub fn just_pressed(&self, button: MouseButton) -> bool {
-        self.consumed.contains(&button)
+        self.buffer.just_pressed(button)
     }
     pub fn just_released(&self, button: MouseButton) -> bool {
-        self.just_released.contains(&button)
+        self.buffer.just_released(button)
     }
 
     // Shorthands for common buttons to avoid breaking too much code

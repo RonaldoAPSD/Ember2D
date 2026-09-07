@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::keyboard::ModifiersState;
 use winit::platform::pump_events::EventLoopExtPumpEvents;
 use winit::window::{Window, WindowId};
 
@@ -45,8 +46,6 @@ pub enum Transition {
 
 // ── Frame rate ────────────────────────────────────────────────────────────────
 
-const TARGET_FPS: u64 = 60;
-const FRAME_DURATION: Duration = Duration::from_micros(1_000_000 / TARGET_FPS);
 const SIM_DT: f32 = 1.0 / 60.0;
 const MAX_SIM_STEPS: u32 = 8;
 
@@ -223,6 +222,13 @@ struct EventPump<'a> {
     renderer: &'a mut Renderer,
     engine_width: &'a mut usize,
     engine_height: &'a mut usize,
+    /// Persists across frames (owned by `Engine`, not reset in
+    /// `EventPump::new` each poll) — a `ModifiersChanged` event fires only
+    /// when the held modifier set actually changes, not every frame, so
+    /// this has to remember the last-known state rather than starting
+    /// "no modifiers held" on every `poll_events` call. 7B-4, R24
+    /// (docs/ember2d-master-plan.md §5.2/§3).
+    modifiers: &'a mut ModifiersState,
 }
 
 impl<'a> ApplicationHandler for EventPump<'a> {
@@ -240,11 +246,34 @@ impl<'a> ApplicationHandler for EventPump<'a> {
     ) {
         match event {
             WindowEvent::CloseRequested => self.input.quit_requested = true,
+            WindowEvent::ModifiersChanged(mods) => {
+                *self.modifiers = mods.state();
+            }
             WindowEvent::KeyboardInput { event: key_event, .. } => {
-                // 1. Physical key for state tracking (held/pressed)
+                // 1. Physical key for state tracking (held/pressed/repeat).
+                //
+                // R24 (7B-4, docs/ember2d-master-plan.md §5.2/§3): winit's
+                // `KeyEvent::repeat` (true for the OS-generated repeats a
+                // held key produces, not the original press) used to be
+                // read nowhere in this codebase — every repeat event was
+                // routed through `handle_pressed` exactly like a fresh
+                // press. That happened to be harmless for `held`/`pending`
+                // (`handle_pressed` is idempotent while already held) but
+                // meant nothing could ever distinguish "held key's OS
+                // repeat fired this frame" from "no repeat" — which is
+                // exactly the signal a held-key text widget (the script
+                // editor's Backspace/arrow/Tab/Enter handling) needs to
+                // repeat while held instead of firing once per physical
+                // press. `handle_repeat` records that signal without
+                // touching `pending`, so it can never look like a second
+                // `just_pressed` for the same physical press.
                 if let Some(key) = Key::from_winit(key_event.physical_key) {
                     if key_event.state.is_pressed() {
-                        self.input.handle_pressed(key);
+                        if key_event.repeat {
+                            self.input.handle_repeat(key);
+                        } else {
+                            self.input.handle_pressed(key);
+                        }
                     } else {
                         self.input.handle_released(key);
                     }
@@ -254,10 +283,49 @@ impl<'a> ApplicationHandler for EventPump<'a> {
                 // R44 (7A-11, docs/ember2d-master-plan.md §5.1): was
                 // `if let Key::Character(text) = ...` only — see
                 // `logical_key_text`'s own doc comment for why that
-                // silently dropped every Space press.
-                if key_event.state.is_pressed() {
+                // silently dropped every Space press. A repeat still feeds
+                // text (holding a letter key must still retype it, same as
+                // any text editor), so this stays gated on `is_pressed()`
+                // alone, not on `!key_event.repeat`.
+                //
+                // R24: also gated on Ctrl/Super NOT being held — without
+                // this, a shortcut like Ctrl+S typed while a text widget
+                // (script editor, palette search, …) had focus leaked an
+                // "s" into the text buffer on top of whatever the shortcut
+                // itself did. Alt is deliberately excluded from the gate:
+                // AltGr-based layouts synthesize printable characters (e.g.
+                // "@") as a Ctrl+Alt chord, so gating on Alt too would
+                // break typing those.
+                if key_event.state.is_pressed()
+                    && !self.modifiers.control_key()
+                    && !self.modifiers.super_key()
+                {
                     self.input.text_buffer.push_str(&Key::logical_key_text(&key_event.logical_key));
                 }
+            }
+            // R24 (7B-4, docs/ember2d-master-plan.md §5.2/§3): committed
+            // IME text (a composed CJK/accented sequence, finalized by the
+            // platform's input method) arrives here, never as a
+            // `KeyboardInput` — nothing previously read this event at all,
+            // so IME users could never type into any `text_buffer`
+            // consumer (the script editor, palette search, …).
+            // `Ime::Enabled`/`Preedit`/`Disabled` are presentation-only
+            // (an in-progress composition string, not yet committed text)
+            // and out of this step's scope — falls through to `_ => {}`.
+            WindowEvent::Ime(winit::event::Ime::Commit(text)) => {
+                self.input.text_buffer.push_str(&text);
+            }
+            // R24: the cursor leaving the window used to leave `in_bounds`
+            // stuck `true` forever (nothing ever set it back to `false` —
+            // only `handle_move`, on the next `CursorMoved`, which won't
+            // fire again until the cursor re-enters). A script or editor
+            // surface gating on `mouse.in_bounds` would misread "cursor
+            // left the window" as "cursor still over the last position it
+            // was at" until some future re-entry. `in_bounds` is already
+            // `pub` (mouse.rs) with no dedicated setter — nothing else
+            // needs one either.
+            WindowEvent::CursorLeft { .. } => {
+                self.mouse.in_bounds = false;
             }
             WindowEvent::CursorMoved { position, .. } => {
                 // 7B-2 (docs/ember2d-master-plan.md §5.2, R21): was a
@@ -339,6 +407,11 @@ pub struct Engine {
     /// order-sensitive way, unlike sim-side stores.
     prev_positions_buf: HashMap<EntityId, Vec2>,
 
+    /// The keyboard modifier keys (Ctrl/Shift/Alt/Super) currently held —
+    /// see `EventPump::modifiers`'s own doc comment (R24, 7B-4) for why
+    /// this lives here rather than on `EventPump` itself.
+    modifiers: ModifiersState,
+
     state_stack: Vec<Box<dyn GameState>>,
     simulation_accumulator: f32,
 }
@@ -383,6 +456,7 @@ impl Engine {
             height,
             persistent: BTreeMap::new(),
             prev_positions_buf: HashMap::new(),
+            modifiers: ModifiersState::empty(),
             state_stack: Vec::new(),
             simulation_accumulator: 0.0,
         })
@@ -443,6 +517,7 @@ impl Engine {
             renderer: &mut self.renderer,
             engine_width: &mut self.width,
             engine_height: &mut self.height,
+            modifiers: &mut self.modifiers,
         };
         let _ = self.event_loop.pump_app_events(Some(Duration::ZERO), &mut pump);
 
@@ -461,6 +536,15 @@ impl Engine {
     ///
     /// NOTE: At least one state MUST be pushed to the stack (via `push_state`)
     /// before calling this, or it will return `Ok(None)` immediately.
+    ///
+    /// R23 (7B-4, docs/ember2d-master-plan.md §5.2/§3): this loop used to
+    /// also `thread::sleep` at the tail of every iteration to hold to
+    /// `TARGET_FPS`, on top of the GPU present call already blocking on
+    /// vsync (`wgpu::PresentMode::Fifo`, renderer/mod.rs) — two independent
+    /// pacing mechanisms racing each other, whichever was slightly slower
+    /// each frame. Fifo alone already paces the loop correctly (it blocks
+    /// `Renderer::present` until the next vblank), so the sleep just added
+    /// variable extra latency on top for no benefit — removed.
     pub fn run(&mut self) -> io::Result<Option<Transition>> {
         let start_time = Instant::now();
         let mut last_frame = Instant::now();
@@ -615,11 +699,6 @@ impl Engine {
                 }
             } else {
                 return Ok(None); // Stack empty
-            }
-
-            let frame_elapsed = Instant::now().duration_since(now);
-            if frame_elapsed < FRAME_DURATION {
-                std::thread::sleep(FRAME_DURATION - frame_elapsed);
             }
         }
     }

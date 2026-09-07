@@ -1,9 +1,10 @@
 // input.rs — Keyboard input system, backend-agnostic.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
 use winit::keyboard::{KeyCode, PhysicalKey};
 
+use crate::press_buffer::PressBuffer;
 use ember2d_sim::command::InputSnapshot;
 
 /// How long a press waits in the buffer for a simulation step to consume it.
@@ -235,22 +236,11 @@ impl Key {
 
 /// Tracks keyboard state across frames: held, just-pressed, and just-released.
 pub struct InputManager {
-    /// All keys that are currently held down.
-    held: Vec<Key>,
-
-    /// Keys pressed but not yet consumed by a simulation step, each with its
-    /// remaining lifetime in the buffer (seconds). Populated by `handle_pressed`,
-    /// drained by `consume_step`, decayed by `decay`.
-    pending: HashMap<Key, f32>,
-
-    /// The set of keys the current simulation step sees as just-pressed —
-    /// i.e. whatever `consume_step` last pulled out of `pending`. This is
-    /// what `just_pressed` reads; it does not change again until the next
-    /// `consume_step` call.
-    consumed: HashSet<Key>,
-
-    /// Keys that transitioned from DOWN → UP this frame only.
-    just_released: Vec<Key>,
+    /// Held/pending/consumed/just-released/repeat bookkeeping — extracted
+    /// (7B-4, docs/ember2d-master-plan.md §5.2) into `PressBuffer` since
+    /// `MouseState` and `GamepadState` carried byte-for-byte copies of the
+    /// same five fields and methods; see that type's module doc for why.
+    buffer: PressBuffer<Key>,
 
     /// Captured text characters from this frame.
     pub text_buffer: String,
@@ -278,23 +268,21 @@ impl InputManager {
     /// Create a fresh InputManager with no keys pressed.
     pub fn new() -> Self {
         InputManager {
-            held: Vec::new(),
-            pending: HashMap::new(),
-            consumed: HashSet::new(),
-            just_released: Vec::new(),
+            buffer: PressBuffer::new(),
             text_buffer: String::new(),
             text_capture_requested: false,
             quit_requested: false,
         }
     }
 
-    /// Clear the just_released list. Should be called at the start of every
-    /// frame before processing new events.
+    /// Clear the just_released/repeating sets. Should be called at the start
+    /// of every frame before processing new events.
     ///
-    /// Deliberately does NOT touch `pending` — a buffered press must survive
-    /// across frames until a simulation step consumes it or it decays away.
+    /// Deliberately does NOT touch the buffered-press map — a buffered
+    /// press must survive across frames until a simulation step consumes it
+    /// or it decays away.
     pub fn clear(&mut self) {
-        self.just_released.clear();
+        self.buffer.clear();
     }
 
     /// Pull the current buffered presses into this simulation step's
@@ -303,18 +291,14 @@ impl InputManager {
     ///
     /// Call once per simulation step, before running game/script update code.
     pub fn consume_step(&mut self) {
-        self.consumed = self.pending.keys().copied().collect();
-        self.pending.clear();
+        self.buffer.consume_step();
     }
 
     /// Age out buffered presses that no simulation step claimed in time.
     /// Call once per frame (real delta time, not sim dt) after the frame's
     /// simulation steps have had their chance to consume them.
     pub fn decay(&mut self, dt: f32) {
-        self.pending.retain(|_, remaining| {
-            *remaining -= dt;
-            *remaining > 0.0
-        });
+        self.buffer.decay(dt);
     }
 
     /// Returns the contents of the text buffer and clears it.
@@ -345,34 +329,45 @@ impl InputManager {
 
     /// Process a key press event.
     pub fn handle_pressed(&mut self, key: Key) {
-        if !self.held.contains(&key) {
-            self.held.push(key);
-            self.pending.insert(key, INPUT_BUFFER_WINDOW);
-        }
+        self.buffer.handle_pressed(key, INPUT_BUFFER_WINDOW);
     }
 
     /// Process a key release event.
     pub fn handle_released(&mut self, key: Key) {
-        if let Some(pos) = self.held.iter().position(|&k| k == key) {
-            self.held.remove(pos);
-            self.just_released.push(key);
-        }
+        self.buffer.handle_released(key);
+    }
+
+    /// Record an OS-level key-repeat event (winit's `KeyEvent::repeat`) for
+    /// an already-held key — 7B-4, R24 (docs/ember2d-master-plan.md §5.2).
+    /// See `PressBuffer::repeating`'s own doc comment for why this is a
+    /// separate signal from `handle_pressed`.
+    pub fn handle_repeat(&mut self, key: Key) {
+        self.buffer.handle_repeat(key);
     }
 
     /// True if `key` is currently held down.
     pub fn is_held(&self, key: Key) -> bool {
-        self.held.contains(&key)
+        self.buffer.is_held(key)
     }
 
     /// True in exactly one simulation step per physical press — see
     /// `INPUT_BUFFER_WINDOW` for why this is buffered rather than frame-scoped.
     pub fn just_pressed(&self, key: Key) -> bool {
-        self.consumed.contains(&key)
+        self.buffer.just_pressed(key)
     }
 
     /// True ONLY on the single frame this key was released.
     pub fn just_released(&self, key: Key) -> bool {
-        self.just_released.contains(&key)
+        self.buffer.just_released(key)
+    }
+
+    /// True on a frame winit reported an OS-level repeat for `key` — see
+    /// `handle_repeat`. Held-key text widgets (the script editor's
+    /// Backspace-to-delete, arrow navigation, Tab/Enter) check this
+    /// alongside `just_pressed` so holding the key repeats at the OS's own
+    /// cadence instead of only firing once per physical press.
+    pub fn is_repeating(&self, key: Key) -> bool {
+        self.buffer.is_repeating(key)
     }
 
     /// Build the sim-safe, winit-free snapshot of which key names are

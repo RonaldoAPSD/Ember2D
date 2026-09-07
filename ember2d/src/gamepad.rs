@@ -1,6 +1,7 @@
 // gamepad.rs — Gamepad input support via gilrs.
 
 use crate::input::INPUT_BUFFER_WINDOW;
+use crate::press_buffer::PressBuffer;
 use gilrs::{Axis, Button, Event, EventType, Gilrs};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -88,16 +89,11 @@ impl GamepadAxis {
 }
 
 pub struct GamepadState {
-    /// Buttons currently held down. (gamepad_id, button)
-    pub(crate) held: HashSet<(usize, GamepadButton)>,
-    /// Buttons pressed but not yet consumed by a simulation step, each with
-    /// its remaining buffer lifetime (seconds). See `input::INPUT_BUFFER_WINDOW`
-    /// for why button presses are buffered rather than frame-scoped (D1).
-    pub(crate) pending: HashMap<(usize, GamepadButton), f32>,
-    /// The set of buttons the current simulation step sees as just-pressed.
-    pub(crate) consumed: HashSet<(usize, GamepadButton)>,
-    /// Buttons released this frame.
-    pub(crate) just_released: HashSet<(usize, GamepadButton)>,
+    /// Held/pending/consumed/just-released bookkeeping, keyed by
+    /// `(gamepad_id, button)` — see
+    /// `crate::press_buffer::PressBuffer`'s module doc (7B-4) for why this
+    /// is shared machinery rather than fields of its own.
+    buffer: PressBuffer<(usize, GamepadButton)>,
     /// Current axis values.
     pub(crate) axes: HashMap<(usize, GamepadAxis), f32>,
 
@@ -113,37 +109,26 @@ impl GamepadState {
             eprintln!("WARN: Gamepad support initialization failed (Gilrs error). Running without controllers.");
         }
 
-        GamepadState {
-            held: HashSet::new(),
-            pending: HashMap::new(),
-            consumed: HashSet::new(),
-            just_released: HashSet::new(),
-            axes: HashMap::new(),
-            gilrs,
-        }
+        GamepadState { buffer: PressBuffer::new(), axes: HashMap::new(), gilrs }
     }
 
     /// Clear transient per-frame state (just_released). Deliberately does
-    /// NOT touch `pending` — see `InputManager::clear`.
+    /// NOT touch the buffered-press map — see `InputManager::clear`.
     pub fn clear(&mut self) {
-        self.just_released.clear();
+        self.buffer.clear();
     }
 
     /// Pull buffered presses into this simulation step's just-pressed set.
     /// Call once per simulation step, before running game/script update code.
     pub fn consume_step(&mut self) {
-        self.consumed = self.pending.keys().copied().collect();
-        self.pending.clear();
+        self.buffer.consume_step();
     }
 
     /// Age out buffered presses no simulation step claimed in time.
     /// Call once per frame (real delta time) after the frame's simulation
     /// steps have had their chance to consume them.
     pub fn decay(&mut self, dt: f32) {
-        self.pending.retain(|_, remaining| {
-            *remaining -= dt;
-            *remaining > 0.0
-        });
+        self.buffer.decay(dt);
     }
 
     pub fn poll(&mut self) {
@@ -154,15 +139,14 @@ impl GamepadState {
             match event {
                 EventType::ButtonPressed(button, ..) => {
                     let btn = GamepadButton::from_gilrs(button);
-                    if btn != GamepadButton::Unknown && self.held.insert((gamepad_id, btn)) {
-                        self.pending.insert((gamepad_id, btn), INPUT_BUFFER_WINDOW);
+                    if btn != GamepadButton::Unknown {
+                        self.buffer.handle_pressed((gamepad_id, btn), INPUT_BUFFER_WINDOW);
                     }
                 }
                 EventType::ButtonReleased(button, ..) => {
                     let btn = GamepadButton::from_gilrs(button);
                     if btn != GamepadButton::Unknown {
-                        self.held.remove(&(gamepad_id, btn));
-                        self.just_released.insert((gamepad_id, btn));
+                        self.buffer.handle_released((gamepad_id, btn));
                     }
                 }
                 EventType::AxisChanged(axis, value, ..) => {
@@ -171,21 +155,34 @@ impl GamepadState {
                         self.axes.insert((gamepad_id, ax), value);
                     }
                 }
+                // R25 (7B-4, docs/ember2d-master-plan.md §5.2, §3): a
+                // gamepad unplugged mid-hold used to leave its buttons
+                // stuck `held` forever — gilrs never sends a
+                // `ButtonReleased` for a device that's gone, and nothing
+                // else here ever cleared entries for a disconnected
+                // `gamepad_id`, so a script gating on e.g. `is_held(0,
+                // South)` after an unplug during a held press would see it
+                // as still down indefinitely. Fix: drop every held/pending
+                // button and axis entry for this device on disconnect.
+                EventType::Disconnected => {
+                    self.buffer.retain(|&(id, _)| id != gamepad_id);
+                    self.axes.retain(|&(id, _), _| id != gamepad_id);
+                }
                 _ => {}
             }
         }
     }
 
     pub fn is_held(&self, gamepad_id: usize, button: GamepadButton) -> bool {
-        self.held.contains(&(gamepad_id, button))
+        self.buffer.is_held((gamepad_id, button))
     }
 
     pub fn just_pressed(&self, gamepad_id: usize, button: GamepadButton) -> bool {
-        self.consumed.contains(&(gamepad_id, button))
+        self.buffer.just_pressed((gamepad_id, button))
     }
 
     pub fn just_released(&self, gamepad_id: usize, button: GamepadButton) -> bool {
-        self.just_released.contains(&(gamepad_id, button))
+        self.buffer.just_released((gamepad_id, button))
     }
 
     pub fn get_axis(&self, gamepad_id: usize, axis: GamepadAxis) -> f32 {
@@ -206,10 +203,10 @@ impl GamepadState {
         let mut held = HashSet::new();
         let mut pressed = HashSet::new();
         let mut axes = HashMap::new();
-        for &(id, btn) in &self.held {
+        for &(id, btn) in self.buffer.iter_held() {
             held.insert((id, btn.to_string()));
         }
-        for &(id, btn) in &self.consumed {
+        for &(id, btn) in self.buffer.iter_consumed() {
             pressed.insert((id, btn.to_string()));
         }
         for (&(id, ax), &val) in &self.axes {

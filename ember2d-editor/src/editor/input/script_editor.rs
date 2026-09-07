@@ -99,17 +99,29 @@ impl EditorState {
             return;
         }
 
-        if input.just_pressed(Key::Up) && self.script_cursor.1 > 0 {
+        // R24 (7B-4, docs/ember2d-master-plan.md §5.2/§3): every navigation
+        // and editing key below used to check `just_pressed` alone, which
+        // fires exactly once per physical press — holding, say, Down never
+        // moved the cursor past one line no matter how long the key stayed
+        // down, since winit's OS-level key-repeat was never read anywhere
+        // in the engine. `is_repeating` (fed from `KeyEvent::repeat` via
+        // `InputManager::handle_repeat`, engine.rs) now supplies that
+        // per-frame "still repeating" signal alongside the original
+        // per-press one.
+        if (input.just_pressed(Key::Up) || input.is_repeating(Key::Up)) && self.script_cursor.1 > 0
+        {
             self.script_cursor.1 -= 1;
             self.script_cursor.0 =
                 self.script_cursor.0.min(self.script_buffer[self.script_cursor.1].chars().count());
         }
-        if input.just_pressed(Key::Down) && self.script_cursor.1 + 1 < self.script_buffer.len() {
+        if (input.just_pressed(Key::Down) || input.is_repeating(Key::Down))
+            && self.script_cursor.1 + 1 < self.script_buffer.len()
+        {
             self.script_cursor.1 += 1;
             self.script_cursor.0 =
                 self.script_cursor.0.min(self.script_buffer[self.script_cursor.1].chars().count());
         }
-        if input.just_pressed(Key::Left) {
+        if input.just_pressed(Key::Left) || input.is_repeating(Key::Left) {
             if self.script_cursor.0 > 0 {
                 self.script_cursor.0 -= 1;
             } else if self.script_cursor.1 > 0 {
@@ -117,7 +129,7 @@ impl EditorState {
                 self.script_cursor.0 = self.script_buffer[self.script_cursor.1].chars().count();
             }
         }
-        if input.just_pressed(Key::Right) {
+        if input.just_pressed(Key::Right) || input.is_repeating(Key::Right) {
             if self.script_cursor.0 < self.script_buffer[self.script_cursor.1].chars().count() {
                 self.script_cursor.0 += 1;
             } else if self.script_cursor.1 + 1 < self.script_buffer.len() {
@@ -158,7 +170,7 @@ impl EditorState {
             self.script_unsaved = true;
         }
 
-        if input.just_pressed(Key::Tab) {
+        if input.just_pressed(Key::Tab) || input.is_repeating(Key::Tab) {
             let row = self.script_cursor.1;
             let col = self.script_cursor.0;
             let byte_col = char_byte_offset(&self.script_buffer[row], col);
@@ -167,7 +179,7 @@ impl EditorState {
             self.script_unsaved = true;
         }
 
-        if input.just_pressed(Key::Enter) {
+        if input.just_pressed(Key::Enter) || input.is_repeating(Key::Enter) {
             let row = self.script_cursor.1;
             let col = self.script_cursor.0;
             let byte_col = char_byte_offset(&self.script_buffer[row], col);
@@ -180,7 +192,7 @@ impl EditorState {
             self.script_unsaved = true;
         }
 
-        if input.just_pressed(Key::Backspace) {
+        if input.just_pressed(Key::Backspace) || input.is_repeating(Key::Backspace) {
             let row = self.script_cursor.1;
             let col = self.script_cursor.0;
             if col > 0 {

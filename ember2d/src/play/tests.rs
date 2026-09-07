@@ -127,10 +127,16 @@ fn in_viewport_rejects_negative_coordinates() {
 #[test]
 fn in_viewport_rejects_past_the_right_and_bottom_edge() {
     assert!(!in_viewport(80, 5, 80, 24));
-    assert!(
-        !in_viewport(5, 23, 80, 24),
-        "the last row is reserved for the HUD bar and must be culled"
-    );
+    assert!(!in_viewport(5, 24, 80, 24));
+}
+
+// R28 (7B-4, docs/ember2d-master-plan.md §5.2/§3): `in_viewport` used to
+// also reject `row == height - 1` (a leftover bottom-HUD-bar reservation
+// from before Phase 4 removed the HUD bars), silently culling the bottom
+// row of every level's playable viewport.
+#[test]
+fn in_viewport_accepts_the_bottom_row_now_that_the_hud_bar_reservation_is_gone() {
+    assert!(in_viewport(5, 23, 80, 24));
 }
 
 #[test]
