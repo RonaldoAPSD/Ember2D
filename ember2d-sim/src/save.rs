@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use serde::{Serialize, Deserialize};
 use crate::components::AnimationClip;
-use crate::world::World;
+use crate::world::{EntityId, World};
 
 /// Encapsulates the entire serializable state of a game session.
 #[derive(Serialize, Deserialize)]
@@ -39,12 +39,29 @@ pub struct SaveState {
     pub clips: BTreeMap<String, AnimationClip>,
     /// Path to the level file this session belongs to.
     pub level_path: String,
+    /// R7 (7A-3, docs/ember2d-master-plan.md): how many turns the local
+    /// player had completed at save time — `ctx.get_turn_number()`'s value.
+    /// Without this, a load always resumed counting from 0. `#[serde(default)]`
+    /// so a save from before this field existed still loads (resuming at 0,
+    /// same as it always did).
+    #[serde(default)]
+    pub turn_number: u64,
+    /// R7: the turn scheduler's exact (actor, due) state at save time —
+    /// see `TurnScheduler::snapshot`'s own doc comment for why a full
+    /// rebuild (`Simulation::rebuild_scheduler`, which resets every actor
+    /// to the same due time) isn't a faithful round trip for a save taken
+    /// mid-round. `#[serde(default)]` for the same reason `turn_number`
+    /// has it — an older save falls back to the pre-7A-3 rebuild-from-
+    /// scratch behavior (`Simulation::on_start`'s loading-save branch).
+    #[serde(default)]
+    pub scheduler: Vec<(EntityId, u64)>,
 }
 
 impl SaveState {
     /// Create a new SaveState from the current engine components.
-    pub fn new(world: World, persistent: BTreeMap<String, rhai::Dynamic>, globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, level_path: String) -> Self {
-        SaveState { world, persistent, globals, clips, level_path }
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(world: World, persistent: BTreeMap<String, rhai::Dynamic>, globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, level_path: String, turn_number: u64, scheduler: Vec<(EntityId, u64)>) -> Self {
+        SaveState { world, persistent, globals, clips, level_path, turn_number, scheduler }
     }
 
     /// Serialize the state to a RON string.

@@ -33,11 +33,15 @@ pub fn run_editor_app(engine: &mut Engine, editor: EditorState, play_gameplay_lo
                         // 5c, docs/ember2d-phase5-plan.md); see
                         // PlayState::from_save's own doc comment for why.
                         let (globals, clips) = (save.globals, save.clips);
+                        // R7 (7A-3, docs/ember2d-master-plan.md): the
+                        // scheduler/turn_number half of a faithful save
+                        // round trip, same treatment as globals/clips above.
+                        let (turn_number, scheduler) = (save.turn_number, save.scheduler);
                         engine.world = save.world;
                         engine.persistent = save.persistent;
                         level_data = LevelData::load(&save.level_path)
                             .map_err(|e| { eprintln!("Error loading level: {}", e); io::Error::new(io::ErrorKind::Other, "Level load failed") })?;
-                        PlayState::from_save(level_data.clone(), engine.persistent.clone(), globals, clips)
+                        PlayState::from_save(level_data.clone(), engine.persistent.clone(), globals, clips, turn_number, scheduler)
                     } else {
                         PlayState::from_level(level_data.clone(), engine.persistent.clone())
                     };
@@ -117,11 +121,14 @@ pub fn run_play_app(engine: &mut Engine, mut data: LevelData, pixels_per_unit: f
             // docs/ember2d-phase5-plan.md); see PlayState::from_save's own
             // doc comment for why.
             let (globals, clips) = (save.globals, save.clips);
+            // R7 (7A-3, docs/ember2d-master-plan.md): see the matching
+            // comment in `run_editor_app` above.
+            let (turn_number, scheduler) = (save.turn_number, save.scheduler);
             engine.world = save.world;
             engine.persistent = save.persistent;
             data = LevelData::load(&save.level_path)
                 .map_err(|e| { eprintln!("Error loading level: {}", e); io::Error::new(io::ErrorKind::Other, "Level load failed") })?;
-            PlayState::from_save(data.clone(), engine.persistent.clone(), globals, clips)
+            PlayState::from_save(data.clone(), engine.persistent.clone(), globals, clips, turn_number, scheduler)
         } else {
             PlayState::from_level(data.clone(), engine.persistent.clone())
         };

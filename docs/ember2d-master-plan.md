@@ -237,7 +237,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R5 | S1 | `Animator::advance` loops forever at large `speed` (f32 absorption) | `components/animator.rs:77-90`, `apply.rs:97` | `[x]` 7A-1 — `%`-collapse past 4 clip cycles in `advance`; `apply.rs` clamps scripted speed to `0.0..=64.0` |
 | R6 | S1 | NaN position → inconsistent comparator in collision sort → panic | `world.rs:271-273` | `[x]` 7A-1 — `total_cmp`; `set_position` also rejects non-finite input at the source |
 | **Data integrity** | | | | |
-| R7 | S1 | Save-load never rebuilds `exit_targets`; stairs dead after load. `turn_number` and scheduler due times not saved | `simulation.rs:177, 273-288, 429`; `spawn.rs:86` | `[ ]` → 7A-3 |
+| R7 | S1 | Save-load never rebuilds `exit_targets`; stairs dead after load. `turn_number` and scheduler due times not saved | `simulation.rs:177, 273-288, 429`; `spawn.rs:86` | `[x]` 7A-3 — `index_exits` (pure function of `self.level`) called on both branches; `SaveState` gains `turn_number`/`scheduler`; `TurnScheduler::snapshot`/`restore` replace an unconditional `rebuild_scheduler` on load |
 | R8 | S2 | Shipped levels are format v2, code is v3; loader never checks `version` | `level.rs:298, 439`; `roguelike/*.level` | `[ ]` → 7A-4 |
 | R9 | S2 | `clear_all_persistent` clears the pending queue, not the store — a no-op | `api.rs:313` | `[x]` 7A-1 — request-a-clear flag on `ScriptState`, applied to the real store in `apply_ctx` |
 | R10 | S3 | `set_tag`/`play_clip` on a missing id create ghost components | `apply.rs:64, 88` | `[x]` 7A-1 — both guarded with `world.transforms.contains_key` |
@@ -495,7 +495,7 @@ testable, and mostly one-file. Expected size: eight commits.
     there calls `begin_text_capture`, so `text_buffer` is wiped every frame
     it's active), so leaving it unmigrated doesn't reopen R12.
 
-#### `[ ]` 7A-3 — Save/load is a faithful sim round trip
+#### `[x]` 7A-3 — Save/load is a faithful sim round trip (`9ddb1e2`)
 
 - **Why:** R7. Phase 10's "resync via full snapshot" is save/load; it has to
   be exact.
@@ -512,6 +512,34 @@ testable, and mostly one-file. Expected size: eight commits.
 - **Done when:** `replay.rs` additionally passes with a save/load inserted
   at the midpoint checkpoint (add this as a second replay scenario).
 - **Scope:** `ember2d-sim`, `ember2d` (tests).
+- **Landed as:** `index_exits(&mut self)` reads `self.level` directly rather
+  than taking a `level: &LevelData` parameter as sketched — Rust's borrow
+  checker rejects `self.index_exits(&self.level)` (an immutable borrow of
+  `self.level` alive across a `&mut self` call), and there's no benefit to
+  the parameter here since `do_on_start` and the load branch always mean
+  the sim's own level anyway. `SaveState::new`'s two new params are
+  positional, appended at the end — every call site (production and test)
+  updated; three call sites that don't care about scheduler fidelity for
+  their own purpose (two globals/collision-layer tests, one in
+  `apply_script_result`'s belt-and-suspenders test coverage) pass `0,
+  Vec::new()` rather than threading real values through for no test benefit.
+  Both new `tests/save_load_globals.rs` cases, and the new
+  `tests/replay.rs` midpoint scenario, were verified to actually fail
+  without the fix (reverted, confirmed red, restored) before being trusted.
+  **Scope overrun, unavoidable:** `ember2d/src/play.rs` and
+  `ember2d-app/src/app.rs` also needed changes — `PlayState::from_save`
+  necessarily gained the same two parameters to forward to
+  `Simulation::from_save`, and its only non-test callers live in
+  `ember2d-app` (the real save/load-game flow), which the Scope line above
+  doesn't mention at all. `play.rs` was already over the 600-line limit
+  (607, tracked as R38 → 7A-8) before this step; the one-line signature
+  change plus a trimmed doc comment left it at exactly 607, not worse.
+  **Environment note, not a code issue:** this session hit a local Windows
+  "Application Control policy" repeatedly blocking freshly-built
+  `cargo test --workspace` binaries (a specific content-hash quirk of that
+  invocation shape — `cargo test -p <crate>` per package was never
+  blocked). All results above are from per-package runs once isolated;
+  worth knowing if a future session hits the same thing.
 
 #### `[ ]` 7A-4 — Level format: regenerate, validate, and version-check
 

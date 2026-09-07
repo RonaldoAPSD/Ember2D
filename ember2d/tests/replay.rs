@@ -81,12 +81,17 @@ fn drive(h: &mut TurnHarness, key: Option<&str>) {
 /// it. `level_path` is a constant placeholder: it's session metadata, not
 /// simulation state, and would be identical between the two runs anyway.
 fn snapshot(h: &TurnHarness) -> String {
+    // turn_number/scheduler included too (R7, 7A-3,
+    // docs/ember2d-master-plan.md) — a scheduler divergence between the two
+    // runs would otherwise go completely unnoticed by this comparison.
     let save = SaveState::new(
         h.world.clone(),
         h.persistent.clone(),
         h.sim.globals().clone(),
         h.sim.clips().clone(),
         "replay-snapshot".to_string(),
+        h.sim.turn_number().max(0) as u64,
+        h.sim.scheduler_snapshot(),
     );
     save.to_ron().expect("state must RON-serialize for comparison")
 }
@@ -126,4 +131,39 @@ fn replay_produces_byte_identical_state_across_independent_instances() {
     }
 
     assert_eq!(snapshot(&h2), recorded_final, "final state must be byte-identical to the recorded run");
+}
+
+/// R7 (7A-3, docs/ember2d-master-plan.md) "done when": a save/load round
+/// trip stitched into the middle of an otherwise-identical session must not
+/// change the final state at all — the actual faithful-round-trip property
+/// this step exists for, proven against the same real level and script
+/// content every other replay test here uses (not a synthetic level).
+#[test]
+fn replay_matches_when_a_save_load_round_trip_happens_at_the_midpoint() {
+    let session = scripted_session();
+    let midpoint = session.len() / 2;
+
+    // "Record": straight through, no save/load at all.
+    let mut h1 = TurnHarness::load(FLOOR2);
+    for &key in &session { drive(&mut h1, key); }
+    let recorded_final = snapshot(&h1);
+
+    // "Replay with a save/load stitched in at the midpoint": same level,
+    // same seed, same key sequence — but partway through, tear the whole
+    // session down to a `SaveState` (a real RON round trip, not an
+    // in-memory clone) and rebuild a fresh one from it.
+    let mut h2 = TurnHarness::load(FLOOR2);
+    for &key in &session[..midpoint] { drive(&mut h2, key); }
+
+    let save = SaveState::new(
+        h2.world.clone(), h2.persistent.clone(), h2.sim.globals().clone(), h2.sim.clips().clone(),
+        FLOOR2.to_string(), h2.sim.turn_number().max(0) as u64, h2.sim.scheduler_snapshot(),
+    );
+    let ron = save.to_ron().expect("state must RON-serialize");
+    let restored = SaveState::from_ron(&ron).expect("state must RON-deserialize");
+    let mut h2 = TurnHarness::from_save(FLOOR2, restored);
+
+    for &key in &session[midpoint..] { drive(&mut h2, key); }
+
+    assert_eq!(snapshot(&h2), recorded_final, "a save/load round trip stitched in at the midpoint must not change the final state");
 }

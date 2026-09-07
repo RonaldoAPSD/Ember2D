@@ -176,6 +176,14 @@ pub struct Simulation {
     camera_entity: Option<EntityId>,
     exit_targets: HashMap<EntityId, String>,
     is_loading_save: bool,
+    /// R7 (7A-3, docs/ember2d-master-plan.md): the saved scheduler state,
+    /// staged here by `from_save` for `on_start`'s loading-save branch to
+    /// consume (`World` — needed to resolve each actor's `Controller` for
+    /// `TurnScheduler::restore` — isn't available until `on_start` runs).
+    /// Empty for a save written before this field existed (`SaveState`'s
+    /// own `#[serde(default)]`) or a fresh (non-loaded) level, in which
+    /// case `on_start` falls back to `rebuild_scheduler`.
+    pending_scheduler: Vec<(EntityId, u64)>,
     /// Phase 6 Step 7 (docs/ember2d-phase6-plan.md): built once here, from
     /// `level.collision_layers`, before anything else runs — see
     /// `crate::layers::LayerRegistry`'s own doc comment for why fixed at
@@ -202,6 +210,7 @@ impl Simulation {
             camera_entity: None,
             exit_targets: HashMap::new(),
             is_loading_save: false,
+            pending_scheduler: Vec::new(),
             layers,
         }
     }
@@ -212,11 +221,17 @@ impl Simulation {
     /// nothing else would populate these otherwise (several scripts'
     /// `on_start` writes are unconditional — re-running them on load would
     /// silently reset state like a re-healed enemy).
-    pub fn from_save(level: LevelData, globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>) -> Self {
+    /// R7 (7A-3, docs/ember2d-master-plan.md): `turn_number`/`scheduler`
+    /// come from the same `SaveState` as `globals`/`clips` — see
+    /// `pending_scheduler`'s own doc comment for why the scheduler restore
+    /// itself waits until `on_start`.
+    pub fn from_save(level: LevelData, globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, turn_number: u64, scheduler: Vec<(EntityId, u64)>) -> Self {
         let mut sim = Self::new(level);
         sim.is_loading_save = true;
         sim.globals = globals;
         sim.clips = clips;
+        sim.turn_number = turn_number as i64;
+        sim.pending_scheduler = scheduler;
         sim
     }
 
@@ -231,6 +246,13 @@ impl Simulation {
     /// Whose turn is up — lets a caller target `StepInput::external_commands`
     /// at the right actor.
     pub fn current_actor(&self) -> Option<EntityId> { self.scheduler.peek() }
+    /// How many turns the local player has completed — the save-side
+    /// counterpart to `ctx.get_turn_number()`, and one of the two fields
+    /// R7 (7A-3, docs/ember2d-master-plan.md) adds to `SaveState`.
+    pub fn turn_number(&self) -> i64 { self.turn_number }
+    /// The scheduler's exact (actor, due) state — see
+    /// `TurnScheduler::snapshot`'s own doc comment.
+    pub fn scheduler_snapshot(&self) -> Vec<(EntityId, u64)> { self.scheduler.snapshot() }
     pub fn globals(&self) -> &BTreeMap<String, rhai::Dynamic> { &self.globals }
     pub fn clips(&self) -> &BTreeMap<String, AnimationClip> { &self.clips }
     pub fn pending_hud_draws(&self) -> &[HudDraw] { &self.script_engine.pending_hud_draws }
@@ -256,6 +278,29 @@ impl Simulation {
         }
     }
 
+    /// R7 (7A-3, docs/ember2d-master-plan.md): rebuilds `exit_targets`
+    /// purely from `self.level.tiles`'s own order — the exact id sequence
+    /// `do_on_start`'s spawn loop assigns (a fresh `World`'s ids start at 1
+    /// and increment once per tile, in `level.tiles` order, with nothing
+    /// else spawned in between). Reproducing that sequence here, without
+    /// touching `world` at all, is what lets the SAME function run against
+    /// a loaded save's `World` (already fully populated via
+    /// deserialization — re-spawning would duplicate every tile) exactly
+    /// as safely as it runs during a fresh spawn — see `on_start`'s two
+    /// branches, and `simulation/spawn.rs`'s own call site for why this
+    /// used to be an inline `self.exit_targets.insert(id, ...)` tied to
+    /// that loop's real `world.spawn()` id instead.
+    fn index_exits(&mut self) {
+        self.exit_targets.clear();
+        let mut id: EntityId = 1;
+        for tile in &self.level.tiles {
+            if let Some(ref path) = tile.next_level {
+                self.exit_targets.insert(id, path.clone());
+            }
+            id += 1;
+        }
+    }
+
     // do_on_start moved to simulation/spawn.rs (Phase 6 Step 7,
     // docs/ember2d-phase6-plan.md) — this file was at the project's
     // 600-line hard limit (CLAUDE.md); spawning is the single largest,
@@ -269,7 +314,10 @@ impl Simulation {
     pub fn on_start(&mut self, world: &mut World, viewport_w: usize, viewport_h: usize, persistent: &mut BTreeMap<String, rhai::Dynamic>) -> Vec<LogEntry> {
         let mut logs = Vec::new();
         if !self.is_loading_save {
+            // `do_on_start` calls `index_exits` and this crate's normal
+            // fresh-spawn scheduler build — see that function's own body.
             self.do_on_start(world, viewport_w, viewport_h, persistent, &mut logs);
+            self.rebuild_scheduler(world);
         } else {
             for (_, script) in &world.scripts { self.script_engine.compile(&script.path, &mut logs); }
             if self.camera_entity.is_none() { self.camera_entity = local_player_ids(world).next(); }
@@ -285,11 +333,24 @@ impl Simulation {
             // `Collider`'s own header comment (components/collider.rs) for
             // why this is the one mistake here with no visible symptom.
             world.refresh_collider_bits(&self.layers);
+            // R7 (7A-3, docs/ember2d-master-plan.md): `exit_targets` used to
+            // never get built on this branch at all — stairs were dead on
+            // every loaded save. `index_exits` is a pure function of
+            // `self.level`, so it's exactly as safe to call here as it is
+            // during a fresh spawn.
+            self.index_exits();
+            // R7: restore the exact scheduler state a mid-round save
+            // captured, rather than resetting every actor to the same due
+            // time — see `pending_scheduler`'s own doc comment. An empty
+            // list (a pre-7A-3 save, via `SaveState`'s `#[serde(default)]`)
+            // falls back to the old rebuild-from-scratch behavior.
+            let saved_schedule = std::mem::take(&mut self.pending_scheduler);
+            if saved_schedule.is_empty() {
+                self.rebuild_scheduler(world);
+            } else {
+                self.scheduler.restore(&saved_schedule, |id| world.actors.get(&id).map(|a| a.controller));
+            }
         }
-        // Both branches above leave `world.actors` fully populated (spawned
-        // fresh, or round-tripped through `World`'s own (de)serialization) —
-        // this is the one place after either that's guaranteed true.
-        self.rebuild_scheduler(world);
         logs
     }
 
@@ -487,7 +548,10 @@ impl Simulation {
             // globals/clips were just refreshed from `res` above, so this
             // captures the exact state a script saw the moment it called
             // save_game — defect D17 fix (Step 5c, docs/ember2d-phase5-plan.md).
-            let state = SaveState::new(world.clone(), persistent.clone(), self.globals.clone(), self.clips.clone(), self.level.path.clone());
+            // R7 (7A-3, docs/ember2d-master-plan.md): turn_number/scheduler
+            // are what makes this a faithful mid-round save — see
+            // `SaveState::turn_number`/`::scheduler`'s own doc comments.
+            let state = SaveState::new(world.clone(), persistent.clone(), self.globals.clone(), self.clips.clone(), self.level.path.clone(), self.turn_number.max(0) as u64, self.scheduler.snapshot());
             if let Err(e) = state.save_to_file(&save_path) {
                 logs.push(LogEntry::error(format!("save_game failed: {}", e)));
             } else {

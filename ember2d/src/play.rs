@@ -30,7 +30,7 @@ use crate::renderer::color::Color;
 use crate::audio::AudioEngine;
 use ember2d_sim::scripting::{LogEntry, HudDraw};
 use ember2d_sim::simulation::{Simulation, StepInput};
-use ember2d_sim::world::World;
+use ember2d_sim::world::{EntityId, World};
 use rand::{Rng, SeedableRng};
 use rand::rngs::SmallRng;
 
@@ -225,10 +225,10 @@ impl PlayState {
     /// (Step 5c, docs/ember2d-phase5-plan.md); `Simulation::from_save`
     /// handles restoring them and skipping a re-run of `on_start`. See that
     /// constructor's own doc comment for why re-running `on_start` isn't
-    /// the fix.
-    pub fn from_save(level_data: LevelData, _persistent: BTreeMap<String, rhai::Dynamic>, globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>) -> Self {
+    /// the fix — `turn_number`/`scheduler` (R7, 7A-3) get the same treatment.
+    pub fn from_save(level_data: LevelData, _persistent: BTreeMap<String, rhai::Dynamic>, globals: BTreeMap<String, rhai::Dynamic>, clips: BTreeMap<String, AnimationClip>, turn_number: u64, scheduler: Vec<(EntityId, u64)>) -> Self {
         let seed = level_data.seed;
-        Self::new_with_sim(Simulation::from_save(level_data, globals, clips), seed)
+        Self::new_with_sim(Simulation::from_save(level_data, globals, clips, turn_number, scheduler), seed)
     }
 
     /// Override the default `pixels_per_unit` with the owning project's

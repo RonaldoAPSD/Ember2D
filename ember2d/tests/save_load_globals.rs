@@ -16,6 +16,17 @@
 
 use std::collections::{BTreeMap, HashMap};
 use ember2d::prelude::*;
+use ember2d_sim::simulation::Simulation;
+
+mod common;
+use common::TurnHarness;
+
+// `CARGO_MANIFEST_DIR`-relative, not CWD-relative — see tests/replay.rs's
+// own comment on this (Step 5i's workspace split moved this crate below
+// `roguelike/`, and `cargo test` runs each integration test binary with
+// CWD set to the package's own directory).
+const FLOOR1: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../roguelike/floor1.level");
+const FLOOR2: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../roguelike/floor2.level");
 
 #[test]
 fn a_scripts_set_global_survives_a_real_ron_round_trip_through_save_and_load() {
@@ -74,7 +85,7 @@ fn a_scripts_set_global_survives_a_real_ron_round_trip_through_save_and_load() {
 
     // The actual regression: round-trip through a REAL RON string, not just
     // an in-memory clone — this is what save_game/load_game do.
-    let save = SaveState::new(world.clone(), persistent.clone(), play.globals().clone(), play.clips().clone(), "unused.level".to_string());
+    let save = SaveState::new(world.clone(), persistent.clone(), play.globals().clone(), play.clips().clone(), "unused.level".to_string(), 0, Vec::new());
     let ron = save.to_ron().expect("SaveState must serialize");
     let restored = SaveState::from_ron(&ron).expect("SaveState must deserialize");
 
@@ -92,6 +103,8 @@ fn a_scripts_set_global_survives_a_real_ron_round_trip_through_save_and_load() {
         restored.persistent.clone(),
         restored.globals.clone(),
         restored.clips.clone(),
+        restored.turn_number,
+        restored.scheduler.clone(),
     );
     assert_eq!(
         loaded_play.globals().get(&key).and_then(|d| d.as_int().ok()),
@@ -100,4 +113,86 @@ fn a_scripts_set_global_survives_a_real_ron_round_trip_through_save_and_load() {
     );
 
     let _ = std::fs::remove_file(&script_path);
+}
+
+// ── Tests: R7 (7A-3, docs/ember2d-master-plan.md) — save/load is a
+// faithful sim round trip, not just a globals/clips one ──────────────────
+
+#[test]
+fn a_saved_and_loaded_session_still_transitions_when_the_player_steps_onto_the_stairs() {
+    // Before this fix, `exit_targets` was never rebuilt on the loading-save
+    // branch of `Simulation::on_start` at all — stairs were permanently
+    // dead after any load, in every level, forever.
+    let mut h = TurnHarness::load(FLOOR1);
+    let player = h.player_id();
+
+    // floor1's real stairs tile (roguelike/floor1.level) — walking there
+    // for real isn't this test's point, so jump the player straight onto
+    // it rather than scripting a route.
+    h.world.transforms.get_mut(&player).unwrap().position = Vec2::new(36.0, 16.0);
+
+    // A REAL RON round trip — SaveState::to_ron/from_ron, matching
+    // save_game/load_game exactly, not an in-memory clone.
+    let save = SaveState::new(
+        h.world.clone(), h.persistent.clone(), h.sim.globals().clone(), h.sim.clips().clone(),
+        FLOOR1.to_string(), h.sim.turn_number().max(0) as u64, h.sim.scheduler_snapshot(),
+    );
+    let ron = save.to_ron().expect("SaveState must serialize");
+    let restored = SaveState::from_ron(&ron).expect("SaveState must deserialize");
+
+    // Load into a fresh Simulation exactly like PlayState::from_save /
+    // app.rs's real load-game flow does: is_loading_save = true, no
+    // do_on_start re-spawn — restored.world's entities are the only ones
+    // that will ever exist in this session.
+    let level = LevelData::load(FLOOR1).expect("floor1 must load");
+    let mut loaded_world = restored.world;
+    let mut loaded_persistent = restored.persistent;
+    let mut loaded_sim = Simulation::from_save(level, restored.globals, restored.clips, restored.turn_number, restored.scheduler);
+    loaded_sim.on_start(&mut loaded_world, h.viewport_width, h.viewport_height, &mut loaded_persistent);
+
+    let mut events = EventBus::new();
+    loaded_world.detect_collisions(&mut events);
+    let prev_positions = loaded_world.snapshot_positions();
+    let outcome = loaded_sim.late_step(
+        &mut loaded_world, &events, &prev_positions, Vec2::ZERO,
+        1.0 / 60.0, 0.0, h.viewport_width, h.viewport_height, &mut loaded_persistent,
+    );
+
+    assert!(outcome.pending_level.is_some(), "stepping onto the stairs after a save/load must still trigger a level transition — exit_targets must survive the load");
+}
+
+#[test]
+fn loading_a_mid_round_save_resumes_with_the_same_current_actor() {
+    // floor2 has three AI actors (docs/ember2d-master-plan.md §2.3's own
+    // bench_sim numbers) — floor1 has none, so it can't produce a
+    // divergent mid-round state at all.
+    let mut h = TurnHarness::load(FLOOR2);
+
+    // Resolve the player's turn, then exactly one AI actor's — deliberately
+    // NOT a full round (`h.turn()` would drain every follow-up frame back
+    // to the player, landing on a round BOUNDARY every time, which a plain
+    // rebuild-from-scratch would reproduce by accident). Stopping partway
+    // through the round is what actually needs the fix: some actors have
+    // already used this round's turn, others haven't.
+    h.frame(Some("w"));
+    h.frame(None);
+    let expected_actor = h.sim.current_actor();
+
+    let save = SaveState::new(
+        h.world.clone(), h.persistent.clone(), h.sim.globals().clone(), h.sim.clips().clone(),
+        FLOOR2.to_string(), h.sim.turn_number().max(0) as u64, h.sim.scheduler_snapshot(),
+    );
+    let ron = save.to_ron().expect("SaveState must serialize");
+    let restored = SaveState::from_ron(&ron).expect("SaveState must deserialize");
+
+    let level = LevelData::load(FLOOR2).expect("floor2 must load");
+    let mut loaded_world = restored.world;
+    let mut loaded_persistent = restored.persistent;
+    let mut loaded_sim = Simulation::from_save(level, restored.globals, restored.clips, restored.turn_number, restored.scheduler);
+    loaded_sim.on_start(&mut loaded_world, h.viewport_width, h.viewport_height, &mut loaded_persistent);
+
+    assert_eq!(
+        loaded_sim.current_actor(), expected_actor,
+        "a mid-round save must resume with the same actor about to act, not reset everyone to the same due time via a fresh scheduler rebuild"
+    );
 }

@@ -24,6 +24,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use ember2d::prelude::*;
 use ember2d_sim::command::{GamepadSnapshot, InputSnapshot, MouseSnapshot};
+use ember2d_sim::save::SaveState;
 use ember2d_sim::simulation::{Simulation, StepInput};
 
 pub struct TurnHarness {
@@ -76,6 +77,23 @@ impl TurnHarness {
         let mut world = World::new();
         let mut persistent = BTreeMap::new();
         let mut sim = Simulation::new(data);
+        let (viewport_width, viewport_height) = (80, 24);
+        sim.on_start(&mut world, viewport_width, viewport_height, &mut persistent);
+
+        TurnHarness { world, sim, persistent, elapsed: 0.0, viewport_width, viewport_height, pending_level: None }
+    }
+
+    /// R7 (7A-3, docs/ember2d-master-plan.md): `load`'s counterpart for a
+    /// `SaveState` instead of a fresh spawn — exercises
+    /// `Simulation::from_save`'s loading-save branch, exactly as
+    /// `PlayState::from_save`/`ember2d-app`'s real load-game flow does.
+    #[allow(dead_code)]
+    pub fn from_save(level_path: &str, save: SaveState) -> Self {
+        ensure_workspace_root_cwd();
+        let data = LevelData::load(level_path).unwrap_or_else(|e| panic!("load {}: {}", level_path, e));
+        let mut world = save.world;
+        let mut persistent = save.persistent;
+        let mut sim = Simulation::from_save(data, save.globals, save.clips, save.turn_number, save.scheduler);
         let (viewport_width, viewport_height) = (80, 24);
         sim.on_start(&mut world, viewport_width, viewport_height, &mut persistent);
 

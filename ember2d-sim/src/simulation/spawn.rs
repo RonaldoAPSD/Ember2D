@@ -36,6 +36,12 @@ impl Simulation {
         let mut scripts_ok = 0u32;
         let mut scripts_fail = 0u32;
 
+        // R7 (7A-3, docs/ember2d-master-plan.md): populates `exit_targets`
+        // independently of this loop's own `world.spawn()` calls — see
+        // `index_exits`'s own doc comment (simulation.rs) for why, and why
+        // that's what lets the same function also run on a loaded save.
+        self.index_exits();
+
         for tile in &self.level.tiles {
             let id = world.spawn();
             world.add_transform(id, Transform::new(tile.x as f32, tile.y as f32));
@@ -83,7 +89,6 @@ impl Simulation {
             }
 
             if tile.camera_follow && self.camera_entity.is_none() { self.camera_entity = Some(id); }
-            if let Some(ref path) = tile.next_level { self.exit_targets.insert(id, path.clone()); }
         }
 
         let (sx, sy) = self.level.spawn_point;

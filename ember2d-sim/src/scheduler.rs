@@ -94,6 +94,32 @@ impl TurnScheduler {
             self.queue.push(Reverse((due + cost.max(1), controller_rank(controller), actor)));
         }
     }
+
+    /// R7 (7A-3, docs/ember2d-master-plan.md): exports the exact (actor,
+    /// due) state — the save-time counterpart to `restore`, so a mid-round
+    /// save/load can resume at the identical scheduling position instead of
+    /// every actor rejoining at the same due time via `insert`'s "join the
+    /// current round" logic. Order is whatever the `BinaryHeap` happens to
+    /// iterate in — not meaningful; `restore` re-establishes the heap
+    /// invariant from the (actor, due) pairs themselves, not from order.
+    pub fn snapshot(&self) -> Vec<(EntityId, u64)> {
+        self.queue.iter().map(|Reverse((due, _, id))| (*id, *due)).collect()
+    }
+
+    /// Rebuilds the queue from exact (actor, due) pairs — `snapshot`'s
+    /// load-time counterpart. `controller_of` resolves each actor's current
+    /// `Controller` (from `World::actors`) for the rank tiebreak, same as
+    /// `insert` needs; an entry whose actor no longer exists (a hand-edited
+    /// save file claiming a despawned id — can't happen through normal
+    /// play) is silently skipped rather than guessed at.
+    pub fn restore(&mut self, entries: &[(EntityId, u64)], controller_of: impl Fn(EntityId) -> Option<Controller>) {
+        self.queue.clear();
+        for &(id, due) in entries {
+            if let Some(controller) = controller_of(id) {
+                self.queue.push(Reverse((due, controller_rank(controller), id)));
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -147,5 +173,37 @@ mod tests {
     fn peek_on_an_empty_scheduler_returns_none() {
         let s = TurnScheduler::new();
         assert_eq!(s.peek(), None);
+    }
+
+    // ── Tests: R7 (7A-3, docs/ember2d-master-plan.md) — snapshot/restore ───
+
+    #[test]
+    fn restore_reproduces_the_exact_due_times_snapshot_captured() {
+        let mut s = TurnScheduler::new();
+        s.insert(1, Controller::Local(0));
+        s.insert(2, Controller::Ai);
+        s.insert(3, Controller::Ai);
+        // Advance actor 1 partway through the round, so due times diverge —
+        // exactly the "mid-round save" shape R7 is about.
+        s.advance(1, Controller::Local(0), 60);
+
+        let snap = s.snapshot();
+        let mut restored = TurnScheduler::new();
+        let controllers: std::collections::HashMap<EntityId, Controller> =
+            [(1, Controller::Local(0)), (2, Controller::Ai), (3, Controller::Ai)].into_iter().collect();
+        restored.restore(&snap, |id| controllers.get(&id).copied());
+
+        // The actor scheduler had NOT yet advanced (lowest due) must still
+        // be picked first after restore — a plain rebuild-from-scratch
+        // (`insert` for every actor) would instead reset everyone to the
+        // same due time and lose this ordering.
+        assert_eq!(restored.peek(), s.peek(), "restore must reproduce the exact same next-actor decision as the original scheduler");
+    }
+
+    #[test]
+    fn restore_skips_an_entry_whose_actor_no_longer_exists() {
+        let mut restored = TurnScheduler::new();
+        restored.restore(&[(1, 0), (2, 100)], |id| if id == 1 { Some(Controller::Local(0)) } else { None });
+        assert_eq!(restored.peek(), Some(1), "an entry with no resolvable controller must be skipped, not guessed at");
     }
 }

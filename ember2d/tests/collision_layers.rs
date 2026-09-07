@@ -142,7 +142,7 @@ fn collider_bits_survive_a_save_load_round_trip() {
 
     // A REAL RON round trip — SaveState::to_ron/from_ron, not
     // std::mem::clone — is what actually exercises `#[serde(skip)]`.
-    let save = SaveState::new(world.clone(), persistent.clone(), play.globals().clone(), play.clips().clone(), "unused.level".to_string());
+    let save = SaveState::new(world.clone(), persistent.clone(), play.globals().clone(), play.clips().clone(), "unused.level".to_string(), 0, Vec::new());
     let ron = save.to_ron().expect("SaveState must serialize");
     let restored = SaveState::from_ron(&ron).expect("SaveState must deserialize");
     let mut loaded_world = restored.world;
@@ -154,7 +154,7 @@ fn collider_bits_survive_a_save_load_round_trip() {
     // re-read from disk, since this test never wrote a .level file) while
     // the entities themselves come from the restored World, not a fresh
     // do_on_start spawn.
-    let mut loaded_play = PlayState::from_save(data, restored.persistent, restored.globals, restored.clips);
+    let mut loaded_play = PlayState::from_save(data, restored.persistent, restored.globals, restored.clips, restored.turn_number, restored.scheduler);
     let mut loaded_persistent: BTreeMap<String, rhai::Dynamic> = BTreeMap::new();
     let mut loaded_events = EventBus::new();
     loaded_play.on_start(&mut loaded_world, &mut loaded_events, 10, 10, &mut loaded_persistent);
