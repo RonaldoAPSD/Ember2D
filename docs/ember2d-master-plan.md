@@ -147,14 +147,16 @@ Cargo workspace, four crates, one bin target (`ember2d-app`, binary name
 
 | Crate | Contents | Depends on | Lines |
 |---|---|---|---|
-| `ember2d-sim` | math, color, world, components, level, save, scripting, command, scheduler, graph, event, layers, simulation | serde, ron, rhai, rand only | ~10,200 |
-| `ember2d` | engine loop, renderer (wgpu), font system, input/mouse/gamepad, audio (kira), play, project, camera, `sim.rs` per-step pump | `ember2d-sim` | ~9,700 incl. tests |
-| `ember2d-editor` | level/script/graph editor, docking, start screen | both above | ~11,900 |
+| `ember2d-sim` | math, color, world, components, level, save, scripting, command, scheduler, graph, event, layers, simulation | serde, ron, rhai, rand only | ~10,240 |
+| `ember2d` | engine loop, renderer (wgpu), font system, input/mouse/gamepad, audio (kira), play, project, camera, `sim.rs` per-step pump | `ember2d-sim` | ~10,880 incl. tests |
+| `ember2d-editor` | level/script/graph editor, docking, start screen | both above | ~11,910 |
 | `ember2d-app` | `main.rs` + Editor↔Play orchestration | `ember2d`, `ember2d-editor` | ~325 |
 
 Line counts jumped at 7A-9 (`cargo fmt --all`, one-time, no logic change —
 rustfmt's own line-wrapping expanded the whole tree by roughly a third; two
 files it pushed over the 750-line limit were split at 7A-10, R42/R43).
+`ember2d` grew the most at 7B (new `press_buffer.rs`, `renderer/text.rs`,
+the `font/` module's `ui_font_from_env`) — still 0 files over 750 lines.
 
 `roguelike/` and `shooter/` (demo projects) and `docs/` sit at the repo root.
 
@@ -168,7 +170,7 @@ files it pushed over the 750-line limit were split at 7A-10, R42/R43).
 | 6 | Performance and data-model hardening (14 steps) | `[x]` `a1db60f` — A.8 |
 | 7 Parts 1–2 | Pixel-space `UiRect`/`UiFrame`, `Font` trait, glyph atlas, TTF | `[x]` `cf59f42` — A.9 |
 | **7A** | Stabilisation sprint | `[x]` `v0.5.7a` — A.10 |
-| 7B | Renderer foundation | `[ ]` — §5.2 |
+| **7B** | Renderer foundation | `[x]` `v0.5.7b` — A.11 |
 | 7C | Editor foundation | `[ ]` — §5.3 |
 | 7D | Theme and restyle | `[ ]` — §5.4 |
 | 7E | Editor features | `[ ]` — §5.5 |
@@ -178,20 +180,21 @@ files it pushed over the 750-line limit were split at 7A-10, R42/R43).
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
 
-### 2.3 Baseline numbers (at `v0.5.7a`)
+### 2.3 Baseline numbers (at `v0.5.7b`)
 
 | Metric | Value | Where measured |
 |---|---|---|
-| Tests | 186 unit + 42 integration + 1 doctest = 229, all pass | `cargo test --workspace` |
-| Clippy | 0 errors, 59 warnings at `--lib` scope (86 at `--all-targets`) | `cargo clippy --workspace --lib` / `--all-targets` |
-| rustfmt | applied (7A-9); `cargo fmt --check` enforced in CI | `cargo fmt --all -- --check` |
-| floor2 p50 ms/step | not re-measured this gate (no sim-path change in 7A) | `cargo run --release -p ember2d-sim --example bench_sim` |
-| floor2 allocs/step | not re-measured this gate (no sim-path change in 7A) | same |
-| `LEVEL_FORMAT_VERSION` | 3 (shipped levels regenerated to v3 as of 7A-4) | `ember2d-sim/src/level.rs:298` |
-| `API_VERSION` | 6 | `ember2d-sim/src/scripting/types.rs:25` |
-| Registered script functions | 124 | `grep -c register_fn ember2d-sim/src/scripting/registry.rs` |
+| Tests | 209 unit + 42 integration + 1 doctest = 252, all pass | `cargo test --workspace` |
+| Clippy | 0 errors, 59 warnings at `--lib` scope (unchanged from `v0.5.7a`; fewer at `--all-targets`) | `cargo clippy --workspace --lib` / `--all-targets` |
+| rustfmt | applied; `cargo fmt --all -- --check` clean | `cargo fmt --all -- --check` |
+| `cargo test --test replay` | green 3× fresh processes | §0.5 gate criterion 4 |
+| floor2 p50 ms/step | not re-measured this gate (no sim-path change in 7B) | `cargo run --release -p ember2d-sim --example bench_sim` |
+| floor2 allocs/step | not re-measured this gate (no sim-path change in 7B) | same |
+| `LEVEL_FORMAT_VERSION` | 3 (unchanged since 7A-4) | `ember2d-sim/src/level.rs:298` |
+| `API_VERSION` | 6 (unchanged) | `ember2d-sim/src/scripting/types.rs:25` |
+| Registered script functions | 124 (unchanged) | `grep -c register_fn ember2d-sim/src/scripting/registry.rs` |
 | Files over 750 lines | 0 | `scripts/check.ps1` |
-| Dependencies | wgpu 0.19.4, winit 0.29.15, kira 0.9.6, glam 0.25, rand 0.8, gilrs 0.10, rhai 1.24, fontdue 0.9 | `Cargo.lock` |
+| Dependencies | wgpu 30.0.1, winit 0.30.13, kira 0.12.4, glam 0.33.7, rand 0.8.6, gilrs 0.11.2, rhai 1.24.0, fontdue 0.9.4 — wgpu/winit/glam/kira/gilrs all upgraded at 7B-1 (were 0.19.4/0.29.15/0.25/0.9.6/0.10 at `v0.5.7a`) | `Cargo.lock` |
 
 ---
 
@@ -900,7 +903,7 @@ testable, and mostly one-file. Expected size: eight commits.
 
 ---
 
-### 5.2 `[ ]` Phase 7B — Renderer foundation
+### 5.2 `[x]` Phase 7B — Renderer foundation
 
 **Purpose.** Phase 7 Parts 3–4 (theme, 9-slice, integer UI scale) sit on
 the renderer. Three things must be true of the renderer first: it is on a
@@ -1957,7 +1960,7 @@ the commit message. "Appearance unchanged" is a claim that needs evidence.
 |---|---|---|---|---|---|---|
 | `v0.5.0-pre-refactor` | (retroactive, at `a7e3af0`) | — | 0 | — | — | — |
 | `v0.5.7a` | Phase 7A | 2026-09-07 | 229 (186 unit + 42 integration + 1 doctest) | 59 at `--lib` scope, 86 at `--all-targets` (7A-8: 133 → 61 after `cargo clippy --fix`; final count moved slightly during 7A-9's rustfmt pass and the 7A-10/7A-11/7A-12 fixes, still a net decrease from the phase's own baseline) | not re-measured (no sim-path change in 7A) | local only — CI still blocked by the account billing lock (R37/R40); not yet confirmed green on either OS |
-| `v0.5.7b` | Phase 7B | | | | | |
+| `v0.5.7b` | Phase 7B | 2026-09-07 | 252 (209 unit + 42 integration + 1 doctest) | 59 at `--lib` scope (exact match with `v0.5.7a`), 71 at `--all-targets` (down from 86 — fewer test-binary duplicates, not a fix) | not re-measured (no sim-path change in 7B) | local only, same as `v0.5.7a` — CI still blocked by the account billing lock (R37/R40) |
 | `v0.5.7c` | Phase 7C | | | | | |
 | `v0.5.7d` | Phase 7D | | | | | |
 | `v0.5.7` | Phase 7E | | | | | |
@@ -2081,6 +2084,30 @@ fixed the same session: Space never reached any text field (R44,
 `Key::logical_key_text`) and `--editor <path>` never wired the Files panel
 (R45, `EditorState::open_project_folder`). `ddd386e` … `f4a4720`,
 `v0.5.7a`.
+
+**A.11 Phase 7B — Renderer foundation.** 5 steps. wgpu 0.19→30, winit
+0.29→0.30 (`ApplicationHandler`, `pump_app_events`, `CurrentSurfaceTexture`)
+— R29's panic-on-unsupported-GPU fixed the same step. Integer cell
+projection: `compute_layout` letterboxes instead of stretching a
+non-exact-multiple window size, DPI-derived `scale` replaces the old fixed
+constant, `ScreenMapping` replaces a width-only `scale_factor()` (R21);
+found live afterward that flooring `scale` at `1.0` (not `2.0`) shrank the
+whole UI on any ordinary 100%-scale display — `MIN_UI_SCALE` follow-up
+(R48). Renderer resource hygiene: `TextureBudget` LRU+byte-budget eviction
+so GPU textures are actually freed (R26), atlas-texture over-cloning fixed
+(R27). Engine loop and input: the redundant `thread::sleep` frame-pacing
+throttle removed now that `PresentMode::Fifo` alone paces correctly (R23);
+`PressBuffer<K>` extracted from three copies of the same held/pending/
+consumed/decay logic (`InputManager`/`MouseState`/`GamepadState`), gaining
+a real OS-repeat signal (R24) and gamepad-disconnect cleanup (R25); the
+`in_viewport` HUD-row cull left over from a bar Phase 4 removed is gone
+(R28). `Renderer::draw_str` finally routes through the `Font` trait for a
+new `EMBER_UI_FONT=ttf` debug toggle — screenshot comparison caught that
+routing the DEFAULT path through it too would have shrunk every glyph
+(`BitmapFont`'s square-glyph model disagrees with font8x8's historical 2x
+vertical stretch), so the default path deliberately still calls `draw_char`
+directly; the mismatch is logged as R49/R50 rather than fixed. `25b9058` …
+`a1061c0`, `v0.5.7b`.
 
 ## Appendix B — Archived documents and what they still hold
 

@@ -3,7 +3,7 @@
 
 [package]
 name       = "ember2d"
-version    = "0.5.7-a"
+version    = "0.5.7-b"
 edition    = "2021"
 license    = "Apache-2.0"
 repository = "https://github.com/RonaldoAPSD/Ember2D"
