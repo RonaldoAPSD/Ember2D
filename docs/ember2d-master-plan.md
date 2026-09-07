@@ -252,6 +252,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R15 | S3 | Render-time camera shake consumes the sim RNG → particle stream frame-rate dependent | `play.rs:269-272, 496-513` | `[x]` 7A-5 — `render_rng` (own stream, seeded `level_seed ^ RENDER_RNG_SEED_OFFSET`) for camera + entity shake jitter; `rng` now only reads at apply_outcome's deterministic per-step cadence |
 | R16 | S3 | Wall-clock `elapsed` reaches scripts via `get_elapsed` | `engine.rs:286, 316`; `api.rs:146` | `[x]` 7A-5 — `Simulation::step_count`, incremented once per `step` call; `PlayState` builds `StepInput::elapsed`/`late_step`'s `elapsed` from it instead of `UpdateContext::elapsed` |
 | R17 | S3 | Filesystem I/O inside `ember2d-sim` (`Path::exists`, `LevelData::load` in `late_step`) | `simulation.rs:66, 432`; `spawn.rs:46, 71, 79` | `[ ]` → 7.5-9 |
+| R41 | S4 | `eprintln!` inside `ember2d-sim` (`World::get_global_position`'s parent-cycle warning) — found writing `scripts/check.ps1` (7A-6); not one of R16/R17's already-tracked locations | `world.rs:142` | `[ ]` → 7.5-9 (same step as R17; both are "no ambient I/O in the sim" cleanup) |
 | R18 | S2 | `receive_log` has zero callers; play-mode script errors never reach the editor console | `impl_state/mod.rs:527` | `[ ]` → 7C-7 |
 | R19 | S2 | File › Start Screen orphans an `EditorState` on the state stack | `ember2d-app/src/app.rs:85`; `main.rs:63-67` | `[x]` 7A-2 — both `Transition::ToStart` arms in app.rs pop before returning; `Engine::push_state` debug-asserts depth ≤ 3 |
 | R20 | S2 | `TilePalette::current()` indexes `[0]`; empty or out-of-range `selected` from a loaded palette panics | `palette.rs:284`; `text.rs:53, 84`; `input/mod.rs:75, 111` | `[x]` 7A-2 — invariant enforced at `TilePalette::load` (reject empty tiles, clamp `selected`); `current()` itself unchanged, see 7A-2's "Landed as" note |
@@ -271,8 +272,8 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R32 | S3 | Sentinel inconsistency (`-1` vs `0.0` vs `[]`; `()` tombstone means scripts can't store unit) | `api.rs` | `[ ]` → 7.5-1 |
 | R33 | S3 | `is_animating` always `false` | `api_animation.rs:63` | `[ ]` → 7.5-7 |
 | R34 | S2 | Node-graph codegen: no string escaping (code injection), no cycle guard (stack overflow), untyped `"0.0"` defaults, block-scoped `let` | `graph/codegen.rs:30, 40, 55, 138-146, 224, 249` | `[ ]` → 7.5-12 |
-| R35 | S3 | `is_collider_locked`/`set_collider_locked` and the 11-arg `spawn_entity` registered but undocumented; API doc says D3/D9 unfixed and timers are scope variables | `ember2d-scripting-api.md` | `[ ]` → 7A-6 |
-| R36 | S3 | HANDOFF/CLAUDE.md/checklist/index.html contradict the tree (test counts, format version, Phase 7 status, CI) | `docs/`, `index.html` | `[ ]` → 7A-6 |
+| R35 | S3 | `is_collider_locked`/`set_collider_locked` and the 11-arg `spawn_entity` registered but undocumented; API doc says D3/D9 unfixed and timers are scope variables | `ember2d-scripting-api.md` | `[x]` 7A-6 — both documented; D3/D9 marked fixed; §2's "Per-entity scope" timer example rewritten to match Step 9 (nothing writes into scope between calls anymore, R22) |
+| R36 | S3 | HANDOFF/CLAUDE.md/checklist/index.html contradict the tree (test counts, format version, Phase 7 status, CI) | `docs/`, `index.html` | `[x]` 7A-6 — `index.html` already gone (pre-session); CLAUDE.md's format version/function count fixed and its "Current State" narrative replaced with a pointer to §2; checklist's test-count header and §14's defect table replaced with pointers; CI text (§15/§17) deliberately left for 7A-7 per this step's own Change list |
 | **Process** | | | | |
 | R37 | S2 | CI deleted; no cross-platform determinism check exists | `.github/` | `[ ]` → 7A-7 |
 | R38 | S4 | `play.rs` 607 lines (limit 600); `panel/mod.rs` 597 | `ember2d/src/play.rs` | `[x]` moot — the limit itself rose to 750 (§0.4, 2026-09-06, by user direction) after 7A-5 had already pulled `play.rs` back to exactly 600 (debug overlay + HUD-draw dispatch moved to `play/render.rs`); `panel/mod.rs` (597) was never over either limit. No file in the codebase is within 100 lines of 750 as of this row. |
@@ -612,7 +613,7 @@ testable, and mostly one-file. Expected size: eight commits.
   row. Both new tests verified to actually fail without their respective
   fix (reverted, confirmed red, restored) before being trusted.
 
-#### `[ ]` 7A-6 — Documentation truth pass
+#### `[x]` 7A-6 — Documentation truth pass (`41348af`)
 
 - **Why:** R35, R36. Every new session reads these first.
 - **Change:**
@@ -632,6 +633,25 @@ testable, and mostly one-file. Expected size: eight commits.
 - **Done when:** no statement in CLAUDE.md, the checklist, or the API doc
   contradicts `git grep`.
 - **Scope:** docs, `scripts/`, repo root.
+- **Landed as:** `index.html` was already gone (deleted in an earlier,
+  pre-session commit adopting this plan) — nothing to do there. `doc-check.ps1`
+  does NOT check a "test count": CLAUDE.md and the checklist stopped quoting
+  one as part of this same pass, pointing at `cargo test --workspace`
+  instead — a raw count goes stale the instant any later step adds a test,
+  which defeats the purpose of a truth pass rather than serving it. It also
+  does NOT check §2.3's baseline table against the tree even though §6.1
+  says it should ("CLAUDE.md or §2.3") — §2.3 is explicitly a frozen
+  snapshot "at cf59f42" (§2.1's own header), so checking it live would fail
+  by design between phase gates; flagged in the script's own comment as a
+  real tension in this plan's own wording, not silently resolved either
+  way. `check.ps1`/`check.sh` ended up covering everything §6.5 asks
+  (file size, the four determinism greps, `cargo tree`, doc numbers) except
+  `cargo fmt --check` (7A-9 hasn't landed) — writing them surfaced one
+  previously untracked defect, logged as **R41** (an `eprintln!` in
+  `world.rs` neither R16 nor R17 had caught) rather than fixed inline, per
+  CLAUDE.md's own "note it and move on" rule. §15/§17's CI text is
+  unchanged, exactly as this step's own Change list asks — left for 7A-7,
+  not an oversight.
 
 #### `[ ]` 7A-7 — Restore CI
 

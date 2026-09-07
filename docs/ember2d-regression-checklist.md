@@ -1,14 +1,18 @@
 # Ember2D — Regression Checklist
 
-**Written against:** the `claude` branch, mid-Phase-4 (docs/ember2d-refactor-plan.md).
+**Written against:** the `claude` branch — current phase/step status lives
+in `docs/ember2d-master-plan.md` §2, not duplicated here (R36,
+docs/ember2d-master-plan.md §3.2).
 **Purpose:** the definition of "working" for everything automated tests
 still can't see — editor interactions, visual rendering, and anything
 needing a live window. **Corrected in Step 4k**: Phase 4 added real
-automated tests (`cargo test --lib` — 74 tests — plus `tests/roguelike_*.rs`
-— 19 more, covering combat, turn-cadence, determinism, and level integrity
-headlessly via `TurnHarness`), so this list is no longer the *only* safety
-net the way it was through Phase 3. It's still the right net for anything
-those tests can't reach.
+automated tests (headless, via `TurnHarness` and `PlayState` directly —
+combat, turn-cadence, determinism, and level integrity), grown
+substantially through Phases 5–7A since; run `cargo test --workspace` for
+the current count rather than trust a number quoted here, which would go
+stale the next time a step adds tests. This list is no longer the *only*
+safety net the way it was through Phase 3, but it's still the right net
+for anything automated tests can't reach.
 
 **Before first use:** open `roguelike/floor1.level` (or `--editor` it) —
 the original `demo/` this checklist targeted is archived at
@@ -233,32 +237,16 @@ Exercise at least one function from every API group (see `ember2d-scripting-api.
 - [ ] Raycast · [ ] Pathfinding · [ ] Camera · [ ] Mouse · [ ] HUD widgets
 - [ ] Particles · [ ] Audio (incl. spatial) · [ ] Hierarchy · [ ] Save/load · [ ] Turn
 
-## 14. Known broken before the refactor
+## 14. Known defects
 
-Not regressions. Do not chase these.
-
-| Issue | Fixed by |
-|---|---|
-| D1 — one keypress can fire multiple times per frame, or be dropped on a light frame | Phase 1 (buffer until consumed) |
-| D2 — `set_persistent` in `on_start` is discarded | Phase 1 |
-| D3 — RNG nondeterministic (scripts, particles, shake) | Phase 1 |
-| D4 — trigger colliders default to layer `"solid"` | Phase 1 |
-| D5 — equal-z sprites draw in random order | Phase 1 |
-| D6 — editor obeys the project's `gameplay_loop` | Phase 1 |
-| D8 — hot-reload clears all entity scopes | Phase 1 |
-| D9 — failed scripts keep running silently | Phase 1 |
-| D10 — `spawn_entity` hardcodes appearance and collider | Phase 1 |
-| D12 — `"locked"` magic string on exits | Phase 1 |
-| D13 — texture sprites skip viewport culling | Phase 1 |
-| D14 — font atlas and textures use different colour spaces | Phase 1 |
-| D7 — turn mode integrates physics at `dt = 1.0` | Phase 5 Step 5f — fixed |
-| D11 — per-frame clone churn in scripting and collision | Phase 6 Steps 3-8 — fixed (floor2: 9.723ms → 1.817ms/step, -81%) |
-| D17 — save/load can't round-trip per-entity script globals mid-run | Phase 5 Step 5c — fixed |
-| D18 — saving a level through the editor scrambles its tile order (`LevelGrid.tiles` is a `HashMap`) | not scheduled — see plan §3 |
-| D19 — a player keypress made while an enemy's move animation plays is silently dropped, not delayed | Phase 6 (out of scope, fixed live) — fixed |
-| D20 — several actors acting in one round each pay their own animation's duration serially, stacking into one long input freeze | Phase 6 (out of scope, fixed live) — fixed |
-| D21 — `check_hot_reload` polled `fs::metadata` once per cached script every single step, including guaranteed-failing node-graph synthetic keys | Phase 6 Step 6 — fixed (throttled to once/30 steps; synthetic keys skipped) |
-| D22 — a cancelled timer and a just-fired one share the same stored sentinel, so `timer_done` keeps reporting `true` for ~8 minutes past either event, not once | Phase 6 Step 9 — found, not fixed; no shipped script calls timer functions |
+**Corrected in 7A-6** (docs/ember2d-master-plan.md §5.1, R36): this used to
+keep its own copy of every defect's fixed/unfixed status, which is exactly
+the kind of duplicate bookkeeping that drifted from the tree (this table
+had gone stale itself before the fix). `docs/ember2d-master-plan.md` §3 is
+the one defect register — D1–D22, R1–R40, E1–E6, each with a status marker
+(`[x]` fixed, `[~]` in progress, `[ ]` not started, `[-]` dropped) and the
+commit or step that fixes it. Check a row there before assuming a manual
+test failure is a new regression rather than a known, already-tracked one.
 
 ## 15. Determinism / replay gate (Phase 5 Step 5h+)
 

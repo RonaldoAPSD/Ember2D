@@ -76,8 +76,8 @@ this for the full explanation.
   `draw_char(x, y)` (cells) still works unchanged — the editor, HUD chrome, and node graph stay screen-space only
   until Phase 7.
 - **Engine loop** — `ember2d/src/engine.rs`: `winit` via `pump_events`, fixed-timestep accumulator, state stack (push/pop/pause/resume). The actual per-step sequence (consume input, update, conditionally physics/collisions/late_update) lives in `ember2d/src/sim.rs` (Step 5d) — shared with the headless `TurnHarness` test harness so there's only one copy of it.
-- **Level format** — RON via `serde`/`ron`, `.level` files, `LEVEL_FORMAT_VERSION` (currently 3 — Phase 6 Step 7 added `collision_layers`; note the shipped `roguelike/`/`shooter/` levels still say `version: 2` until master plan step 7A-4 regenerates them).
-- **Scripting** — `ember2d-sim/src/scripting/`: 123 registered functions (`API_VERSION` 6), deferred mutation queue. `on_input`/`on_turn` (Phase 5 Steps 5e/5f) split "read input" from "act" from the older `on_update`/`on_start`/`on_collide` lifecycle — see `docs/ember2d-scripting-api.md`.
+- **Level format** — RON via `serde`/`ron`, `.level` files, `LEVEL_FORMAT_VERSION` (currently 3 — Phase 6 Step 7 added `collision_layers`; every shipped `roguelike/`/`shooter/` level was regenerated to v3 by master plan step 7A-4, and `LevelData::load` now rejects a level from a newer format version instead of loading it blind, R8/7A-4).
+- **Scripting** — `ember2d-sim/src/scripting/`: 124 registered functions (`API_VERSION` 6), deferred mutation queue. `on_input`/`on_turn` (Phase 5 Steps 5e/5f) split "read input" from "act" from the older `on_update`/`on_start`/`on_collide` lifecycle — see `docs/ember2d-scripting-api.md`.
 - **Turn scheduling** — `ember2d-sim/src/scheduler.rs`: `TurnScheduler`, a deterministic min-heap turn queue (Step 5f).
 - **Editor** — `ember2d-editor/src/editor/`: layer-aware grid, float zoom, dockable panels, palette editor, in-engine script editor, node-based visual scripter (generates Rhai via `ember2d-sim/src/graph/`).
 - **Save system** — `ember2d-sim/src/save.rs`: full `World` serialization, plus script `globals`/`clips` (Step 5c, D17 fix).
@@ -141,15 +141,10 @@ The simulation must be reproducible — replay, save/load, and 2-player netcode 
 
 ## Current State
 
-`main` is trunk at v0.5.0. All work happens on the `claude` branch. Phases 0–6 and Phase 7
-Parts 1–2 are done and committed (last: `cf59f42`, pixel-space `UiRect`/`UiFrame` foundation
-and the `Font` trait / glyph atlas / TTF system). **Next is Phase 7A, the stabilisation
-sprint** — master plan §5.1 — which closes the S1 defects a 2026-09-06 full review found
-(scripts can hang or panic the editor, save/load is not a faithful round trip, editor panics on
-non-ASCII text, input leaks). Then 7B (renderer foundation), 7C (editor foundation), 7D/7E
-(theme, restyle, editor features), 7.5 (scripting completeness), 8, 9, 10, 11 → v0.6.0.
+`main` is trunk at v0.5.0. All work happens on the `claude` branch.
 
 **The authoritative status is `docs/ember2d-master-plan.md` §2 (phase table, baseline numbers)
 and §3 (the one defect register, D1–D22 + R1–R40 + E1–E6, each with a status marker and the
-step that fixes it).** This section is a pointer; if it disagrees with the master plan, the
-master plan wins and this section needs updating.
+step that fixes it).** Read §2 before starting any work — this section is deliberately not a
+second copy of it (R36, master plan §3.2: this exact paragraph used to fall out of sync with
+the tree and did): don't restate phase/step progress here, keep this section a pointer.

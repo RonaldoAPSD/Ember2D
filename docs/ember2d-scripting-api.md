@@ -1,6 +1,6 @@
 # Ember2D — Scripting API Reference
 
-**Written against:** `gemini` branch, v0.5.0 (`src/scripting/api.rs`, registrations in `src/scripting/engine.rs`)
+**Written against:** `claude` branch, v0.5.0 (`ember2d-sim/src/scripting/api.rs`, registrations in `ember2d-sim/src/scripting/engine.rs` — moved here from bare `src/scripting/` by Phase 5 Step 5i's workspace split, docs/archive/ember2d-phase5-plan.md §5.5)
 **Status:** the API is largely **built**. This document is a reference plus a record of what the refactor changes.
 
 ---
@@ -54,11 +54,18 @@ script's own `let` declarations do **not** survive between
 `on_start`/`on_update`/`on_collide` calls: `ScriptEngine::call_fn` uses
 Rhai's default `CallFnOptions`, whose `rewind_scope: true` discards
 anything the script itself declared once the call returns (verified
-against the rhai 1.24 source, not just observed behavior). The scope
-persists only as a place the *engine* writes into directly, from outside
-the call, between calls — timers are the one example today (`__timer_*`
-variables, set via `Scope::set_value` from `apply_ctx`, never by a
-script's own `let`).
+against the rhai 1.24 source, not just observed behavior).
+
+**Corrected again, Phase 6 Step 9** (docs/ember2d-phase6-plan.md): this
+section used to go on to say the scope persists as a place the *engine*
+writes into directly between calls, with timers as the one example
+(`__timer_*` variables, set via `Scope::set_value` from `apply_ctx`). That
+stopped being true the moment Step 9 gave timers their own store —
+`ScriptEngine.timers`, keyed by entity id directly, never smuggled through
+Rhai `Scope` variables at all. Nothing writes into an entity's `Scope`
+between calls anymore; it is currently dead state, kept alive only for
+hot-reload/despawn bookkeeping (R22, docs/ember2d-master-plan.md §3.2,
+scheduled for cleanup in step 7.5-10).
 
 Any per-entity value a script itself needs to remember across calls must
 go through `ctx.set_global`/`get_global` (level-scoped — resets on every
@@ -102,12 +109,30 @@ Colours are **name strings** (`"Red"`, `"Reset"`) or an explicit `"#RRGGBB"` hex
 ### Entity lifecycle
 `spawn_entity(glyph,x,y,tag)` → id · `despawn(id)`
 
-> `spawn_entity` hardcodes white / z=2 / 1×1 trigger collider (defect D10). Phase 1 adds parameters.
+> **Defect D10, fixed in Phase 1** (docs/ember2d-refactor-plan.md §3): this
+> 4-arg overload used to hardcode every appearance/collider detail
+> regardless of what the script asked for. It's now deliberately kept as a
+> convenience default (white glyph, z-order 2, a 1×1 non-solid trigger with
+> no layer) — existing scripts calling it see no behavior change — with a
+> second, extended overload for everything else:
+>
+> `spawn_entity(glyph,x,y,tag,fg,bg,z,solid,w,h,layer)` → id — same Rhai
+> name, picked by argument count. `fg`/`bg` are color names/hex exactly
+> like `set_tint`; `z` is draw order; `solid` marks a physical obstacle
+> rather than a trigger; `w`/`h` are the collider size; `layer` is the
+> collision layer name (empty = unlabeled, matching the trigger-layer
+> default from defect D4).
 
 ### Colliders
-`get_collider_w(id)` · `get_collider_h(id)` · `set_collider_size(id,w,h)` · `is_collider_solid(id)` · `set_collider_solid(id,bool)` · `get_collider_layer(id)` · `set_collider_layer(id,name)` · `get_collider_mask(id)` · `set_collider_mask(id,array)`
+`get_collider_w(id)` · `get_collider_h(id)` · `set_collider_size(id,w,h)` · `is_collider_solid(id)` · `set_collider_solid(id,bool)` · `get_collider_layer(id)` · `set_collider_layer(id,name)` · `get_collider_mask(id)` · `set_collider_mask(id,array)` · `is_collider_locked(id)` · `set_collider_locked(id,bool)`
 
 An empty mask means "collide with everything".
+
+`is_collider_locked`/`set_collider_locked` are a real flag, not a layer
+name (defect D12, docs/ember2d-refactor-plan.md §3) — an exit trigger
+checks this to gate a level transition (a locked door/stairs still detects
+overlap normally, it just doesn't fire). Independent of layer/mask
+filtering entirely; `false` by default.
 
 > **Layer/mask names resolve to a bitmask internally (Phase 6 Step 7,
 > docs/ember2d-phase6-plan.md), with no script-facing API change** —
@@ -371,7 +396,14 @@ engine-owned state now, not smuggled through each entity's Rhai `Scope` as
 ### Randomness
 `random_int(min,max)` inclusive · `random_float()` · `random_bool(chance)` · `random_choice(array)`
 
-> **Defect D3:** seeded from system entropy, so nothing is reproducible. Phase 1 moves the seed into the world.
+> **Defect D3, fixed in Phase 1** (docs/ember2d-refactor-plan.md §3): used to
+> seed from system entropy on every run, so nothing was reproducible. Now
+> seeded once from the level's own stored `seed` field — the same seed
+> reused for the level's whole lifetime, so a replay with identical inputs
+> reproduces identical `random_*` results. **7A-1** (docs/ember2d-master-plan.md
+> §5.1) additionally guards `random_int`'s argument order (a reversed
+> `min`/`max` used to panic) and `random_bool`'s chance against non-finite
+> input (a `NaN` used to panic).
 
 ### HUD
 `draw_hud(x,y,text,fg,bg)` · `draw_box(x,y,w,h,fg,bg)` · `fill_rect(x,y,w,h,ch,fg,bg)` · `draw_panel(x,y,w,h,title,fg,bg)` · `draw_menu(x,y,w,options,selected,fg,bg,sel_fg,sel_bg)` · `clear_hud()`
@@ -444,7 +476,7 @@ fn on_update(id, ctx) {
 
 **Naming.** `get_*` reads, `set_*` writes (deferred), `is_*`/`has_*` return bool, `find_*` returns an id or -1, array returns are `[]` on failure.
 
-**Failure is quiet.** Setters on missing entities do nothing; getters return zero values. A script error should disable that script, not kill the game — currently it only suppresses the log (defect D9).
+**Failure is quiet.** Setters on missing entities do nothing; getters return zero values. A script error disables that script rather than killing the game — **defect D9, fixed in Phase 1** (docs/ember2d-refactor-plan.md §3): a runtime error used to only suppress its own repeated log message while the script kept being called (and kept failing) every frame; now the script stops being invoked at all until it hot-reloads successfully.
 
 **Sentinels.** `-1` means "no entity". Never `0` — that's the reserved null id.
 
