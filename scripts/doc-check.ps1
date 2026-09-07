@@ -56,8 +56,11 @@ if (-not $apiMatch) {
 }
 
 # --- Registered script function count ---
-$engineRsPath = Join-Path $root "ember2d-sim/src/scripting/engine.rs"
-$actualFnCount = (Select-String -Path $engineRsPath -Pattern "register_fn").Count
+# 7A-10 (docs/ember2d-master-plan.md par.5.1, R43): the register_fn calls
+# moved out of engine.rs into registry.rs (engine.rs was over CLAUDE.md's
+# 750-line hard limit after 7A-9's cargo fmt pass) - this path follows them.
+$registryRsPath = Join-Path $root "ember2d-sim/src/scripting/registry.rs"
+$actualFnCount = (Select-String -Path $registryRsPath -Pattern "register_fn").Count
 if ($claudeMd -notmatch "$actualFnCount registered functions") {
     $failures += "CLAUDE.md's quoted registered-function count doesn't match engine.rs's actual count (grep -c register_fn = $actualFnCount)"
 }
