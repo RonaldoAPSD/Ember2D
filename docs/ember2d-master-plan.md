@@ -653,7 +653,7 @@ testable, and mostly one-file. Expected size: eight commits.
   unchanged, exactly as this step's own Change list asks — left for 7A-7,
   not an oversight.
 
-#### `[x]` 7A-7 — Restore CI
+#### `[x]` 7A-7 — Restore CI (`66fcd2b`, `7f6fe36`)
 
 - **Why:** R37. The determinism programme has never run on a non-Windows
   machine.
@@ -696,7 +696,7 @@ testable, and mostly one-file. Expected size: eight commits.
   `v0.5.7a` run link both wait on the account's billing lock being cleared
   (`github.com/settings/billing`), which is outside this session's reach.
 
-#### `[x]` 7A-8 — Hygiene (`8c9a72c`, `1e6080f`, `8a70e14`)
+#### `[x]` 7A-8 — Hygiene (`8c9a72c`, `1e6080f`, `8a70e14`, `0e126c1`)
 
 - **Why:** R38–R40 and small debts.
 - **Change:** ~~split `play.rs` (move HUD dispatch + debug overlay into
@@ -743,9 +743,15 @@ testable, and mostly one-file. Expected size: eight commits.
   and 2) were left alone — not named in this step's Change list, which
   scopes the fix to `ember2d-sim`/`ember2d-editor` specifically; recorded
   in §9's clippy count rather than silently fixed, per "don't
-  opportunistically refactor". Workspace clippy warnings: 133 → 61 (§9).
-  Full workspace test suite and `scripts/check.ps1` both verified green
-  after every commit, not just the last.
+  opportunistically refactor". Workspace clippy warnings: 133 → 61 (§9,
+  `cargo clippy --workspace --all-targets` at `--lib`-only scope). A
+  closing-pass re-run with `--all-targets` found `ember2d-sim`'s own test
+  target carries 3 more auto-fixable suggestions beyond its lib's 13 (test
+  code the original `cargo clippy --fix --lib` pass never touched) —
+  left alone, same "don't opportunistically refactor" reasoning, not
+  hidden: noted here rather than silently absent from the count. Full
+  workspace test suite and `scripts/check.ps1` both verified green after
+  every commit, not just the last.
 
 #### `[ ]` 7A-9 — rustfmt decision
 
