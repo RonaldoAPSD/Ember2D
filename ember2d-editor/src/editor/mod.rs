@@ -288,6 +288,24 @@ impl EditorState {
         Ok(editor)
     }
 
+    /// R45 (7A-12, docs/ember2d-master-plan.md §5.1): `EditorState::load`
+    /// alone (used directly by `ember2d-app/src/main.rs`'s `--editor
+    /// <path>` CLI branch) never sets `project_folder` — only
+    /// `new_from_result` did, for the start-screen "Open Project" flow,
+    /// by setting the field and calling `load_palette`/
+    /// `refresh_project_files` itself afterward. A level opened via the
+    /// direct CLI path loaded and rendered fine, but the Files panel
+    /// showed "(empty folder)" and creating a new script silently did
+    /// nothing (`impl_state/mod.rs`'s new-script/save-script paths both
+    /// require `project_folder` to be `Some`). `pub` (not `pub(super)`,
+    /// unlike `load_palette`/`refresh_project_files` themselves) so
+    /// `ember2d-app`, a different crate, can call it after `load`/`new`.
+    pub fn open_project_folder(&mut self, folder: String) {
+        self.project_folder = Some(folder);
+        self.load_palette();
+        self.refresh_project_files();
+    }
+
     pub(super) fn load_palette(&mut self) {
         if let Some(ref folder) = self.project_folder {
             let path = format!("{}/project.palette.ron", folder);

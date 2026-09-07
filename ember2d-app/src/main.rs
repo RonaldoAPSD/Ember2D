@@ -27,7 +27,7 @@ fn main() -> io::Result<()> {
         }
 
         if editor_mode {
-            let editor = if path.is_empty() {
+            let mut editor = if path.is_empty() {
                 EditorState::new("")
             } else {
                 match EditorState::load(&path) {
@@ -52,6 +52,14 @@ fn main() -> io::Result<()> {
                 }
                 play_gameplay_loop = proj.gameplay_loop;
                 pixels_per_unit = proj.pixels_per_unit;
+                editor.project_name = Some(proj.name);
+            }
+            // R45 (7A-12, docs/ember2d-master-plan.md §5.1): without this,
+            // a level opened via `--editor path/to.level` rendered fine but
+            // the Files panel showed "(empty folder)" and New Script did
+            // nothing — see `open_project_folder`'s own doc comment.
+            if !path.is_empty() {
+                editor.open_project_folder(project_dir.to_string_lossy().into_owned());
             }
             run_editor_app(&mut engine, editor, play_gameplay_loop, pixels_per_unit)?;
         } else if !path.is_empty() {

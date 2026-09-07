@@ -63,6 +63,45 @@ fn graph_migrates_to_a_sidecar_script_and_never_appears_in_saved_output() {
     let _ = std::fs::remove_file(&sidecar_path);
 }
 
+// ── R45 (7A-12, docs/ember2d-master-plan.md §5.1) ──────────────────────
+//
+// `EditorState::open_project_folder` is what `ember2d-app/src/main.rs`'s
+// `--editor <path>` CLI branch calls to fix up `project_folder` after
+// `EditorState::load` — before this, the Files panel showed an empty
+// folder and New Script silently did nothing for a level opened this way.
+
+#[test]
+fn open_project_folder_populates_the_file_browser_from_a_real_directory() {
+    // Scoped by process id (7A-8), same convention as the graph-sidecar
+    // test above, so two `cargo test` processes never collide.
+    let dir = std::env::temp_dir()
+        .join(format!("ember2d-{}", std::process::id()))
+        .join("open_project_folder");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+    std::fs::write(dir.join("level.level"), "").expect("test level file must be writable");
+    std::fs::write(dir.join("script.rhai"), "").expect("test script file must be writable");
+
+    let mut editor = EditorState::new("");
+    assert!(editor.project_folder.is_none(), "a bare EditorState::new must not already have one");
+
+    editor.open_project_folder(dir.to_string_lossy().into_owned());
+
+    assert_eq!(editor.project_folder.as_deref(), Some(dir.to_string_lossy().as_ref()));
+    assert!(
+        editor.file_browser_files.iter().any(|f| f.contains("level.level")),
+        "the level file must show up in the file browser: {:?}",
+        editor.file_browser_files
+    );
+    assert!(
+        editor.file_browser_files.iter().any(|f| f.contains("script.rhai")),
+        "the script file must show up in the file browser: {:?}",
+        editor.file_browser_files
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // ── Undo batching (Phase 7 Part 1f, docs/ember2d-phase7-plan.md) ───────
 //
 // Every multi-cell editor operation must collapse into exactly one
