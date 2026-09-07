@@ -1,5 +1,5 @@
 (
-    version: 2,
+    version: 3,
     name: "Floor 2",
     width: 80,
     height: 32,
@@ -28300,4 +28300,7 @@
         layer: 15,
     ),
     seed: 15794210,
+    collision_layers: [
+        "solid",
+    ],
 )

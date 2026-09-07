@@ -1,5 +1,5 @@
 (
-    version: 2,
+    version: 3,
     name: "Victory!",
     width: 20,
     height: 10,
@@ -2222,4 +2222,7 @@
         layer: 15,
     ),
     seed: 15794212,
+    collision_layers: [
+        "solid",
+    ],
 )

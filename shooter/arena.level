@@ -1,5 +1,5 @@
 (
-    version: 2,
+    version: 3,
     name: "Arena",
     width: 80,
     height: 24,
@@ -3807,4 +3807,7 @@
         layer: 15,
     ),
     seed: 5507042,
+    collision_layers: [
+        "solid",
+    ],
 )

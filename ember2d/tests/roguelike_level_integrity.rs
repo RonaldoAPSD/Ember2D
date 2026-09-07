@@ -5,6 +5,7 @@
 // on what examples/gen_roguelike.rs produces.
 
 use ember2d::prelude::*;
+use ember2d_sim::level::LEVEL_FORMAT_VERSION;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
@@ -30,6 +31,19 @@ fn every_level_has_a_pinned_nonzero_seed() {
     for path in LEVELS {
         let data = LevelData::load(path).unwrap_or_else(|e| panic!("load {}: {}", path, e));
         assert_ne!(data.seed, 0, "{}: seed must be pinned by the generator, not the pre-seed-field default", path);
+    }
+}
+
+#[test]
+fn every_level_is_the_current_format_version_with_collision_layers() {
+    // R8 (7A-4, docs/ember2d-master-plan.md): the shipped levels lagged
+    // LEVEL_FORMAT_VERSION for a while (v2 on disk, v3 in code) with
+    // nothing catching the drift — pins that a regeneration keeps them
+    // matched going forward.
+    for path in LEVELS {
+        let data = LevelData::load(path).unwrap_or_else(|e| panic!("load {}: {}", path, e));
+        assert_eq!(data.version, LEVEL_FORMAT_VERSION, "{}: shipped level must be regenerated to the current format version", path);
+        assert!(!data.collision_layers.is_empty(), "{}: collision_layers must not be empty", path);
     }
 }
 

@@ -445,6 +445,61 @@ impl LevelData {
         let mut level: LevelData = ron::de::from_str(&content)?;
         level.path = path.to_string();
 
+        // R8 (7A-4, docs/ember2d-master-plan.md): a level from an OLDER
+        // engine is the direction every field addition already handles —
+        // each new field is `#[serde(default...)]`, so it just loads with
+        // whatever default reproduces the pre-that-step behavior (see e.g.
+        // `collision_layers`'s own doc comment). A level from a NEWER
+        // engine is the unhandled direction: it could carry fields, or field
+        // *meanings*, this build has never heard of, and loading it anyway
+        // would silently misbehave instead of failing loudly. Not logged
+        // for the older-format case: this crate has no `eprintln!`/log-sink
+        // of its own (CLAUDE.md's Determinism section forbids adding one) —
+        // a caller that cares can compare `level.version` against
+        // `LEVEL_FORMAT_VERSION` itself, same as this check does.
+        if level.version > LEVEL_FORMAT_VERSION {
+            return Err(format!(
+                "level '{}' was saved by a newer engine (format version {}, this engine supports up to {})",
+                path, level.version, LEVEL_FORMAT_VERSION
+            ).into());
+        }
+
         Ok(level)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Both tests below write to their own file under a shared temp dir —
+    /// `LevelData::load` needs a real path on disk, not just a RON string
+    /// (unlike most of this crate's (de)serialization tests), since the
+    /// version check runs as part of `load` itself, not `ron::de::from_str`.
+    fn write_temp_level(name: &str, ron: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join("ember2d_test_level_version");
+        std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+        let path = dir.join(name);
+        std::fs::write(&path, ron).expect("write temp level");
+        path
+    }
+
+    // ── Tests: R8 (7A-4, docs/ember2d-master-plan.md) ───────────────────────
+
+    #[test]
+    fn a_level_saved_by_a_newer_engine_fails_to_load_with_a_clear_message() {
+        let path = write_temp_level("newer.level", "(version: 99, name: \"x\", width: 4, height: 4, spawn_point: (1.0, 1.0), tiles: [])");
+        let err = LevelData::load(path.to_str().unwrap()).expect_err("a level from a newer format version must fail to load, not silently misbehave");
+        let msg = err.to_string();
+        assert!(msg.contains("newer engine"), "error message must explain why, got: {}", msg);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_version_2_level_loads_with_collision_layers_defaulted() {
+        let path = write_temp_level("v2.level", "(version: 2, name: \"x\", width: 4, height: 4, spawn_point: (1.0, 1.0), tiles: [])");
+        let level = LevelData::load(path.to_str().unwrap()).expect("an older-format level must still load");
+        assert_eq!(level.collision_layers, vec!["solid".to_string()], "a version-2 level predates collision_layers entirely — it must default to the one layer name pre-Step-7 levels actually used");
+        let _ = std::fs::remove_file(&path);
     }
 }

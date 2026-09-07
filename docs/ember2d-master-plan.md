@@ -180,7 +180,7 @@ Cargo workspace, four crates, one bin target (`ember2d-app`, binary name
 | rustfmt | not applied (1,397 diff hunks) | `cargo fmt --check` |
 | floor2 p50 ms/step | 1.817 ms (release) | `cargo run --release -p ember2d-sim --example bench_sim` |
 | floor2 allocs/step | 6,598 | same |
-| `LEVEL_FORMAT_VERSION` | 3 (shipped levels still say 2) | `ember2d-sim/src/level.rs:298` |
+| `LEVEL_FORMAT_VERSION` | 3 (shipped levels regenerated to v3 as of 7A-4) | `ember2d-sim/src/level.rs:298` |
 | `API_VERSION` | 6 | `ember2d-sim/src/scripting/types.rs:25` |
 | Registered script functions | 123 | `grep -c register_fn` |
 | Files over 600 lines | 1 (`ember2d/src/play.rs`, 607) | `scripts/check.ps1` once it exists |
@@ -238,7 +238,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R6 | S1 | NaN position → inconsistent comparator in collision sort → panic | `world.rs:271-273` | `[x]` 7A-1 — `total_cmp`; `set_position` also rejects non-finite input at the source |
 | **Data integrity** | | | | |
 | R7 | S1 | Save-load never rebuilds `exit_targets`; stairs dead after load. `turn_number` and scheduler due times not saved | `simulation.rs:177, 273-288, 429`; `spawn.rs:86` | `[x]` 7A-3 — `index_exits` (pure function of `self.level`) called on both branches; `SaveState` gains `turn_number`/`scheduler`; `TurnScheduler::snapshot`/`restore` replace an unconditional `rebuild_scheduler` on load |
-| R8 | S2 | Shipped levels are format v2, code is v3; loader never checks `version` | `level.rs:298, 439`; `roguelike/*.level` | `[ ]` → 7A-4 |
+| R8 | S2 | Shipped levels are format v2, code is v3; loader never checks `version` | `level.rs:298, 439`; `roguelike/*.level` | `[x]` 7A-4 — `LevelData::load` rejects `version > LEVEL_FORMAT_VERSION`; every shipped level regenerated to v3 |
 | R9 | S2 | `clear_all_persistent` clears the pending queue, not the store — a no-op | `api.rs:313` | `[x]` 7A-1 — request-a-clear flag on `ScriptState`, applied to the real store in `apply_ctx` |
 | R10 | S3 | `set_tag`/`play_clip` on a missing id create ghost components | `apply.rs:64, 88` | `[x]` 7A-1 — both guarded with `world.transforms.contains_key` |
 | **Editor stability** | | | | |
@@ -541,7 +541,7 @@ testable, and mostly one-file. Expected size: eight commits.
   blocked). All results above are from per-package runs once isolated;
   worth knowing if a future session hits the same thing.
 
-#### `[ ]` 7A-4 — Level format: regenerate, validate, and version-check
+#### `[x]` 7A-4 — Level format: regenerate, validate, and version-check (`a3ac260`)
 
 - **Why:** R8.
 - **Change:** `LevelData::load` returns `Err` if `version >
@@ -555,6 +555,23 @@ testable, and mostly one-file. Expected size: eight commits.
 - **Done when:** every shipped `.level` says `version: 3` and carries
   `collision_layers`.
 - **Scope:** `ember2d-sim`, `roguelike/`, `shooter/`.
+- **Landed as:** the "logs when `version < LEVEL_FORMAT_VERSION`" half of
+  the Change list is NOT implemented as a print/log call — `ember2d-sim`
+  has no `eprintln!`/log-sink of its own to write to, and adding one would
+  violate CLAUDE.md's Determinism section (the exact rule 7A-1/7A-5/7.5-9
+  are collectively about not adding more of). No test asked for an actual
+  logged message either — only that an older-format level still loads
+  correctly, which `#[serde(default...)]` already guaranteed before this
+  step. A caller that wants to notice can compare `level.version` against
+  `LEVEL_FORMAT_VERSION` itself. Regenerating produced a byte-identical
+  diff beyond the version bump and the new `collision_layers` block for
+  every level (`roguelike/*.level`, `shooter/arena.level`) and a
+  byte-for-byte unchanged `project.ron` in both projects — full
+  reproducibility confirmed, not just "it ran." Also discarded, per
+  explicit direction: an in-progress, uncommitted editor save of
+  `shooter/arena.level` (from manual 7A-2 testing) that had dropped the
+  "director" tile entirely — `git checkout --` before this step touched
+  anything, not part of this step's own diff.
 
 #### `[ ]` 7A-5 — Presentation stops touching sim state
 
