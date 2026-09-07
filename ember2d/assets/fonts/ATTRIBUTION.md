@@ -6,12 +6,14 @@ machine's own Windows installation (`C:\Windows\Fonts\CascadiaMono.ttf` —
 it ships with Windows Terminal / VS Code).
 
 **License: SIL Open Font License, Version 1.1** — the OFL is specifically
-designed to permit bundling a font with software. The full canonical
-license text lives at https://scripts.sil.org/OFL and in the upstream
-repo's `LICENSE` file; it is not reproduced here verbatim because it
-wasn't available locally to copy byte-for-byte at the time this file was
-added — fetch and include the exact upstream text before this project (or
-this asset specifically) is ever redistributed outside local development.
+designed to permit bundling a font with software. The exact upstream text
+(including the "Copyright (c) 2019 - Present, Microsoft Corporation, with
+Reserved Font Name Cascadia Code" notice and Reserved Font Name clause) is
+bundled verbatim at `ember2d/assets/fonts/OFL.txt` (7A-8,
+docs/ember2d-master-plan.md §5.1, R39), copied byte-for-byte from
+`github.com/microsoft/cascadia-code`'s own `LICENSE` file. The canonical
+license text (with no font-specific copyright notice) also lives at
+https://scripts.sil.org/OFL.
 
 Used as Phase 7 Part 2's (docs/ember2d-phase7-plan.md) test/placeholder
 TTF for `TtfFont` — monospace, so its glyph metrics are easy to reason

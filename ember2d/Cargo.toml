@@ -2,9 +2,11 @@
 # devices, audio, and play-mode orchestration on top of `ember2d-sim`.
 
 [package]
-name    = "ember2d"
-version = "0.5.0"
-edition = "2021"
+name       = "ember2d"
+version    = "0.5.0"
+edition    = "2021"
+license    = "Apache-2.0"
+repository = "https://github.com/RonaldoAPSD/Ember2D"
 
 [dependencies]
 ember2d-sim = { path = "../ember2d-sim" }

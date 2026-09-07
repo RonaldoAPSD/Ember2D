@@ -14,9 +14,11 @@
 # package name was already taken by the library crate).
 
 [package]
-name    = "ember2d-app"
-version = "0.5.0"
-edition = "2021"
+name       = "ember2d-app"
+version    = "0.5.0"
+edition    = "2021"
+license    = "Apache-2.0"
+repository = "https://github.com/RonaldoAPSD/Ember2D"
 
 [[bin]]
 name = "ember2d"

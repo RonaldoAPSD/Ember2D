@@ -6,9 +6,11 @@
 # with a dependency tree this short is the actual proof.
 
 [package]
-name    = "ember2d-sim"
-version = "0.5.0"
-edition = "2021"
+name       = "ember2d-sim"
+version    = "0.5.0"
+edition    = "2021"
+license    = "Apache-2.0"
+repository = "https://github.com/RonaldoAPSD/Ember2D"
 
 [dependencies]
 # serde: derives (De)Serialize on every sim-side data type — components,
