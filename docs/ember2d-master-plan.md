@@ -1275,7 +1275,7 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
 
 **Checklist sections at gate:** §3–§10.
 
-#### `[ ]` 7C-1 — `UiFrame` registration becomes mandatory
+#### `[~]` 7C-1 — `UiFrame` registration becomes mandatory
 
 - **Why:** E5 is fixed for one widget class and alive in eight others because
   registration is opt-in.
@@ -1295,6 +1295,29 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
 - **Done when:** `grep -rn "fn on_.*_btn\|fn hit_" ember2d-editor/src`
   returns only `UiFrame::hit`.
 - **Scope:** `ember2d-editor`.
+- **Investigation note (no code written yet):** mapped every site the
+  Done-when's own grep check actually requires, and it's more than the
+  Change list's own 8 names. `StartScreen` has FIVE independent hit-test
+  functions of its own (`start_screen/drawing.rs`: `hit_test`,
+  `menu_item_hit`, `folder_item_hit`, `browser_item_hit`,
+  `template_item_hit`) — the Change list's one-line "start screen" bullet
+  undersold this; `StartScreen` doesn't even have a `UiFrame` field yet
+  (only `EditorState` does), so that's new plumbing, not a migration. Real
+  count: 13 raw hit-test sites, not 8, across two separate top-level
+  states. Confirmed with the user: full step, one commit, matching the
+  plan's own literal Done-when — not split into sub-steps. Traced every
+  site's exact draw+input pair (confirm modal: `modal.rs`/`chrome.rs`
+  `draw_confirm_modal`; color picker + palette editor modal:
+  `ui/panels/modals.rs`, no input handler found yet for the color
+  picker specifically — needs locating; context menu: `chrome.rs`
+  `draw_context_menu`/`input/context_menu.rs`; graph palette:
+  `graph_ui.rs::draw_palette`/`input/graph.rs`; hierarchy:
+  `ui/panels/dock.rs::draw_hierarchy`/`input/panels/hierarchy_and_palette.rs`;
+  file browser: `dock.rs::draw_file_browser_panel`/
+  `input/panels/file_and_script.rs`). `ui/panels/dock.rs::draw_palette_panel`
+  and `ui/panels/chrome.rs::draw_dock_tabs` are the two existing
+  already-migrated widgets to pattern-match the new `ui/widgets.rs`
+  helpers against. Implementation starts next session.
 
 #### `[ ]` 7C-2 — No cell literals below `Panel.rect`
 
