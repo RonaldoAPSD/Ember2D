@@ -275,7 +275,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R35 | S3 | `is_collider_locked`/`set_collider_locked` and the 11-arg `spawn_entity` registered but undocumented; API doc says D3/D9 unfixed and timers are scope variables | `ember2d-scripting-api.md` | `[x]` 7A-6 — both documented; D3/D9 marked fixed; §2's "Per-entity scope" timer example rewritten to match Step 9 (nothing writes into scope between calls anymore, R22) |
 | R36 | S3 | HANDOFF/CLAUDE.md/checklist/index.html contradict the tree (test counts, format version, Phase 7 status, CI) | `docs/`, `index.html` | `[x]` 7A-6 — `index.html` already gone (pre-session); CLAUDE.md's format version/function count fixed and its "Current State" narrative replaced with a pointer to §2; checklist's test-count header and §14's defect table replaced with pointers; CI text (§15/§17) deliberately left for 7A-7 per this step's own Change list |
 | **Process** | | | | |
-| R37 | S2 | CI deleted; no cross-platform determinism check exists | `.github/` | `[x]` 7A-7 — `.github/workflows/ci.yml` recreated (`windows-latest`+`ubuntu-latest`, see 7A-7's "Landed as" note); CI-green link still pending a push |
+| R37 | S2 | CI deleted; no cross-platform determinism check exists | `.github/` | `[x]` 7A-7 — `.github/workflows/ci.yml` recreated (`windows-latest`+`ubuntu-latest`, see 7A-7's "Landed as" note); pushed but blocked by an account billing lock, not a workflow defect — CI-green link still pending that being cleared |
 | R38 | S4 | `play.rs` 607 lines (limit 600); `panel/mod.rs` 597 | `ember2d/src/play.rs` | `[x]` moot — the limit itself rose to 750 (§0.4, 2026-09-06, by user direction) after 7A-5 had already pulled `play.rs` back to exactly 600 (debug overlay + HUD-draw dispatch moved to `play/render.rs`); `panel/mod.rs` (597) was never over either limit. No file in the codebase is within 100 lines of 750 as of this row. |
 | R39 | S4 | LICENSE placeholder; no `license`/`repository` in manifests; OFL text not bundled | `LICENSE`, `*/Cargo.toml` | `[ ]` → 7A-8 |
 | R40 | S4 | No tags; `main` 26 commits behind; version 0.5.0 meaningless | git | `[ ]` → 7A-8, §9 |
@@ -685,10 +685,16 @@ testable, and mostly one-file. Expected size: eight commits.
   validated instead by running every command the workflow specifies locally
   (`cargo build --workspace --examples`, `cargo test --workspace`, the 3×
   replay loop, both `check.ps1` and `check.sh`) and by careful manual
-  re-reading of the YAML structure; actual CI-green confirmation on both
-  OSes still requires a push, recorded here once that happens (§9's
-  `v0.5.7a` row gets the run link at the Phase 7A gate, not per-step, since
-  §9 tracks CI runs per phase tag).
+  re-reading of the YAML structure. Pushed at `66fcd2b`: both matrix jobs
+  failed, but with the exact contingency this step's own Change list
+  anticipated — neither job started at all (`.github`, line 1: "The job was
+  not started because your account is locked due to a billing issue"), the
+  same failure two pre-session runs on 2026-09-06 already hit before this
+  step existed. Not a workflow-syntax defect — confirmed via the GitHub API
+  (`check-runs`/annotations), not the Actions log UI. The workflow file
+  itself is otherwise unverified by an actual green run; that and §9's
+  `v0.5.7a` run link both wait on the account's billing lock being cleared
+  (`github.com/settings/billing`), which is outside this session's reach.
 
 #### `[ ]` 7A-8 — Hygiene
 
