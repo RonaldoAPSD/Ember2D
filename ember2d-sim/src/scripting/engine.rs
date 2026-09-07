@@ -98,6 +98,16 @@ impl ScriptEngine {
     /// determinism §5 needs for netcode later.
     pub fn new(seed: u64, layers: crate::layers::LayerRegistry) -> Self {
         let mut engine = Engine::new();
+        // R1 (7A-1, docs/ember2d-master-plan.md): an unbounded script
+        // (`loop {}`, or any accidental infinite loop) used to hang this
+        // thread forever — nothing here capped how long a single call into
+        // Rhai could run. 2,000,000 is a generous budget (floor2's full
+        // on_turn pass measures far under this via bench_sim); a script
+        // that exceeds it gets Rhai's own `ErrorTooManyOperations`, which
+        // every `run_*` call site below already treats like any other
+        // runtime error (not `is_missing_optional_fn`, so it logs and
+        // disables the script) — no separate handling needed here.
+        engine.set_max_operations(2_000_000);
         engine.register_type_with_name::<ScriptCtx>("Ctx");
         engine.register_fn("get_x",           ScriptCtx::get_x);
         engine.register_fn("get_y",           ScriptCtx::get_y);
@@ -571,3 +581,11 @@ mod tests;
 #[cfg(test)]
 #[path = "timer_tests.rs"]
 mod timer_tests;
+
+// 7A-1 (docs/ember2d-master-plan.md §5.1): safety-regression coverage split
+// into its own sibling file rather than appended to engine_tests.rs — see
+// safety_tests.rs's own header comment for why (same 600-line reasoning
+// timer_tests.rs's own header comment gives).
+#[cfg(test)]
+#[path = "safety_tests.rs"]
+mod safety_tests;

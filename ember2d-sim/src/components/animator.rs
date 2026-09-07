@@ -74,6 +74,21 @@ impl Animator {
         let looping = clip.looping && !self.oneshot;
         self.elapsed += delta_time * self.speed;
         let frame_duration = 1.0 / clip.fps;
+        // R5 (7A-1, docs/ember2d-master-plan.md): at an extreme `speed`
+        // (`apply.rs` clamps scripted `set_clip_speed` to 0.0..=64.0, but
+        // this is a second, independent guard — the clamp only stops a
+        // *scripted* speed from getting this large, not any other caller),
+        // `elapsed` can outgrow `frame_duration` by enough orders of
+        // magnitude that `elapsed -= frame_duration` loses all precision
+        // and stops changing `elapsed` at all — the `while` below then
+        // never terminates. Collapsing with `%` first whenever `elapsed`
+        // has grown past four full cycles of the clip makes the remaining
+        // `elapsed` provably smaller than `frame_duration * frame_count`,
+        // which bounds the loop below at `frame_count` iterations at most.
+        let runaway_bound = frame_duration * frame_count as f32 * 4.0;
+        if self.elapsed > runaway_bound {
+            self.elapsed %= frame_duration;
+        }
         while self.elapsed >= frame_duration {
             self.elapsed -= frame_duration;
             self.frame += 1;

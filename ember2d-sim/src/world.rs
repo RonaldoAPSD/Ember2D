@@ -268,9 +268,17 @@ impl World {
             })
             .collect();
 
-        collidables.sort_unstable_by(|a, b| {
-            a.1.x.partial_cmp(&b.1.x).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        // R6 (7A-1, docs/ember2d-master-plan.md) / CLAUDE.md's determinism
+        // rule: `partial_cmp(..).unwrap_or(Equal)` treats every NaN
+        // comparison as "equal" to everything, including values that are
+        // NOT equal to each other — an inconsistent ordering that broke
+        // `sort_unstable_by`'s own invariants (a NaN position reaches here
+        // if a script's own bad math, e.g. `0.0 / 0.0`, ever got past
+        // `set_position`'s guard — see that method's own R6 comment for the
+        // fix at the source). `total_cmp` is a genuine total order over
+        // every `f32` bit pattern, NaN included, so the sort never sees an
+        // inconsistent comparison in the first place.
+        collidables.sort_unstable_by(|a, b| a.1.x.total_cmp(&b.1.x));
 
         let mut hits: Vec<(EntityId, EntityId)> = Vec::new();
         for i in 0..collidables.len() {

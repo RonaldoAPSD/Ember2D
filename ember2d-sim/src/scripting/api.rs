@@ -146,7 +146,16 @@ impl ScriptCtx {
     pub fn get_elapsed(&mut self) -> f64 { self.inner.borrow_mut().elapsed as f64 }
 
     pub fn set_velocity(&mut self, id: i64, vx: f64, vy: f64) { self.inner.borrow_mut().pending_velocities.push((id, vx as f32, vy as f32)); }
-    pub fn set_position(&mut self, id: i64, x: f64, y: f64) { self.inner.borrow_mut().pending_positions.push((id, x as f32, y as f32)); }
+    /// R6 (7A-1): a non-finite position (NaN from a script's own bad math,
+    /// e.g. `0.0 / 0.0`) used to flow straight into `Transform.position`,
+    /// where it later broke `detect_collisions`'s sort (see that method's
+    /// own R6 comment). Rejecting it here — a no-op, same convention as a
+    /// setter targeting a missing entity — stops it at the boundary instead
+    /// of chasing it through every downstream consumer.
+    pub fn set_position(&mut self, id: i64, x: f64, y: f64) {
+        if !x.is_finite() || !y.is_finite() { return; }
+        self.inner.borrow_mut().pending_positions.push((id, x as f32, y as f32));
+    }
     pub fn set_glyph(&mut self, id: i64, glyph_str: String) {
         if let Some(ch) = glyph_str.chars().next() { self.inner.borrow_mut().pending_glyphs.push((id, ch)); }
     }
@@ -154,7 +163,25 @@ impl ScriptCtx {
     /// `parse_color` now also reads them, explicit `"#RRGGBB"` hex values —
     /// `color_to_name` already emits that format for `Color::Rgb`, so this
     /// is a read-side addition, not a new wire format.
-    pub fn set_tint(&mut self, id: i64, fg: String, bg: String) { self.inner.borrow_mut().pending_colors.push((id, fg, bg)); }
+    ///
+    /// R4 (7A-1): both channels are validated with `try_parse_color` before
+    /// queueing anything. A byte-sliced-non-ASCII hex string used to panic
+    /// here (`parse_color` indexed into the middle of a multi-byte
+    /// character); an unrecognized name or malformed hex now just leaves
+    /// the tint unchanged instead of silently overwriting it with `Reset` —
+    /// the same "setter given garbage is a no-op" convention `set_position`
+    /// above follows for a non-finite value. Logged once per distinct bad
+    /// string (`ScriptState::logged_bad_colors`) rather than every call, so
+    /// a script that repeats the same mistake every frame doesn't flood the
+    /// console.
+    pub fn set_tint(&mut self, id: i64, fg: String, bg: String) {
+        let fg_ok = try_parse_color(&fg).is_some();
+        let bg_ok = try_parse_color(&bg).is_some();
+        let mut s = self.inner.borrow_mut();
+        if !fg_ok { s.log_bad_color_once(&fg); }
+        if !bg_ok { s.log_bad_color_once(&bg); }
+        if fg_ok && bg_ok { s.pending_colors.push((id, fg, bg)); }
+    }
 
     pub fn set_texture(&mut self, id: i64, path: String) {
         let p = if path.is_empty() { None } else { Some(path) };
@@ -241,9 +268,24 @@ impl ScriptCtx {
     pub fn remove_global(&mut self, key: String) { self.inner.borrow_mut().pending_globals.insert(key, Dynamic::UNIT); }
 
     // 2. Randomness
-    pub fn random_int(&mut self, min: i64, max: i64) -> i64 { self.rng.borrow_mut().gen_range(min..=max) }
+    /// R2 (7A-1): `gen_range` panics on an empty range (`max < min`) —
+    /// swapping the bounds first means every argument order a script passes
+    /// produces a value, same as if it had asked correctly.
+    pub fn random_int(&mut self, min: i64, max: i64) -> i64 {
+        let (min, max) = if max < min { (max, min) } else { (min, max) };
+        self.rng.borrow_mut().gen_range(min..=max)
+    }
     pub fn random_float(&mut self) -> f64 { self.rng.borrow_mut().gen() }
-    pub fn random_bool(&mut self, chance: f64) -> bool { self.rng.borrow_mut().gen_bool(chance.clamp(0.0, 1.0)) }
+    /// R3 (7A-1): `chance.clamp(0.0, 1.0)` doesn't rescue a NaN `chance`
+    /// (comparisons against NaN are always false, so `clamp` returns it
+    /// unchanged) — `gen_bool` asserts its argument is in `0.0..=1.0` and
+    /// panics otherwise. Rejecting non-finite input before the clamp closes
+    /// that gap; `0.0` is the same "never" fallback `is_finite` guards use
+    /// elsewhere in this file (`set_position`).
+    pub fn random_bool(&mut self, chance: f64) -> bool {
+        let chance = if chance.is_finite() { chance.clamp(0.0, 1.0) } else { 0.0 };
+        self.rng.borrow_mut().gen_bool(chance)
+    }
     pub fn random_choice(&mut self, arr: Array) -> Dynamic {
         if arr.is_empty() { Dynamic::UNIT }
         else { arr[self.rng.borrow_mut().gen_range(0..arr.len())].clone() }
@@ -310,7 +352,19 @@ impl ScriptCtx {
     pub fn get_persistent(&mut self, key: String) -> Dynamic { self.inner.borrow_mut().persistent.get(&key).cloned().unwrap_or(Dynamic::UNIT) }
     pub fn has_persistent(&mut self, key: String) -> bool { self.inner.borrow_mut().persistent.contains_key(&key) }
     pub fn clear_persistent(&mut self, key: String) { self.inner.borrow_mut().pending_persistent.insert(key, Dynamic::UNIT); }
-    pub fn clear_all_persistent(&mut self) { self.inner.borrow_mut().pending_persistent.clear(); }
+    /// R9 (7A-1): this used to `.clear()` `pending_persistent` — the
+    /// not-yet-applied write *queue* for this pass, which is almost always
+    /// empty at the point a script calls this, not `persistent` itself (the
+    /// actual store, held on `ScriptState` and rebuilt fresh each pass from
+    /// `Simulation`'s copy — see that field's own doc comment). The net
+    /// effect was a no-op that silently discarded whatever this same pass
+    /// had already queued via `set_persistent`, while the store lived on
+    /// untouched. Fixed by requesting the clear on `ScriptState` instead —
+    /// `apply_ctx` clears the real store first, then applies any
+    /// `pending_persistent` writes this same pass queued on top (so
+    /// `clear_all_persistent(); set_persistent("x", 1);` in one pass leaves
+    /// exactly `x = 1`, not an empty store).
+    pub fn clear_all_persistent(&mut self) { self.inner.borrow_mut().pending_persistent_clear_all = true; }
 
     // 8. HUD / Draw Utilities
     pub fn draw_box(&mut self, x: i64, y: i64, w: i64, h: i64, fg: String, bg: String) {

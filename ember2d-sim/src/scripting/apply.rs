@@ -61,7 +61,14 @@ impl ScriptEngine {
         }
         for (id, v) in state.pending_visibility.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.visible = v; } }
         for (id, z) in state.pending_z_order.drain(..) { if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.layer = z; } }
-        for (id, t) in state.pending_tags.drain(..) { world.add_tag(id as EntityId, Tag::new(&t)); }
+        // R10 (7A-1, docs/ember2d-master-plan.md): `set_tag` on a missing
+        // entity used to insert into `world.tags` anyway — a "ghost" tag
+        // component with no `Transform`/`Sprite` behind it, invisible to
+        // `entity_ids()`'s union of every OTHER store but still sitting in
+        // this one. Guarded the same way `world.transforms.get_mut` already
+        // guards every other setter below: existence checked first, no-op
+        // if it's missing.
+        for (id, t) in state.pending_tags.drain(..) { if world.transforms.contains_key(&(id as EntityId)) { world.add_tag(id as EntityId, Tag::new(&t)); } }
         for (id, w, h) in state.pending_collider_size.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.width = w; col.height = h; } }
         for (id, s) in state.pending_collider_solid.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.solid = s; } }
         for (id, l) in state.pending_collider_layer.drain(..) { if let Some(col) = world.colliders.get_mut(&(id as EntityId)) { col.set_layer(&self.layers, l); } }
@@ -84,7 +91,12 @@ impl ScriptEngine {
         // name AND (re)start its Animator — the two used to be one call
         // (`set_animation`) before Step 3c split "what to show" from
         // "where playback is", so this is where they get reunited.
+        // R10 (7A-1): same ghost-component bug as `pending_tags` above,
+        // for `play_clip`/`play_clip_once` — `.entry(id).or_insert_with`
+        // would happily create an `Animator` for an entity with no other
+        // component at all.
         for (id, name, oneshot) in state.pending_play_clip.drain(..) {
+            if !world.transforms.contains_key(&(id as EntityId)) { continue; }
             let animator = world.animators.entry(id as EntityId).or_insert_with(|| Animator::new(name.clone()));
             animator.clip = name.clone();
             animator.frame = 0;
@@ -94,7 +106,11 @@ impl ScriptEngine {
             if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) { sp.source = SpriteSource::Clip { name }; }
         }
         for id in state.pending_stop_clip.drain(..) { if let Some(a) = world.animators.get_mut(&(id as EntityId)) { a.playing = false; } }
-        for (id, speed) in state.pending_clip_speed.drain(..) { if let Some(a) = world.animators.get_mut(&(id as EntityId)) { a.speed = speed; } }
+        // R5 (7A-1): clamped to a finite, bounded range before it ever
+        // reaches `Animator.speed` — `Animator::advance`'s own R5 comment
+        // covers the loop-bound half of this fix; this half stops an
+        // extreme scripted speed (or a NaN one) from getting there at all.
+        for (id, speed) in state.pending_clip_speed.drain(..) { if let Some(a) = world.animators.get_mut(&(id as EntityId)) { a.speed = if speed.is_finite() { speed.clamp(0.0, 64.0) } else { 0.0 }; } }
         for (id, frame) in state.pending_set_frame.drain(..) { if let Some(a) = world.animators.get_mut(&(id as EntityId)) { a.frame = frame; a.elapsed = 0.0; } }
         let clip_defs: Vec<(String, AnimationClip)> = state.pending_clip_defs.drain(..).collect();
         for (name, clip) in clip_defs { state.clips.insert(name, clip); }
@@ -110,6 +126,12 @@ impl ScriptEngine {
         let globals_to_apply: Vec<(String, rhai::Dynamic)> = std::mem::take(&mut state.pending_globals).into_iter().collect();
         for (k, v) in globals_to_apply { if v.is_unit() { state.globals.remove(&k); } else { state.globals.insert(k, v); } }
 
+        // R9 (7A-1): `clear_all_persistent`'s real effect now lands here —
+        // see `ScriptState::pending_persistent_clear_all`'s own doc comment
+        // for why this replaced clearing `pending_persistent` directly.
+        // Ordered before `pending_persistent` is applied so a same-pass
+        // `set_persistent` call after the clear still lands.
+        if state.pending_persistent_clear_all { state.persistent.clear(); state.pending_persistent_clear_all = false; }
         let persistent_to_apply: Vec<(String, rhai::Dynamic)> = std::mem::take(&mut state.pending_persistent).into_iter().collect();
         for (k, v) in persistent_to_apply { if v.is_unit() { state.persistent.remove(&k); } else { state.persistent.insert(k, v); } }
         // Phase 6 Step 9 (docs/ember2d-phase6-plan.md): writes straight into

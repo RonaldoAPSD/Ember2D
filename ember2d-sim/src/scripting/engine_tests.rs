@@ -6,7 +6,7 @@
 // with full access to engine.rs's private items via `use super::*`.
 
 use super::*;
-use crate::components::{Animator, Script, Sprite, SpriteSource};
+use crate::components::{Animator, Script, Sprite, SpriteSource, Transform};
 use crate::color::Color;
 
 /// The one-layer registry every test here that doesn't care about
@@ -413,6 +413,14 @@ fn pending_hud_draws_are_cleared_at_the_start_of_run_scripts_not_by_the_renderer
 /// a fresh world, and run one update pass — like `run_source`, but also
 /// hands back the driver entity's own id, which a script with no tag/sprite
 /// of its own (as the clip tests below need) has no other way to recover.
+///
+/// The driver gets a `Transform` (7A-1, docs/ember2d-master-plan.md §5.1) —
+/// every real spawned entity has one (`spawn_entity`/`spawn_entity_full`
+/// always add it first, apply.rs), and R10's ghost-entity fix in
+/// `apply_ctx` now uses `world.transforms.contains_key` as its "does this
+/// entity actually exist" check for `play_clip`, so a driver without one
+/// would (correctly, for a script targeting a truly nonexistent id) have
+/// its own `play_clip(id, ...)` call silently no-op.
 fn run_source_with_driver(name: &str, source: &str) -> (World, EntityId, Vec<LogEntry>) {
     let mut script = std::env::temp_dir();
     script.push(format!("ember2d_test_clip_{}.rhai", name));
@@ -425,6 +433,7 @@ fn run_source_with_driver(name: &str, source: &str) -> (World, EntityId, Vec<Log
 
     let mut world = World::new();
     let driver = world.spawn();
+    world.add_transform(driver, Transform::new(0.0, 0.0));
     world.add_script(driver, Script::new(&path));
 
     run_scripts_once(&mut engine, &mut world, &mut log);

@@ -6,7 +6,7 @@
 // 600-line hard limit (CLAUDE.md) — Step 3c's clip/animator wiring pushed
 // it over. Pure relocation: nothing here changed behavior, only location.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::world::World;
@@ -227,6 +227,20 @@ pub(super) struct ScriptState {
     /// globals — these live on `PlayState`, not `World`.
     pub(super) clips:            BTreeMap<String, AnimationClip>,
     pub(super) persistent:       BTreeMap<String, rhai::Dynamic>,
+    /// R9 (7A-1, docs/ember2d-master-plan.md): set by `clear_all_persistent`
+    /// instead of clearing `pending_persistent` directly — see that
+    /// method's own doc comment (api.rs) for why clearing the write queue
+    /// was a no-op. `apply_ctx` clears `persistent` itself when this is
+    /// true, then applies `pending_persistent` on top, so a same-pass
+    /// `set_persistent` after the clear still lands.
+    pub(super) pending_persistent_clear_all: bool,
+    /// R4 (7A-1): distinct malformed/unrecognized color strings already
+    /// reported this pass, via `log_bad_color_once` below — rebuilt fresh
+    /// every `ScriptState` (i.e. every script pass), so "once" here means
+    /// "once per pass," not "once ever"; good enough to stop one `set_tint`
+    /// call's fg/bg from double-logging without the extra bookkeeping a
+    /// truly permanent dedup set would need to survive across passes.
+    pub(super) logged_bad_colors: BTreeSet<String>,
     /// The calling entity's command from the *previous* `on_input` pass,
     /// looked up by actor id — what `ctx.command_action()`/`command_param()`
     /// read (Step 5e, docs/ember2d-phase5-plan.md). Read-only here, unlike
@@ -367,7 +381,8 @@ impl ScriptState {
             delta_time, elapsed, next_spawn_id, input, extra_spawns,
             mouse_pos, mouse_held, mouse_pressed,
             gamepad_held, gamepad_pressed, gamepad_axes,
-            globals, clips, persistent, commands, turn_number,
+            globals, clips, persistent, pending_persistent_clear_all: false, logged_bad_colors: BTreeSet::new(),
+            commands, turn_number,
             camera_pos: (camera_pos.x, camera_pos.y), viewport_size,
             pending_velocities: Vec::new(), pending_positions: Vec::new(), pending_parents: Vec::new(),
             pending_glyphs: Vec::new(), pending_colors: Vec::new(), pending_textures: Vec::new(),
@@ -385,6 +400,16 @@ impl ScriptState {
             pending_commands: Vec::new(),
             pending_act_cost: None, pending_speed: Vec::new(),
             pending_animations: Vec::new(),
+        }
+    }
+
+    /// R4 (7A-1): records `bad` into a plain info log entry the first time
+    /// this pass sees it, via `logged_bad_colors`'s own doc comment above —
+    /// silent after that, for the rest of this pass.
+    pub(super) fn log_bad_color_once(&mut self, bad: &str) {
+        let trimmed = bad.trim().to_string();
+        if self.logged_bad_colors.insert(trimmed.clone()) {
+            self.pending_logs.push(format!("[script] malformed or unrecognized color '{}', ignored", trimmed));
         }
     }
 }

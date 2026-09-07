@@ -230,17 +230,17 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | # | Sev | Defect | Location | Status |
 |---|---|---|---|---|
 | **Scripts can crash or hang the editor** | | | | |
-| R1 | S1 | No Rhai operation limit; `loop {}` hangs the process | `scripting/engine.rs:100` | `[ ]` → 7A-1 |
-| R2 | S1 | `random_int(5, 1)` panics (`gen_range` empty range) | `api.rs:244` | `[ ]` → 7A-1 |
-| R3 | S1 | `random_bool(NaN)` panics (NaN through `clamp` into Bernoulli) | `api.rs:246` | `[ ]` → 7A-1 |
-| R4 | S1 | `parse_color` byte-slices a 6-byte non-ASCII string → panic | `scripting/types.rs:172-175` | `[ ]` → 7A-1 |
-| R5 | S1 | `Animator::advance` loops forever at large `speed` (f32 absorption) | `components/animator.rs:77-90`, `apply.rs:97` | `[ ]` → 7A-1 |
-| R6 | S1 | NaN position → inconsistent comparator in collision sort → panic | `world.rs:271-273` | `[ ]` → 7A-1 |
+| R1 | S1 | No Rhai operation limit; `loop {}` hangs the process | `scripting/engine.rs:100` | `[x]` 7A-1 — `set_max_operations(2_000_000)` |
+| R2 | S1 | `random_int(5, 1)` panics (`gen_range` empty range) | `api.rs:244` | `[x]` 7A-1 — swap bounds when `max < min` |
+| R3 | S1 | `random_bool(NaN)` panics (NaN through `clamp` into Bernoulli) | `api.rs:246` | `[x]` 7A-1 — reject non-finite before `clamp` |
+| R4 | S1 | `parse_color` byte-slices a 6-byte non-ASCII string → panic | `scripting/types.rs:172-175` | `[x]` 7A-1 — `is_ascii()` check; `set_tint` now no-ops + logs once on any malformed color instead of panicking or silently overwriting |
+| R5 | S1 | `Animator::advance` loops forever at large `speed` (f32 absorption) | `components/animator.rs:77-90`, `apply.rs:97` | `[x]` 7A-1 — `%`-collapse past 4 clip cycles in `advance`; `apply.rs` clamps scripted speed to `0.0..=64.0` |
+| R6 | S1 | NaN position → inconsistent comparator in collision sort → panic | `world.rs:271-273` | `[x]` 7A-1 — `total_cmp`; `set_position` also rejects non-finite input at the source |
 | **Data integrity** | | | | |
 | R7 | S1 | Save-load never rebuilds `exit_targets`; stairs dead after load. `turn_number` and scheduler due times not saved | `simulation.rs:177, 273-288, 429`; `spawn.rs:86` | `[ ]` → 7A-3 |
 | R8 | S2 | Shipped levels are format v2, code is v3; loader never checks `version` | `level.rs:298, 439`; `roguelike/*.level` | `[ ]` → 7A-4 |
-| R9 | S2 | `clear_all_persistent` clears the pending queue, not the store — a no-op | `api.rs:313` | `[ ]` → 7A-1 |
-| R10 | S3 | `set_tag`/`play_clip` on a missing id create ghost components | `apply.rs:64, 88` | `[ ]` → 7A-1 |
+| R9 | S2 | `clear_all_persistent` clears the pending queue, not the store — a no-op | `api.rs:313` | `[x]` 7A-1 — request-a-clear flag on `ScriptState`, applied to the real store in `apply_ctx` |
+| R10 | S3 | `set_tag`/`play_clip` on a missing id create ghost components | `apply.rs:64, 88` | `[x]` 7A-1 — both guarded with `world.transforms.contains_key` |
 | **Editor stability** | | | | |
 | R11 | S1 | Non-ASCII text panics: script editor byte cursor, highlighter char/byte mix, console byte-slice | `input/script_editor.rs:50-150`; `ui/script.rs:61, 91`; `ui/panels/dock.rs:133` | `[ ]` → 7A-2 |
 | R12 | S1 | Every printable key since the last prompt floods the next prompt's field | `engine.rs:238`; `editor/input/text.rs:14` | `[ ]` → 7A-2 |
@@ -359,7 +359,7 @@ testable, and mostly one-file. Expected size: eight commits.
 
 **Checklist sections at gate:** §1, §4, §8, §11, §13.
 
-#### `[ ]` 7A-1 — Scripts can no longer crash or hang the engine
+#### `[x]` 7A-1 — Scripts can no longer crash or hang the engine (`ddd386e`)
 
 - **Why:** R1–R6, R9, R10. The project rule says a broken script never takes
   down the editor; today six different one-liners do.
@@ -394,6 +394,33 @@ testable, and mostly one-file. Expected size: eight commits.
   empties a populated store; `set_tag(9999, "x")` does not create an entity.
 - **Done when:** all eight tests pass; `bench_sim` p50 within 5% of 1.817 ms.
 - **Scope:** `ember2d-sim` only.
+- **Landed as:** all eight listed tests, plus a ninth for `play_clip` on a
+  missing id (R10 names both `set_tag` and `play_clip`; the plan's own test
+  list only spelled out `set_tag`) and a tenth pinning `detect_collisions`
+  against a NaN position directly. Split into a new `safety_tests.rs`
+  (`#[path]`-included from `engine.rs`, same pattern `timer_tests.rs`
+  already established) rather than appended to `engine_tests.rs`, which was
+  already at 496/600 lines. Two deviations from the Change list above,
+  both scoped smaller than written: `clear_all_persistent` uses a plain
+  `bool` (`ScriptState::pending_persistent_clear_all`) rather than a new
+  `PersistentOp` enum — nothing else needs an op sequence, and a
+  single-variant enum would only be that flag with extra ceremony.
+  `parse_color`'s log-once dedup set lives on `ScriptState` exactly as
+  specified, but since `ScriptState` is rebuilt every script pass, "once"
+  in practice means once per pass, not once for the life of the script —
+  good enough to stop one `set_tint` call's fg/bg from double-logging, not
+  a permanent-until-hot-reload dedup; flagged here rather than silently
+  narrowed. `set_tint` itself validates both channels *before* queuing
+  (no-op + log on failure) rather than falling back to `Reset` after the
+  fact, so a malformed value can never overwrite a previously-good tint —
+  slightly stronger than "parse_color returns the fallback colour," and
+  what the step's own test (`leaves tint unchanged`) actually requires.
+  `bench_sim` p50 on floor2: unaffected by this step (confirmed by
+  benchmarking with `set_max_operations` compiled out) — but this
+  machine's own pre-7A-1 baseline is ~1.94-1.98ms, not the 1.817ms §2.3
+  records, so the "within 5%" comparison is against a number this machine
+  can't reproduce even on the unmodified tree. Not a regression; the
+  recorded baseline is stale for this environment.
 
 #### `[ ]` 7A-2 — Editor panics and input leaks
 

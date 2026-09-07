@@ -165,45 +165,67 @@ pub struct ParticleRequest {
 /// value round-tripped out through `get_color`/etc. and back in through
 /// `set_tint`/etc. survives unchanged. Purely additive: every existing
 /// named-color script keeps working exactly as before.
-pub fn parse_color(name: &str) -> Color {
+///
+/// `None` on anything unrecognized — the fallible half of `parse_color`
+/// below, and what lets `set_tint` (api.rs) tell "genuinely asked for
+/// Reset" apart from "gave me garbage."
+///
+/// R4 (7A-1): `hex.len() == 6` used to run first and slice `hex[0..2]` etc.
+/// by byte index — a `#` followed by a multi-byte-per-character non-ASCII
+/// string (e.g. two 3-byte characters) can total exactly 6 *bytes* while
+/// having no byte boundary at index 2/4, which panics ("byte index N is not
+/// a char boundary"). `hex.is_ascii()` first rules that out: every ASCII
+/// byte is one character, so a subsequent byte-index slice can never land
+/// mid-character.
+pub(super) fn try_parse_color(name: &str) -> Option<Color> {
     let trimmed = name.trim();
     if let Some(hex) = trimmed.strip_prefix('#') {
-        if hex.len() == 6 {
+        if hex.is_ascii() && hex.len() == 6 {
             if let (Ok(r), Ok(g), Ok(b)) = (
                 u8::from_str_radix(&hex[0..2], 16),
                 u8::from_str_radix(&hex[2..4], 16),
                 u8::from_str_radix(&hex[4..6], 16),
             ) {
-                return Color::Rgb(r, g, b);
+                return Some(Color::Rgb(r, g, b));
             }
         }
-        eprintln!("[script] malformed hex color '{}', defaulting to Reset", trimmed);
-        return Color::Reset;
+        return None;
     }
 
     match trimmed {
-        "Black"       => Color::Black,
-        "DarkRed"     => Color::DarkRed,
-        "DarkGreen"   => Color::DarkGreen,
-        "DarkYellow"  => Color::DarkYellow,
-        "DarkBlue"    => Color::DarkBlue,
-        "DarkMagenta" => Color::DarkMagenta,
-        "DarkCyan"    => Color::DarkCyan,
-        "Grey"|"Gray" => Color::Grey,
-        "DarkGrey"|"DarkGray" => Color::DarkGrey,
-        "Red"         => Color::Red,
-        "Green"       => Color::Green,
-        "Yellow"      => Color::Yellow,
-        "Blue"        => Color::Blue,
-        "Magenta"     => Color::Magenta,
-        "Cyan"        => Color::Cyan,
-        "White"       => Color::White,
-        "Reset"       => Color::Reset,
-        _ => {
-            eprintln!("[script] unknown color '{}', defaulting to Reset", trimmed);
-            Color::Reset
-        }
+        "Black"       => Some(Color::Black),
+        "DarkRed"     => Some(Color::DarkRed),
+        "DarkGreen"   => Some(Color::DarkGreen),
+        "DarkYellow"  => Some(Color::DarkYellow),
+        "DarkBlue"    => Some(Color::DarkBlue),
+        "DarkMagenta" => Some(Color::DarkMagenta),
+        "DarkCyan"    => Some(Color::DarkCyan),
+        "Grey"|"Gray" => Some(Color::Grey),
+        "DarkGrey"|"DarkGray" => Some(Color::DarkGrey),
+        "Red"         => Some(Color::Red),
+        "Green"       => Some(Color::Green),
+        "Yellow"      => Some(Color::Yellow),
+        "Blue"        => Some(Color::Blue),
+        "Magenta"     => Some(Color::Magenta),
+        "Cyan"        => Some(Color::Cyan),
+        "White"       => Some(Color::White),
+        "Reset"       => Some(Color::Reset),
+        _ => None,
     }
+}
+
+/// Infallible wrapper over `try_parse_color` for every call site that
+/// doesn't need to distinguish "asked for Reset" from "gave me garbage" —
+/// draws and spawns, where there's no previous value a no-op would need to
+/// preserve (unlike `set_tint`, which uses `try_parse_color` directly).
+/// R4 (7A-1): previously `eprintln!`'d on a bad value — forbidden in this
+/// crate (CLAUDE.md's Determinism section) and, worse, unbounded (a script
+/// re-drawing a bad color every frame would flood stderr forever). Callers
+/// that can usefully report the bad string once (`set_tint`) do so through
+/// `ScriptState::log_bad_color_once` instead; the rest just get the same
+/// silent `Reset` fallback as always.
+pub fn parse_color(name: &str) -> Color {
+    try_parse_color(name).unwrap_or(Color::Reset)
 }
 
 pub fn color_to_name(color: Color) -> String {
@@ -259,5 +281,17 @@ mod tests {
     fn parse_color_falls_back_to_reset_on_malformed_hex() {
         assert_eq!(parse_color("#ZZZZZZ"), Color::Reset);
         assert_eq!(parse_color("#FFF"), Color::Reset, "only 6-digit RRGGBB is accepted, not the 3-digit shorthand");
+    }
+
+    // ── Test: R4 (7A-1, docs/ember2d-master-plan.md §5.1) ──────────────────────
+
+    #[test]
+    fn parse_color_does_not_panic_on_a_non_ascii_hex_string_of_the_right_byte_length() {
+        // "€" is 3 bytes in UTF-8, so "€€" is 6 bytes (matching the old
+        // `hex.len() == 6` check) but only 2 characters — `&hex[0..2]` used
+        // to land mid-character and panic ("byte index is not a char
+        // boundary"). `hex.is_ascii()` rules this out before any slicing.
+        assert_eq!(parse_color("#€€"), Color::Reset);
+        assert_eq!(try_parse_color("#€€"), None);
     }
 }
