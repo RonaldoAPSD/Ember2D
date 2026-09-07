@@ -192,7 +192,7 @@ impl ApplicationHandler for WindowInit {
             .map(|m| m.scale_factor() as f32)
             .unwrap_or(crate::renderer::INITIAL_SCALE_GUESS)
             .round()
-            .max(1.0);
+            .max(crate::renderer::MIN_UI_SCALE);
         let attrs = Window::default_attributes().with_title(&self.title).with_inner_size(
             winit::dpi::PhysicalSize::new(
                 pixel_width as f32 * guessed_scale,

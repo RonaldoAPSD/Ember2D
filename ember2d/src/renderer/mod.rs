@@ -33,6 +33,21 @@ pub const CELL_H: usize = 16;
 /// bug, not the fix.
 pub(crate) const INITIAL_SCALE_GUESS: f32 = 2.0;
 
+/// 7B-2 follow-up (found live testing this phase, docs/ember2d-master-plan.md
+/// §5.2): the floor `Renderer::scale` is clamped to. On a standard
+/// 100%-scale display, `window.scale_factor()` is `1.0`, which used to mean
+/// cells rendered at their literal native `CELL_W`×`CELL_H` (8×16) physical
+/// pixels — correct per R21's "land on a whole physical pixel" fix, but
+/// tiny and hard to read on any modern display, since the pre-7B-2 code
+/// had *always* rendered at a fixed 2x (`16×32`) regardless of real DPI.
+/// Flooring at `2.0` restores that comfortable default for the common
+/// (non-HiDPI) case while still scaling *up* correctly above it on a
+/// genuinely HiDPI display (150%/200%+ rounds to 2 or higher already, so
+/// this floor only changes anything at 100%/125%, which both used to round
+/// to 1). A real user-facing UI scale *setting* — choosing a value other
+/// than "whatever this floor computes" — is 7D-3 (Phase 7D), not this.
+pub(crate) const MIN_UI_SCALE: f32 = 2.0;
+
 /// Physical-pixel <-> cell-space mapping (7B-2, docs/ember2d-master-plan.md
 /// §5.2, R21) — recomputed by `Renderer` on `new`/resize/DPI change,
 /// exposed for `Engine`/`MouseState` to convert a raw physical cursor
@@ -90,10 +105,11 @@ pub struct Renderer {
 
     /// 7B-2 (docs/ember2d-master-plan.md §5.2, R21): our own integer
     /// render scale — physical pixels per un-scaled `CELL_W`/`CELL_H`
-    /// pixel. DPI-derived (`window.scale_factor().round().max(1.0)`), not
-    /// a fixed constant, so cells always land on a whole physical pixel
+    /// pixel. DPI-derived (`window.scale_factor().round().max(MIN_UI_SCALE)`),
+    /// not a fixed constant, so cells always land on a whole physical pixel
     /// regardless of the display's actual scale factor; re-read on
-    /// `new`/resize/`ScaleFactorChanged` via `recompute_layout`.
+    /// `new`/resize/`ScaleFactorChanged` via `recompute_layout`. See
+    /// `MIN_UI_SCALE`'s own doc comment for why the floor isn't `1.0`.
     scale: f32,
     /// The current physical<->cell-space mapping — see `ScreenMapping`'s
     /// own doc comment. Kept in sync with `width`/`height`/`scale` by
@@ -219,8 +235,9 @@ impl Renderer {
 
         // 7B-2 (docs/ember2d-master-plan.md §5.2, R21): scale/width/height/
         // mapping are all derived from the real window here, not trusted
-        // from a caller — see this function's own doc comment.
-        let scale = (window.scale_factor() as f32).round().max(1.0);
+        // from a caller — see this function's own doc comment. Floors at
+        // `MIN_UI_SCALE`, not `1.0` — see that constant's own doc comment.
+        let scale = (window.scale_factor() as f32).round().max(MIN_UI_SCALE);
         let (width, height, mapping) = compute_layout(size.width, size.height, scale);
         let pixel_width = width * CELL_W;
         let pixel_height = height * CELL_H;
@@ -624,7 +641,7 @@ impl Renderer {
     /// (e.g. `Engine::width`/`height`) don't need to react to.
     fn recompute_layout(&mut self) -> bool {
         let size = self.window.inner_size();
-        self.scale = (self.window.scale_factor() as f32).round().max(1.0);
+        self.scale = (self.window.scale_factor() as f32).round().max(MIN_UI_SCALE);
         let (new_w, new_h, mapping) = compute_layout(size.width, size.height, self.scale);
         self.mapping = mapping;
         self.pixel_width = new_w * CELL_W;
