@@ -281,6 +281,8 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R40 | S4 | No tags; `main` 26 commits behind; version 0.5.0 meaningless | git | `[ ]` unresolved by 7A-8 itself — tagging/fast-forwarding `main` happens at the Phase 7A gate (§0.4, §9), after 7A-9; not a 7A-8 commit |
 | R42 | S4 | `scripting/api.rs` grew from 515 to 771 lines (limit 750) — found running `scripts/check.ps1` after 7A-9's `cargo fmt --all` pass; rustfmt's mechanical line-splitting alone pushed it over, no logic changed | `ember2d-sim/src/scripting/api.rs` | `[x]` 7A-10 — everything from the old "V0.4 Extensions" marker through `api_version` moved to a new `api_ext.rs` (third sibling `impl ScriptCtx` block); `api.rs` now 439 lines |
 | R43 | S4 | `scripting/engine.rs` grew from 591 to 790 lines (limit 750) — same cause as R42, same commit | `ember2d-sim/src/scripting/engine.rs` | `[x]` 7A-10 — the ~140-line `register_fn` sequence moved to a new `registry.rs`; `engine.rs` now 684 lines |
+| R44 | S2 | Space key never reached any text field — winit reports it as `Key::Named(NamedKey::Space)`, not `Key::Character(" ")`, and `Engine::poll_events` matched only `Character`. Made the built-in script editor (and every other `take_text()` consumer) unable to type a space, which makes writing real Rhai source impossible. Found live during the Phase 7A gate's own manual regression pass (§8, "Type, navigate with cursor keys, scroll") | `ember2d/src/engine.rs:266-275` (before fix) | `[x]` 7A-11 — `Key::logical_key_text` handles `Named(NamedKey::Space)` alongside `Character`; unit-tested directly (no live event loop needed) |
+| R45 | S2 | `ember2d-app`'s `--editor <path>` CLI branch called `EditorState::load` but never set `project_folder` (only the start-screen "Open Project" flow, via `new_from_result`, did) — the level itself rendered fine, but the Files panel showed "(empty folder)" and New Script silently did nothing, since both require `project_folder: Some(_)`. Found live in the same manual regression pass, right after confirming R44's fix | `ember2d-app/src/main.rs:29-56` (before fix) | `[x]` 7A-12 — new `EditorState::open_project_folder` (`pub`, wraps the existing `pub(super) load_palette`/`refresh_project_files`) called from the `--editor <path>` branch, mirroring what `new_from_result` already did for the start-screen path |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -820,6 +822,70 @@ testable, and mostly one-file. Expected size: eight commits.
   left broken. `scripts/check.ps1` (zero files over 750, doc-check clean),
   full workspace build, and full workspace test suite all verified green
   before and after.
+
+#### `[x]` 7A-11 — Space key never reached text fields (R44) (`53cba23`)
+
+- **Why:** Found live during the Phase 7A gate's own manual regression
+  pass (§8): typing in the built-in script editor worked, cursor movement
+  worked, scrolling worked — but Space did nothing, making it impossible
+  to write real Rhai source (every statement needs at least one). Root
+  cause: winit reports Space as `Key::Named(NamedKey::Space)`, not
+  `Key::Character(" ")` the way every other printable key comes through;
+  `Engine::poll_events` matched only `Key::Character` when filling
+  `InputManager::text_buffer`, so the Space press was silently dropped
+  before any `take_text()` consumer (script editor, palette editor,
+  palette search, graph param field) ever saw it. Same defect class as
+  R11/R12 (7A-2) — text input gaps in this exact subsystem — just a case
+  neither of those steps' own tests happened to exercise.
+- **Change:** Pull the logical-key-to-text mapping into its own
+  `Key::logical_key_text` (mirroring `Key::from_winit`'s existing pattern
+  for the physical-key side), handling `Character` and
+  `Named(NamedKey::Space)`; `poll_events` calls it instead of matching
+  `Key::Character` inline.
+- **Test:** `ember2d/src/input.rs` — `logical_key_text_produces_a_space_for_the_named_space_key`,
+  `logical_key_text_passes_through_an_ordinary_character_key`,
+  `logical_key_text_strips_control_characters_from_a_character_key`,
+  `logical_key_text_is_empty_for_other_named_keys`. Unit-tested directly
+  by constructing `winit::keyboard::Key` values — no live event loop
+  needed, same as `from_winit` would be.
+- **Done when:** the four tests above pass; full workspace build/test
+  green; `scripts/check.ps1` clean; manually confirmed in the script
+  editor that Space now inserts a space.
+- **Scope:** `ember2d` only (`src/input.rs`, `src/engine.rs`).
+
+#### `[x]` 7A-12 — `--editor <path>` never wired the Files panel (R45) (`749b9e3`)
+
+- **Why:** Found live in the same manual regression pass as 7A-11, right
+  after confirming Space worked: opening a level via
+  `cargo run -- --editor roguelike/floor2.level` rendered the level
+  correctly (tiles, player, inspector all showed real data) but the Files
+  panel read "(empty folder)" and creating a new script did nothing.
+  Opening the same level via the normal start-screen "Open Project" flow
+  worked fine. Root cause: `EditorState::load` (called directly by
+  `main.rs`'s `--editor <path>` branch) only loads the level — it never
+  sets `project_folder`. The start-screen path (`new_from_result`) works
+  because it sets `project_folder` and calls `load_palette`/
+  `refresh_project_files` itself, on top of `load`, immediately after.
+  `main.rs`'s direct-CLI branch never did that follow-up.
+- **Change:** New `pub fn EditorState::open_project_folder(&mut self,
+  folder: String)` (`ember2d-editor/src/editor/mod.rs`) — sets
+  `project_folder`, then calls the existing `pub(super) load_palette`/
+  `refresh_project_files`. `pub`, not `pub(super)`, specifically so
+  `ember2d-app` (a different crate) can call it. `main.rs`'s `--editor
+  <path>` branch calls it with the level's parent directory, and sets
+  `project_name` from `ProjectData::name` when a `project.ron` is present
+  — same information `new_from_result` already had from `StartResult`.
+  `new_from_result` itself is untouched (already worked; not the bug).
+- **Test:** `ember2d-editor/src/editor/impl_state/tests.rs` —
+  `open_project_folder_populates_the_file_browser_from_a_real_directory`:
+  writes a real `.level`/`.rhai` pair into a per-process temp dir, calls
+  `open_project_folder`, asserts both show up in `file_browser_files`.
+- **Done when:** the test above passes; full workspace build/test green;
+  `scripts/check.ps1` clean; manually confirmed that `cargo run --
+  --editor roguelike/floor2.level` shows the Files panel populated and
+  New Script actually creates a file.
+- **Scope:** `ember2d-editor` (`src/editor/mod.rs`,
+  `src/editor/impl_state/tests.rs`), `ember2d-app` (`src/main.rs`).
 
 **Phase 7A gate:** §0.5, then tag `v0.5.7a`.
 
