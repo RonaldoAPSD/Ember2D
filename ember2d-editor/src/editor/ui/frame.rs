@@ -37,7 +37,7 @@
 // things. `WidgetId` grows one variant at a time as each of those lands.
 
 use super::rect::UiRect;
-use super::types::{MenuKind, PanelId};
+use super::types::{HierarchySelection, MenuKind, PanelId};
 
 /// Identifies one interactive chrome element a frame's draw pass registered
 /// a hit rect for.
@@ -73,6 +73,60 @@ pub enum WidgetId {
     /// already did. `Exit`/`GraphBtn` are meaningful only in tile mode
     /// (there is no player equivalent), same as before this migration.
     InspectorRow(InspectorField),
+    /// 7C-1 (master plan §5.3): the confirm modal's YES button.
+    ConfirmYes,
+    /// 7C-1: the confirm modal's NO button.
+    ConfirmNo,
+    /// 7C-1: the advanced color picker modal's title-bar close button.
+    ColorPickerClose,
+    /// 7C-1: the advanced color picker's hue bar. Unlike every other
+    /// widget above, this one is a continuous drag area, not a discrete
+    /// click target — the input handler reads this widget's own registered
+    /// rect back via `UiFrame::rect_of` to turn a mouse position into a hue
+    /// percentage, instead of recomputing the bar's origin independently of
+    /// `draw_color_picker_modal` (the exact class of bug E5 names).
+    ColorPickerHueBar,
+    /// 7C-1: the advanced color picker's saturation/value map — same
+    /// continuous-drag reasoning as `ColorPickerHueBar`.
+    ColorPickerSvMap,
+    /// 7C-1: the advanced color picker's Apply button.
+    ColorPickerApply,
+    /// 7C-1: the advanced color picker's Cancel button.
+    ColorPickerCancel,
+    /// 7C-1: one swatch of the palette editor's foreground/background color
+    /// grid, by `(is_fg, index into ui::widgets::PALETTE_COLORS)`.
+    PaletteEditorSwatch { is_fg: bool, index: usize },
+    /// 7C-1: one row of an open right-click context menu, by index into
+    /// `ContextMenu::items` — same "index, not the resolved value"
+    /// reasoning as `MenuItem`.
+    ContextMenuRow(usize),
+    /// 7C-1: one row of the node graph's "Add Node" palette, by index into
+    /// `graph_ui::palette_entries()` — covers header rows too (they're
+    /// pushed but never selectable, so a click on one still resolves to
+    /// "inside the palette, no-op" rather than "outside the palette,
+    /// close"), matching what the removed manual arithmetic did.
+    GraphPaletteRow(usize),
+    /// 7C-1: one row of the Hierarchy panel — the player, or an extra spawn
+    /// by index.
+    HierarchyRow(HierarchySelection),
+    /// 7C-1: one row of the File Browser panel, by index into
+    /// `EditorState::file_browser_files`.
+    FileBrowserRow(usize),
+    /// 7C-1: `StartScreen`'s main menu, by index into `MENU_LABELS`.
+    StartMenuItem(usize),
+    /// 7C-1: `StartScreen`'s new-project folder browser, by absolute index
+    /// into `StartScreen::fb_entries` (not a visible-row offset).
+    StartFolderItem(usize),
+    /// 7C-1: `StartScreen`'s open-project and level-picker browsers (they
+    /// share one draw function, `draw_browser`, so one widget id covers
+    /// both — never ambiguous, since only one screen renders per frame), by
+    /// absolute index into whichever list is showing.
+    StartBrowserItem(usize),
+    /// 7C-1: `StartScreen`'s new-project template/style/loop cards — three
+    /// screens (`NewStyle`/`NewLoop`/`NewTemplate`) share this one variant
+    /// the same way `StartBrowserItem` is shared, since `draw_card_wizard`
+    /// and `draw_template_step` use identical card geometry.
+    StartTemplateItem(usize),
 }
 
 /// See `WidgetId::InspectorRow`.
@@ -133,6 +187,17 @@ impl UiFrame {
     pub fn hit(&self, px: f32, py: f32) -> Option<WidgetId> {
         self.hits.iter().rev().find(|h| h.rect.contains(px, py)).map(|h| h.id)
     }
+
+    /// The rect most recently pushed under `id`, or `None` if nothing this
+    /// frame registered it. 7C-1 (master plan §5.3): exists for continuous
+    /// drag widgets (the advanced color picker's hue bar and SV map) that
+    /// need their own drawn origin back to convert a mouse position into a
+    /// percentage — `hit` alone only says WHICH widget was clicked, not
+    /// where its rect actually is, and recomputing that origin a second
+    /// time in the input handler is exactly the drift risk E5 names.
+    pub fn rect_of(&self, id: WidgetId) -> Option<UiRect> {
+        self.hits.iter().rev().find(|h| h.id == id).map(|h| h.rect)
+    }
 }
 
 #[cfg(test)]
@@ -189,5 +254,18 @@ mod tests {
             None,
             "a cleared frame must not remember last frame's hits"
         );
+    }
+
+    #[test]
+    fn rect_of_returns_the_exact_rect_a_widget_was_pushed_with() {
+        let mut frame = UiFrame::new();
+        frame.push(WidgetId::ColorPickerHueBar, UiRect::new(12.0, 34.0, 288.0, 16.0));
+        assert_eq!(frame.rect_of(WidgetId::ColorPickerHueBar), Some(UiRect::new(12.0, 34.0, 288.0, 16.0)));
+    }
+
+    #[test]
+    fn rect_of_returns_none_for_a_widget_never_pushed_this_frame() {
+        let frame = UiFrame::new();
+        assert_eq!(frame.rect_of(WidgetId::ColorPickerSvMap), None);
     }
 }

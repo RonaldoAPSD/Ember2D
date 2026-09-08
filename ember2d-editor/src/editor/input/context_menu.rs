@@ -1,10 +1,24 @@
 // editor/input/context_menu.rs — Interaction for the right-click context menu.
 
-use super::super::ui::ContextMenuAction;
+use super::super::ui::{ContextMenuAction, WidgetId};
 use super::super::EditorState;
 use ember2d::input::Key;
 
 impl EditorState {
+    /// 7C-1 (master plan §5.3): reads `UiFrame::hit` (populated by
+    /// `draw_context_menu` via `draw_row`, one `ContextMenuRow(i)` per
+    /// item) instead of recomputing the menu's boundary-clamped `mx`/`my`
+    /// independently here (E5).
+    ///
+    /// One deliberate behavior change from the removed math: a click
+    /// landing inside the menu's outer rect but not on any item row (the
+    /// border, or the one-cell padding `mh = items.len() + 2` used to
+    /// leave below the last item) used to still confirm whatever item was
+    /// last hovered; now, like every other panel migrated in this step, a
+    /// click has to land on the actual registered row. That old behavior
+    /// wasn't reachable through the menu's own drawn border (no dead space
+    /// exists between rows in `draw_context_menu`), so this is a
+    /// same-in-practice tightening, not a visible regression.
     pub(super) fn handle_context_menu_input(
         &mut self,
         input: &ember2d::input::InputManager,
@@ -12,37 +26,20 @@ impl EditorState {
     ) {
         let Some(ref mut menu) = self.context_menu else { return };
 
-        let mw = 20usize;
-        let mh = menu.items.len() + 2;
-        let mut mx = menu.x;
-        let mut my = menu.y;
+        let hit = self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y);
 
-        // Same boundary logic as draw
-        if mx + mw > self.layout.screen_w {
-            mx = self.layout.screen_w.saturating_sub(mw);
-        }
-        if my + mh > self.layout.screen_h {
-            my = self.layout.screen_h.saturating_sub(mh);
-        }
-
-        let in_bounds = mouse.cell_x >= mx
-            && mouse.cell_x < mx + mw
-            && mouse.cell_y >= my
-            && mouse.cell_y < my + mh;
-
-        // Hover selection
-        if in_bounds && mouse.cell_y > my && mouse.cell_y < my + mh - 1 {
-            menu.selected = mouse.cell_y - my - 1;
+        if let Some(WidgetId::ContextMenuRow(idx)) = hit {
+            menu.selected = idx;
         }
 
         if mouse.left_just_pressed() {
-            if in_bounds && menu.selected < menu.items.len() {
-                let action = menu.items[menu.selected].1.clone();
-                self.execute_context_action(action);
-                self.context_menu = None;
-            } else {
-                self.context_menu = None;
+            if let Some(WidgetId::ContextMenuRow(idx)) = hit {
+                if idx < menu.items.len() {
+                    let action = menu.items[idx].1.clone();
+                    self.execute_context_action(action);
+                }
             }
+            self.context_menu = None;
         }
 
         if input.just_pressed(Key::Escape) || mouse.right_just_pressed() {

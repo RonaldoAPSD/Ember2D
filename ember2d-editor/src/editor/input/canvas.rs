@@ -11,6 +11,23 @@ impl EditorState {
         input: &ember2d::input::InputManager,
         mouse: &ember2d::mouse::MouseState,
     ) {
+        // 7C-1 (master plan §5.3): by the time input reaches here, every
+        // exclusive mode (modal/context-menu/color-picker/palette-editor/
+        // graph/script/text-input) has already returned early in
+        // `handle_update`, and `handle_panel_input` has already run — so a
+        // click that still lands on a registered widget means panel input
+        // failed to consume it, exactly the bleed-through class of bug the
+        // painting guard exists to prevent. Debug-only: cheap enough to
+        // leave on, but never something a release build should pay for or
+        // a player should ever see logged.
+        #[cfg(debug_assertions)]
+        if mouse.left_just_pressed() && self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y).is_some() {
+            eprintln!(
+                "BUG: click at ({}, {}) reached handle_canvas_input while UiFrame::hit() was Some — a panel/modal handler should have consumed it first",
+                mouse.pixel_x, mouse.pixel_y
+            );
+        }
+
         let shift = input.is_held(Key::LeftShift) || input.is_held(Key::RightShift);
         let alt = input.is_held(Key::LeftAlt) || input.is_held(Key::RightAlt);
 

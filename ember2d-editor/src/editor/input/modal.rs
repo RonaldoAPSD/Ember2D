@@ -1,5 +1,6 @@
 // editor/input/modal.rs — Button interaction logic for interactive modals.
 
+use super::super::ui::WidgetId;
 use super::super::EditorState;
 use ember2d::input::Key;
 
@@ -10,14 +11,6 @@ impl EditorState {
         mouse: &ember2d::mouse::MouseState,
     ) {
         if self.modal.is_some() {
-            let mw = 40usize;
-            let mh = 8usize;
-            let mx = (self.layout.screen_w.saturating_sub(mw)) / 2;
-            let my = (self.layout.screen_h.saturating_sub(mh)) / 2;
-            let btn_y = my + 5;
-            let yes_x = mx + 8;
-            let no_x = mx + mw - 15;
-
             // Keyboard shortcuts
             if input.just_pressed(Key::Y) {
                 self.confirm_modal();
@@ -28,16 +21,15 @@ impl EditorState {
                 return;
             }
 
-            // Mouse interaction
-            if mouse.left_just_pressed() && mouse.in_bounds && mouse.cell_y == btn_y {
-                // YES button
-                if mouse.cell_x >= yes_x && mouse.cell_x < yes_x + 9 {
-                    self.confirm_modal();
-                    return;
-                }
-                // NO button
-                if mouse.cell_x >= no_x && mouse.cell_x < no_x + 9 {
-                    self.modal = None;
+            // Mouse interaction — 7C-1 (master plan §5.3): reads
+            // `UiFrame::hit` (populated by `draw_confirm_modal` via
+            // `draw_button`) instead of recomputing `mx`/`btn_y`/
+            // `yes_x`/`no_x` independently here (E5).
+            if mouse.left_just_pressed() && mouse.in_bounds {
+                match self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) {
+                    Some(WidgetId::ConfirmYes) => self.confirm_modal(),
+                    Some(WidgetId::ConfirmNo) => self.modal = None,
+                    _ => {}
                 }
             }
         }

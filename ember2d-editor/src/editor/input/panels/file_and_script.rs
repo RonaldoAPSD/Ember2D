@@ -6,14 +6,17 @@
 // section follows.
 
 use super::super::super::panel::PanelId;
+use super::super::super::ui::WidgetId;
 use super::super::super::EditorState;
 
 impl EditorState {
+    /// 7C-1 (master plan §5.3): reads `UiFrame::hit` (populated by
+    /// `draw_file_browser_panel`) instead of recomputing `row_idx` from
+    /// the panel's content origin independently here (E5).
     pub(super) fn handle_file_browser_click(&mut self, mouse: &ember2d::mouse::MouseState) -> bool {
         if self.panels.visible(PanelId::FileBrowser) && mouse.in_bounds {
             let p = self.panels.get(PanelId::FileBrowser);
             if p.contains(mouse.pixel_x, mouse.pixel_y) {
-                let cy = p.content_y();
                 let ch = p.content_h();
 
                 // Mouse wheel scroll
@@ -26,10 +29,11 @@ impl EditorState {
                         as usize;
                 }
 
-                if mouse.left_just_pressed() && mouse.cell_y > cy {
-                    self.ignore_drag = true;
-                    let row_idx = self.file_browser_scroll + (mouse.cell_y - (cy + 1));
-                    if row_idx < self.file_browser_files.len() {
+                if mouse.left_just_pressed() {
+                    if let Some(WidgetId::FileBrowserRow(row_idx)) =
+                        self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y)
+                    {
+                        self.ignore_drag = true;
                         self.file_browser_cursor = row_idx;
                         let raw_name = self.file_browser_files[row_idx].clone();
 

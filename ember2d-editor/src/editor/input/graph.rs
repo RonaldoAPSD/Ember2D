@@ -2,6 +2,7 @@
 
 use super::super::graph_ui::{node_at, palette_entries, palette_make, port_at};
 use super::super::helpers::{apply_param_edit, param_default_for};
+use super::super::ui::WidgetId;
 use super::super::EditorState;
 use ember2d::input::Key;
 use ember2d_sim::graph::PortDir;
@@ -79,11 +80,16 @@ impl EditorState {
                     as usize;
             }
 
+            // 7C-1 (master plan §5.3): reads the row's own
+            // `WidgetId::GraphPaletteRow` back from `UiFrame` (populated by
+            // `draw_palette`) instead of recomputing `px + 22`/`py + 1`
+            // independently here (E5).
             let mut clicked_entry = false;
             let mut clicked_outside = false;
             if mouse.in_bounds {
-                if mouse.cell_x >= px && mouse.cell_x < px + 22 && mouse.cell_y > py {
-                    let idx = self.graph_palette_scroll + (mouse.cell_y - py - 1);
+                if let Some(WidgetId::GraphPaletteRow(idx)) =
+                    self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y)
+                {
                     if idx < entries.len() && !entries[idx].0.is_empty() {
                         self.graph_palette_cursor = idx;
                         if click {

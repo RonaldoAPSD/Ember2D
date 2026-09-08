@@ -79,6 +79,7 @@ impl EditorState {
                 py,
                 sw,
                 sh,
+                &mut self.ui_frame,
             );
         }
 
@@ -401,6 +402,7 @@ impl EditorState {
                         pcy,
                         pcw,
                         pch,
+                        &mut self.ui_frame,
                     );
                 }
                 PanelId::Palette => {
@@ -461,6 +463,7 @@ impl EditorState {
                         pcy,
                         pcw,
                         pch,
+                        &mut self.ui_frame,
                     );
                 }
             }
@@ -474,12 +477,19 @@ impl EditorState {
                     pal,
                     self.palette_editor_focus.as_ref(),
                     &self.layout,
+                    &mut self.ui_frame,
                 );
             }
         }
 
         if let Some(is_fg) = self.color_picker_open {
-            ui::draw_color_picker_modal(renderer, self.color_picker_hsv, is_fg, &self.layout);
+            ui::draw_color_picker_modal(
+                renderer,
+                self.color_picker_hsv,
+                is_fg,
+                &self.layout,
+                &mut self.ui_frame,
+            );
         }
 
         // ── Menu dropdown (drawn over panels and canvas) ──────────────────────
@@ -596,11 +606,18 @@ impl EditorState {
         }
 
         if let Some(ref m) = self.modal {
-            ui::draw_confirm_modal(renderer, self.font.as_mut(), &m.title, &m.message, &layout);
+            ui::draw_confirm_modal(
+                renderer,
+                self.font.as_mut(),
+                &m.title,
+                &m.message,
+                &layout,
+                &mut self.ui_frame,
+            );
         }
 
         if let Some(ref cm) = self.context_menu {
-            ui::draw_context_menu(renderer, cm);
+            ui::draw_context_menu(renderer, cm, &mut self.ui_frame);
         }
     }
 }

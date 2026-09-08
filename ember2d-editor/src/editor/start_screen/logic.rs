@@ -1,6 +1,6 @@
 // editor/start_screen/logic.rs — State machine logic and helper methods for StartScreen.
 
-use super::drawing::*;
+use super::super::ui::WidgetId;
 use super::mod_types::*;
 use super::*;
 use crate::editor::helpers::{key_to_char, TEXT_INPUT_KEYS};
@@ -143,14 +143,16 @@ impl StartScreen {
         &mut self,
         input: &ember2d::input::InputManager,
         mouse: &ember2d::mouse::MouseState,
-        sw: usize,
+        _sw: usize,
         _sh: usize,
         quit: &mut bool,
     ) {
         let shift = input.is_held(Key::LeftShift) || input.is_held(Key::RightShift);
-        let mx = mouse.cell_x;
-        let my = mouse.cell_y;
         let click = mouse.in_bounds && mouse.left_just_pressed();
+        // 7C-1 (master plan §5.3): every hover/click check below reads this
+        // one `UiFrame::hit` instead of a per-screen removed `*_item_hit`
+        // function recomputing its own draw-side layout math (E5).
+        let hit = if mouse.in_bounds { self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) } else { None };
 
         match self.screen {
             Screen::MainMenu => {
@@ -169,15 +171,10 @@ impl StartScreen {
                 if input.just_pressed(Key::Key3) {
                     self.menu_cursor = 2;
                 }
-                if mouse.in_bounds {
-                    for i in 0..MENU_LABELS.len() {
-                        if menu_item_hit(sw, mx, my, i) {
-                            self.menu_cursor = i;
-                        }
-                    }
+                if let Some(WidgetId::StartMenuItem(i)) = hit {
+                    self.menu_cursor = i;
                 }
-                if input.just_pressed(Key::Enter)
-                    || (click && menu_item_hit(sw, mx, my, self.menu_cursor))
+                if input.just_pressed(Key::Enter) || (click && matches!(hit, Some(WidgetId::StartMenuItem(_))))
                 {
                     match self.menu_cursor {
                         0 => {
@@ -232,14 +229,12 @@ impl StartScreen {
                     self.loop_sel = 0;
                     self.screen = Screen::NewLoop;
                 }
-                if mouse.in_bounds {
-                    for i in 0..STYLE_LABELS.len() {
-                        if template_item_hit(sw, mx, my, i) {
-                            self.style_sel = i;
-                            if click {
-                                self.loop_sel = 0;
-                                self.screen = Screen::NewLoop;
-                            }
+                if let Some(WidgetId::StartTemplateItem(i)) = hit {
+                    if i < STYLE_LABELS.len() {
+                        self.style_sel = i;
+                        if click {
+                            self.loop_sel = 0;
+                            self.screen = Screen::NewLoop;
                         }
                     }
                 }
@@ -262,14 +257,12 @@ impl StartScreen {
                     self.init_fb();
                     self.screen = Screen::FolderBrowser;
                 }
-                if mouse.in_bounds {
-                    for i in 0..LOOP_LABELS.len() {
-                        if template_item_hit(sw, mx, my, i) {
-                            self.loop_sel = i;
-                            if click {
-                                self.init_fb();
-                                self.screen = Screen::FolderBrowser;
-                            }
+                if let Some(WidgetId::StartTemplateItem(i)) = hit {
+                    if i < LOOP_LABELS.len() {
+                        self.loop_sel = i;
+                        if click {
+                            self.init_fb();
+                            self.screen = Screen::FolderBrowser;
                         }
                     }
                 }
@@ -284,22 +277,15 @@ impl StartScreen {
                 if input.just_pressed(Key::Down) && self.fb_cursor + 1 < self.fb_entries.len() {
                     self.fb_cursor += 1;
                 }
-                let fb_max_vis = FB_H.saturating_sub(7);
-                let offset =
-                    if self.fb_cursor >= fb_max_vis { self.fb_cursor - fb_max_vis + 1 } else { 0 };
-                if mouse.in_bounds {
-                    for vis_i in 0..fb_max_vis {
-                        if folder_item_hit(sw, mx, my, vis_i)
-                            && offset + vis_i < self.fb_entries.len()
-                        {
-                            self.fb_cursor = offset + vis_i;
-                        }
+                if let Some(WidgetId::StartFolderItem(idx)) = hit {
+                    if idx < self.fb_entries.len() {
+                        self.fb_cursor = idx;
                     }
                 }
                 let confirm = input.just_pressed(Key::Enter)
                     || (click
                         && !self.fb_entries.is_empty()
-                        && folder_item_hit(sw, mx, my, self.fb_cursor.saturating_sub(offset)));
+                        && matches!(hit, Some(WidgetId::StartFolderItem(_))));
                 if confirm && !self.fb_entries.is_empty() {
                     if let Some(entry) = self.fb_entries.get(self.fb_cursor) {
                         match entry.as_str() {
@@ -378,13 +364,11 @@ impl StartScreen {
                 if input.just_pressed(Key::Enter) {
                     self.confirm_template(quit);
                 }
-                if mouse.in_bounds {
-                    for i in 0..TEMPLATE_LABELS.len() {
-                        if template_item_hit(sw, mx, my, i) {
-                            self.template_sel = i;
-                            if click {
-                                self.confirm_template(quit);
-                            }
+                if let Some(WidgetId::StartTemplateItem(i)) = hit {
+                    if i < TEMPLATE_LABELS.len() {
+                        self.template_sel = i;
+                        if click {
+                            self.confirm_template(quit);
                         }
                     }
                 }
@@ -399,25 +383,15 @@ impl StartScreen {
                 if input.just_pressed(Key::Down) && self.fb_cursor + 1 < self.fb_entries.len() {
                     self.fb_cursor += 1;
                 }
-                let brow_max_vis = BROW_H.saturating_sub(4);
-                let offset = if self.fb_cursor >= brow_max_vis {
-                    self.fb_cursor - brow_max_vis + 1
-                } else {
-                    0
-                };
-                if mouse.in_bounds {
-                    for list_i in 0..brow_max_vis {
-                        if browser_item_hit(sw, mx, my, list_i)
-                            && offset + list_i < self.fb_entries.len()
-                        {
-                            self.fb_cursor = offset + list_i;
-                        }
+                if let Some(WidgetId::StartBrowserItem(idx)) = hit {
+                    if idx < self.fb_entries.len() {
+                        self.fb_cursor = idx;
                     }
                 }
                 let confirm = input.just_pressed(Key::Enter)
                     || (click
                         && !self.fb_entries.is_empty()
-                        && browser_item_hit(sw, mx, my, self.fb_cursor.saturating_sub(offset)));
+                        && matches!(hit, Some(WidgetId::StartBrowserItem(_))));
                 if confirm && !self.fb_entries.is_empty() {
                     if let Some(entry) = self.fb_entries.get(self.fb_cursor).cloned() {
                         match entry.as_str() {
@@ -455,21 +429,15 @@ impl StartScreen {
                 if input.just_pressed(Key::Down) && self.level_cursor + 1 < self.level_list.len() {
                     self.level_cursor += 1;
                 }
-                let offset = if self.level_cursor >= 12 { self.level_cursor - 12 + 1 } else { 0 };
-                if mouse.in_bounds {
-                    for list_i in 0..12 {
-                        if browser_item_hit(sw, mx, my, list_i) {
-                            let idx = offset + list_i;
-                            if idx < self.level_list.len() {
-                                self.level_cursor = idx;
-                            }
-                        }
+                if let Some(WidgetId::StartBrowserItem(idx)) = hit {
+                    if idx < self.level_list.len() {
+                        self.level_cursor = idx;
                     }
                 }
                 let confirm = input.just_pressed(Key::Enter)
                     || (click
                         && !self.level_list.is_empty()
-                        && browser_item_hit(sw, mx, my, self.level_cursor.saturating_sub(offset)));
+                        && matches!(hit, Some(WidgetId::StartBrowserItem(_))));
                 if confirm && !self.level_list.is_empty() {
                     let path = self.level_list[self.level_cursor].clone();
                     let config = ProjectData::load(&self.sel_project).unwrap_or_else(|_| {

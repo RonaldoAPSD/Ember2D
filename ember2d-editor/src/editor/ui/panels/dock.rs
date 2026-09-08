@@ -9,6 +9,7 @@
 use super::super::frame::{InspectorField, UiFrame, WidgetId};
 use super::super::rect::UiRect;
 use super::super::types::*;
+use super::super::widgets::draw_row;
 use crate::editor::grid::LevelGrid;
 use crate::editor::palette::TilePalette;
 use ember2d::renderer::{color::Color, Font, Renderer};
@@ -395,6 +396,7 @@ pub fn draw_inspector(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_hierarchy(
     renderer: &mut Renderer,
     grid: &LevelGrid,
@@ -403,18 +405,20 @@ pub fn draw_hierarchy(
     hy: usize,
     hw: usize,
     hh: usize,
+    frame: &mut UiFrame,
 ) {
     renderer.draw_rect_filled(hx, hy, hw, hh, ' ', Color::White, Color::DarkGrey);
     let sep: String = std::iter::repeat_n('-', hw).collect();
     renderer.draw_str(hx, hy, &sep, Color::DarkGrey, Color::DarkGrey);
+    // 7C-1 (master plan §5.3): `draw_row` registers each row at the exact
+    // point it's drawn, replacing `handle_hierarchy_click`'s own
+    // independently-recomputed `hier_row` arithmetic (E5).
     if hh > 1 {
         let player_sel = hier_sel == Some(HierarchySelection::Player);
         let label = format!(" {} Player{}", grid.player.glyph, " ".repeat(hw.saturating_sub(9)));
-        if player_sel {
-            renderer.draw_str(hx, hy + 1, &label, Color::Black, Color::Cyan);
-        } else {
-            renderer.draw_str(hx, hy + 1, &label, Color::Green, Color::DarkGrey);
-        }
+        let (fg, bg) =
+            if player_sel { (Color::Black, Color::Cyan) } else { (Color::Green, Color::DarkGrey) };
+        draw_row(renderer, frame, WidgetId::HierarchyRow(HierarchySelection::Player), hx, hy + 1, hw, &label, fg, bg);
     }
     for (i, (name, _, _)) in grid.extra_spawns.iter().enumerate() {
         let row = hy + 2 + i;
@@ -425,14 +429,13 @@ pub fn draw_hierarchy(
         let max_name = hw.saturating_sub(3);
         let short: String = name.chars().take(max_name).collect();
         let label = format!(" ! {:<width$}", short, width = max_name);
-        if spawn_sel {
-            renderer.draw_str(hx, row, &label, Color::Black, Color::Cyan);
-        } else {
-            renderer.draw_str(hx, row, &label, Color::Yellow, Color::DarkGrey);
-        }
+        let (fg, bg) =
+            if spawn_sel { (Color::Black, Color::Cyan) } else { (Color::Yellow, Color::DarkGrey) };
+        draw_row(renderer, frame, WidgetId::HierarchyRow(HierarchySelection::Spawn(i)), hx, row, hw, &label, fg, bg);
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_file_browser_panel(
     renderer: &mut Renderer,
     files: &[String],
@@ -443,6 +446,7 @@ pub fn draw_file_browser_panel(
     cy: usize,
     cw: usize,
     ch: usize,
+    frame: &mut UiFrame,
 ) {
     renderer.draw_rect_filled(cx, cy, cw, ch, ' ', Color::White, Color::DarkGrey);
 
@@ -469,6 +473,13 @@ pub fn draw_file_browser_panel(
         let bg = if is_selected { Color::DarkBlue } else { Color::DarkGrey };
 
         renderer.draw_rect_filled(cx, row, cw, 1, ' ', Color::White, bg);
+        // 7C-1 (master plan §5.3): registers this row's rect at the exact
+        // point it's drawn, replacing `handle_file_browser_click`'s own
+        // independently-recomputed `row_idx` arithmetic (E5). Pushed once
+        // here (rather than through `draw_row`) since a file browser row
+        // draws more than one `draw_str` call — an icon tag, then the name
+        // — depending on which of the four content branches below runs.
+        frame.push(WidgetId::FileBrowserRow(i), UiRect::from_cells(cx as i32, row as i32, cw, 1));
 
         if raw_line.contains("[UP]") {
             renderer.draw_str(cx + 1, row, " .. [PARENT FOLDER] ", Color::Yellow, bg);

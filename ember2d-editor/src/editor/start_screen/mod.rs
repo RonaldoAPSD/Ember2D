@@ -1,5 +1,6 @@
 // editor/start_screen/mod.rs — Start screen module orchestration.
 
+use super::ui::UiFrame;
 use ember2d::engine::{GameState, RenderContext, Transition, UpdateContext};
 use ember2d::project::{GameplayLoop, StartResult, StartTemplate, VisualStyle};
 use ember2d_sim::event::EventBus;
@@ -66,6 +67,14 @@ pub struct StartScreen {
     /// docs/ember2d-phase7-plan.md) — same role, separate instance, since
     /// `StartScreen` has no dependency on `EditorState`.
     font: Box<dyn ember2d::renderer::Font>,
+    /// 7C-1 (master plan §5.3): `StartScreen`'s own `UiFrame` — it has no
+    /// dependency on `EditorState` (see `font`'s own comment above for the
+    /// same reasoning), so it gets its own instance rather than reaching
+    /// across for `EditorState::ui_frame`. Cleared once per `render()` call,
+    /// populated by whichever screen's own `draw_*` function runs that
+    /// frame, and read the FOLLOWING frame's `update()` — see `ui/frame.rs`'s
+    /// header comment for why that one-frame lag is harmless.
+    ui_frame: UiFrame,
 }
 
 impl Default for StartScreen {
@@ -95,6 +104,7 @@ impl StartScreen {
             last_sw: 80,
             last_sh: 24,
             font: Box::new(ember2d::renderer::BitmapFont::new()),
+            ui_frame: UiFrame::new(),
         }
     }
 }
@@ -126,6 +136,11 @@ impl GameState for StartScreen {
         self.last_sw = sw;
         self.last_sh = sh;
 
+        // 7C-1 (master plan §5.3): fresh every render pass, unconditionally
+        // — see `EditorState::ui_frame`'s own doc comment (`impl_render.rs`)
+        // for the one-frame lag this implies and why it's harmless here too.
+        self.ui_frame.clear();
+
         ctx.renderer.draw_rect_filled(
             0,
             0,
@@ -137,10 +152,11 @@ impl GameState for StartScreen {
         );
         let auto_folder = self.auto_folder(); // needs &self, so computed before font's &mut self.font borrow starts
         let font = self.font.as_mut();
+        let frame = &mut self.ui_frame;
         draw_header(ctx.renderer, font, sw);
         match self.screen {
             Screen::MainMenu => {
-                draw_main_menu(ctx.renderer, font, sw, sh, ctx.elapsed, self.menu_cursor)
+                draw_main_menu(ctx.renderer, font, sw, sh, ctx.elapsed, self.menu_cursor, frame)
             }
             Screen::NewName => draw_text_step(
                 ctx.renderer,
@@ -155,8 +171,8 @@ impl GameState for StartScreen {
                 "Enter: next  |  Esc: back",
                 &self.name_buf,
             ),
-            Screen::NewStyle => draw_style_step(ctx.renderer, font, sw, sh, self.style_sel),
-            Screen::NewLoop => draw_loop_step(ctx.renderer, font, sw, sh, self.loop_sel),
+            Screen::NewStyle => draw_style_step(ctx.renderer, font, sw, sh, self.style_sel, frame),
+            Screen::NewLoop => draw_loop_step(ctx.renderer, font, sw, sh, self.loop_sel, frame),
             Screen::FolderBrowser => draw_folder_browser(
                 ctx.renderer,
                 font,
@@ -166,6 +182,7 @@ impl GameState for StartScreen {
                 &self.fb_entries,
                 self.fb_cursor,
                 &auto_folder,
+                frame,
             ),
             Screen::NewFolder => draw_text_step(
                 ctx.renderer,
@@ -181,7 +198,7 @@ impl GameState for StartScreen {
                 &self.folder_buf,
             ),
             Screen::NewTemplate => {
-                draw_template_step(ctx.renderer, font, sw, sh, self.template_sel)
+                draw_template_step(ctx.renderer, font, sw, sh, self.template_sel, frame)
             }
             Screen::OpenProject => draw_browser(
                 ctx.renderer,
@@ -196,6 +213,7 @@ impl GameState for StartScreen {
                 "Up/Down: navigate  |  Enter: open  |  Esc: back",
                 true,
                 &self.fb_path,
+                frame,
             ),
             Screen::LevelPicker => draw_browser(
                 ctx.renderer,
@@ -210,6 +228,7 @@ impl GameState for StartScreen {
                 "Up/Down: navigate  |  Enter: open  |  Esc: back",
                 false,
                 &self.fb_path,
+                frame,
             ),
         }
     }

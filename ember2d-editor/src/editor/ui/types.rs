@@ -64,7 +64,10 @@ pub struct ContextMenu {
 
 // ── Hierarchy selection ───────────────────────────────────────────────────────
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+// 7C-1 (master plan §5.3): `Eq`/`Hash` added so this can be a `WidgetId`
+// variant's own payload (`WidgetId::HierarchyRow`) — `WidgetId` itself
+// derives both.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum HierarchySelection {
     Player,
     Spawn(usize),

@@ -11,27 +11,31 @@ use super::super::super::ui::WidgetId;
 use super::super::super::EditorState;
 
 impl EditorState {
+    /// 7C-1 (master plan §5.3): reads `UiFrame::hit` (populated by
+    /// `draw_hierarchy` via `draw_row`) instead of recomputing `hier_row`
+    /// from the panel's content origin independently here (E5) — the old
+    /// arithmetic was never actually drifted from the draw side, just a
+    /// second computation of the same relationship, same as
+    /// `handle_palette_click`'s own note about the row math it replaced.
     pub(super) fn handle_hierarchy_click(&mut self, mouse: &ember2d::mouse::MouseState) -> bool {
         if self.panels.visible(PanelId::Hierarchy) && mouse.left_just_pressed() && mouse.in_bounds {
-            let p = self.panels.get(PanelId::Hierarchy);
-            let cy = p.content_y();
-            if p.contains(mouse.pixel_x, mouse.pixel_y) && mouse.cell_y >= cy {
-                let hier_row = mouse.cell_y - cy;
-                if hier_row == 1 {
-                    self.hierarchy_sel = Some(HierarchySelection::Player);
-                    self.center_on(self.grid.spawn_point.0 as i32, self.grid.spawn_point.1 as i32);
-                    self.ignore_drag = true;
-                    return true;
-                } else if hier_row >= 2 {
-                    let idx = hier_row - 2;
-                    if idx < self.grid.extra_spawns.len() {
+            if let Some(WidgetId::HierarchyRow(sel)) = self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) {
+                match sel {
+                    HierarchySelection::Player => {
+                        self.hierarchy_sel = Some(sel);
+                        self.center_on(self.grid.spawn_point.0 as i32, self.grid.spawn_point.1 as i32);
+                    }
+                    HierarchySelection::Spawn(idx) => {
+                        if idx >= self.grid.extra_spawns.len() {
+                            return false;
+                        }
                         let (_, sx, sy) = self.grid.extra_spawns[idx];
-                        self.hierarchy_sel = Some(HierarchySelection::Spawn(idx));
+                        self.hierarchy_sel = Some(sel);
                         self.center_on(sx as i32, sy as i32);
-                        self.ignore_drag = true;
-                        return true;
                     }
                 }
+                self.ignore_drag = true;
+                return true;
             }
         }
         false

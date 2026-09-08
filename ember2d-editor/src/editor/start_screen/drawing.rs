@@ -1,5 +1,6 @@
 // editor/start_screen/drawing.rs — UI rendering for the editor's start screen.
 
+use super::super::ui::{draw_menu_item, UiFrame, UiRect, WidgetId};
 use super::mod_types::*;
 use ember2d::project::ProjectData;
 use ember2d::renderer::{color::Color, Font, Renderer};
@@ -86,6 +87,7 @@ fn draw_hint_bar(renderer: &mut Renderer, font: &mut dyn Font, sw: usize, sh: us
     renderer.draw_str(x, sh.saturating_sub(1), hint, Color::White, Color::DarkGrey);
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_main_menu(
     renderer: &mut Renderer,
     font: &mut dyn Font,
@@ -93,6 +95,7 @@ pub(super) fn draw_main_menu(
     sh: usize,
     elapsed: f32,
     cursor: usize,
+    frame: &mut UiFrame,
 ) {
     let box_w: usize = 44;
     let box_x = (sw.saturating_sub(box_w)) / 2;
@@ -141,29 +144,24 @@ pub(super) fn draw_main_menu(
         Color::Black,
     );
 
+    // 7C-1 (master plan §5.3): `draw_menu_item` IS this loop body (moved
+    // verbatim into `ui/widgets.rs` so its rect can be pushed at the exact
+    // point it's drawn), replacing the removed `menu_item_hit`'s own
+    // independently-recomputed `menu_x`/`row` arithmetic (E5).
     for (i, &(label, desc)) in MENU_LABELS.iter().enumerate() {
         let row = menu_y + 2 + i * 3;
-        if i == cursor {
-            let line = format!("  >  {}. {:<44}", i + 1, label);
-            renderer.draw_str(menu_x, row, &line, Color::Black, Color::Cyan);
-            renderer.draw_str(
-                menu_x,
-                row + 1,
-                &format!("{:width$}", "", width = MENU_W),
-                Color::Black,
-                Color::DarkBlue,
-            );
-            renderer.draw_str(menu_x + 9, row + 1, desc, Color::Cyan, Color::DarkBlue);
-        } else {
-            renderer.draw_str(
-                menu_x,
-                row,
-                &format!("     {}. {}", i + 1, label),
-                Color::White,
-                Color::Black,
-            );
-            renderer.draw_str(menu_x + 9, row + 1, desc, Color::DarkGrey, Color::Black);
-        }
+        draw_menu_item(
+            renderer,
+            frame,
+            WidgetId::StartMenuItem(i),
+            menu_x,
+            row,
+            MENU_W,
+            i,
+            label,
+            desc,
+            i == cursor,
+        );
     }
     draw_hint_bar(renderer, font, sw, sh, "Up/Down or hover: navigate  |  Enter or click: select");
 }
@@ -236,6 +234,7 @@ pub(super) fn draw_template_step(
     sw: usize,
     sh: usize,
     selected: usize,
+    frame: &mut UiFrame,
 ) {
     let tbox_x = (sw.saturating_sub(TBOX_W)) / 2;
     let tbox_y = 4;
@@ -308,6 +307,10 @@ pub(super) fn draw_template_step(
                 Color::DarkGreen,
             );
         }
+        // 7C-1 (master plan §5.3): see `draw_card_wizard`'s identical push
+        // — both functions draw the same card geometry, so they share
+        // `WidgetId::StartTemplateItem`.
+        frame.push(WidgetId::StartTemplateItem(i), UiRect::from_cells(cx as i32, cy as i32, TCARD_W, TCARD_H));
     }
     draw_hint_bar(
         renderer,
@@ -324,6 +327,7 @@ pub(super) fn draw_style_step(
     sw: usize,
     sh: usize,
     selected: usize,
+    frame: &mut UiFrame,
 ) {
     draw_card_wizard(
         renderer,
@@ -336,6 +340,7 @@ pub(super) fn draw_style_step(
         "Choose the visual aesthetic of your game:",
         STYLE_LABELS,
         selected,
+        frame,
     );
 }
 
@@ -345,6 +350,7 @@ pub(super) fn draw_loop_step(
     sw: usize,
     sh: usize,
     selected: usize,
+    frame: &mut UiFrame,
 ) {
     draw_card_wizard(
         renderer,
@@ -357,9 +363,11 @@ pub(super) fn draw_loop_step(
         "Choose how your game world updates:",
         LOOP_LABELS,
         selected,
+        frame,
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_card_wizard(
     renderer: &mut Renderer,
     font: &mut dyn Font,
@@ -371,6 +379,7 @@ fn draw_card_wizard(
     prompt: &str,
     labels: &[(&str, &str)],
     selected: usize,
+    frame: &mut UiFrame,
 ) {
     let tbox_x = (sw.saturating_sub(TBOX_W)) / 2;
     let tbox_y = 4;
@@ -433,6 +442,12 @@ fn draw_card_wizard(
                 Color::DarkGreen,
             );
         }
+        // 7C-1 (master plan §5.3): registers this card's rect at the exact
+        // point it's drawn, replacing the removed `template_item_hit`'s own
+        // independently-recomputed `tcard_x0`/`tcard_y` arithmetic (E5) —
+        // shared with `draw_template_step` below, which uses identical
+        // geometry for a different label set.
+        frame.push(WidgetId::StartTemplateItem(i), UiRect::from_cells(cx as i32, cy as i32, TCARD_W, TCARD_H));
     }
     draw_hint_bar(
         renderer,
@@ -443,6 +458,7 @@ fn draw_card_wizard(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_folder_browser(
     renderer: &mut Renderer,
     font: &mut dyn Font,
@@ -452,6 +468,7 @@ pub(super) fn draw_folder_browser(
     fb_entries: &[String],
     fb_cursor: usize,
     project_folder: &str,
+    frame: &mut UiFrame,
 ) {
     let fb_x = (sw.saturating_sub(FB_W)) / 2;
     let fb_y = 3;
@@ -537,6 +554,13 @@ pub(super) fn draw_folder_browser(
             renderer.draw_str(fb_x + 1, row, "  ", text_fg, text_bg);
             renderer.draw_str(fb_x + 3, row, display, text_fg, text_bg);
         }
+        // 7C-1 (master plan §5.3): registers this row's rect at the exact
+        // point it's drawn, replacing the removed `folder_item_hit`'s own
+        // independently-recomputed `fb_x`/`fb_list_y` arithmetic (E5). By
+        // absolute `list_i`, not the visible-row `vis_i` `folder_item_hit`
+        // took, so the input handler no longer needs to re-derive one from
+        // the other.
+        frame.push(WidgetId::StartFolderItem(list_i), UiRect::from_cells(fb_x as i32, row as i32, FB_W, 1));
     }
     if fb_entries.len() > fb_max_vis {
         let pct = fb_cursor * (FB_H.saturating_sub(8)) / fb_entries.len().max(1);
@@ -551,6 +575,7 @@ pub(super) fn draw_folder_browser(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_browser(
     renderer: &mut Renderer,
     font: &mut dyn Font,
@@ -564,6 +589,7 @@ pub(super) fn draw_browser(
     hint: &str,
     use_name_for: bool,
     fb_path: &std::path::PathBuf,
+    frame: &mut UiFrame,
 ) {
     let brow_x = (sw.saturating_sub(BROW_W)) / 2;
     let brow_y = 4;
@@ -651,6 +677,13 @@ pub(super) fn draw_browser(
                 renderer.draw_str(brow_x + 1, row, "  ", fg, bg);
                 renderer.draw_str(brow_x + 3, row, &padded, fg, bg);
             }
+            // 7C-1 (master plan §5.3): registers this row's rect at the
+            // exact point it's drawn, replacing the removed
+            // `browser_item_hit`'s own independently-recomputed `brow_x`/
+            // `brow_list_y` arithmetic (E5) — shared by both screens that
+            // call `draw_browser` (OpenProject and LevelPicker), same as
+            // `browser_item_hit` was.
+            frame.push(WidgetId::StartBrowserItem(list_i), UiRect::from_cells(brow_x as i32, row as i32, BROW_W, 1));
         }
         if items.len() > brow_max_vis {
             let pct = (cursor * (BROW_H.saturating_sub(8))) / items.len().max(1);
@@ -664,37 +697,4 @@ pub(super) fn draw_browser(
         }
     }
     draw_hint_bar(renderer, font, sw, sh, hint);
-}
-
-pub(super) fn hit_test(mx: usize, my: usize, x: usize, y: usize, w: usize, h: usize) -> bool {
-    mx >= x && mx < x + w && my >= y && my < y + h
-}
-
-pub(super) fn menu_item_hit(sw: usize, mx: usize, my: usize, i: usize) -> bool {
-    let menu_x = (sw.saturating_sub(MENU_W)) / 2;
-    let menu_y = 10;
-    hit_test(mx, my, menu_x, menu_y + 2 + i * 3, MENU_W, 2)
-}
-
-pub(super) fn folder_item_hit(sw: usize, mx: usize, my: usize, vis_i: usize) -> bool {
-    let fb_x = (sw.saturating_sub(FB_W)) / 2;
-    let fb_y = 3;
-    let fb_list_y = fb_y + 5;
-    hit_test(mx, my, fb_x, fb_list_y + vis_i, FB_W, 1)
-}
-
-pub(super) fn browser_item_hit(sw: usize, mx: usize, my: usize, vis_i: usize) -> bool {
-    let brow_x = (sw.saturating_sub(BROW_W)) / 2;
-    let brow_y = 4;
-    let brow_list_y = brow_y + 4;
-    hit_test(mx, my, brow_x, brow_list_y + vis_i, BROW_W, 1)
-}
-
-pub(super) fn template_item_hit(sw: usize, mx: usize, my: usize, i: usize) -> bool {
-    let tbox_x = (sw.saturating_sub(TBOX_W)) / 2;
-    let tbox_y = 4;
-    let tcard_x0 = tbox_x + (TBOX_W.saturating_sub(TCARD_W * 2 + TCARD_GAP)) / 2;
-    let tcard_y = tbox_y + 4;
-    let cx = tcard_x0 + i * (TCARD_W + TCARD_GAP);
-    hit_test(mx, my, cx, tcard_y, TCARD_W, TCARD_H)
 }

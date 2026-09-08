@@ -7,7 +7,10 @@
 // hard limit — no behavioral change from being grouped this way. See
 // `../panels/mod.rs` for the split's overall shape (`chrome`/`dock`/`modals`).
 
+use super::super::frame::{UiFrame, WidgetId};
+use super::super::rect::UiRect;
 use super::super::types::*;
+use super::super::widgets::{draw_button, draw_swatch, PALETTE_COLORS};
 use ember2d::renderer::{color::Color, Font, Renderer};
 
 pub fn draw_palette_editor_modal(
@@ -15,6 +18,7 @@ pub fn draw_palette_editor_modal(
     pal: &crate::editor::palette::TileDefinition,
     focus: Option<&crate::editor::PaletteField>,
     layout: &Layout,
+    frame: &mut UiFrame,
 ) {
     let mw = 36usize;
     let mh = 18usize;
@@ -96,32 +100,26 @@ pub fn draw_palette_editor_modal(
         Color::Black,
     );
 
-    // Color Grids
-    let colors = [
-        Color::Black,
-        Color::White,
-        Color::Red,
-        Color::Green,
-        Color::Yellow,
-        Color::Blue,
-        Color::Cyan,
-        Color::Magenta,
-        Color::DarkGrey,
-        Color::Grey,
-        Color::DarkRed,
-        Color::DarkGreen,
-        Color::DarkBlue,
-        Color::DarkYellow,
-        Color::DarkCyan,
-        Color::DarkMagenta,
-    ];
-
+    // Color Grids — 7C-1 (master plan §5.3): `draw_swatch` registers each
+    // cell's own rect, and `PALETTE_COLORS` replaces this function's,
+    // `draw_color_picker`'s, and both of `input/mod.rs`'s independent
+    // copies of the same 16-color array (E5's "four color tables").
     renderer.draw_str(cx, my + 7, "Foreground Color:", Color::Yellow, Color::DarkGrey);
-    for (i, &col) in colors.iter().enumerate() {
+    for (i, &col) in PALETTE_COLORS.iter().enumerate() {
         let gx = cx + (i % 8) * 3;
         let gy = my + 8 + (i / 8);
         let ch = if pal.fg == col { '*' } else { '#' };
-        renderer.draw_str(gx, gy, &format!("[{}]", ch), col, Color::Black);
+        draw_swatch(
+            renderer,
+            frame,
+            WidgetId::PaletteEditorSwatch { is_fg: true, index: i },
+            gx,
+            gy,
+            3,
+            &format!("[{}]", ch),
+            col,
+            Color::Black,
+        );
     }
     let fg_custom_label = match pal.fg {
         Color::Rgb(r, g, b) => format!("#{:02X}{:02X}{:02X}", r, g, b),
@@ -136,11 +134,21 @@ pub fn draw_palette_editor_modal(
     );
 
     renderer.draw_str(cx, my + 11, "Background Color:", Color::Yellow, Color::DarkGrey);
-    for (i, &col) in colors.iter().enumerate() {
+    for (i, &col) in PALETTE_COLORS.iter().enumerate() {
         let gx = cx + (i % 8) * 3;
         let gy = my + 12 + (i / 8);
         let ch = if pal.bg == col { '*' } else { '#' };
-        renderer.draw_str(gx, gy, &format!("[{}]", ch), col, Color::Black);
+        draw_swatch(
+            renderer,
+            frame,
+            WidgetId::PaletteEditorSwatch { is_fg: false, index: i },
+            gx,
+            gy,
+            3,
+            &format!("[{}]", ch),
+            col,
+            Color::Black,
+        );
     }
     let bg_custom_label = match pal.bg {
         Color::Rgb(r, g, b) => format!("#{:02X}{:02X}{:02X}", r, g, b),
@@ -165,6 +173,7 @@ pub fn draw_color_picker_modal(
     hsv: (f32, f32, f32),
     is_fg: bool,
     layout: &Layout,
+    frame: &mut UiFrame,
 ) {
     let mw = 44usize;
     let mh = 16usize;
@@ -190,12 +199,18 @@ pub fn draw_color_picker_modal(
     let title_bg = Color::DarkBlue;
     renderer.draw_rect_filled(mx + 1, my, mw - 2, 1, ' ', Color::White, title_bg);
     renderer.draw_str(mx + 2, my, &title, Color::White, title_bg);
-    renderer.draw_str(mx + mw - 4, my, "[X]", Color::White, title_bg);
+    // 7C-1 (master plan §5.3): registers the title-close hitbox at the
+    // exact point it's drawn, replacing `input/mod.rs`'s own
+    // independently-recomputed `mx+mw-4..mx+mw-1` range (E5).
+    draw_button(renderer, frame, WidgetId::ColorPickerClose, mx + mw - 4, my, 3, "[X]", Color::White, title_bg);
 
     let cx = mx + 2;
     let (h, s, v) = hsv;
 
-    // 1. Hue Bar (0..360)
+    // 1. Hue Bar (0..360) — a continuous drag area, not a discrete
+    // button, so it's registered as one rect (`WidgetId::ColorPickerHueBar`)
+    // that the input handler reads back via `UiFrame::rect_of` to compute
+    // a hue percentage, rather than a per-column push.
     renderer.draw_str(cx, my + 2, "Hue:", Color::Yellow, Color::DarkGrey);
     let hbar_w = 36;
     let hbar_x = cx + 5;
@@ -204,10 +219,12 @@ pub fn draw_color_picker_modal(
         let col = Color::from_hsv(hue, 1.0, 1.0);
         renderer.draw_char(hbar_x + i, my + 2, ' ', Color::Reset, col);
     }
+    frame.push(WidgetId::ColorPickerHueBar, UiRect::from_cells(hbar_x as i32, (my + 2) as i32, hbar_w, 1));
     let h_indicator_x = hbar_x + ((h / 360.0) * (hbar_w - 1) as f32).round() as usize;
     renderer.draw_char(h_indicator_x, my + 1, 'v', Color::White, Color::DarkGrey);
 
-    // 2. SV Map (Saturation vs Value)
+    // 2. SV Map (Saturation vs Value) — same continuous-area reasoning as
+    // the hue bar above.
     renderer.draw_str(cx, my + 4, "Sat/Val Map:", Color::Yellow, Color::DarkGrey);
     let map_w = 20;
     let map_h = 8;
@@ -221,6 +238,7 @@ pub fn draw_color_picker_modal(
             renderer.draw_char(map_x + sx, map_y + sy, ' ', Color::Reset, col);
         }
     }
+    frame.push(WidgetId::ColorPickerSvMap, UiRect::from_cells(map_x as i32, map_y as i32, map_w, map_h));
     // Cursor in map
     let cur_sx = (s * (map_w - 1) as f32).round() as usize;
     let cur_sy = ((1.0 - v) * (map_h - 1) as f32).round() as usize;
@@ -243,31 +261,13 @@ pub fn draw_color_picker_modal(
 
     // Buttons
     let btn_y = my + mh - 2;
-    renderer.draw_str(mx + 2, btn_y, " [ Apply ] ", Color::Black, Color::Cyan);
-    renderer.draw_str(mx + mw - 14, btn_y, " [ Cancel ] ", Color::White, Color::Black);
+    draw_button(renderer, frame, WidgetId::ColorPickerApply, mx + 2, btn_y, 11, " [ Apply ] ", Color::Black, Color::Cyan);
+    draw_button(renderer, frame, WidgetId::ColorPickerCancel, mx + mw - 14, btn_y, 12, " [ Cancel ] ", Color::White, Color::Black);
 }
 
 pub fn draw_color_picker(renderer: &mut Renderer, x: usize, y: usize, w: usize) {
-    let colors = [
-        Color::Black,
-        Color::White,
-        Color::Red,
-        Color::Green,
-        Color::Yellow,
-        Color::Blue,
-        Color::Cyan,
-        Color::Magenta,
-        Color::DarkGrey,
-        Color::Grey,
-        Color::DarkRed,
-        Color::DarkGreen,
-        Color::DarkBlue,
-        Color::DarkYellow,
-        Color::DarkCyan,
-        Color::DarkMagenta,
-    ];
     renderer.draw_rect_filled(x, y, w, 3, ' ', Color::White, Color::Black);
-    for (i, &col) in colors.iter().enumerate() {
+    for (i, &col) in PALETTE_COLORS.iter().enumerate() {
         let cx = x + 1 + (i % 8) * 2;
         let cy = y + 1 + (i / 8);
         renderer.draw_char(cx, cy, '■', col, Color::Black);

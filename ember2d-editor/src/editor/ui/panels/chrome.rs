@@ -10,6 +10,7 @@
 use super::super::frame::{UiFrame, WidgetId};
 use super::super::rect::UiRect;
 use super::super::types::*;
+use super::super::widgets::{draw_button, draw_row};
 use crate::editor::palette::TilePalette;
 use ember2d::renderer::{color::Color, Font, Renderer};
 use ember2d_sim::level::TileRecord;
@@ -220,6 +221,7 @@ pub fn draw_confirm_modal(
     title: &str,
     message: &str,
     layout: &Layout,
+    frame: &mut UiFrame,
 ) {
     let mw = 40usize;
     let mh = 8usize;
@@ -240,16 +242,18 @@ pub fn draw_confirm_modal(
     let msg_x = mx + (mw.saturating_sub(cells(font, message))) / 2;
     renderer.draw_str(msg_x, my + 2, message, Color::White, Color::DarkGrey);
 
-    // Buttons
+    // Buttons — 7C-1 (master plan §5.3): `draw_button` registers each
+    // rect at the exact point it's drawn, replacing `input/modal.rs`'s
+    // own independently-recomputed `yes_x`/`no_x`/`btn_y` (E5).
     let btn_y = my + 5;
     let yes_x = mx + 8;
     let no_x = mx + mw - 15;
 
-    renderer.draw_str(yes_x, btn_y, " [ YES ] ", Color::Black, Color::Cyan);
-    renderer.draw_str(no_x, btn_y, " [ NO ]  ", Color::White, Color::Black);
+    draw_button(renderer, frame, WidgetId::ConfirmYes, yes_x, btn_y, 9, " [ YES ] ", Color::Black, Color::Cyan);
+    draw_button(renderer, frame, WidgetId::ConfirmNo, no_x, btn_y, 9, " [ NO ]  ", Color::White, Color::Black);
 }
 
-pub fn draw_context_menu(renderer: &mut Renderer, menu: &ContextMenu) {
+pub fn draw_context_menu(renderer: &mut Renderer, menu: &ContextMenu, frame: &mut UiFrame) {
     let mw = 20usize;
     let mh = menu.items.len() + 2;
     let mx = menu.x;
@@ -287,6 +291,9 @@ pub fn draw_context_menu(renderer: &mut Renderer, menu: &ContextMenu) {
         if text.len() > mw {
             text = text.chars().take(mw).collect();
         }
-        renderer.draw_str(mx, row, &text, fg, bg);
+        // 7C-1 (master plan §5.3): `draw_row` registers this rect at the
+        // exact point it's drawn, replacing `input/context_menu.rs`'s own
+        // independently-recomputed `mw`/`mh`/boundary-clamp math (E5).
+        draw_row(renderer, frame, WidgetId::ContextMenuRow(i), mx, row, mw, &text, fg, bg);
     }
 }

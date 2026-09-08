@@ -7,6 +7,7 @@ mod panels;
 mod rect;
 mod script;
 mod types;
+mod widgets;
 
 pub use canvas::*;
 pub use frame::*;
@@ -15,3 +16,4 @@ pub use panels::*;
 pub use rect::*;
 pub use script::*;
 pub use types::*;
+pub use widgets::*;

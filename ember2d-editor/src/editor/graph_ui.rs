@@ -5,6 +5,7 @@
 // crate-root `graph` module (see that module's header comment for why), and
 // this half — which needs the renderer — stayed in `editor`.
 
+use super::ui::{draw_row, UiFrame, WidgetId};
 use ember2d::renderer::{color::Color, Font, Renderer};
 use ember2d_sim::graph::*;
 
@@ -261,6 +262,7 @@ pub fn draw_graph(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_palette(
     renderer: &mut Renderer,
     scroll: usize,
@@ -269,6 +271,7 @@ pub fn draw_palette(
     py: usize,
     _screen_w: usize,
     screen_h: usize,
+    frame: &mut UiFrame,
 ) {
     let entries = palette_entries();
     let visible_h = (screen_h.saturating_sub(py + 1)).min(18);
@@ -294,7 +297,12 @@ pub fn draw_palette(
             format!("  {:<width$}", entry.1, width = w.saturating_sub(2))
         };
         let line: String = label.chars().take(w).collect();
-        renderer.draw_str(px, row, &line, fg, bg);
+        // 7C-1 (master plan §5.3): registers every row — including
+        // non-selectable header rows — so `input/graph.rs` can tell "click
+        // landed inside the palette but on a header" apart from "click
+        // landed outside the palette entirely" the same way the removed
+        // manual `mouse.cell_x >= px && ...` arithmetic did (E5).
+        draw_row(renderer, frame, WidgetId::GraphPaletteRow(real_idx), px, row, w, &line, fg, bg);
     }
     let end_row = py + 1 + visible_h;
     if end_row < screen_h && scroll + visible_h < entries.len() {
