@@ -296,6 +296,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R49 | S4 | `BitmapFont`'s `Font`-trait glyph model represents a native glyph as a literal, unstretched 8×8 square, but the dedicated font8x8 GPU path (`WgpuBackend::draw_char`) has always stretched that same 8×8 bitmap 2x vertically to fill the 8×16 `CELL_W`×`CELL_H` cell — the two disagree on what "native size" looks like. Found building 7B-5 (before/after screenshot comparison caught the shrink); currently dormant because `draw_str`'s default path deliberately keeps calling `draw_char` directly rather than routing through the `Font` abstraction (see 7B-5's "Landed as" note) | `renderer/font/bitmap.rs` (`BitmapFont::glyph`/`ascent`/`line_height`); `renderer/backend.rs` (`WgpuBackend::draw_char`) | `[ ]` unscheduled — blocks ever fully unifying `draw_str` onto `draw_text_px` for the bitmap case without either changing `BitmapFont`'s glyph model or `draw_text_px`'s destination-sizing logic (see R50) |
 | R50 | S4 | `Renderer::draw_text_px`'s glyph destination rect always uses `GlyphInfo::atlas_rect.w`/`.h` directly as the drawn size — correct for `TtfFont` (whose atlas rasterizes each glyph AT the requested px, so `atlas_rect` already IS the intended render size) but wrong for `BitmapFont` at any non-native px: `atlas_rect` stays fixed at the native 8×8 texture region regardless of the requested size (only `advance`/`offset` scale), so a `BitmapFont` glyph requested at e.g. 16px would advance the pen 16px per character without the glyph itself actually being drawn any larger than 8×8 — a gap that predates 7B-5 but was undiscovered until this step's investigation, since `draw_text_px` had no live caller before it (its own doc comment used to say so) | `renderer/text.rs` (`draw_text_px`, dest rect construction) | `[ ]` unscheduled — not hit by 7B-5's own usage: `draw_str`'s new `draw_text_px` call is reached only when `ui_font_kind` is `Ttf`, so it never passes a `BitmapFont` in the first place (see R49, 7B-5's "Landed as" note) |
 | R51 | S2 | Maximizing (or otherwise growing) the editor window, then pressing F5 to play, leaves stale editor-panel pixels (the docked Inspector's title/tool text, colored bars) visibly stuck on screen wherever the play view's own grid is narrower than the resized window — found live by the user right after the 7B gate. Confirmed this is NOT an app-side "forgot to clear" bug: instrumented `Renderer::try_handle_resize` and verified the surface *is* reconfigured to the correct new size and the render pass's `LoadOp::Clear` covers the whole surface every frame (dozens of frames observed, well into active play — e.g. "Turn 20" in the user's own screenshot). A manual 1px-out-1px-back resize nudge afterward repainted *most* (not all) of the stale area, which points at a Windows DWM compositor caching artifact tied to wgpu's flip-model swapchain presentation during a resize/maximize transition, not application logic — a known-tricky class of issue on Windows with wgpu/winit, not something to guess-fix without real investigation | `ember2d/src/renderer/mod.rs` (`try_handle_resize`, `recompute_layout`); Windows DWM/wgpu swapchain presentation, not yet isolated to a specific engine file | `[ ]` unscheduled — needs focused investigation (try forcing a window repaint/invalidate after resize, a different present mode, or comparing against known wgpu/winit issue reports) before attempting a fix; reproduce with: maximize the editor window, then F5 |
+| R52 | S3 | 7C-1's own debug assertion in `handle_canvas_input` — "any click reaching here while `UiFrame::hit()` is `Some` is a bug" — fired constantly during ordinary use (both painting and legitimate widget clicks), found live by the user during 7C-2's manual smoke pass. Root cause: the assertion assumed panel input consuming a click already stops `handle_canvas_input` from running, but `handle_update` calls `handle_panel_input`/`handle_canvas_input`/`handle_shortcuts` unconditionally, one after another, regardless of what an earlier stage did — `handle_panel_input`'s own internal `return`s only stop itself. That's exactly the gap 7C-4's `Consumed \| Pass` chain is designed to close; the assertion's premise doesn't hold until then, so as written it couldn't distinguish a real bleed-through from any click that happens to also land on any registered widget anywhere on screen (which is most clicks). Painting itself was never actually broken — `handle_canvas_input`'s own `mouse_to_grid` bounds check is what really prevents unwanted painting, unrelated to whether `UiFrame::hit` matched something | `ember2d-editor/src/editor/input/canvas.rs` (`handle_canvas_input`) | `[x]` 7C-1 follow-up (`f89b301`) — assertion removed; re-add once 7C-4 gives `handle_canvas_input` a real "was this already consumed" signal to check instead of `UiFrame::hit` alone |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -1390,6 +1391,13 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
     migrated widgets (a real GUI window this session can't drive) — needs
     a manual pass, folded into this phase's own gate checklist run
     (§3–§10) rather than repeated per-step.
+  - **Correction, found during that manual pass (R52, `f89b301`):** the
+    debug assertion this step added to `handle_canvas_input` fired
+    constantly on ordinary use, not just genuine bleed-through — its
+    premise (a panel handler consuming a click already stops
+    `handle_canvas_input` from running) doesn't hold until 7C-4's
+    `Consumed | Pass` chain exists. Removed; see R52 and 7C-4's own Change
+    list for where it's re-added.
 
 #### `[x]` 7C-2 — No cell literals below `Panel.rect` (`e0d305c`)
 
@@ -1473,7 +1481,12 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
   `handle_update` dispatches on `mode` once. Input flows menu bar → modal
   layer → panels → (mode-specific canvas handler) → shortcuts, and **each
   stage returns `Consumed | Pass`**; a `Consumed` stops the chain. The
-  `EditorFocus` from 7A-2 folds into this.
+  `EditorFocus` from 7A-2 folds into this. Once this chain actually exists,
+  re-add 7C-1's debug assertion (removed as R52, `f89b301` — it fired on
+  any click landing on any registered widget, not just genuine
+  bleed-through, because nothing yet stopped `handle_canvas_input` from
+  running after a panel handler consumed the click) checking the real
+  `Consumed`/`Pass` result instead of `UiFrame::hit` alone.
 - **Test:** see 7C-5 — this step is what makes the harness possible.
 - **Done when:** `EditorState` has no `bool` field whose name is a mode;
   `handle_update` has one `match self.mode`.
