@@ -305,7 +305,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | E1 | `draw_cursor_highlight` drifts during fractional scroll | `[x]` cf59f42 (pinned by test) |
 | E2 | `grid_to_pixel` hardcodes 8.0/16.0 | `[x]` 7C-2 (`e0d305c`) — this row's own `backend.rs:420-439`/`mouse.rs:28-32` citations were already stale by the time 7C-2 ran (both already used `CELL_W`/`CELL_H`, fixed incidentally at 7B-2/7B-4 without this row being updated — R36's own class of drift; also both in `ember2d`, not `ember2d-editor`, so out of 7C-2's Scope regardless); the real remaining site was `impl_render.rs`'s viewport scissor rect, now fixed |
 | E3 | `draw_extra_spawns` label position wrong at zoom ≠ 1 | `[x]` cf59f42 |
-| E4 | Two sources of truth for the canvas rect (`Layout` vs `PanelManager`) | `[ ]` **not resolved** — `Layout.canvas_*` still rebuilt each frame from `Viewport.rect` → 7C-3 |
+| E4 | Two sources of truth for the canvas rect (`Layout` vs `PanelManager`) | `[x]` 7C-3 (`9bad191`) — `Layout` deleted; `PanelManager` (`viewport()`, `screen_size_px()`/`screen_size_cells()`) and `Panel::content_rect()` are the only source now |
 | E5 | Hitboxes computed independently of drawing | `[x]` 7C-1 (`03f34bf`) — all 13 remaining sites migrated to `UiFrame`; palette editor's non-color-grid fields (title-close, name/glyph/tag, Save&Close/Delete) are the one deliberately out-of-scope remainder, per that step's own "Landed as" note |
 | E6 | `PanelManager::new(80, 24)` hardcodes a terminal size | `[x]` cf59f42 |
 
@@ -1440,7 +1440,7 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
   clean, clippy `--lib` unchanged at 58 (still under the `v0.5.7b`
   baseline of 59).
 
-#### `[ ]` 7C-3 — Delete `Layout`; the viewport is a real panel
+#### `[x]` 7C-3 — Delete `Layout`; the viewport is a real panel (`9bad191`)
 
 - **Why:** E4. `Layout.canvas_*` (cells) is rebuilt every frame from
   `Viewport.rect` (pixels) and is what `mouse_to_grid`, canvas input, and
@@ -1456,6 +1456,68 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
 - **Done when:** `Layout` no longer exists; the viewport docks/undocks like
   any panel while remaining non-closable.
 - **Scope:** `ember2d-editor`.
+- **Landed as:** `Layout` deleted outright (only historical comments
+  mention it now). `PanelManager` gains `viewport()` (`&Panel`, was
+  `Layout.canvas_*`), `screen_size_px()`/`screen_size_cells()` (was
+  `Layout.screen_w`/`screen_h`, now updated every `apply_layout` call
+  instead of duplicated), and `Panel::content_rect()` (the pixel-native
+  counterpart to the existing cell-based `content_x`/`content_y`/
+  `content_w`/`content_h`). `toolbar_row` becomes a plain `TOOLBAR_ROW`
+  constant (it was never anything but `1`). `canvas_bounds` (dead the
+  moment its one caller, the old `Layout::new(..).with_canvas(..)` line in
+  `impl_render.rs`, was deleted) removed with it — same deletion, not a
+  separate cleanup.
+  - **Viewport drag:** the Change list's "docks/undocks like any panel...
+    stays non-closable and master-fill" was ambiguous about how far
+    "like any panel" should go — asked the user directly rather than
+    guessing; they picked the minimal reading. `handle_panel_chrome_click`'s
+    `TitleBar` branch no longer
+    excludes `PanelId::Viewport` from `start_drag`, so it now behaves
+    exactly like dragging any other panel — the resize-handle and
+    close-button guards are untouched (resize handle stays inert for the
+    Viewport, close stays disabled). `apply_layout`'s own `PanelId::Viewport`
+    match arm (`panel/mod.rs`) still unconditionally recomputes its
+    dock/rect as "whatever's left over" every single frame regardless of
+    what the drag did, so a dragged Viewport visually follows the cursor
+    but snaps back to filling the remaining space on the very next frame
+    — "docks/undocks like any panel" describes the input mechanics, not
+    a change to the actual layout result.
+  - **`mouse_to_grid` is now pixel-native**, not just re-sourced: it reads
+    the mouse's true sub-cell pixel position against
+    `PanelManager::viewport().content_rect()`, rather than
+    `mouse.cell_x`/`cell_y` (already floored to whole cells) against the
+    deleted `Layout`'s own copy. `draw_cursor_highlight`
+    (`ui/canvas.rs`) and the wheel-zoom pivot (`input/canvas.rs`) were
+    rewritten to the identical formula, so the three can never
+    independently drift at any zoom or scroll — the same invariant E1's
+    original fix established, now precise at the sub-cell level too, not
+    just at whole-cell mouse positions. All 28 `mouse_to_grid` call sites
+    now pass `mouse.pixel_x`/`pixel_y`.
+  - **Every other `self.layout.canvas_x`/`canvas_y`/`canvas_w`/`canvas_h`
+    consumer** (the zoom-gate `on_canvas` check in `input/canvas.rs`, the
+    `FocusCamera` context-menu action, `center_on`, `clamp_scroll`,
+    `draw_status_bar`'s mouse-position readout) is a direct swap to
+    `self.panels.viewport().content_x()`/etc. — same cell-based values,
+    same behavior, just sourced from `PanelManager` instead of a
+    redundant per-frame copy of it.
+  - **Not done this session — §8's screenshot requirement:** "7B-1, 7B-2,
+    7B-5, and 7C-3 each require a before/after screenshot pair." This
+    session has no way to launch the real editor and capture one — no
+    pair exists yet under `docs/screenshots/7c-3/`. The round-trip test
+    plus the full `cargo test --workspace` pass (255, unchanged) are the
+    automated evidence this step's own geometry math didn't change; the
+    screenshot pair itself is still outstanding and needs a human pass —
+    same gap as the manual GUI smoke-testing 7C-1/7C-2 already flagged,
+    but this one is a named §8 gate requirement, not just good practice,
+    so flagging it explicitly rather than letting it quietly ride into
+    the phase gate.
+  - Full `cargo build --workspace --examples` and `cargo test --workspace`
+    green throughout (255 tests, unchanged — no new test needed beyond
+    updating the existing round-trip test to build `UiRect`s instead of
+    `Layout`s). `scripts/check.ps1` clean. Clippy `--lib`: 56 warnings,
+    down from the `v0.5.7b` baseline of 59 (removing `canvas_bounds` and
+    simplifying several call sites reduced the count rather than growing
+    it).
 
 #### `[ ]` 7C-4 — `EditorMode` replaces the boolean soup
 
