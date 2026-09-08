@@ -305,7 +305,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | E2 | `grid_to_pixel` hardcodes 8.0/16.0 | `[~]` `CELL_W/H` exported; literals remain in `impl_render.rs:205-208`, `backend.rs:420-439`, `mouse.rs:28-32` → 7C-2 |
 | E3 | `draw_extra_spawns` label position wrong at zoom ≠ 1 | `[x]` cf59f42 |
 | E4 | Two sources of truth for the canvas rect (`Layout` vs `PanelManager`) | `[ ]` **not resolved** — `Layout.canvas_*` still rebuilt each frame from `Viewport.rect` → 7C-3 |
-| E5 | Hitboxes computed independently of drawing | `[~]` fixed for panel chrome/tabs/menus/palette/inspector; **open** for confirm modal, colour picker, palette editor, context menu, graph palette, hierarchy rows, file browser rows, start screen → 7C-1 |
+| E5 | Hitboxes computed independently of drawing | `[x]` 7C-1 (`03f34bf`) — all 13 remaining sites migrated to `UiFrame`; palette editor's non-color-grid fields (title-close, name/glyph/tag, Save&Close/Delete) are the one deliberately out-of-scope remainder, per that step's own "Landed as" note |
 | E6 | `PanelManager::new(80, 24)` hardcodes a terminal size | `[x]` cf59f42 |
 
 ---
@@ -1275,7 +1275,7 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
 
 **Checklist sections at gate:** §3–§10.
 
-#### `[ ]` 7C-1 — `UiFrame` registration becomes mandatory
+#### `[x]` 7C-1 — `UiFrame` registration becomes mandatory (`03f34bf`)
 
 - **Why:** E5 is fixed for one widget class and alive in eight others because
   registration is opt-in.
@@ -1318,6 +1318,78 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
   and `ui/panels/chrome.rs::draw_dock_tabs` are the two existing
   already-migrated widgets to pattern-match the new `ui/widgets.rs`
   helpers against. Implementation starts next session.
+- **Landed as:** all 13 sites from the investigation note above migrated,
+  one commit (`03f34bf`), `ember2d-editor` only. Deviations and decisions
+  beyond the Change list's own literal text:
+  - **New `UiFrame::rect_of(id) -> Option<UiRect>`**, not in the original
+    Change list. The advanced color picker's hue bar and SV map are
+    continuous drag areas, not discrete buttons — `hit()` alone says WHICH
+    widget was clicked, not where its rect actually is, and the input
+    handler needs the rect back to turn a pixel position into a
+    percentage. Without this, those two widgets would have had to keep
+    recomputing their own origin, defeating the point of the migration.
+  - **Palette editor scope narrowed to its two color grids only**,
+    matching the Change list's own parenthetical ("dedupe its four colour
+    tables into one const") — its title-close, name/glyph/tag fields, and
+    Save&Close/Delete buttons are still raw inline math in `input/mod.rs`.
+    Not named in the Change list, and none of them are independent named
+    *functions* the Done-when's grep would ever have caught either;
+    migrating them anyway would have been scope creep past what this step
+    asked for.
+  - **`draw_color_picker`** (the small, currently-uncalled swatch-strip
+    function in `ui/panels/modals.rs`) had its own copy of the 16-color
+    array — the fourth of the "four colour tables" — so it's been pointed
+    at the shared `PALETTE_COLORS` const too, but is otherwise untouched
+    (still dead code; deleting dead code isn't this step's job).
+  - **Two small, deliberate behavior tightenings**, both because the old
+    math and the new `UiFrame`-based check aren't quite the same
+    predicate at the edges: (1) the context menu now requires a click to
+    land on an actual row — the old code let a click anywhere inside the
+    menu's outer rect (border included) confirm whatever was last
+    hovered, a gap that was never reachable through the menu's own drawn
+    layout anyway. (2) The graph palette's dead space below its last row
+    (only reachable when the entry list doesn't fill the visible area)
+    now closes the palette on click instead of silently no-opping. Both
+    match how every other panel migrated in this step already behaves;
+    neither is reachable in the shipped roguelike/shooter demos or through
+    normal editor use.
+  - **`StartScreen` gained its own `UiFrame` field** (cleared once per
+    `render()`, same one-frame-lag contract as `EditorState::ui_frame`) —
+    confirmed by the investigation note as new plumbing, not a migration.
+  - **Test line's literal ask — "a test that the frame contains exactly
+    one hit for its id after a draw" — isn't achievable for any of the 13
+    widgets**, migrated or not: every `draw_*` function takes `&mut
+    Renderer`, and `Renderer::new` requires a real `wgpu::Surface`/
+    `Device`/`Window` with no headless/test double anywhere in the tree
+    (`ui/panels/dock.rs`'s own comment on why `draw_console` needed
+    `truncate_chars` pulled out separately already flagged this same
+    wall). This isn't new to this step — none of the widgets migrated
+    before 7C-1 (palette rows, inspector rows, dock tabs, menu items) have
+    such a test either. Added what IS testable without a `Renderer`
+    instead: two `UiFrame::rect_of` unit tests, and a `PALETTE_COLORS`
+    no-duplicates regression test. Verification for the 13 migrated
+    widgets is the manual smoke pass at the phase gate (§8), same as
+    7A-2's own precedent for GUI-only changes. **7C-5's headless input
+    harness is what actually closes this gap** — it's why that step
+    exists.
+  - **Done-when's grep has a pre-existing false-positive**, not introduced
+    by this step: `grep -rn "fn on_.*_btn\|fn hit_"` also matches
+    `ui/frame.rs`'s own `#[test] fn hit_returns_none_on_an_empty_frame`
+    and its three siblings (present before 7C-1 started) — literal
+    "returns only `UiFrame::hit`" was already unreachable at `v0.5.7b`.
+    Verified by hand instead: no independent hit-test function remains
+    anywhere in `ember2d-editor/src` outside `UiFrame::hit` itself and its
+    own test module.
+  - Clippy (`cargo clippy --workspace --lib`): 58 warnings, at/under the
+    `v0.5.7b` baseline of 59 — `#[allow(clippy::too_many_arguments)]`
+    added to `draw_button`/`draw_row`/`draw_swatch` (`ui/widgets.rs`),
+    `draw_palette` (`graph_ui.rs`), and `draw_hierarchy` (`ui/panels/
+    dock.rs`), each of which crossed the 7-argument default threshold
+    once `frame`/`id` was added.
+  - **Not done this session:** interactive mouse smoke-testing of the 13
+    migrated widgets (a real GUI window this session can't drive) — needs
+    a manual pass, folded into this phase's own gate checklist run
+    (§3–§10) rather than repeated per-step.
 
 #### `[ ]` 7C-2 — No cell literals below `Panel.rect`
 
