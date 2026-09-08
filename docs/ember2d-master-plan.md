@@ -296,7 +296,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R49 | S4 | `BitmapFont`'s `Font`-trait glyph model represents a native glyph as a literal, unstretched 8×8 square, but the dedicated font8x8 GPU path (`WgpuBackend::draw_char`) has always stretched that same 8×8 bitmap 2x vertically to fill the 8×16 `CELL_W`×`CELL_H` cell — the two disagree on what "native size" looks like. Found building 7B-5 (before/after screenshot comparison caught the shrink); currently dormant because `draw_str`'s default path deliberately keeps calling `draw_char` directly rather than routing through the `Font` abstraction (see 7B-5's "Landed as" note) | `renderer/font/bitmap.rs` (`BitmapFont::glyph`/`ascent`/`line_height`); `renderer/backend.rs` (`WgpuBackend::draw_char`) | `[ ]` unscheduled — blocks ever fully unifying `draw_str` onto `draw_text_px` for the bitmap case without either changing `BitmapFont`'s glyph model or `draw_text_px`'s destination-sizing logic (see R50) |
 | R50 | S4 | `Renderer::draw_text_px`'s glyph destination rect always uses `GlyphInfo::atlas_rect.w`/`.h` directly as the drawn size — correct for `TtfFont` (whose atlas rasterizes each glyph AT the requested px, so `atlas_rect` already IS the intended render size) but wrong for `BitmapFont` at any non-native px: `atlas_rect` stays fixed at the native 8×8 texture region regardless of the requested size (only `advance`/`offset` scale), so a `BitmapFont` glyph requested at e.g. 16px would advance the pen 16px per character without the glyph itself actually being drawn any larger than 8×8 — a gap that predates 7B-5 but was undiscovered until this step's investigation, since `draw_text_px` had no live caller before it (its own doc comment used to say so) | `renderer/text.rs` (`draw_text_px`, dest rect construction) | `[ ]` unscheduled — not hit by 7B-5's own usage: `draw_str`'s new `draw_text_px` call is reached only when `ui_font_kind` is `Ttf`, so it never passes a `BitmapFont` in the first place (see R49, 7B-5's "Landed as" note) |
 | R51 | S2 | Maximizing (or otherwise growing) the editor window, then pressing F5 to play, leaves stale editor-panel pixels (the docked Inspector's title/tool text, colored bars) visibly stuck on screen wherever the play view's own grid is narrower than the resized window — found live by the user right after the 7B gate. Confirmed this is NOT an app-side "forgot to clear" bug: instrumented `Renderer::try_handle_resize` and verified the surface *is* reconfigured to the correct new size and the render pass's `LoadOp::Clear` covers the whole surface every frame (dozens of frames observed, well into active play — e.g. "Turn 20" in the user's own screenshot). A manual 1px-out-1px-back resize nudge afterward repainted *most* (not all) of the stale area, which points at a Windows DWM compositor caching artifact tied to wgpu's flip-model swapchain presentation during a resize/maximize transition, not application logic — a known-tricky class of issue on Windows with wgpu/winit, not something to guess-fix without real investigation | `ember2d/src/renderer/mod.rs` (`try_handle_resize`, `recompute_layout`); Windows DWM/wgpu swapchain presentation, not yet isolated to a specific engine file | `[ ]` unscheduled — needs focused investigation (try forcing a window repaint/invalidate after resize, a different present mode, or comparing against known wgpu/winit issue reports) before attempting a fix; reproduce with: maximize the editor window, then F5 |
-| R52 | S3 | 7C-1's own debug assertion in `handle_canvas_input` — "any click reaching here while `UiFrame::hit()` is `Some` is a bug" — fired constantly during ordinary use (both painting and legitimate widget clicks), found live by the user during 7C-2's manual smoke pass. Root cause: the assertion assumed panel input consuming a click already stops `handle_canvas_input` from running, but `handle_update` calls `handle_panel_input`/`handle_canvas_input`/`handle_shortcuts` unconditionally, one after another, regardless of what an earlier stage did — `handle_panel_input`'s own internal `return`s only stop itself. That's exactly the gap 7C-4's `Consumed \| Pass` chain is designed to close; the assertion's premise doesn't hold until then, so as written it couldn't distinguish a real bleed-through from any click that happens to also land on any registered widget anywhere on screen (which is most clicks). Painting itself was never actually broken — `handle_canvas_input`'s own `mouse_to_grid` bounds check is what really prevents unwanted painting, unrelated to whether `UiFrame::hit` matched something | `ember2d-editor/src/editor/input/canvas.rs` (`handle_canvas_input`) | `[x]` 7C-1 follow-up (`f89b301`) — assertion removed; re-add once 7C-4 gives `handle_canvas_input` a real "was this already consumed" signal to check instead of `UiFrame::hit` alone |
+| R52 | S3 | 7C-1's own debug assertion in `handle_canvas_input` — "any click reaching here while `UiFrame::hit()` is `Some` is a bug" — fired constantly during ordinary use (both painting and legitimate widget clicks), found live by the user during 7C-2's manual smoke pass. Root cause: the assertion assumed panel input consuming a click already stops `handle_canvas_input` from running, but `handle_update` calls `handle_panel_input`/`handle_canvas_input`/`handle_shortcuts` unconditionally, one after another, regardless of what an earlier stage did — `handle_panel_input`'s own internal `return`s only stop itself. That's exactly the gap 7C-4's `Consumed \| Pass` chain is designed to close; the assertion's premise doesn't hold until then, so as written it couldn't distinguish a real bleed-through from any click that happens to also land on any registered widget anywhere on screen (which is most clicks). Painting itself was never actually broken — `handle_canvas_input`'s own `mouse_to_grid` bounds check is what really prevents unwanted painting, unrelated to whether `UiFrame::hit` matched something | `ember2d-editor/src/editor/input/canvas.rs` (`handle_canvas_input`) | `[x]` 7C-1 follow-up (`f89b301`) — assertion removed; re-add once a real `Consumed`/`Pass` signal exists to check instead of `UiFrame::hit` alone. 7C-4 (`0eb2db8`) replaced the boolean soup but deliberately did not build that signal (see 7C-4's own "Landed as" note) — still deferred, now past 7C-4 |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -1519,7 +1519,7 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
     simplifying several call sites reduced the count rather than growing
     it).
 
-#### `[ ]` 7C-4 — `EditorMode` replaces the boolean soup
+#### `[x]` 7C-4 — `EditorMode` replaces the boolean soup (`0eb2db8`)
 
 - **Why:** ~15 mutually exclusive booleans/Options on `EditorState`;
   correctness depends on the if-chain order in `handle_update`, and then
@@ -1553,6 +1553,104 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
 - **Done when:** `EditorState` has no `bool` field whose name is a mode;
   `handle_update` has one `match self.mode`.
 - **Scope:** `ember2d-editor`.
+- **Landed as:** `EditorMode` shaped slightly differently than the Change
+  list's sketch (all in `editor/mod.rs`): `Paint(ToolKind)` where `ToolKind`
+  is the real (already-existing) 4-variant enum, not a new `Tool` with
+  `Erase`/`Scatter` (neither exists in this codebase); `Inspect` is its own
+  variant rather than folded into `Select` (`Select` here always means the
+  copy/cut marquee, matching what the removed `select_mode` bool actually
+  gated); `PlaceSpawn(Option<String>)` carries the named-spawn tag inline
+  instead of a separate flag; `Script` has no `fullscreen` field — fullscreen
+  is `matches!(mode, Script)` itself, since the docked (non-fullscreen) case
+  never touches `mode` at all (see below); `Graph { gx, gy }` and
+  `ColorPicker { is_fg }` carry the concrete fields this codebase's graph
+  editor and color picker actually used, not the sketch's placeholder
+  `ColorTarget`; `PaletteSearch` is a variant the sketch didn't list (the old
+  `palette_search_focused` bool needed a home); `ContextMenu` wraps the
+  existing `ui::ContextMenu` type rather than a new `ContextMenuState`.
+  `TextInput` (the old `{buffer, purpose}` struct) is deleted outright —
+  `purpose` lives in `EditorMode::Prompt(purpose)` and `buffer` becomes a
+  plain `prompt_buffer: String` field, since the enum payload is the one
+  place that's genuinely exclusive; the buffer itself is a growable buffer
+  like `script_buffer`, not mode-exclusive data.
+  - **Auxiliary fields kept separate, not folded into the enum:**
+    `rect_anchor`/`line_anchor` (need to persist independently of which
+    Paint sub-tool is active), `prompt_buffer` and `script_*` (growable text
+    buffers, not discriminant data), `graph_*` beyond `gx`/`gy` and
+    `palette_editor_focus`/`color_picker_hsv`/`paste_flip_x`/`paste_flip_y`/
+    `paste_flip_rotate` (each meaningful only while its own mode is active,
+    but embedding them in the enum payload would force every handler that
+    touches them to re-destructure `self.mode` just to get at a sibling
+    field already available as `&mut self.foo`). Each has its own doc
+    comment on `EditorState` explaining why it stays outside the enum.
+  - **Not the literal `Consumed | Pass` chain.** The Change list describes
+    every stage (menu bar → modal → panels → canvas → shortcuts) returning
+    `Consumed | Pass` so a later stage can tell a click was already handled.
+    What actually landed is `handle_update` doing one
+    `match std::mem::take(&mut self.mode) { ... }`: modal/context-menu/
+    color-picker/palette-editor/graph/script/place-spawn/palette-search/
+    prompt modes each fully own the frame's input and `return` early (the
+    same hard-exclusive shape the old if-chain had for these cases); only
+    `Paint`/`Inspect`/`Select`/`Paste` fall through to the shared
+    `handle_panel_input` → `handle_canvas_input` → `handle_shortcuts`
+    sequence, which still runs unconditionally with no consumed/pass signal
+    between stages — unchanged from before this step. This satisfies the
+    literal Done-when (no bool-named mode fields, one `match self.mode`) but
+    not the Change list's stronger structural goal. Reason for not building
+    it now: real `Consumed | Pass` threading touches the signature of every
+    panel/shortcut handler, is exactly the kind of change 7C-5's headless
+    harness exists to make verifiable by test rather than by hand, and
+    building it without that harness first risks a subtle consumption-order
+    regression no manual click-through would reliably catch. **R52's
+    debug-assertion re-add is therefore still deferred** — past 7C-4, not
+    resolved by it — to whenever the real `Consumed`/`Pass` result exists to
+    check instead of `UiFrame::hit` alone; this is a re-deferral, not a new
+    finding.
+  - **Two related simplifications, treated as fixes rather than
+    regressions:** (1) `ColorPicker`/`PaletteEditor` always exit to a fixed
+    target (`ColorPicker` → `PaletteEditor` → `Paint(Paint)`) instead of a
+    generic "resume whatever was active before" stack — the old boolean
+    soup could theoretically leave stale flags letting an overlay claim to
+    resume a Select/Paste that was never actually interrupted-and-resumed
+    anywhere in the UI; that path is now impossible by construction. (2)
+    Closing any transient overlay (modal cancel, prompt escape, context
+    menu dismiss) defaults to `Paint(ToolKind::Paint)` rather than
+    attempting to restore the prior mode, matching what the old code
+    actually did at each of those sites (none of them restored a prior
+    tool/select/paste state either).
+  - **Two vestigial dead-code lines removed, not translated:**
+    `hierarchy_and_palette.rs` had two `self.palette_search_focused = false`
+    "default clear" assignments that were unreachable in the old if-chain
+    (the chain already returned early whenever that flag was true, before
+    reaching this code) — translating them to `self.mode = Paint(..)` would
+    have introduced a new bug, wrongly cancelling an active Select/Paste/
+    Inspect mode on an ordinary palette-panel click.
+  - **`script_editor.rs`'s Escape handler** now explicitly checks
+    `if fullscreen` (i.e. `matches!(self.mode, EditorMode::Script)`) before
+    resetting `self.mode`, rather than unconditionally resetting it — the
+    docked (non-fullscreen) panel can hold keyboard focus without `mode`
+    ever being `Script`, and an unconditional reset there would have
+    cancelled Select/Paste/Inspect the moment Escape was pressed while the
+    docked panel merely had focus. Caught before landing, not a shipped
+    regression.
+  - `ui/menu.rs`'s `draw_menu_toolbar` takes a `mode_label: &str` computed by
+    the caller (`EditorMode::toolbar_label()`) instead of a bare `ToolKind`,
+    since `ToolKind` no longer has a variant for every mode the toolbar
+    indicator shows.
+  - Full `cargo build --workspace --examples` and `cargo test --workspace`
+    green (255 tests, unchanged count from `9bad191`). `scripts/check.ps1`
+    clean (750-line limit: no touched file exceeds 685 lines). Clippy
+    `--lib`: 56 warnings, unchanged from 7C-3's baseline — no new lint
+    introduced.
+  - **Not done this session:** the user's own manual pass (their explicit
+    choice over further automated verification, given zero existing input
+    coverage) — still outstanding, covering every mode: Paint/Rect/Line/Fill
+    tools, Inspect select-click, Copy/Cut marquee, Paste with flip/rotate,
+    both spawn-placement flows, palette editor + color picker, script editor
+    docked and fullscreen, graph editor, context menu, the confirm modal,
+    and every text prompt. 7C-3's own outstanding screenshot-pair gap
+    (`docs/screenshots/7c-3/`) also still has no human pass and remains
+    open, unrelated to this step.
 
 #### `[ ]` 7C-5 — Headless editor input harness
 
