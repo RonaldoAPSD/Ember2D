@@ -194,8 +194,11 @@ pub fn draw_text_input(
         let chars: Vec<char> = label.chars().collect();
         let mut suffix_w = 0usize;
         let mut start = chars.len();
+        // 7C-2 (master plan §5.3, E2): was a literal `8.0` duplicating
+        // CELL_W, the font size this file's monospace UI always renders at.
+        let font_px = ember2d::renderer::CELL_W as f32;
         for (i, &ch) in chars.iter().enumerate().rev() {
-            let cw = (font.glyph(ch, 8.0).map(|g| g.advance).unwrap_or(8.0) / 8.0).round() as usize;
+            let cw = (font.glyph(ch, font_px).map(|g| g.advance).unwrap_or(font_px) / font_px).round() as usize;
             if suffix_w + cw > budget {
                 break;
             }

@@ -265,8 +265,17 @@ impl EditorState {
             match pid {
                 PanelId::Viewport => {
                     // ── Set Hardware Scissor ─────────────────────────────────────
-                    let (sc_x, sc_y, sc_w, sc_h) =
-                        ((pcx * 8) as u32, (pcy * 16) as u32, (pcw * 8) as u32, (pch * 16) as u32);
+                    // 7C-2 (master plan §5.3, E2): was a hardcoded `* 8`/
+                    // `* 16` pair duplicating CELL_W/CELL_H, the same class
+                    // of literal 7B-2 already replaced everywhere else this
+                    // conversion happens (`UiRect::from_cells`,
+                    // `backend.rs`'s own draw calls).
+                    let (sc_x, sc_y, sc_w, sc_h) = (
+                        (pcx * ember2d::renderer::CELL_W) as u32,
+                        (pcy * ember2d::renderer::CELL_H) as u32,
+                        (pcw * ember2d::renderer::CELL_W) as u32,
+                        (pch * ember2d::renderer::CELL_H) as u32,
+                    );
                     renderer.set_scissor(Some((sc_x, sc_y, sc_w, sc_h)));
 
                     // Render Viewport content within its panel area

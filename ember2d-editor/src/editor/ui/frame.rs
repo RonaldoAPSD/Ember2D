@@ -259,8 +259,8 @@ mod tests {
     #[test]
     fn rect_of_returns_the_exact_rect_a_widget_was_pushed_with() {
         let mut frame = UiFrame::new();
-        frame.push(WidgetId::ColorPickerHueBar, UiRect::new(12.0, 34.0, 288.0, 16.0));
-        assert_eq!(frame.rect_of(WidgetId::ColorPickerHueBar), Some(UiRect::new(12.0, 34.0, 288.0, 16.0)));
+        frame.push(WidgetId::ColorPickerHueBar, UiRect::new(12.0, 34.0, 288.0, 20.0));
+        assert_eq!(frame.rect_of(WidgetId::ColorPickerHueBar), Some(UiRect::new(12.0, 34.0, 288.0, 20.0)));
     }
 
     #[test]

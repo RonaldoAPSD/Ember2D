@@ -7,9 +7,13 @@
 /// own native size, so this reproduces the pre-Part-2c `.len()`
 /// arithmetic bit-for-bit); becomes meaningful the day a caller ever hands
 /// this a `TtfFont` instead. Shared here rather than duplicated per file,
-/// since every `ui/` submodule needs the exact same computation.
+/// since every `ui/` submodule needs the exact same computation —
+/// `start_screen/drawing.rs` used to keep its own byte-for-byte copy
+/// (before it had any dependency on `ui`), now reaches in for this one
+/// like everything else does (7C-2, master plan §5.3, E2).
 pub fn cells(font: &mut dyn ember2d::renderer::Font, text: &str) -> usize {
-    (font.measure(text, 8.0).0 / 8.0).round() as usize
+    (font.measure(text, ember2d::renderer::CELL_W as f32).0 / ember2d::renderer::CELL_W as f32)
+        .round() as usize
 }
 
 // ── DockSide ──────────────────────────────────────────────────────────────────

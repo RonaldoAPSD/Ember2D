@@ -1,18 +1,16 @@
 // editor/start_screen/drawing.rs — UI rendering for the editor's start screen.
 
-use super::super::ui::{draw_menu_item, UiFrame, UiRect, WidgetId};
+use super::super::ui::{cells, draw_menu_item, UiFrame, UiRect, WidgetId};
 use super::mod_types::*;
 use ember2d::project::ProjectData;
 use ember2d::renderer::{color::Color, Font, Renderer};
 
-/// Cell-space text metrics for this file's monospace, 8px-per-cell UI
-/// (Phase 7 Part 2c, docs/ember2d-phase7-plan.md). See `editor::ui::cells`
-/// (the editor proper's own copy of this same helper) for the full
-/// rationale — `StartScreen` has no dependency on the `editor` module, so
-/// it gets its own copy rather than reaching across.
-fn cells(font: &mut dyn Font, text: &str) -> usize {
-    (font.measure(text, 8.0).0 / 8.0).round() as usize
-}
+/// The font size (in px) this file's monospace UI renders at — one cell
+/// wide (7C-2, master plan §5.3, E2: was a literal `8.0` repeated at every
+/// `Font::measure`/`glyph`/`wrap_text` call site in this file, the same
+/// duplicated-constant class `ui/rect.rs`'s own local `CELL_W` already
+/// exists to close).
+const FONT_PX: f32 = ember2d::renderer::CELL_W as f32;
 
 /// Keep the TAIL of `text` visible within `avail` cells, prefixed with
 /// "..." when it doesn't fit — used for the three long-filesystem-path
@@ -29,7 +27,7 @@ fn keep_tail(font: &mut dyn Font, text: &str, avail: usize) -> String {
     let mut suffix_w = 0usize;
     let mut start = chars.len();
     for (i, &ch) in chars.iter().enumerate().rev() {
-        let cw = (font.glyph(ch, 8.0).map(|g| g.advance).unwrap_or(8.0) / 8.0).round() as usize;
+        let cw = (font.glyph(ch, FONT_PX).map(|g| g.advance).unwrap_or(FONT_PX) / FONT_PX).round() as usize;
         if suffix_w + cw > budget {
             break;
         }
@@ -212,7 +210,7 @@ pub(super) fn draw_text_step(
         let mut suffix_w = 0usize;
         let mut start = chars.len();
         for (i, &ch) in chars.iter().enumerate().rev() {
-            let cw = (font.glyph(ch, 8.0).map(|g| g.advance).unwrap_or(8.0) / 8.0).round() as usize;
+            let cw = (font.glyph(ch, FONT_PX).map(|g| g.advance).unwrap_or(FONT_PX) / FONT_PX).round() as usize;
             if suffix_w + cw > budget {
                 break;
             }
@@ -294,7 +292,7 @@ pub(super) fn draw_template_step(
         // algorithm `Font::wrap_text` now provides as a default method
         // (Phase 7 Part 2c, docs/ember2d-phase7-plan.md) — this is exactly
         // the duplication that method exists to remove.
-        let lines = font.wrap_text(desc, 8.0, max_w as f32 * 8.0);
+        let lines = font.wrap_text(desc, FONT_PX, max_w as f32 * FONT_PX);
         for (li, line) in lines.iter().take(4).enumerate() {
             renderer.draw_str(cx + 2, cy + 3 + li, line, text_fg, Color::Black);
         }
@@ -429,7 +427,7 @@ fn draw_card_wizard(
         );
         let text_fg = if is_sel { Color::White } else { Color::Grey };
         let max_w = TCARD_W.saturating_sub(4);
-        let lines = font.wrap_text(desc, 8.0, max_w as f32 * 8.0);
+        let lines = font.wrap_text(desc, FONT_PX, max_w as f32 * FONT_PX);
         for (li, line) in lines.iter().take(4).enumerate() {
             renderer.draw_str(cx + 2, cy + 3 + li, line, text_fg, Color::Black);
         }
