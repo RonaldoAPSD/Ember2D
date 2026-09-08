@@ -1641,7 +1641,13 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
     green (255 tests, unchanged count from `9bad191`). `scripts/check.ps1`
     clean (750-line limit: no touched file exceeds 685 lines). Clippy
     `--lib`: 56 warnings, unchanged from 7C-3's baseline — no new lint
-    introduced.
+    introduced. Clippy `--all-targets`: 80 warnings both immediately before
+    (`ddcafdc`) and after (`aef74fa`) this step — confirmed via a sorted
+    message-level diff, not just the count, that the only differences are
+    which test binary's build happens to report the "N duplicates" suffix
+    on R47's pre-existing `ember2d/tests/common/mod.rs` dead-code warnings;
+    zero new warnings. `ember2d-sim` untouched by this step's diff (see
+    Scope above), so the replay-3× determinism check doesn't apply here.
   - **Not done this session:** the user's own manual pass (their explicit
     choice over further automated verification, given zero existing input
     coverage) — still outstanding, covering every mode: Paint/Rect/Line/Fill
@@ -2302,6 +2308,13 @@ or delete; never let this grow past a screen.
 - `Sprite.layer`/`TileRecord.layer`/`PlayerRecord.layer` unified to one type.
 - Static flag on colliders to skip static-vs-static pairs (may be moot after
   8-1).
+- `cargo clippy --workspace --all-targets` has drifted from the `v0.5.7b`
+  baseline of 71 to 80 (confirmed already 80 as of `ddcafdc`, before 7C-4 —
+  not this step's doing, and no single 7C step's own diff introduces a new
+  warning message, per a direct before/after diff done at 7C-4's close).
+  Only `--lib` counts have been tracked step-to-step through 7C; worth an
+  explicit `--all-targets` re-baseline at the 7C gate so this doesn't keep
+  drifting unnoticed.
 
 ---
 
