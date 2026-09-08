@@ -302,7 +302,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | # | Defect | Status |
 |---|---|---|
 | E1 | `draw_cursor_highlight` drifts during fractional scroll | `[x]` cf59f42 (pinned by test) |
-| E2 | `grid_to_pixel` hardcodes 8.0/16.0 | `[~]` `CELL_W/H` exported; literals remain in `impl_render.rs:205-208`, `backend.rs:420-439`, `mouse.rs:28-32` → 7C-2 |
+| E2 | `grid_to_pixel` hardcodes 8.0/16.0 | `[x]` 7C-2 (`e0d305c`) — this row's own `backend.rs:420-439`/`mouse.rs:28-32` citations were already stale by the time 7C-2 ran (both already used `CELL_W`/`CELL_H`, fixed incidentally at 7B-2/7B-4 without this row being updated — R36's own class of drift; also both in `ember2d`, not `ember2d-editor`, so out of 7C-2's Scope regardless); the real remaining site was `impl_render.rs`'s viewport scissor rect, now fixed |
 | E3 | `draw_extra_spawns` label position wrong at zoom ≠ 1 | `[x]` cf59f42 |
 | E4 | Two sources of truth for the canvas rect (`Layout` vs `PanelManager`) | `[ ]` **not resolved** — `Layout.canvas_*` still rebuilt each frame from `Viewport.rect` → 7C-3 |
 | E5 | Hitboxes computed independently of drawing | `[x]` 7C-1 (`03f34bf`) — all 13 remaining sites migrated to `UiFrame`; palette editor's non-color-grid fields (title-close, name/glyph/tag, Save&Close/Delete) are the one deliberately out-of-scope remainder, per that step's own "Landed as" note |
@@ -1391,7 +1391,7 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
     a manual pass, folded into this phase's own gate checklist run
     (§3–§10) rather than repeated per-step.
 
-#### `[ ]` 7C-2 — No cell literals below `Panel.rect`
+#### `[x]` 7C-2 — No cell literals below `Panel.rect` (`e0d305c`)
 
 - **Why:** E2 remainder; the Part 1 done-criterion "no 8.0/16.0 in the
   editor" is not met.
@@ -1400,6 +1400,37 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
   (`types.rs:11`, `drawing.rs:12`).
 - **Done when:** `grep -rnE "\b(8|16)\.0\b" ember2d-editor/src` is empty.
 - **Scope:** `ember2d-editor`.
+- **Landed as:** the scissor rect (`impl_render.rs`, line had shifted to
+  269 by the time this step ran, after 7C-1's additions) uses
+  `ember2d::renderer::CELL_W`/`CELL_H` directly, not the `ScreenMapping`
+  struct the Change list names — `ScreenMapping` (7B-2) solves a
+  different problem (raw physical mouse coordinates -> the editor's
+  logical pixel space, needing a live `scale`/`origin_px` snapshot);
+  this site converts a cell COUNT to the same logical space a plain
+  `CELL_W`/`CELL_H` multiply already produces everywhere else
+  (`UiRect::from_cells`), and the backend's own `render_scale`/
+  `render_origin` (fed from `screen_mapping()` elsewhere) does the actual
+  physical-pixel scaling downstream — routing through `ScreenMapping`
+  itself here would have been the wrong tool, not a stronger fix.
+  `cells()` deduplication landed as named. Beyond the Change list's own
+  two items: every `Font::measure`/`glyph`/`wrap_text` call site with a
+  literal `8.0` font-size argument (`start_screen/drawing.rs`'s
+  `keep_tail`, its `draw_text_step`'s own inline copy of the same
+  algorithm, both `wrap_text` calls; `ui/panels/chrome.rs`'s
+  `draw_text_input` tail-truncation) also got converted — not named in
+  the Change list, but squarely inside the Why's own "no 8.0/16.0 in the
+  editor" criterion, and the only way the Done-when's grep gets
+  meaningfully close to empty. Two categories of literal deliberately
+  left alone: `ui/rect.rs`'s pinning tests (`assert_eq!(r.x, cx as f32 *
+  8.0)` etc.) exist specifically to check `UiRect::from_cells` against
+  the real 8×16 constant, not a duplicate of it — converting them to
+  `CELL_W as f32` would make them tautological; and a pre-existing
+  historical comment in `ui/canvas.rs` (describing what USED to be
+  hardcoded before 7B-2) that the grep's own pattern can't distinguish
+  from code. Full `cargo test --workspace` green throughout (255 tests,
+  unchanged — mechanical, no new test needed), `scripts/check.ps1`
+  clean, clippy `--lib` unchanged at 58 (still under the `v0.5.7b`
+  baseline of 59).
 
 #### `[ ]` 7C-3 — Delete `Layout`; the viewport is a real panel
 
