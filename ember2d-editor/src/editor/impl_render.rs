@@ -5,7 +5,7 @@ use ember2d::renderer::color::Color;
 
 use super::graph_ui;
 use super::panel::{draw_panel_chrome, DockSide, PanelId};
-use super::ui::{self, HierarchySelection, Layout, MenuState};
+use super::ui::{self, HierarchySelection, MenuState};
 use super::EditorState;
 use super::TextInputPurpose;
 
@@ -150,17 +150,18 @@ impl EditorState {
             return;
         }
 
-        // Reposition docked panels, then derive canvas bounds for the layout.
-        // `apply_layout` works in pixels now (Phase 7 Part 1c,
-        // docs/ember2d-phase7-plan.md) — `pixel_width`/`pixel_height`, not
-        // the cell-count `width`/`height` every other call in this
-        // function still uses. `canvas_bounds` itself stays cell-based
-        // (its own params are unused either way).
+        // Reposition docked panels — every `ui::draw_*` function below and
+        // `mouse_to_grid` (impl_state.rs) read the Viewport panel's own
+        // rect directly now (7C-3, master plan §5.3, E4). `apply_layout`
+        // works in pixels (Phase 7 Part 1c, docs/ember2d-phase7-plan.md) —
+        // `pixel_width`/`pixel_height`, not the cell-count `width`/`height`
+        // some calls below still use for whole-screen (not viewport)
+        // sizing. `viewport` is the panel's CONTENT rect (inside its
+        // border/title bar) — what `Layout.canvas_x`/`y`/`w`/`h` used to
+        // mean, now read from the one place that actually knows it.
         self.panels.apply_layout(renderer.pixel_width, renderer.pixel_height);
-        let (cx, cy, cw, ch) = self.panels.canvas_bounds(renderer.width, renderer.height);
-        self.layout = Layout::new(renderer.width, renderer.height).with_canvas(cx, cy, cw, ch);
-        self.layout.zoom = self.zoom;
-        let layout = self.layout.clone();
+        let viewport = self.panels.viewport().content_rect();
+        let (screen_w, screen_h) = (renderer.width, renderer.height);
 
         renderer.draw_rect_filled(
             0,
@@ -177,12 +178,11 @@ impl EditorState {
             self.font.as_mut(),
             self.active_menu,
             self.active_tool,
-            &layout,
             &mut self.ui_frame,
         );
 
         // ── Mode resolution ──────────────────────────────────────────────────
-        let grid_cursor = self.mouse_to_grid(mouse.cell_x, mouse.cell_y);
+        let grid_cursor = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y);
 
         let mode_label = if self.pasting {
             Some("PASTE")
@@ -279,15 +279,15 @@ impl EditorState {
                     renderer.set_scissor(Some((sc_x, sc_y, sc_w, sc_h)));
 
                     // Render Viewport content within its panel area
-                    ui::draw_void(renderer, &self.grid, self.scroll, self.zoom, &layout);
-                    ui::draw_level_boundary(renderer, &self.grid, self.scroll, self.zoom, &layout);
+                    ui::draw_void(renderer, &self.grid, self.scroll, self.zoom, viewport);
+                    ui::draw_level_boundary(renderer, &self.grid, self.scroll, self.zoom, viewport);
                     if self.show_grid {
                         ui::draw_grid_overlay(
                             renderer,
                             &self.grid,
                             self.scroll,
                             self.zoom,
-                            &layout,
+                            viewport,
                         );
                     }
                     ui::draw_grid(
@@ -296,21 +296,21 @@ impl EditorState {
                         self.active_layer,
                         self.scroll,
                         self.zoom,
-                        &layout,
+                        viewport,
                     );
                     ui::draw_spawn_marker(
                         renderer,
                         self.grid.spawn_point,
                         self.scroll,
                         self.zoom,
-                        &layout,
+                        viewport,
                     );
                     ui::draw_extra_spawns(
                         renderer,
                         &self.grid.extra_spawns,
                         self.scroll,
                         self.zoom,
-                        &layout,
+                        viewport,
                     );
 
                     // ── Mode overlays ─────────────────────────────────────────────
@@ -325,7 +325,7 @@ impl EditorState {
                                 self.paste_rotate,
                                 self.scroll,
                                 self.zoom,
-                                &layout,
+                                viewport,
                             );
                         }
                     } else if self.selecting || self.cutting {
@@ -336,7 +336,7 @@ impl EditorState {
                                 current,
                                 self.scroll,
                                 self.zoom,
-                                &layout,
+                                viewport,
                             );
                         }
                     } else if let Some(anchor) = self.rect_anchor {
@@ -348,7 +348,7 @@ impl EditorState {
                             self.palette.current().glyph,
                             self.scroll,
                             self.zoom,
-                            &layout,
+                            viewport,
                         );
                     } else if let Some(anchor) = self.line_anchor {
                         let current = grid_cursor.unwrap_or(anchor);
@@ -359,7 +359,7 @@ impl EditorState {
                             self.palette.current().glyph,
                             self.scroll,
                             self.zoom,
-                            &layout,
+                            viewport,
                         );
                     } else {
                         ui::draw_cursor_highlight(
@@ -369,7 +369,7 @@ impl EditorState {
                             self.select_mode,
                             self.scroll,
                             self.zoom,
-                            &layout,
+                            viewport,
                         );
                     }
 
@@ -381,7 +381,7 @@ impl EditorState {
                             self.active_layer,
                             self.scroll,
                             self.zoom,
-                            &layout,
+                            viewport,
                         );
                     }
 
@@ -394,7 +394,7 @@ impl EditorState {
                                 self.erase_size,
                                 self.scroll,
                                 self.zoom,
-                                &layout,
+                                viewport,
                             );
                         }
                     }
@@ -485,7 +485,8 @@ impl EditorState {
                     renderer,
                     pal,
                     self.palette_editor_focus.as_ref(),
-                    &self.layout,
+                    screen_w,
+                    screen_h,
                     &mut self.ui_frame,
                 );
             }
@@ -496,7 +497,8 @@ impl EditorState {
                 renderer,
                 self.color_picker_hsv,
                 is_fg,
-                &self.layout,
+                screen_w,
+                screen_h,
                 &mut self.ui_frame,
             );
         }
@@ -526,7 +528,6 @@ impl EditorState {
                 mouse.cell_x,
                 mouse.cell_y,
                 &menu_state,
-                &layout,
                 &mut self.ui_frame,
             );
         }
@@ -578,7 +579,9 @@ impl EditorState {
             self.scroll,
             self.active_layer,
             self.erase_size,
-            &layout,
+            self.panels.viewport().content_x(),
+            self.panels.viewport().content_y(),
+            self.zoom,
         );
 
         if let Some(ref ti) = self.text_input {
@@ -606,12 +609,20 @@ impl EditorState {
                 TextInputPurpose::PaletteFgCustom => "Custom FG Hex (e.g. #FF8C00)",
                 TextInputPurpose::PaletteBgCustom => "Custom BG Hex (e.g. #222222)",
             };
-            ui::draw_text_input(renderer, self.font.as_mut(), prompt, &ti.buffer, &layout);
+            ui::draw_text_input(renderer, self.font.as_mut(), prompt, &ti.buffer, screen_w, screen_h);
         }
 
         // Help screen overlay.
         if self.show_help {
-            ui::draw_help_overlay(renderer, self.font.as_mut(), &layout);
+            let vp = self.panels.viewport();
+            ui::draw_help_overlay(
+                renderer,
+                self.font.as_mut(),
+                vp.content_x(),
+                vp.content_y(),
+                vp.content_w(),
+                vp.content_h(),
+            );
         }
 
         if let Some(ref m) = self.modal {
@@ -620,7 +631,8 @@ impl EditorState {
                 self.font.as_mut(),
                 &m.title,
                 &m.message,
-                &layout,
+                screen_w,
+                screen_h,
                 &mut self.ui_frame,
             );
         }

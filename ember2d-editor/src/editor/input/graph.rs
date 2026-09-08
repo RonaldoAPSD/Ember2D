@@ -59,7 +59,8 @@ impl EditorState {
         // ── Palette open ──────────────────────────────────────────────────────
         if let Some((px, py)) = self.graph_palette_open {
             let entries = palette_entries();
-            let visible_h = (self.layout.screen_h.saturating_sub(py + 1)).min(18);
+            let (_, screen_h) = self.panels.screen_size_cells();
+            let visible_h = (screen_h.saturating_sub(py + 1)).min(18);
             let selectable: Vec<usize> = entries
                 .iter()
                 .enumerate()

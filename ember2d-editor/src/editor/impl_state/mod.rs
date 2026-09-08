@@ -97,36 +97,31 @@ impl EditorState {
         }
     }
 
-    pub(super) fn mouse_to_grid(&self, cell_x: usize, cell_y: usize) -> Option<(i32, i32)> {
-        // 1. Block input if mouse is over any OTHER panel (except Viewport)
-        //    — `panel_at` is pixel-space now (Phase 7 Part 1c,
-        //    docs/ember2d-phase7-plan.md). This function's own callers all
-        //    pass an already cell-quantized `mouse.cell_x`/`cell_y`, so
-        //    reconstructing pixels here (rather than threading the mouse's
-        //    true sub-cell position through every one of those call sites)
-        //    loses nothing: every panel's own rect is still exactly
-        //    cell-aligned as of Part 1c, so this reproduces the identical
-        //    boolean result the old cell-based comparison gave.
-        if let Some(pid) = self.panels.panel_at(
-            cell_x as f32 * ember2d::renderer::CELL_W as f32,
-            cell_y as f32 * ember2d::renderer::CELL_H as f32,
-        ) {
+    /// 7C-3 (master plan §5.3, E4): takes the mouse's true pixel position
+    /// now, not `mouse.cell_x`/`cell_y` — reads the Viewport panel's own
+    /// content rect (`PanelManager::viewport().content_rect()`) directly
+    /// instead of the deleted `Layout.canvas_x`/`canvas_y`/`canvas_w`/
+    /// `canvas_h`, which used to rebuild an independent cell-quantized copy
+    /// of the same rect every frame. Using the real sub-cell pixel position
+    /// (rather than pre-floored cell coordinates) also makes this agree
+    /// with `ui/canvas.rs::draw_cursor_highlight`'s identical formula at
+    /// every zoom level, not just whole-number ones — see that function's
+    /// own comment on E1 for why the two must never independently drift.
+    pub(super) fn mouse_to_grid(&self, px: f32, py: f32) -> Option<(i32, i32)> {
+        // 1. Block input if mouse is over any OTHER panel (except Viewport).
+        if let Some(pid) = self.panels.panel_at(px, py) {
             if pid != PanelId::Viewport {
                 return None;
             }
         }
 
-        let l = &self.layout;
-        // 2. Localize to canvas space
-        if cell_x < l.canvas_x || cell_x >= l.canvas_x + l.canvas_w {
+        // 2. Localize to viewport content space (pixels).
+        let viewport = self.panels.viewport().content_rect();
+        if !viewport.contains(px, py) {
             return None;
         }
-        if cell_y < l.canvas_y || cell_y >= l.canvas_y + l.canvas_h {
-            return None;
-        }
-
-        let local_x = (cell_x - l.canvas_x) as f32;
-        let local_y = (cell_y - l.canvas_y) as f32;
+        let local_x = (px - viewport.x) / ember2d::renderer::CELL_W as f32;
+        let local_y = (py - viewport.y) / ember2d::renderer::CELL_H as f32;
 
         // 3. Project to grid coordinates
         let gx = (local_x / self.zoom + self.scroll.0).floor() as i32;
@@ -136,14 +131,18 @@ impl EditorState {
     }
 
     pub(super) fn center_on(&mut self, gx: i32, gy: i32) {
-        self.target_scroll.0 = (gx as f32 - self.layout.canvas_w as f32 / 2.0 / self.zoom).max(0.0);
-        self.target_scroll.1 = (gy as f32 - self.layout.canvas_h as f32 / 2.0 / self.zoom).max(0.0);
+        let canvas_w = self.panels.viewport().content_w() as f32;
+        let canvas_h = self.panels.viewport().content_h() as f32;
+        self.target_scroll.0 = (gx as f32 - canvas_w / 2.0 / self.zoom).max(0.0);
+        self.target_scroll.1 = (gy as f32 - canvas_h / 2.0 / self.zoom).max(0.0);
         self.clamp_scroll();
     }
 
     pub(super) fn clamp_scroll(&mut self) {
-        let max_x = (self.grid.width as f32 - self.layout.canvas_w as f32 / self.zoom).max(0.0);
-        let max_y = (self.grid.height as f32 - self.layout.canvas_h as f32 / self.zoom).max(0.0);
+        let canvas_w = self.panels.viewport().content_w() as f32;
+        let canvas_h = self.panels.viewport().content_h() as f32;
+        let max_x = (self.grid.width as f32 - canvas_w / self.zoom).max(0.0);
+        let max_y = (self.grid.height as f32 - canvas_h / self.zoom).max(0.0);
         self.target_scroll.0 = self.target_scroll.0.clamp(0.0, max_x);
         self.target_scroll.1 = self.target_scroll.1.clamp(0.0, max_y);
     }

@@ -56,7 +56,7 @@ impl EditorState {
                 self.paste_flip_y = !self.paste_flip_y;
             }
             if mouse.left_just_pressed() {
-                if let Some(cursor) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                if let Some(cursor) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                     self.stamp_paste(cursor);
                     self.pasting = false;
                     self.active_tool = ToolKind::Paint;
@@ -78,13 +78,13 @@ impl EditorState {
 
             if !self.ignore_drag {
                 if mouse.left_just_pressed() {
-                    if let Some(pos) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                    if let Some(pos) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                         self.sel_anchor = Some(pos);
                     }
                 }
                 if mouse.left_just_released() {
                     if let (Some(anchor), Some(current)) =
-                        (self.sel_anchor, self.mouse_to_grid(mouse.cell_x, mouse.cell_y))
+                        (self.sel_anchor, self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y))
                     {
                         if self.cutting {
                             self.cut_selection(anchor, current);
@@ -106,18 +106,23 @@ impl EditorState {
         }
 
         // ── Track inspected tile (last canvas cell the mouse was over) ────────
+        // 7C-3 (master plan §5.3, E4): `canvas_x`/`canvas_y`/`canvas_w`
+        // /`canvas_h` now read from the Viewport panel's own content rect
+        // instead of the deleted `Layout`'s independent cell-based copy.
         let click = mouse.left_just_pressed();
-        let l = &self.layout;
+        let vp = self.panels.viewport();
+        let (canvas_x, canvas_y, canvas_w, canvas_h) =
+            (vp.content_x(), vp.content_y(), vp.content_w(), vp.content_h());
         let on_canvas = mouse.in_bounds
-            && mouse.cell_x >= l.canvas_x
-            && mouse.cell_x < l.canvas_x + l.canvas_w
-            && mouse.cell_y >= (l.canvas_y - 1) // Allow interaction on Viewport title bar (row 2)
-            && mouse.cell_y < l.canvas_y + l.canvas_h
+            && mouse.cell_x >= canvas_x
+            && mouse.cell_x < canvas_x + canvas_w
+            && mouse.cell_y >= (canvas_y - 1) // Allow interaction on Viewport title bar (row 2)
+            && mouse.cell_y < canvas_y + canvas_h
             // Pixel-space hit test (Phase 7 Part 1c, docs/ember2d-phase7-plan.md).
             && !self.panels.is_point_on_panel(mouse.pixel_x, mouse.pixel_y);
 
         if on_canvas {
-            self.inspected_pos = self.mouse_to_grid(mouse.cell_x, mouse.cell_y);
+            self.inspected_pos = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y);
             if click || mouse.right_just_pressed() {
                 self.hierarchy_sel = None;
             }
@@ -163,14 +168,17 @@ impl EditorState {
         if on_canvas && mouse.wheel_y != 0.0 {
             let ctrl = input.is_held(Key::LeftCtrl) || input.is_held(Key::RightCtrl);
 
-            // 1. Capture grid position under mouse before zoom
-            let mx = mouse.cell_x as f32;
-            let my = mouse.cell_y as f32;
-            let cx = self.layout.canvas_x as f32;
-            let cy = self.layout.canvas_y as f32;
+            // 1. Capture grid position under mouse before zoom — 7C-3
+            // (master plan §5.3, E4): the pivot now uses the mouse's true
+            // pixel position against the Viewport panel's own content rect,
+            // not `mouse.cell_x`/`cell_y` against the deleted `Layout`'s
+            // cell-quantized origin.
+            let viewport = self.panels.viewport().content_rect();
+            let mx = (mouse.pixel_x - viewport.x) / ember2d::renderer::CELL_W as f32;
+            let my = (mouse.pixel_y - viewport.y) / ember2d::renderer::CELL_H as f32;
 
-            let gx_before = (mx - cx) / self.zoom + self.target_scroll.0;
-            let gy_before = (my - cy) / self.zoom + self.target_scroll.1;
+            let gx_before = mx / self.zoom + self.target_scroll.0;
+            let gy_before = my / self.zoom + self.target_scroll.1;
 
             // 2. Apply multiplicative zoom
             let factor = if ctrl { 1.5f32 } else { 1.1f32 };
@@ -182,8 +190,8 @@ impl EditorState {
             self.zoom = self.zoom.clamp(0.25, 4.0);
 
             // 3. Adjust scroll to keep the same grid point under the mouse
-            self.target_scroll.0 = gx_before - (mx - cx) / self.zoom;
-            self.target_scroll.1 = gy_before - (my - cy) / self.zoom;
+            self.target_scroll.0 = gx_before - mx / self.zoom;
+            self.target_scroll.1 = gy_before - my / self.zoom;
 
             self.clamp_scroll();
         }
@@ -209,24 +217,24 @@ impl EditorState {
                     // exactly this reason) also drops a rect anchor or
                     // stamps one straight onto the canvas underneath it.
                     if mouse.left_just_pressed() && !self.ignore_drag {
-                        if let Some(pos) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                        if let Some(pos) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                             self.rect_anchor = Some(pos);
                         }
                     }
                     if mouse.left_just_released() && !self.ignore_drag {
                         if let (Some(anchor), Some(current)) = (
                             self.rect_anchor.take(),
-                            self.mouse_to_grid(mouse.cell_x, mouse.cell_y),
+                            self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y),
                         ) {
                             self.stamp_rect(anchor, current);
                         }
                     }
                     if mouse.right_just_pressed() {
-                        if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                        if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                             self.erase_brush(gx, gy);
                         }
                     } else if mouse.right_held() && self.erase_size == 1 {
-                        if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                        if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                             let lyr = self.active_layer;
                             if let Some(removed) = self.grid.erase(gx, gy, lyr) {
                                 self.undo.push(Command::EraseTile { before: removed });
@@ -239,7 +247,7 @@ impl EditorState {
                 ToolKind::Line => {
                     // R13: see the matching comment on ToolKind::Rect above.
                     if mouse.left_just_pressed() && !self.ignore_drag {
-                        if let Some(pos) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                        if let Some(pos) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                             if self.line_anchor.is_none() {
                                 self.line_anchor = Some(pos);
                             } else {
@@ -251,7 +259,7 @@ impl EditorState {
                         }
                     }
                     if mouse.right_just_pressed() {
-                        if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                        if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                             self.erase_brush(gx, gy);
                         }
                     }
@@ -260,12 +268,12 @@ impl EditorState {
                 ToolKind::Fill => {
                     // R13: see the matching comment on ToolKind::Rect above.
                     if mouse.left_just_pressed() && !self.ignore_drag {
-                        if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                        if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                             self.flood_fill(gx, gy);
                         }
                     }
                     if mouse.right_just_pressed() {
-                        if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                        if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                             self.erase_brush(gx, gy);
                         }
                     }
@@ -278,13 +286,13 @@ impl EditorState {
         // ── Mouse: rectangle tool (Shift+drag) ────────────────────────────────
         if shift {
             if mouse.left_just_pressed() {
-                if let Some(pos) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                if let Some(pos) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                     self.rect_anchor = Some(pos);
                 }
             }
             if mouse.left_just_released() {
                 if let (Some(anchor), Some(current)) =
-                    (self.rect_anchor.take(), self.mouse_to_grid(mouse.cell_x, mouse.cell_y))
+                    (self.rect_anchor.take(), self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y))
                 {
                     self.stamp_rect(anchor, current);
                 }
@@ -296,7 +304,7 @@ impl EditorState {
 
         // ── Mouse: alt+drag = scatter paint ──────────────────────────────────
         if alt && mouse.left_held() && !self.ignore_drag {
-            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+            if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                 if !self.grid.in_bounds(gx, gy) {
                     return;
                 }
@@ -316,7 +324,7 @@ impl EditorState {
 
         // ── Normal left-click paint ───────────────────────────────────────────
         if mouse.left_held() && !self.ignore_drag {
-            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+            if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                 if !self.grid.in_bounds(gx, gy) {
                     return;
                 }
@@ -344,11 +352,11 @@ impl EditorState {
 
         // ── Right-click erase (brush size) ───────────────────────────────────
         if mouse.right_just_pressed() {
-            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+            if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                 self.erase_brush(gx, gy);
             }
         } else if mouse.right_held() && self.erase_size == 1 {
-            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+            if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                 let lyr = self.active_layer;
                 if let Some(removed) = self.grid.erase(gx, gy, lyr) {
                     self.undo.push(Command::EraseTile { before: removed });

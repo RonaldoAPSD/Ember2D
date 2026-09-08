@@ -194,10 +194,9 @@ pub fn draw_menu_toolbar(
     font: &mut dyn Font,
     active_menu: Option<MenuKind>,
     active_tool: ToolKind,
-    layout: &Layout,
     frame: &mut UiFrame,
 ) {
-    let row = layout.toolbar_row;
+    let row = TOOLBAR_ROW;
     renderer.draw_rect_filled(0, row, renderer.width, 1, ' ', Color::White, Color::DarkGrey);
     for &(col, label, kind) in menu_label_defs() {
         let open = active_menu == Some(kind);
@@ -232,11 +231,10 @@ pub fn draw_menu_dropdown(
     mouse_col: usize,
     mouse_row: usize,
     ms: &MenuState,
-    layout: &Layout,
     frame: &mut UiFrame,
 ) {
     let start_col = menu_label_col(menu);
-    let start_row = layout.toolbar_row + 1;
+    let start_row = TOOLBAR_ROW + 1;
     let entries = menu_entries(menu);
     renderer.draw_rect_filled(
         start_col,

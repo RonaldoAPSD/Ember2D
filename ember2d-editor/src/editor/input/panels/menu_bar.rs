@@ -6,22 +6,22 @@
 // follows.
 
 use super::super::super::ui::WidgetId;
-use super::super::super::ui::{self, ToolbarAction};
+use super::super::super::ui::{self, ToolbarAction, TOOLBAR_ROW};
 use super::super::super::EditorState;
 use super::super::super::{TextInput, TextInputPurpose};
 use ember2d::input::Key;
 
 impl EditorState {
-    /// Clicking a top menu-bar label (row `layout.toolbar_row`) opens or
-    /// closes its dropdown. `true` if the click was on that row at all —
-    /// even a click that hits no label still consumes the frame (matching
-    /// the original's unconditional `return;` inside this row check).
+    /// Clicking a top menu-bar label (row `TOOLBAR_ROW`) opens or closes
+    /// its dropdown. `true` if the click was on that row at all — even a
+    /// click that hits no label still consumes the frame (matching the
+    /// original's unconditional `return;` inside this row check).
     ///
     /// Phase 7 Part 1d (docs/ember2d-phase7-plan.md): `UiFrame::hit`
     /// replaces the removed `menu_label_at` — see `ui/menu.rs`'s own
     /// note on the padding-cell fix this includes.
     pub(super) fn handle_menu_bar_click(&mut self, mouse: &ember2d::mouse::MouseState) -> bool {
-        if mouse.left_just_pressed() && mouse.cell_y == self.layout.toolbar_row {
+        if mouse.left_just_pressed() && mouse.cell_y == TOOLBAR_ROW {
             if let Some(WidgetId::MenuLabel(kind)) = self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y)
             {
                 self.active_menu = if self.active_menu == Some(kind) { None } else { Some(kind) };

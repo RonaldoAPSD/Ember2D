@@ -128,9 +128,17 @@ impl EditorState {
                     return true;
                 }
                 Some(WidgetId::TitleBar(pid)) => {
-                    if pid != PanelId::Viewport {
-                        self.panels.start_drag(pid, px, py);
-                    }
+                    // 7C-3 (master plan §5.3, E4): the Viewport's title bar
+                    // is no longer excluded here — it starts a drag like
+                    // any other panel's. `apply_layout` (`panel/mod.rs`)
+                    // still unconditionally recomputes the Viewport's dock
+                    // and rect as "whatever's left over" every frame
+                    // regardless of what dragging it produces, so it always
+                    // snaps back to filling that space on the very next
+                    // frame — "docks/undocks like any panel" describes the
+                    // input mechanics here, not the layout result, which
+                    // deliberately still stays master-fill.
+                    self.panels.start_drag(pid, px, py);
                     self.ignore_drag = true;
                     return true;
                 }
@@ -146,12 +154,12 @@ impl EditorState {
     /// never themselves `return`.
     fn update_panel_drag_and_resize(&mut self, mouse: &ember2d::mouse::MouseState) {
         if mouse.left_held() {
-            // Pixel-space screen bounds (Phase 7 Part 1c) — `self.layout`
-            // only has the cell-count screen size, so convert here rather
-            // than growing `Layout` with a redundant pixel copy this phase
-            // doesn't otherwise need.
-            let sw_px = self.layout.screen_w as f32 * ember2d::renderer::CELL_W as f32;
-            let sh_px = self.layout.screen_h as f32 * ember2d::renderer::CELL_H as f32;
+            // Pixel-space screen bounds (Phase 7 Part 1c) — read straight
+            // from `PanelManager` (7C-3, master plan §5.3, E4), which
+            // already has them in pixels; the deleted `Layout` only ever
+            // stored the cell-count screen size, so this used to reconvert
+            // cells back to pixels here instead.
+            let (sw_px, sh_px) = self.panels.screen_size_px();
             if self.panels.is_dragging() {
                 self.panels.update_drag(mouse.pixel_x, mouse.pixel_y, sw_px, sh_px);
             } else if self.panels.is_resizing() {
@@ -159,8 +167,7 @@ impl EditorState {
             }
         }
         if mouse.left_just_released() {
-            let sw_px = self.layout.screen_w as f32 * ember2d::renderer::CELL_W as f32;
-            let sh_px = self.layout.screen_h as f32 * ember2d::renderer::CELL_H as f32;
+            let (sw_px, sh_px) = self.panels.screen_size_px();
             self.panels.end_drag(sw_px, sh_px);
             self.panels.end_resize();
         }

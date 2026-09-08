@@ -112,6 +112,25 @@ impl Panel {
         self.cell_h().saturating_sub(2)
     }
 
+    /// This panel's content area (inside its border/title bar), in pixels —
+    /// the pixel-native counterpart to `content_x`/`content_y`/`content_w`/
+    /// `content_h` above (7C-3, master plan §5.3, E4). Exact, not a
+    /// cell-rounded re-derivation: unlike those four (which exist for
+    /// callers still working in cells), this reads `self.rect` directly, so
+    /// it can never disagree with what `draw_panel_chrome` actually drew —
+    /// the whole point of deleting `Layout`, which used to rebuild an
+    /// independent cell-based copy of exactly this every frame. Can't use
+    /// `UiRect::inset` (a single symmetric margin) since the border is one
+    /// `CELL_W` on the sides but one `CELL_H` on top/bottom.
+    pub fn content_rect(&self) -> UiRect {
+        UiRect::new(
+            self.rect.x + CELL_W,
+            self.rect.y + CELL_H,
+            (self.rect.w - 2.0 * CELL_W).max(0.0),
+            (self.rect.h - 2.0 * CELL_H).max(0.0),
+        )
+    }
+
     /// True if the pixel point `(px, py)` falls within this panel's rect.
     /// NOT part of the `UiFrame` migration (Phase 7 Part 1d,
     /// docs/ember2d-phase7-plan.md): unlike the title bar/close button/
@@ -133,6 +152,13 @@ pub struct PanelManager {
     next_z: usize,
     dragging: Option<PanelId>,
     resizing: Option<PanelId>,
+    /// The window's own pixel size, as last given to `apply_layout` — 7C-3
+    /// (master plan §5.3, E4) gives this a home here instead of the deleted
+    /// `Layout::screen_w`/`screen_h`, since `PanelManager` already receives
+    /// it every frame to reposition docked panels; storing it makes this
+    /// the one place both panel geometry AND overall screen size live,
+    /// rather than two independently-updated copies of the same number.
+    screen_size_px: (f32, f32),
     pub active_left: Option<PanelId>,
     pub active_right: Option<PanelId>,
     pub active_bottom: Option<PanelId>,
@@ -211,6 +237,7 @@ impl PanelManager {
             next_z: 20,
             dragging: None,
             resizing: None,
+            screen_size_px: (screen_w as f32 * CELL_W, screen_h as f32 * CELL_H),
             active_left: Some(PanelId::Hierarchy),
             active_right: Some(PanelId::Inspector),
             active_bottom: Some(PanelId::Console),
@@ -226,6 +253,28 @@ impl PanelManager {
 
     pub fn get(&self, id: PanelId) -> &Panel {
         &self.panels[self.idx(id)]
+    }
+
+    /// The Viewport panel — 7C-3 (master plan §5.3, E4): the single source
+    /// of truth `mouse_to_grid` and every canvas `ui::draw_*` function now
+    /// read, replacing the deleted `Layout.canvas_x`/`canvas_y`/`canvas_w`/
+    /// `canvas_h`, which used to rebuild an independent (cell-based) copy
+    /// of this same panel's rect every frame.
+    pub fn viewport(&self) -> &Panel {
+        self.get(PanelId::Viewport)
+    }
+
+    /// The window's own pixel size, as of the last `apply_layout` call —
+    /// see `screen_size_px`'s own doc comment for why this lives here now.
+    pub fn screen_size_px(&self) -> (f32, f32) {
+        self.screen_size_px
+    }
+
+    /// `screen_size_px`, in whole cells — for the callers that still center
+    /// modals or clamp scroll in cell-space rather than pixels.
+    pub fn screen_size_cells(&self) -> (usize, usize) {
+        let (w, h) = self.screen_size_px;
+        ((w / CELL_W).round() as usize, (h / CELL_H).round() as usize)
     }
 
     pub fn get_mut(&mut self, id: PanelId) -> &mut Panel {
@@ -475,6 +524,7 @@ impl PanelManager {
     pub fn apply_layout(&mut self, screen_w: usize, screen_h: usize) {
         let screen_w = screen_w as f32;
         let screen_h = screen_h as f32;
+        self.screen_size_px = (screen_w, screen_h);
 
         // Status bar takes the last cell row; toolbar + title take the
         // first two cell rows; canvas starts below them. Still expressed
@@ -499,6 +549,14 @@ impl PanelManager {
                 continue;
             }
             match p.id {
+                // Unconditional every frame, regardless of anything a drag
+                // in progress did to `p.rect`/`p.dock` this frame (7C-3,
+                // master plan §5.3: `handle_panel_chrome_click` no longer
+                // excludes the Viewport's title bar from `start_drag`, so
+                // it CAN be picked up and dragged like any other panel) —
+                // this is what keeps the Viewport "master-fill" a real
+                // guarantee rather than just the common case: whatever a
+                // drag momentarily did, the very next frame always wins.
                 PanelId::Viewport => {
                     p.rect.x = left_w;
                     p.rect.y = canvas_top;
@@ -567,19 +625,6 @@ impl PanelManager {
         }
     }
 
-    /// Canvas bounds after accounting for all docked panels.
-    /// Returns (canvas_x, canvas_y, canvas_w, canvas_h) — still CELLS
-    /// (via `content_x`/`content_y`/`content_w`/`content_h`), since
-    /// `Layout` and every `ui::draw_*` function that consumes this stay
-    /// cell-based until Part 1e/Part 4.
-    pub fn canvas_bounds(
-        &self,
-        _screen_w: usize,
-        _screen_h: usize,
-    ) -> (usize, usize, usize, usize) {
-        let vp = self.get(PanelId::Viewport);
-        (vp.content_x(), vp.content_y(), vp.content_w(), vp.content_h())
-    }
 }
 
 // ── draw_panel_chrome ─────────────────────────────────────────────────────────

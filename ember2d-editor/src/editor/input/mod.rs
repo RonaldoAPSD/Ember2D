@@ -106,8 +106,9 @@ impl EditorState {
 
             let mw = 36usize;
             let mh = 18usize;
-            let mx = (self.layout.screen_w.saturating_sub(mw)) / 2;
-            let my = (self.layout.screen_h.saturating_sub(mh)) / 2;
+            let (screen_w, screen_h) = self.panels.screen_size_cells();
+            let mx = (screen_w.saturating_sub(mw)) / 2;
+            let my = (screen_h.saturating_sub(mh)) / 2;
             let cx = mx + 2;
             let sel = self.palette_editing_idx;
 
@@ -329,7 +330,7 @@ impl EditorState {
                 return;
             }
             if mouse.left_just_pressed() {
-                if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                     let before = self.grid.spawn_point;
                     let after = (gx as f32, gy as f32);
                     self.undo.push(Command::MoveSpawn { before, after });
@@ -351,7 +352,7 @@ impl EditorState {
                 return;
             }
             if mouse.left_just_pressed() {
-                if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                     let before = self.grid.extra_spawns.clone();
                     let mut after = before.clone();
                     after.push((buf, gx as f32, gy as f32));

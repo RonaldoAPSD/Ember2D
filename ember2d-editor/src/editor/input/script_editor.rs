@@ -37,8 +37,7 @@ impl EditorState {
         let p = self.panels.get(PanelId::ScriptEditor);
 
         // 1. Resolve exact text area bounds dynamically
-        let sw = self.layout.screen_w;
-        let sh = self.layout.screen_h;
+        let (sw, sh) = self.panels.screen_size_cells();
 
         let (cx, cy, cw, ch) = if self.script_mode {
             (0usize, 1usize, sw, sh.saturating_sub(2))

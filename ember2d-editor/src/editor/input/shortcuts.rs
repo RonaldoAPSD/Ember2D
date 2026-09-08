@@ -100,7 +100,7 @@ impl EditorState {
             let mut data = self.grid.to_level_data();
             data.path = self.save_path.clone();
             if shift {
-                if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                     data.spawn_point = (gx as f32, gy as f32);
                 }
             }
@@ -148,7 +148,7 @@ impl EditorState {
 
         // Delete — erase tile under cursor.
         if input.just_pressed(Key::Delete) {
-            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+            if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                 self.erase_brush(gx, gy);
             }
             return;
@@ -219,7 +219,7 @@ impl EditorState {
 
         // T — script attachment.
         if input.just_pressed(Key::T) {
-            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+            if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                 if let Some(tile) = self.grid.get(gx, gy, self.active_layer) {
                     let existing = tile.script.clone().unwrap_or_default();
                     self.text_input = Some(TextInput {
@@ -233,7 +233,7 @@ impl EditorState {
 
         // D — set exit destination (next_level path) on tile under cursor.
         if input.just_pressed(Key::D) {
-            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+            if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                 if let Some(tile) = self.grid.get(gx, gy, self.active_layer) {
                     let existing = tile.next_level.clone().unwrap_or_default();
                     self.text_input = Some(TextInput {
@@ -247,7 +247,7 @@ impl EditorState {
 
         // I — edit tile tag.
         if input.just_pressed(Key::I) {
-            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+            if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                 if let Some(tile) = self.grid.get(gx, gy, self.active_layer) {
                     self.text_input = Some(TextInput {
                         buffer: tile.tag.clone(),
@@ -260,7 +260,7 @@ impl EditorState {
 
         // ; — toggle solid, ' — toggle trigger on tile under cursor.
         if input.just_pressed(Key::Semicolon) {
-            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+            if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                 let lyr = self.active_layer;
                 if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
                     let mut new_tile = tile.clone();
@@ -274,7 +274,7 @@ impl EditorState {
             }
         }
         if input.just_pressed(Key::Apostrophe) {
-            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+            if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                 let lyr = self.active_layer;
                 if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
                     let mut new_tile = tile.clone();
@@ -290,7 +290,7 @@ impl EditorState {
 
         // F — flood fill.
         if input.just_pressed(Key::F) {
-            if let Some((gx, gy)) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+            if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                 self.flood_fill(gx, gy);
             }
         }
@@ -298,12 +298,12 @@ impl EditorState {
         // L — line tool (anchor on first press, stamp on second).
         if input.just_pressed(Key::L) {
             if self.line_anchor.is_none() {
-                if let Some(pos) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                if let Some(pos) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                     self.line_anchor = Some(pos);
                     self.active_tool = ToolKind::Line;
                 }
             } else {
-                if let Some(end) = self.mouse_to_grid(mouse.cell_x, mouse.cell_y) {
+                if let Some(end) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                     self.stamp_line(self.line_anchor.unwrap(), end);
                 }
                 self.line_anchor = None;

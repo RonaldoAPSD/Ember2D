@@ -1,4 +1,4 @@
-// editor/ui/types.rs — Shared UI types and Layout struct.
+// editor/ui/types.rs — Shared UI types.
 
 /// Cell-space text metrics for the editor's still-monospace, 8px-per-cell
 /// UI (Phase 7 Part 2c, docs/ember2d-phase7-plan.md) — a thin wrapper over
@@ -153,42 +153,14 @@ pub enum ToolbarAction {
     SetLayer(u8),
 }
 
-// ── Dynamic layout ────────────────────────────────────────────────────────────
+// ── Chrome row constants ────────────────────────────────────────────────────────
 
-#[derive(Clone)]
-pub struct Layout {
-    pub screen_w: usize,
-    pub screen_h: usize,
-    pub canvas_x: usize,
-    pub canvas_y: usize,
-    pub canvas_w: usize,
-    pub canvas_h: usize,
-    pub toolbar_row: usize,
-    pub zoom: f32,
-}
-
-impl Layout {
-    pub fn new(screen_w: usize, screen_h: usize) -> Self {
-        Layout {
-            screen_w,
-            screen_h,
-            canvas_x: 0,
-            canvas_y: 2,
-            canvas_w: screen_w,
-            canvas_h: screen_h.saturating_sub(3).max(4),
-            toolbar_row: 1,
-            zoom: 1.0,
-        }
-    }
-
-    pub fn with_canvas(mut self, cx: usize, cy: usize, cw: usize, ch: usize) -> Self {
-        self.canvas_x = cx;
-        self.canvas_y = cy;
-        self.canvas_w = cw;
-        self.canvas_h = ch;
-        self
-    }
-}
+/// The top menu bar's own cell row — always `1` (row 0 is reserved, unused
+/// today). Used to be `Layout::toolbar_row`, a field on a struct that
+/// otherwise did nothing but rebuild the Viewport panel's own rect every
+/// frame (7C-3, master plan §5.3, E4: `Layout` is deleted — its one field
+/// that wasn't a duplicate of `PanelManager` state becomes this constant).
+pub const TOOLBAR_ROW: usize = 1;
 
 pub const HIER_W: usize = 14;
 

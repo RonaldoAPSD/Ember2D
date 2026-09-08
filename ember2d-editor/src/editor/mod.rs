@@ -21,7 +21,7 @@ use grid::LevelGrid;
 use palette::TilePalette;
 use panel::{PanelId, PanelManager};
 pub use ui::HierarchySelection;
-use ui::{Layout, MenuKind, ToolKind, UiFrame};
+use ui::{MenuKind, ToolKind, UiFrame};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaletteField {
@@ -173,23 +173,24 @@ pub struct EditorState {
     pub(super) color_picker_open: Option<bool>,
     pub(super) color_picker_hsv: (f32, f32, f32),
     pub(super) context_menu: Option<ui::ContextMenu>,
-    pub(super) layout: Layout,
     pub(super) zoom: f32,
 }
 
 const DEFAULT_LEVEL_W: usize = 32;
 const DEFAULT_LEVEL_H: usize = 20;
 
-/// Placeholder cell-grid size for `PanelManager`/`Layout` at construction
-/// time, before a real window (and so a real `renderer.width`/`height`)
-/// exists — `EditorState::new` takes only a save path, not a `&Renderer`
-/// (Phase 7 Part 1e, docs/ember2d-phase7-plan.md, E6). Not a guess at the
-/// actual viewport size: `handle_render`'s very first lines unconditionally
-/// call `self.panels.apply_layout(renderer.pixel_width, renderer.pixel_height)`
-/// and rebuild `self.layout` from `renderer.width`/`height`, before any
-/// drawing happens — so whatever this constant is set to is never itself
-/// visible on screen. `80x24` was kept as the value precisely because it
-/// carries no meaning beyond "some placeholder terminal-shaped size."
+/// Placeholder cell-grid size for `PanelManager` at construction time,
+/// before a real window (and so a real `renderer.width`/`height`) exists —
+/// `EditorState::new` takes only a save path, not a `&Renderer` (Phase 7
+/// Part 1e, docs/ember2d-phase7-plan.md, E6). Not a guess at the actual
+/// viewport size: `handle_render`'s very first line unconditionally calls
+/// `self.panels.apply_layout(renderer.pixel_width, renderer.pixel_height)`
+/// before any drawing happens — so whatever this constant is set to is
+/// never itself visible on screen. `80x24` was kept as the value precisely
+/// because it carries no meaning beyond "some placeholder terminal-shaped
+/// size." (7C-3, master plan §5.3, E4: `Layout`, which this comment used to
+/// also cite, no longer exists — `PanelManager` alone now owns both panel
+/// geometry and the overall screen size, see its own `screen_size_px`.)
 const PLACEHOLDER_SCREEN_W: usize = 80;
 const PLACEHOLDER_SCREEN_H: usize = 24;
 
@@ -274,7 +275,6 @@ impl EditorState {
             color_picker_open: None,
             color_picker_hsv: (0.0, 1.0, 1.0),
             context_menu: None,
-            layout: Layout::new(PLACEHOLDER_SCREEN_W, PLACEHOLDER_SCREEN_H),
             zoom: 1.0,
         }
     }

@@ -17,13 +17,14 @@ pub fn draw_palette_editor_modal(
     renderer: &mut Renderer,
     pal: &crate::editor::palette::TileDefinition,
     focus: Option<&crate::editor::PaletteField>,
-    layout: &Layout,
+    screen_w: usize,
+    screen_h: usize,
     frame: &mut UiFrame,
 ) {
     let mw = 36usize;
     let mh = 18usize;
-    let mx = (layout.screen_w.saturating_sub(mw)) / 2;
-    let my = (layout.screen_h.saturating_sub(mh)) / 2;
+    let mx = (screen_w.saturating_sub(mw)) / 2;
+    let my = (screen_h.saturating_sub(mh)) / 2;
 
     // Window borders
     renderer.draw_rect_filled(mx, my, mw, mh, ' ', Color::White, Color::DarkGrey);
@@ -172,13 +173,14 @@ pub fn draw_color_picker_modal(
     renderer: &mut Renderer,
     hsv: (f32, f32, f32),
     is_fg: bool,
-    layout: &Layout,
+    screen_w: usize,
+    screen_h: usize,
     frame: &mut UiFrame,
 ) {
     let mw = 44usize;
     let mh = 16usize;
-    let mx = (layout.screen_w.saturating_sub(mw)) / 2;
-    let my = (layout.screen_h.saturating_sub(mh)) / 2;
+    let mx = (screen_w.saturating_sub(mw)) / 2;
+    let my = (screen_h.saturating_sub(mh)) / 2;
 
     // Window borders
     renderer.draw_rect_filled(mx, my, mw, mh, ' ', Color::White, Color::DarkGrey);
@@ -274,11 +276,14 @@ pub fn draw_color_picker(renderer: &mut Renderer, x: usize, y: usize, w: usize) 
     }
 }
 
-pub fn draw_help_overlay(renderer: &mut Renderer, font: &mut dyn Font, layout: &Layout) {
-    let cx = layout.canvas_x;
-    let cw = layout.canvas_w;
-    let cy = layout.canvas_y;
-    let ch = layout.canvas_h;
+pub fn draw_help_overlay(
+    renderer: &mut Renderer,
+    font: &mut dyn Font,
+    cx: usize,
+    cy: usize,
+    cw: usize,
+    ch: usize,
+) {
     renderer.draw_rect_filled(cx, cy, cw, ch, ' ', Color::White, Color::Black);
     let title = " EMBER2D EDITOR — KEYBOARD SHORTCUTS ";
     renderer.draw_str(cx + 1, cy + 1, title, Color::Cyan, Color::Black);

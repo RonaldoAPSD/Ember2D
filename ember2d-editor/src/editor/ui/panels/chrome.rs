@@ -53,12 +53,14 @@ pub fn draw_status_bar(
     scroll: (f32, f32),
     active_layer: u8,
     erase_size: usize,
-    layout: &Layout,
+    canvas_x: usize,
+    canvas_y: usize,
+    zoom: f32,
 ) {
     let status_row = renderer.height - 1;
     renderer.draw_rect_filled(0, status_row, renderer.width, 1, ' ', Color::White, Color::DarkGrey);
-    let cx = mouse.cell_x.saturating_sub(layout.canvas_x) as f32 / layout.zoom + scroll.0;
-    let cy = mouse.cell_y.saturating_sub(layout.canvas_y) as f32 / layout.zoom + scroll.1;
+    let cx = mouse.cell_x.saturating_sub(canvas_x) as f32 / zoom + scroll.0;
+    let cy = mouse.cell_y.saturating_sub(canvas_y) as f32 / zoom + scroll.1;
     let pos_str = format!(" ({:3.1},{:3.1})", cx, cy);
     renderer.draw_str(0, status_row, &pos_str, Color::Cyan, Color::DarkGrey);
 
@@ -145,12 +147,13 @@ pub fn draw_text_input(
     font: &mut dyn Font,
     prompt: &str,
     buffer: &str,
-    layout: &Layout,
+    screen_w: usize,
+    screen_h: usize,
 ) {
     let mw = 40usize;
     let mh = 7usize;
-    let mx = (layout.screen_w.saturating_sub(mw)) / 2;
-    let my = (layout.screen_h.saturating_sub(mh)) / 2;
+    let mx = (screen_w.saturating_sub(mw)) / 2;
+    let my = (screen_h.saturating_sub(mh)) / 2;
 
     // 1. Fill background and Draw Borders
     renderer.draw_rect_filled(mx, my, mw, mh, ' ', Color::White, Color::DarkGrey);
@@ -223,13 +226,14 @@ pub fn draw_confirm_modal(
     font: &mut dyn Font,
     title: &str,
     message: &str,
-    layout: &Layout,
+    screen_w: usize,
+    screen_h: usize,
     frame: &mut UiFrame,
 ) {
     let mw = 40usize;
     let mh = 8usize;
-    let mx = (layout.screen_w.saturating_sub(mw)) / 2;
-    let my = (layout.screen_h.saturating_sub(mh)) / 2;
+    let mx = (screen_w.saturating_sub(mw)) / 2;
+    let my = (screen_h.saturating_sub(mh)) / 2;
 
     renderer.draw_rect_filled(mx, my, mw, mh, ' ', Color::White, Color::DarkGrey);
     renderer.draw_rect_filled(mx, my, mw, 1, ' ', Color::White, Color::DarkBlue);
