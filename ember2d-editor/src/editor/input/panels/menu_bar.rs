@@ -7,8 +7,9 @@
 
 use super::super::super::ui::WidgetId;
 use super::super::super::ui::{self, ToolbarAction, TOOLBAR_ROW};
+use super::super::super::EditorMode;
 use super::super::super::EditorState;
-use super::super::super::{TextInput, TextInputPurpose};
+use super::super::super::TextInputPurpose;
 use ember2d::input::Key;
 
 impl EditorState {
@@ -67,38 +68,30 @@ impl EditorState {
                         return true;
                     }
                     ToolbarAction::RenameLevel => {
-                        self.text_input = Some(TextInput {
-                            buffer: self.grid.name.clone(),
-                            purpose: TextInputPurpose::LevelName,
-                        });
+                        self.prompt_buffer = self.grid.name.clone();
+                        self.mode = EditorMode::Prompt(TextInputPurpose::LevelName);
                         return true;
                     }
                     ToolbarAction::ResizeLevel => {
-                        self.text_input = Some(TextInput {
-                            buffer: String::new(),
-                            purpose: TextInputPurpose::ResizeLevel,
-                        });
+                        self.prompt_buffer.clear();
+                        self.mode = EditorMode::Prompt(TextInputPurpose::ResizeLevel);
                         return true;
                     }
                     ToolbarAction::SetSpawn => {
-                        self.placing_spawn = true;
+                        self.mode = EditorMode::PlaceSpawn(None);
                         self.save_message =
                             Some("Click on grid to place spawn. Esc to cancel.".to_string());
                         self.save_message_timer = 0;
                         return true;
                     }
                     ToolbarAction::AddNamedSpawn => {
-                        self.text_input = Some(TextInput {
-                            buffer: String::new(),
-                            purpose: TextInputPurpose::NamedSpawn,
-                        });
+                        self.prompt_buffer.clear();
+                        self.mode = EditorMode::Prompt(TextInputPurpose::NamedSpawn);
                         return true;
                     }
                     ToolbarAction::NewLevel => {
-                        self.text_input = Some(TextInput {
-                            buffer: String::new(),
-                            purpose: TextInputPurpose::NewLevelName,
-                        });
+                        self.prompt_buffer.clear();
+                        self.mode = EditorMode::Prompt(TextInputPurpose::NewLevelName);
                         return true;
                     }
                     _ => {

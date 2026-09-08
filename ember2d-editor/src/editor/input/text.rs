@@ -2,40 +2,57 @@
 
 use super::super::commands::Command;
 use super::super::commands::UndoStack;
+use super::super::ui::ToolKind;
+use super::super::EditorMode;
 use super::super::EditorState;
 use super::super::TextInputPurpose;
 use super::super::{DEFAULT_LEVEL_H, DEFAULT_LEVEL_W};
 use ember2d::input::Key;
 
 impl EditorState {
-    pub(super) fn handle_text_input(&mut self, input: &mut ember2d::input::InputManager) {
-        if let Some(ref mut ti) = self.text_input {
-            // R12 (7A-2, docs/ember2d-master-plan.md): must be renewed every
-            // frame this prompt stays focused — see `begin_text_capture`'s
-            // own doc comment (ember2d/src/input.rs).
-            input.begin_text_capture();
-            // Use the engine's captured text characters first (handles Shift, AltGr, Symbols correctly)
-            let captured = input.take_text();
-            for ch in captured.chars() {
-                ti.buffer.push(ch);
-            }
+    /// 7C-4 (master plan §5.3): `purpose` comes in owned from `mode` (moved
+    /// out by `handle_update`'s `mem::take`) instead of being read from the
+    /// deleted `text_input: Option<TextInput>` — the buffer it goes with
+    /// stays its own field, `prompt_buffer` (see that field's own doc
+    /// comment for why). Every arm below is unchanged from the removed
+    /// `TextInput`'s own `ti.purpose`/`ti.buffer`, except `NamedSpawn`,
+    /// which used to write `self.placing_named_spawn` directly and now
+    /// transitions `mode` to `PlaceSpawn` instead.
+    pub(super) fn handle_text_input(
+        &mut self,
+        purpose: TextInputPurpose,
+        input: &mut ember2d::input::InputManager,
+    ) {
+        self.mode = EditorMode::Prompt(purpose);
+        // R12 (7A-2, docs/ember2d-master-plan.md): must be renewed every
+        // frame this prompt stays focused — see `begin_text_capture`'s
+        // own doc comment (ember2d/src/input.rs).
+        input.begin_text_capture();
+        // Use the engine's captured text characters first (handles Shift, AltGr, Symbols correctly)
+        let captured = input.take_text();
+        for ch in captured.chars() {
+            self.prompt_buffer.push(ch);
+        }
 
-            if input.just_pressed(Key::Backspace) {
-                ti.buffer.pop();
-            }
+        if input.just_pressed(Key::Backspace) {
+            self.prompt_buffer.pop();
+        }
 
-            if input.just_pressed(Key::Enter) {
-                let ti = self.text_input.take().unwrap();
-                match ti.purpose {
-                    TextInputPurpose::LevelName => {
-                        if !ti.buffer.is_empty() {
-                            self.grid.name = ti.buffer;
+        if input.just_pressed(Key::Enter) {
+            let buffer = std::mem::take(&mut self.prompt_buffer);
+            // Default outcome for every purpose below except `NamedSpawn`,
+            // which overrides this with a transition into `PlaceSpawn`.
+            self.mode = EditorMode::Paint(ToolKind::Paint);
+            match purpose {
+                TextInputPurpose::LevelName => {
+                        if !buffer.is_empty() {
+                            self.grid.name = buffer;
                             self.unsaved = true;
                         }
                     }
                     TextInputPurpose::SaveAs => {
-                        if !ti.buffer.is_empty() {
-                            self.save_path = ti.buffer;
+                        if !buffer.is_empty() {
+                            self.save_path = buffer;
                             self.save();
                         }
                     }
@@ -44,7 +61,7 @@ impl EditorState {
                         if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
                             let mut new_tile = tile.clone();
                             new_tile.script =
-                                if ti.buffer.is_empty() { None } else { Some(ti.buffer) };
+                                if buffer.is_empty() { None } else { Some(buffer) };
                             self.undo.push(Command::Batch {
                                 cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))],
                             });
@@ -57,7 +74,7 @@ impl EditorState {
                         if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
                             let mut new_tile = tile.clone();
                             new_tile.next_level =
-                                if ti.buffer.is_empty() { None } else { Some(ti.buffer) };
+                                if buffer.is_empty() { None } else { Some(buffer) };
                             self.undo.push(Command::Batch {
                                 cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))],
                             });
@@ -68,13 +85,13 @@ impl EditorState {
                     TextInputPurpose::TileTag { gx, gy } => {
                         if gx == -1 {
                             let sel = self.palette.selected;
-                            self.palette.tiles[sel].tag = ti.buffer;
+                            self.palette.tiles[sel].tag = buffer;
                             self.unsaved = true;
                         } else {
                             let lyr = self.active_layer;
                             if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
                                 let mut new_tile = tile.clone();
-                                new_tile.tag = ti.buffer;
+                                new_tile.tag = buffer;
                                 self.undo.push(Command::Batch {
                                     cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))],
                                 });
@@ -85,7 +102,7 @@ impl EditorState {
                     }
                     TextInputPurpose::NewScriptName => {
                         if let Some(ref folder) = self.project_folder {
-                            let mut name = ti.buffer.trim().to_string();
+                            let mut name = buffer.trim().to_string();
                             if !name.is_empty() {
                                 if !name.ends_with(".rhai") {
                                     name.push_str(".rhai");
@@ -105,12 +122,12 @@ impl EditorState {
                     }
                     TextInputPurpose::PaletteName => {
                         let sel = self.palette.selected;
-                        self.palette.tiles[sel].name = ti.buffer;
+                        self.palette.tiles[sel].name = buffer;
                         self.unsaved = true;
                     }
                     TextInputPurpose::NamedSpawn => {
-                        if !ti.buffer.is_empty() {
-                            self.placing_named_spawn = Some(ti.buffer);
+                        if !buffer.is_empty() {
+                            self.mode = EditorMode::PlaceSpawn(Some(buffer));
                             self.save_message = Some(
                                 "Click on grid to place named spawn. Esc to cancel.".to_string(),
                             );
@@ -118,7 +135,7 @@ impl EditorState {
                         }
                     }
                     TextInputPurpose::ResizeLevel => {
-                        let s = ti.buffer.replace(['x', 'X', ','], " ");
+                        let s = buffer.replace(['x', 'X', ','], " ");
                         let parts: Vec<&str> = s.split_whitespace().collect();
                         let parsed = if parts.len() == 2 {
                             parts[0].parse::<usize>().ok().zip(parts[1].parse::<usize>().ok())
@@ -165,7 +182,7 @@ impl EditorState {
                     TextInputPurpose::PlayerTag => {
                         let before = self.grid.player.clone();
                         let mut after = before.clone();
-                        after.tag = ti.buffer;
+                        after.tag = buffer;
                         self.undo.push(Command::UpdatePlayer { before, after: after.clone() });
                         self.grid.player = after;
                         self.unsaved = true;
@@ -173,13 +190,13 @@ impl EditorState {
                     TextInputPurpose::PlayerScript => {
                         let before = self.grid.player.clone();
                         let mut after = before.clone();
-                        after.script = if ti.buffer.is_empty() { None } else { Some(ti.buffer) };
+                        after.script = if buffer.is_empty() { None } else { Some(buffer) };
                         self.undo.push(Command::UpdatePlayer { before, after: after.clone() });
                         self.grid.player = after;
                         self.unsaved = true;
                     }
                     TextInputPurpose::TileGlyph { gx, gy } => {
-                        if let Some(ch) = ti.buffer.chars().next() {
+                        if let Some(ch) = buffer.chars().next() {
                             if gx == -1 {
                                 let sel = self.palette.selected;
                                 self.palette.tiles[sel].glyph = ch;
@@ -205,7 +222,7 @@ impl EditorState {
                         }
                     }
                     TextInputPurpose::PlayerGlyph => {
-                        if let Some(ch) = ti.buffer.chars().next() {
+                        if let Some(ch) = buffer.chars().next() {
                             let before = self.grid.player.clone();
                             let mut after = before.clone();
                             after.glyph = ch;
@@ -215,7 +232,7 @@ impl EditorState {
                         }
                     }
                     TextInputPurpose::NewLevelName => {
-                        let name = ti.buffer.trim().to_string();
+                        let name = buffer.trim().to_string();
                         if !name.is_empty() {
                             let file_name = format!("{}.level", name);
                             let path = if let Some(ref folder) = self.project_folder {
@@ -249,7 +266,7 @@ impl EditorState {
                         let lyr = self.active_layer;
                         if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
                             let mut new_tile = tile.clone();
-                            new_tile.collider_layer = ti.buffer;
+                            new_tile.collider_layer = buffer;
                             self.undo.push(Command::Batch {
                                 cells: vec![(gx, gy, lyr, Some(tile), Some(new_tile.clone()))],
                             });
@@ -261,8 +278,7 @@ impl EditorState {
                         let lyr = self.active_layer;
                         if let Some(tile) = self.grid.get(gx, gy, lyr).cloned() {
                             let mut new_tile = tile.clone();
-                            new_tile.collider_mask = ti
-                                .buffer
+                            new_tile.collider_mask = buffer
                                 .split(',')
                                 .map(|s| s.trim().to_string())
                                 .filter(|s| !s.is_empty())
@@ -277,7 +293,7 @@ impl EditorState {
                     TextInputPurpose::PlayerColliderLayer => {
                         let before = self.grid.player.clone();
                         let mut after = before.clone();
-                        after.collider_layer = ti.buffer;
+                        after.collider_layer = buffer;
                         self.undo.push(Command::UpdatePlayer { before, after: after.clone() });
                         self.grid.player = after;
                         self.unsaved = true;
@@ -285,8 +301,7 @@ impl EditorState {
                     TextInputPurpose::PlayerColliderMask => {
                         let before = self.grid.player.clone();
                         let mut after = before.clone();
-                        after.collider_mask = ti
-                            .buffer
+                        after.collider_mask = buffer
                             .split(',')
                             .map(|s| s.trim().to_string())
                             .filter(|s| !s.is_empty())
@@ -296,7 +311,7 @@ impl EditorState {
                         self.unsaved = true;
                     }
                     TextInputPurpose::PaletteFgCustom => {
-                        let hex = ti.buffer.trim().trim_start_matches('#');
+                        let hex = buffer.trim().trim_start_matches('#');
                         if hex.len() == 6 {
                             if let (Ok(r), Ok(g), Ok(b)) = (
                                 u8::from_str_radix(&hex[0..2], 16),
@@ -311,7 +326,7 @@ impl EditorState {
                         }
                     }
                     TextInputPurpose::PaletteBgCustom => {
-                        let hex = ti.buffer.trim().trim_start_matches('#');
+                        let hex = buffer.trim().trim_start_matches('#');
                         if hex.len() == 6 {
                             if let (Ok(r), Ok(g), Ok(b)) = (
                                 u8::from_str_radix(&hex[0..2], 16),
@@ -325,13 +340,13 @@ impl EditorState {
                             }
                         }
                     }
-                }
-                return;
             }
+            return;
+        }
 
-            if input.just_pressed(Key::Escape) {
-                self.text_input = None;
-            }
+        if input.just_pressed(Key::Escape) {
+            self.prompt_buffer.clear();
+            self.mode = EditorMode::Paint(ToolKind::Paint);
         }
     }
 }

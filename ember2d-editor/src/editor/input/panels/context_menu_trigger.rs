@@ -12,6 +12,7 @@
 use super::super::super::panel::PanelId;
 use super::super::super::ui::WidgetId;
 use super::super::super::ui::{self, HierarchySelection};
+use super::super::super::EditorMode;
 use super::super::super::EditorState;
 
 impl EditorState {
@@ -27,7 +28,7 @@ impl EditorState {
 
             // 1. Tab Context Menu — pixel-space UiFrame hit (Phase 7 Part 1d).
             if let Some(WidgetId::Tab(tid)) = self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) {
-                self.context_menu = Some(ui::ContextMenu {
+                self.mode = EditorMode::ContextMenu(ui::ContextMenu {
                     x: col,
                     y: row,
                     selected: 0,
@@ -62,8 +63,12 @@ impl EditorState {
                                     ));
                                 }
                             }
-                            self.context_menu =
-                                Some(ui::ContextMenu { x: col, y: row, selected: 0, items });
+                            self.mode = EditorMode::ContextMenu(ui::ContextMenu {
+                                x: col,
+                                y: row,
+                                selected: 0,
+                                items,
+                            });
                             return true;
                         }
                     }
@@ -88,8 +93,12 @@ impl EditorState {
                                     ));
                                     items.push(("Delete", ui::ContextMenuAction::DeleteEntity(s)));
                                 }
-                                self.context_menu =
-                                    Some(ui::ContextMenu { x: col, y: row, selected: 0, items });
+                                self.mode = EditorMode::ContextMenu(ui::ContextMenu {
+                                    x: col,
+                                    y: row,
+                                    selected: 0,
+                                    items,
+                                });
                                 return true;
                             }
                         }

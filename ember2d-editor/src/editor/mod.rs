@@ -30,12 +30,12 @@ pub enum PaletteField {
     Glyph,
 }
 
-/// R14 (7A-2, docs/ember2d-master-plan.md): the seed of the fuller `Mode`
-/// enum 7C-4 replaces the boolean-soup dispatch with. Only the two variants
-/// this step actually needs — derived from existing state (`focus()` below)
-/// rather than stored, so there's no new field to keep in sync with
-/// `script_mode`/`focused_panel`; 7C-4 can turn this into real stored state
-/// later without touching any call site that reads `focus()`.
+/// R14 (7A-2, docs/ember2d-master-plan.md): the seed of the fuller
+/// `EditorMode` enum 7C-4 (master plan §5.3) replaced the boolean-soup
+/// dispatch with. Stayed a *derived* value, computed in `focus()` below
+/// from `mode`/`focused_panel`, rather than becoming a third piece of
+/// stored state to keep in sync — exactly what its own original comment
+/// here predicted 7C-4 could do without touching any `focus()` call site.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EditorFocus {
     /// Nothing has exclusive keyboard focus — panels, canvas tools, and
@@ -76,15 +76,110 @@ pub enum TextInputPurpose {
     PaletteBgCustom,
 }
 
-pub struct TextInput {
-    pub buffer: String,
-    pub purpose: TextInputPurpose,
-}
-
+#[derive(Debug)]
 pub struct Modal {
     pub title: String,
     pub message: String,
     pub purpose: ModalPurpose,
+}
+
+/// Replaces ~15 mutually-exclusive `bool`/`Option` fields that used to live
+/// directly on `EditorState` (7C-4, master plan §5.3) — `palette_editor_open`,
+/// `palette_search_focused`, `text_input`, `modal`, `selecting`, `cutting`,
+/// `pasting`, `active_tool` (partly — see `ToolKind`'s own doc comment),
+/// `select_mode`, `placing_spawn`, `placing_named_spawn`, `script_mode`,
+/// `graph_mode`, `color_picker_open`, `context_menu`. Correctness used to
+/// depend on `handle_update`'s if-chain checking them in exactly the right
+/// order (E.g. modal before context menu before color picker before...);
+/// now there's one field and one `match`.
+///
+/// A payload lives directly in a variant when it's small and freshly
+/// created every time that mode is entered (`Modal`, `ContextMenu`,
+/// `TextInputPurpose` — all `Copy` or cheap to move). Payloads that need to
+/// persist independently of *which* mode is active right now (the loaded
+/// script's buffer, the node graph's pan offset, a prompt's typed text)
+/// stay as their own always-present fields on `EditorState`, exactly as
+/// before — folding them into the enum would mean projecting a `&mut`
+/// through a `match` on every keystroke for no benefit.
+///
+/// Closing an overlay (`PaletteEditor`'s `ColorPicker` aside, which always
+/// returns there — it's the only mode that ever opens one) resets `mode` to
+/// `Paint(ToolKind::Paint)`, not whatever was active before the overlay
+/// opened. Every one of `PlaceSpawn`/`Script`/`Graph`/`PaletteEditor`/
+/// `PaletteSearch`/`Prompt`/`Modal`/`ContextMenu` was already reachable
+/// this way (a keyboard shortcut or a panel click that doesn't itself check
+/// `mode`), so in principle one could open a confirm modal while mid-paste
+/// and, under the old code, resume pasting after dismissing it — an
+/// interaction no shipped demo or documented workflow exercises, and one
+/// this refactor deliberately no longer preserves rather than adding a mode
+/// stack to keep alive.
+#[derive(Debug)]
+pub enum EditorMode {
+    Paint(ToolKind),
+    /// Was `select_mode: bool` — click-to-inspect, no painting.
+    Inspect,
+    /// Was `selecting`/`cutting`/`sel_anchor`.
+    Select { start: Option<(i32, i32)>, cutting: bool },
+    Paste,
+    /// `None` places the single default spawn; `Some(name)` adds a named
+    /// one — was `placing_spawn: bool` and `placing_named_spawn:
+    /// Option<String>`, two fields that were never both engaged at once.
+    PlaceSpawn(Option<String>),
+    /// Fullscreen script editor. Was `script_mode: bool` — the *docked*
+    /// script panel merely having keyboard focus is a separate, narrower
+    /// concern (`EditorFocus`, below) that doesn't touch `mode` at all,
+    /// since normal editing stays available around it.
+    Script,
+    Graph { gx: i32, gy: i32 },
+    PaletteEditor,
+    /// The Palette panel's search field. Was `palette_search_focused: bool`.
+    PaletteSearch,
+    /// `true` edits the palette's current foreground color, `false` its
+    /// background — always entered from, and always returns to,
+    /// `PaletteEditor`.
+    ColorPicker { is_fg: bool },
+    Prompt(TextInputPurpose),
+    Modal(Modal),
+    ContextMenu(ui::ContextMenu),
+}
+
+impl Default for EditorMode {
+    fn default() -> Self {
+        EditorMode::Paint(ToolKind::Paint)
+    }
+}
+
+impl EditorMode {
+    /// The top-right toolbar indicator's text — was a `match` on the
+    /// separate `active_tool: ToolKind` field, which only ever covered
+    /// `Paint`'s four sub-tools plus the four modes that used to be
+    /// `ToolKind` values too (`Select`/`Copy`/`Cut`/`Paste`). The other
+    /// modes below were never reflected here before (`active_tool` simply
+    /// kept whatever value it last had while one of them was active) —
+    /// showing their own label instead is a small, arguably clearer
+    /// change now that there's one field to ask, not a deliberate
+    /// redesign of this indicator.
+    pub(super) fn toolbar_label(&self) -> &'static str {
+        match self {
+            EditorMode::Paint(ToolKind::Paint) => "Paint ",
+            EditorMode::Paint(ToolKind::Rect) => "Rect  ",
+            EditorMode::Paint(ToolKind::Line) => "Line  ",
+            EditorMode::Paint(ToolKind::Fill) => "Fill  ",
+            EditorMode::Inspect => "Select",
+            EditorMode::Select { cutting: false, .. } => "Copy  ",
+            EditorMode::Select { cutting: true, .. } => "Cut   ",
+            EditorMode::Paste => "Paste ",
+            EditorMode::PlaceSpawn(_) => "Spawn ",
+            EditorMode::Script => "Script",
+            EditorMode::Graph { .. } => "Graph ",
+            EditorMode::PaletteEditor => "Palette",
+            EditorMode::PaletteSearch => "Search",
+            EditorMode::ColorPicker { .. } => "Color ",
+            EditorMode::Prompt(_) => "Prompt",
+            EditorMode::Modal(_) => "Modal ",
+            EditorMode::ContextMenu(_) => "Menu  ",
+        }
+    }
 }
 
 pub struct EditorState {
@@ -96,25 +191,27 @@ pub struct EditorState {
     pub(super) show_grid: bool,
     pub(super) active_layer: u8,
     pub(super) palette_scroll: usize,
-    pub(super) palette_editor_open: bool,
     pub(super) palette_editing_idx: usize,
+    /// Meaningful only while `mode == EditorMode::PaletteEditor`.
     pub(super) palette_editor_focus: Option<PaletteField>,
-    pub(super) palette_search_focused: bool,
     pub(super) save_message: Option<String>,
     pub(super) save_message_timer: u32,
     pub(super) pending_transition: Option<Transition>,
     pub(super) scroll: (f32, f32),
     pub(super) target_scroll: (f32, f32),
+    /// Shift+drag rect-fill anchor — usable as a modifier under any
+    /// `Paint` tool, not just `ToolKind::Rect`'s own sticky version, so it
+    /// stays its own field rather than folding into `EditorMode::Paint`
+    /// (7C-4, master plan §5.3).
     pub(super) rect_anchor: Option<(i32, i32)>,
     pub(super) line_anchor: Option<(i32, i32)>,
     pub(super) erase_size: usize,
-    pub(super) text_input: Option<TextInput>,
-    pub(super) modal: Option<Modal>,
-    pub(super) selecting: bool,
-    pub(super) cutting: bool,
-    pub(super) sel_anchor: Option<(i32, i32)>,
+    /// The text currently typed into an open `EditorMode::Prompt` — kept
+    /// separate from the enum for the same reason `script_buffer` is
+    /// (7C-4, master plan §5.3): a growable buffer mutated every keystroke
+    /// is awkward to project a `&mut` into out of a `match` on `self.mode`.
+    pub(super) prompt_buffer: String,
     pub(super) clipboard: Vec<(i32, i32, TileRecord)>,
-    pub(super) pasting: bool,
     pub(super) paste_flip_x: bool,
     pub(super) paste_flip_y: bool,
     pub(super) paste_rotate: i32,
@@ -131,12 +228,8 @@ pub struct EditorState {
     pub project_name: Option<String>,
     pub(super) console_log: Vec<LogEntry>,
     pub(super) inspected_pos: Option<(i32, i32)>,
-    pub(super) active_tool: ToolKind,
-    pub(super) select_mode: bool,
     pub(super) selected_pos: Option<(i32, i32)>,
     pub(super) hierarchy_sel: Option<HierarchySelection>,
-    pub(super) placing_spawn: bool,
-    pub(super) placing_named_spawn: Option<String>,
     pub(super) ignore_drag: bool,
     pub(super) pan_anchor: Option<(usize, usize, i32, i32)>,
     pub(super) scroll_repeat: u32,
@@ -158,7 +251,6 @@ pub struct EditorState {
     pub(super) show_physics: bool,
     pub(super) show_help: bool,
     pub(super) active_menu: Option<MenuKind>,
-    pub(super) graph_mode: Option<(i32, i32)>,
     pub(super) graph_view_ox: i32,
     pub(super) graph_view_oy: i32,
     pub(super) graph_selected_node: Option<ember2d_sim::graph::NodeId>,
@@ -169,10 +261,15 @@ pub struct EditorState {
     pub(super) graph_palette_cursor: usize,
     pub(super) graph_editing_param: Option<(ember2d_sim::graph::NodeId, String)>,
     pub(super) graph_clipboard: Option<ember2d_sim::graph::Node>,
-    pub(super) script_mode: bool,
-    pub(super) color_picker_open: Option<bool>,
+    /// Meaningful only while `mode == EditorMode::ColorPicker { .. }`.
     pub(super) color_picker_hsv: (f32, f32, f32),
-    pub(super) context_menu: Option<ui::ContextMenu>,
+    /// 7C-4 (master plan §5.3): the one field that replaces
+    /// `palette_editor_open`/`palette_search_focused`/`text_input`/
+    /// `modal`/`selecting`/`cutting`/`sel_anchor`/`pasting`/`active_tool`/
+    /// `select_mode`/`placing_spawn`/`placing_named_spawn`/`script_mode`/
+    /// `graph_mode`/`color_picker_open`/`context_menu` — see
+    /// `EditorMode`'s own doc comment.
+    pub(super) mode: EditorMode,
     pub(super) zoom: f32,
 }
 
@@ -209,10 +306,8 @@ impl EditorState {
             show_grid: false,
             active_layer: 1,
             palette_scroll: 0,
-            palette_editor_open: false,
             palette_editing_idx: 0,
             palette_editor_focus: None,
-            palette_search_focused: false,
             save_message: None,
             save_message_timer: 0,
             pending_transition: None,
@@ -221,13 +316,8 @@ impl EditorState {
             rect_anchor: None,
             line_anchor: None,
             erase_size: 1,
-            text_input: None,
-            modal: None,
-            selecting: false,
-            cutting: false,
-            sel_anchor: None,
+            prompt_buffer: String::new(),
             clipboard: Vec::new(),
-            pasting: false,
             paste_flip_x: false,
             paste_flip_y: false,
             paste_rotate: 0,
@@ -244,12 +334,8 @@ impl EditorState {
             project_name: None,
             console_log: Vec::new(),
             inspected_pos: None,
-            active_tool: ToolKind::Paint,
-            select_mode: false,
             selected_pos: None,
             hierarchy_sel: None,
-            placing_spawn: false,
-            placing_named_spawn: None,
             ignore_drag: false,
             pan_anchor: None,
             scroll_repeat: 0,
@@ -260,7 +346,6 @@ impl EditorState {
             show_physics: false,
             show_help: false,
             active_menu: None,
-            graph_mode: None,
             graph_view_ox: 0,
             graph_view_oy: 0,
             graph_selected_node: None,
@@ -271,10 +356,8 @@ impl EditorState {
             graph_palette_cursor: 0,
             graph_editing_param: None,
             graph_clipboard: None,
-            script_mode: false,
-            color_picker_open: None,
             color_picker_hsv: (0.0, 1.0, 1.0),
-            context_menu: None,
+            mode: EditorMode::default(),
             zoom: 1.0,
         }
     }
@@ -337,7 +420,8 @@ impl EditorState {
     /// R14 (7A-2, docs/ember2d-master-plan.md) — see `EditorFocus`'s own
     /// doc comment for why this is derived rather than a stored field.
     pub(crate) fn focus(&self) -> EditorFocus {
-        if self.script_mode || self.focused_panel == Some(PanelId::ScriptEditor) {
+        if matches!(self.mode, EditorMode::Script) || self.focused_panel == Some(PanelId::ScriptEditor)
+        {
             EditorFocus::ScriptPanel
         } else {
             EditorFocus::Canvas

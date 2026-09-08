@@ -9,7 +9,8 @@
 
 use super::commands::Command;
 use super::panel::PanelId;
-use super::ui::{bresenham, transform_offset, ToolKind, ToolbarAction};
+use super::ui::{bresenham, transform_offset, ToolbarAction};
+use super::EditorMode;
 use super::EditorState;
 use ember2d::engine::Transition;
 use ember2d::play::resolve_exit_path;
@@ -467,7 +468,7 @@ impl EditorState {
                 self.script_cursor = (0, 0);
                 self.script_scroll = 0;
                 self.script_unsaved = false;
-                self.script_mode = true;
+                self.mode = EditorMode::Script;
                 self.focused_panel = Some(PanelId::ScriptEditor);
             } else {
                 self.console_log.push(LogEntry::error(format!("Failed to load script: {}", name)));
@@ -517,66 +518,52 @@ impl EditorState {
     }
 
     pub(super) fn start_text_input(&mut self, purpose: super::TextInputPurpose) {
-        let initial = match &purpose {
+        self.prompt_buffer = match &purpose {
             super::TextInputPurpose::LevelName => self.grid.name.clone(),
             super::TextInputPurpose::SaveAs => self.save_path.clone(),
             _ => String::new(),
         };
-        self.text_input = Some(super::TextInput { buffer: initial, purpose });
+        self.mode = EditorMode::Prompt(purpose);
     }
 
-    pub(super) fn clear_tool_modes(&mut self) {
-        self.select_mode = false;
-        self.selecting = false;
-        self.cutting = false;
-        self.pasting = false;
-        self.sel_anchor = None;
-        self.line_anchor = None;
+    /// A fresh `Paint`/`Inspect`/`Select`/`Paste` mode transition clears
+    /// `rect_anchor`/`line_anchor` (7C-4, master plan §5.3: the rest of
+    /// what this used to reset — `select_mode`/`selecting`/`cutting`/
+    /// `pasting`/`sel_anchor` — is `EditorMode`'s job now, since replacing
+    /// the enum IS the reset). Cross-tool state (shift+drag rect works
+    /// under any `Paint` tool, not just the sticky `Rect` one), so it
+    /// can't fold into the enum itself — see `rect_anchor`'s own doc
+    /// comment on `EditorState`.
+    fn reset_paint_anchors(&mut self) {
         self.rect_anchor = None;
+        self.line_anchor = None;
     }
 
     pub(super) fn dispatch_toolbar_action(&mut self, action: ToolbarAction) {
         use super::commands::UndoStack;
         use super::grid::LevelGrid;
-        use super::TextInput;
         use super::TextInputPurpose;
         match action {
-            ToolbarAction::SetTool(ToolKind::Paint) => {
-                self.clear_tool_modes();
-                self.active_tool = ToolKind::Paint;
+            ToolbarAction::SetTool(tool) => {
+                self.reset_paint_anchors();
+                self.mode = EditorMode::Paint(tool);
             }
-            ToolbarAction::SetTool(ToolKind::Select) => {
-                self.clear_tool_modes();
-                self.select_mode = true;
-                self.active_tool = ToolKind::Select;
+            ToolbarAction::EnterInspect => {
+                self.reset_paint_anchors();
+                self.mode = EditorMode::Inspect;
             }
-            ToolbarAction::SetTool(ToolKind::Rect) => {
-                self.clear_tool_modes();
-                self.active_tool = ToolKind::Rect;
+            ToolbarAction::EnterCopy => {
+                self.reset_paint_anchors();
+                self.mode = EditorMode::Select { start: None, cutting: false };
             }
-            ToolbarAction::SetTool(ToolKind::Line) => {
-                self.clear_tool_modes();
-                self.active_tool = ToolKind::Line;
+            ToolbarAction::EnterCut => {
+                self.reset_paint_anchors();
+                self.mode = EditorMode::Select { start: None, cutting: true };
             }
-            ToolbarAction::SetTool(ToolKind::Fill) => {
-                self.clear_tool_modes();
-                self.active_tool = ToolKind::Fill;
-            }
-            ToolbarAction::SetTool(ToolKind::Copy) => {
-                self.clear_tool_modes();
-                self.selecting = true;
-                self.active_tool = ToolKind::Copy;
-            }
-            ToolbarAction::SetTool(ToolKind::Cut) => {
-                self.clear_tool_modes();
-                self.cutting = true;
-                self.active_tool = ToolKind::Cut;
-            }
-            ToolbarAction::SetTool(ToolKind::Paste) => {
+            ToolbarAction::EnterPaste => {
                 if !self.clipboard.is_empty() {
-                    self.clear_tool_modes();
-                    self.pasting = true;
-                    self.active_tool = ToolKind::Paste;
+                    self.reset_paint_anchors();
+                    self.mode = EditorMode::Paste;
                 }
             }
             ToolbarAction::Undo => {
@@ -625,10 +612,8 @@ impl EditorState {
                 self.save();
             }
             ToolbarAction::SaveAs => {
-                self.text_input = Some(TextInput {
-                    buffer: self.save_path.clone(),
-                    purpose: TextInputPurpose::SaveAs,
-                });
+                self.prompt_buffer = self.save_path.clone();
+                self.mode = EditorMode::Prompt(TextInputPurpose::SaveAs);
             }
             ToolbarAction::Export => {
                 self.export_game();
@@ -641,10 +626,8 @@ impl EditorState {
                 self.save_message_timer = 0;
             }
             ToolbarAction::NewScript => {
-                self.text_input = Some(TextInput {
-                    buffer: String::new(),
-                    purpose: TextInputPurpose::NewScriptName,
-                });
+                self.prompt_buffer.clear();
+                self.mode = EditorMode::Prompt(TextInputPurpose::NewScriptName);
             }
             ToolbarAction::Play => {
                 let mut data = self.grid.to_level_data();

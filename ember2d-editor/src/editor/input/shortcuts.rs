@@ -3,8 +3,9 @@
 use super::super::commands::Command;
 use super::super::panel::PanelId;
 use super::super::ui::ToolKind;
+use super::super::EditorMode;
 use super::super::EditorState;
-use super::super::{TextInput, TextInputPurpose};
+use super::super::TextInputPurpose;
 use ember2d::input::Key;
 
 impl EditorState {
@@ -87,10 +88,10 @@ impl EditorState {
             }
             if self.rect_anchor.is_some() {
                 self.rect_anchor = None;
-                self.active_tool = ToolKind::Paint;
+                self.mode = EditorMode::Paint(ToolKind::Paint);
             } else if self.line_anchor.is_some() {
                 self.line_anchor = None;
-                self.active_tool = ToolKind::Paint;
+                self.mode = EditorMode::Paint(ToolKind::Paint);
             }
             return;
         }
@@ -111,10 +112,8 @@ impl EditorState {
         // S — save / Shift+S — save-as.
         if input.just_pressed(Key::S) {
             if shift {
-                self.text_input = Some(TextInput {
-                    buffer: self.save_path.clone(),
-                    purpose: TextInputPurpose::SaveAs,
-                });
+                self.prompt_buffer = self.save_path.clone();
+                self.mode = EditorMode::Prompt(TextInputPurpose::SaveAs);
                 return;
             }
             self.save();
@@ -156,12 +155,11 @@ impl EditorState {
 
         // Q — toggle select mode (click to inspect instead of paint).
         if input.just_pressed(Key::Q) {
-            self.select_mode = !self.select_mode;
-            if !self.select_mode {
+            if matches!(self.mode, EditorMode::Inspect) {
                 self.selected_pos = None;
-                self.active_tool = ToolKind::Paint;
+                self.mode = EditorMode::Paint(ToolKind::Paint);
             } else {
-                self.active_tool = ToolKind::Select;
+                self.mode = EditorMode::Inspect;
             }
         }
 
@@ -195,12 +193,10 @@ impl EditorState {
         // P / Shift+P — spawn points.
         if input.just_pressed(Key::P) {
             if shift {
-                self.text_input = Some(TextInput {
-                    buffer: String::new(),
-                    purpose: TextInputPurpose::NamedSpawn,
-                });
+                self.prompt_buffer.clear();
+                self.mode = EditorMode::Prompt(TextInputPurpose::NamedSpawn);
             } else {
-                self.placing_spawn = true;
+                self.mode = EditorMode::PlaceSpawn(None);
                 self.save_message =
                     Some("Click on grid to place spawn. Esc to cancel.".to_string());
                 self.save_message_timer = 0;
@@ -210,10 +206,8 @@ impl EditorState {
 
         // N — rename.
         if input.just_pressed(Key::N) {
-            self.text_input = Some(TextInput {
-                buffer: self.grid.name.clone(),
-                purpose: TextInputPurpose::LevelName,
-            });
+            self.prompt_buffer = self.grid.name.clone();
+            self.mode = EditorMode::Prompt(TextInputPurpose::LevelName);
             return;
         }
 
@@ -221,11 +215,8 @@ impl EditorState {
         if input.just_pressed(Key::T) {
             if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                 if let Some(tile) = self.grid.get(gx, gy, self.active_layer) {
-                    let existing = tile.script.clone().unwrap_or_default();
-                    self.text_input = Some(TextInput {
-                        buffer: existing,
-                        purpose: TextInputPurpose::ScriptPath { gx, gy },
-                    });
+                    self.prompt_buffer = tile.script.clone().unwrap_or_default();
+                    self.mode = EditorMode::Prompt(TextInputPurpose::ScriptPath { gx, gy });
                     return;
                 }
             }
@@ -235,11 +226,8 @@ impl EditorState {
         if input.just_pressed(Key::D) {
             if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                 if let Some(tile) = self.grid.get(gx, gy, self.active_layer) {
-                    let existing = tile.next_level.clone().unwrap_or_default();
-                    self.text_input = Some(TextInput {
-                        buffer: existing,
-                        purpose: TextInputPurpose::TileNextLevel { gx, gy },
-                    });
+                    self.prompt_buffer = tile.next_level.clone().unwrap_or_default();
+                    self.mode = EditorMode::Prompt(TextInputPurpose::TileNextLevel { gx, gy });
                     return;
                 }
             }
@@ -249,10 +237,8 @@ impl EditorState {
         if input.just_pressed(Key::I) {
             if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                 if let Some(tile) = self.grid.get(gx, gy, self.active_layer) {
-                    self.text_input = Some(TextInput {
-                        buffer: tile.tag.clone(),
-                        purpose: TextInputPurpose::TileTag { gx, gy },
-                    });
+                    self.prompt_buffer = tile.tag.clone();
+                    self.mode = EditorMode::Prompt(TextInputPurpose::TileTag { gx, gy });
                     return;
                 }
             }
@@ -300,36 +286,31 @@ impl EditorState {
             if self.line_anchor.is_none() {
                 if let Some(pos) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                     self.line_anchor = Some(pos);
-                    self.active_tool = ToolKind::Line;
+                    self.mode = EditorMode::Paint(ToolKind::Line);
                 }
             } else {
                 if let Some(end) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                     self.stamp_line(self.line_anchor.unwrap(), end);
                 }
                 self.line_anchor = None;
-                self.active_tool = ToolKind::Paint;
+                self.mode = EditorMode::Paint(ToolKind::Paint);
             }
             return;
         }
 
         // C — copy-select, X — cut-select.
         if input.just_pressed(Key::C) {
-            self.selecting = true;
-            self.sel_anchor = None;
-            self.active_tool = ToolKind::Copy;
+            self.mode = EditorMode::Select { start: None, cutting: false };
             return;
         }
         if input.just_pressed(Key::X) {
-            self.cutting = true;
-            self.sel_anchor = None;
-            self.active_tool = ToolKind::Cut;
+            self.mode = EditorMode::Select { start: None, cutting: true };
             return;
         }
 
         // V — paste.
         if input.just_pressed(Key::V) && !self.clipboard.is_empty() {
-            self.pasting = true;
-            self.active_tool = ToolKind::Paste;
+            self.mode = EditorMode::Paste;
             return;
         }
 
@@ -342,8 +323,8 @@ impl EditorState {
 
         // Z — resize level.
         if input.just_pressed(Key::Z) {
-            self.text_input =
-                Some(TextInput { buffer: String::new(), purpose: TextInputPurpose::ResizeLevel });
+            self.prompt_buffer.clear();
+            self.mode = EditorMode::Prompt(TextInputPurpose::ResizeLevel);
         }
     }
 }

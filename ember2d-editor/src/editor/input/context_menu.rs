@@ -1,7 +1,7 @@
 // editor/input/context_menu.rs — Interaction for the right-click context menu.
 
-use super::super::ui::{ContextMenuAction, WidgetId};
-use super::super::EditorState;
+use super::super::ui::{ContextMenu, ContextMenuAction, ToolKind, WidgetId};
+use super::super::{EditorMode, EditorState};
 use ember2d::input::Key;
 
 impl EditorState {
@@ -19,13 +19,16 @@ impl EditorState {
     /// wasn't reachable through the menu's own drawn border (no dead space
     /// exists between rows in `draw_context_menu`), so this is a
     /// same-in-practice tightening, not a visible regression.
+    ///
+    /// 7C-4 (master plan §5.3): `menu` comes in owned (moved out of `mode`
+    /// by `handle_update`'s `mem::take`) instead of being read from the
+    /// deleted `context_menu: Option<ContextMenu>` field.
     pub(super) fn handle_context_menu_input(
         &mut self,
+        mut menu: ContextMenu,
         input: &ember2d::input::InputManager,
         mouse: &ember2d::mouse::MouseState,
     ) {
-        let Some(ref mut menu) = self.context_menu else { return };
-
         let hit = self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y);
 
         if let Some(WidgetId::ContextMenuRow(idx)) = hit {
@@ -33,18 +36,26 @@ impl EditorState {
         }
 
         if mouse.left_just_pressed() {
+            // Default outcome — `execute_context_action` may override this
+            // (`NewLevel`/`NewScript` transition to `Prompt` via
+            // `start_text_input`), so it's set before the call, not after.
+            self.mode = EditorMode::Paint(ToolKind::Paint);
             if let Some(WidgetId::ContextMenuRow(idx)) = hit {
                 if idx < menu.items.len() {
                     let action = menu.items[idx].1.clone();
                     self.execute_context_action(action);
                 }
             }
-            self.context_menu = None;
+            return;
         }
 
         if input.just_pressed(Key::Escape) || mouse.right_just_pressed() {
-            self.context_menu = None;
+            self.mode = EditorMode::Paint(ToolKind::Paint);
+            return;
         }
+
+        // Nothing happened this frame — stay open.
+        self.mode = EditorMode::ContextMenu(menu);
     }
 
     fn execute_context_action(&mut self, action: ContextMenuAction) {

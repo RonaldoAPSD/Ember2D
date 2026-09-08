@@ -59,6 +59,7 @@ pub enum ContextMenuAction {
     DeleteEntity(HierarchySelection),
 }
 
+#[derive(Debug)]
 pub struct ContextMenu {
     pub x: usize,
     pub y: usize,
@@ -79,16 +80,19 @@ pub enum HierarchySelection {
 
 // ── Tool / toolbar types ──────────────────────────────────────────────────────
 
+/// The persistent "paint brush" a click on the canvas uses — 7C-4 (master
+/// plan §5.3): shrunk from its old 8-variant self (`Select`/`Copy`/`Cut`/
+/// `Paste` used to live here too, as values of `EditorState::active_tool`
+/// kept manually in sync with the *separate* `select_mode`/`selecting`/
+/// `cutting`/`pasting` bools that actually drove behavior — the exact
+/// "two sources of truth" `EditorMode` replaces). Those four are now
+/// `EditorMode` variants in their own right (`Inspect`, `Select`, `Paste`).
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ToolKind {
     Paint,
-    Select,
     Rect,
     Line,
     Fill,
-    Copy,
-    Cut,
-    Paste,
 }
 
 // `Eq, Hash` added in Phase 7 Part 1d (docs/ember2d-phase7-plan.md) so
@@ -119,13 +123,28 @@ pub struct MenuState {
     pub show_script_editor: bool,
     pub show_file_browser: bool,
     pub show_physics: bool,
+    /// Meaningful only when `mode == EditorMode::Paint(_)` — which of the
+    /// four `ToolKind`s. The other four checkmarks below (7C-4, master plan
+    /// §5.3) cover the modes `ToolKind` itself used to also represent.
     pub active_tool: ToolKind,
+    pub inspecting: bool,
+    pub copying: bool,
+    pub cutting: bool,
+    pub pasting: bool,
     pub active_layer: u8,
 }
 
 #[derive(Debug, Clone)]
 pub enum ToolbarAction {
     SetTool(ToolKind),
+    /// The four menu/shortcut entries that used to be `SetTool(ToolKind::
+    /// Select/Copy/Cut/Paste)` before `ToolKind` shrank (7C-4, master plan
+    /// §5.3) — each maps to an `EditorMode` variant of the same shape
+    /// instead of a `ToolKind` value.
+    EnterInspect,
+    EnterCopy,
+    EnterCut,
+    EnterPaste,
     Undo,
     Redo,
     ToggleGrid,

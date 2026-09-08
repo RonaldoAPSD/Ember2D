@@ -8,6 +8,7 @@
 use super::super::super::panel::PanelId;
 use super::super::super::ui::HierarchySelection;
 use super::super::super::ui::WidgetId;
+use super::super::super::EditorMode;
 use super::super::super::EditorState;
 
 impl EditorState {
@@ -71,11 +72,10 @@ impl EditorState {
 
                 if mouse.left_just_pressed() {
                     self.ignore_drag = true;
-                    self.palette_search_focused = false; // Default clear
 
                     match self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) {
                         Some(WidgetId::PaletteSearchBar) => {
-                            self.palette_search_focused = true;
+                            self.mode = EditorMode::PaletteSearch;
                             return true;
                         }
                         Some(WidgetId::PaletteNewBtn) => {
@@ -96,7 +96,7 @@ impl EditorState {
                             return true;
                         }
                         Some(WidgetId::PaletteEditBtn) => {
-                            self.palette_editor_open = true;
+                            self.mode = EditorMode::PaletteEditor;
                             self.palette_editing_idx = self.palette.selected;
                             return true;
                         }
@@ -120,8 +120,6 @@ impl EditorState {
                         _ => {}
                     }
                 }
-            } else if mouse.left_just_pressed() {
-                self.palette_search_focused = false;
             }
         }
         false

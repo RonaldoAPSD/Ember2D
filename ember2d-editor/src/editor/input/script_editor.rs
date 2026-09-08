@@ -1,6 +1,8 @@
 // editor/input/script_editor.rs — Typing logic for the in-engine script editor.
 
 use super::super::panel::PanelId;
+use super::super::ui::ToolKind;
+use super::super::EditorMode;
 use super::super::EditorState;
 use ember2d::input::Key;
 
@@ -27,7 +29,8 @@ impl EditorState {
         input: &mut ember2d::input::InputManager,
         mouse: &ember2d::mouse::MouseState,
     ) {
-        if self.focused_panel != Some(PanelId::ScriptEditor) && !self.script_mode {
+        let fullscreen = matches!(self.mode, EditorMode::Script);
+        if self.focused_panel != Some(PanelId::ScriptEditor) && !fullscreen {
             return;
         }
         if self.script_path.is_none() {
@@ -39,7 +42,7 @@ impl EditorState {
         // 1. Resolve exact text area bounds dynamically
         let (sw, sh) = self.panels.screen_size_cells();
 
-        let (cx, cy, cw, ch) = if self.script_mode {
+        let (cx, cy, cw, ch) = if fullscreen {
             (0usize, 1usize, sw, sh.saturating_sub(2))
         } else {
             (p.content_x(), p.content_y(), p.content_w(), p.content_h())
@@ -94,7 +97,15 @@ impl EditorState {
 
         // ── Navigation ────────────────────────────────────────────────────────
         if input.just_pressed(Key::Escape) {
-            self.script_mode = false;
+            // Only leave `Script` mode if that's actually what's active —
+            // the docked (non-fullscreen) panel merely having keyboard
+            // focus doesn't touch `mode` at all (see `EditorMode::Script`'s
+            // own doc comment), so Escape there is a no-op here, matching
+            // the original's own harmless `script_mode = false` when it
+            // was already `false`.
+            if fullscreen {
+                self.mode = EditorMode::Paint(ToolKind::Paint);
+            }
             return;
         }
 

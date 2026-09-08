@@ -5,7 +5,8 @@ use ember2d::renderer::color::Color;
 
 use super::graph_ui;
 use super::panel::{draw_panel_chrome, DockSide, PanelId};
-use super::ui::{self, HierarchySelection, MenuState};
+use super::ui::{self, HierarchySelection, MenuState, ToolKind};
+use super::EditorMode;
 use super::EditorState;
 use super::TextInputPurpose;
 
@@ -139,13 +140,14 @@ impl EditorState {
         self.ui_frame.clear();
 
         // Script editor mode
-        if self.script_mode {
+        if matches!(self.mode, EditorMode::Script) {
             self.render_script_mode(renderer);
             return;
         }
 
         // Graph editor mode renders its own full screen.
-        if let Some((gx, gy)) = self.graph_mode {
+        if let EditorMode::Graph { gx, gy } = &self.mode {
+            let (gx, gy) = (*gx, *gy);
             self.render_graph_mode(renderer, mouse, gx, gy);
             return;
         }
@@ -177,25 +179,20 @@ impl EditorState {
             renderer,
             self.font.as_mut(),
             self.active_menu,
-            self.active_tool,
+            self.mode.toolbar_label(),
             &mut self.ui_frame,
         );
 
         // ── Mode resolution ──────────────────────────────────────────────────
         let grid_cursor = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y);
 
-        let mode_label = if self.pasting {
-            Some("PASTE")
-        } else if self.cutting {
-            Some("CUT")
-        } else if self.selecting {
-            Some("COPY")
-        } else if self.rect_anchor.is_some() {
-            Some("RECT")
-        } else if self.line_anchor.is_some() {
-            Some("LINE")
-        } else {
-            None
+        let mode_label = match self.mode {
+            EditorMode::Paste => Some("PASTE"),
+            EditorMode::Select { cutting: true, .. } => Some("CUT"),
+            EditorMode::Select { cutting: false, .. } => Some("COPY"),
+            _ if self.rect_anchor.is_some() => Some("RECT"),
+            _ if self.line_anchor.is_some() => Some("LINE"),
+            _ => None,
         };
 
         // ── Inspector tile / position resolution ──────────────────────────────
@@ -219,9 +216,10 @@ impl EditorState {
                 (None, pos, "SPAWN")
             }
             None => {
-                let pos = if self.select_mode { self.selected_pos } else { self.inspected_pos };
+                let inspecting = matches!(self.mode, EditorMode::Inspect);
+                let pos = if inspecting { self.selected_pos } else { self.inspected_pos };
                 let tile = pos.and_then(|(gx, gy)| self.grid.get(gx, gy, self.active_layer));
-                let tag = if self.select_mode { "[SEL]" } else { "[EDT]" };
+                let tag = if inspecting { "[SEL]" } else { "[EDT]" };
                 (tile, pos, tag)
             }
         };
@@ -314,7 +312,9 @@ impl EditorState {
                     );
 
                     // ── Mode overlays ─────────────────────────────────────────────
-                    if self.pasting {
+                    let sel_anchor =
+                        if let EditorMode::Select { start, .. } = &self.mode { *start } else { None };
+                    if matches!(self.mode, EditorMode::Paste) {
                         if let Some(cursor) = grid_cursor {
                             ui::draw_paste_preview(
                                 renderer,
@@ -328,8 +328,8 @@ impl EditorState {
                                 viewport,
                             );
                         }
-                    } else if self.selecting || self.cutting {
-                        if let (Some(anchor), Some(current)) = (self.sel_anchor, grid_cursor) {
+                    } else if matches!(self.mode, EditorMode::Select { .. }) {
+                        if let (Some(anchor), Some(current)) = (sel_anchor, grid_cursor) {
                             ui::draw_selection_preview(
                                 renderer,
                                 anchor,
@@ -366,7 +366,7 @@ impl EditorState {
                             renderer,
                             mouse,
                             &self.palette,
-                            self.select_mode,
+                            matches!(self.mode, EditorMode::Inspect),
                             self.scroll,
                             self.zoom,
                             viewport,
@@ -479,7 +479,7 @@ impl EditorState {
         }
 
         // ── Modal Overlays ───────────────────────────────────────────────────
-        if self.palette_editor_open {
+        if matches!(self.mode, EditorMode::PaletteEditor | EditorMode::ColorPicker { .. }) {
             if let Some(pal) = self.palette.tiles.get(self.palette_editing_idx) {
                 ui::draw_palette_editor_modal(
                     renderer,
@@ -492,7 +492,8 @@ impl EditorState {
             }
         }
 
-        if let Some(is_fg) = self.color_picker_open {
+        if let EditorMode::ColorPicker { is_fg } = &self.mode {
+            let is_fg = *is_fg;
             ui::draw_color_picker_modal(
                 renderer,
                 self.color_picker_hsv,
@@ -518,7 +519,14 @@ impl EditorState {
                 show_script_editor: self.panels.visible(PanelId::ScriptEditor),
                 show_file_browser: self.panels.visible(PanelId::FileBrowser),
                 show_physics: self.show_physics,
-                active_tool: self.active_tool,
+                active_tool: match &self.mode {
+                    EditorMode::Paint(t) => *t,
+                    _ => ToolKind::Paint,
+                },
+                inspecting: matches!(self.mode, EditorMode::Inspect),
+                copying: matches!(self.mode, EditorMode::Select { cutting: false, .. }),
+                cutting: matches!(self.mode, EditorMode::Select { cutting: true, .. }),
+                pasting: matches!(self.mode, EditorMode::Paste),
                 active_layer: self.active_layer,
             };
 
@@ -552,13 +560,13 @@ impl EditorState {
         // ── Status / text input ───────────────────────────────────────────────
         let tile_under = grid_cursor.and_then(|(gx, gy)| self.grid.get(gx, gy, self.active_layer));
 
-        let mode_hint = if self.select_mode {
+        let mode_hint = if matches!(self.mode, EditorMode::Inspect) {
             "SELECT mode: click canvas to inspect tile  Q=exit select".to_string()
-        } else if self.pasting {
+        } else if matches!(self.mode, EditorMode::Paste) {
             "PASTE H=flipX J=flipY []=rotate  click=stamp  Esc=cancel".to_string()
-        } else if self.cutting {
+        } else if matches!(self.mode, EditorMode::Select { cutting: true, .. }) {
             "CUT: drag to select, Esc=cancel".to_string()
-        } else if self.selecting {
+        } else if matches!(self.mode, EditorMode::Select { cutting: false, .. }) {
             "COPY: drag to select, Esc=cancel".to_string()
         } else if self.rect_anchor.is_some() {
             format!("RECT: {} — release to fill", self.palette.current().name)
@@ -584,10 +592,10 @@ impl EditorState {
             self.zoom,
         );
 
-        if let Some(ref ti) = self.text_input {
+        if let EditorMode::Prompt(purpose) = &self.mode {
             let resize_hint =
                 format!("New size WxH (current {}x{})", self.grid.width, self.grid.height);
-            let prompt = match &ti.purpose {
+            let prompt = match purpose {
                 TextInputPurpose::LevelName => "Level name",
                 TextInputPurpose::SaveAs => "Save as",
                 TextInputPurpose::ScriptPath { .. } => "Script path",
@@ -609,7 +617,14 @@ impl EditorState {
                 TextInputPurpose::PaletteFgCustom => "Custom FG Hex (e.g. #FF8C00)",
                 TextInputPurpose::PaletteBgCustom => "Custom BG Hex (e.g. #222222)",
             };
-            ui::draw_text_input(renderer, self.font.as_mut(), prompt, &ti.buffer, screen_w, screen_h);
+            ui::draw_text_input(
+                renderer,
+                self.font.as_mut(),
+                prompt,
+                &self.prompt_buffer,
+                screen_w,
+                screen_h,
+            );
         }
 
         // Help screen overlay.
@@ -625,7 +640,7 @@ impl EditorState {
             );
         }
 
-        if let Some(ref m) = self.modal {
+        if let EditorMode::Modal(m) = &self.mode {
             ui::draw_confirm_modal(
                 renderer,
                 self.font.as_mut(),
@@ -637,7 +652,7 @@ impl EditorState {
             );
         }
 
-        if let Some(ref cm) = self.context_menu {
+        if let EditorMode::ContextMenu(cm) = &self.mode {
             ui::draw_context_menu(renderer, cm, &mut self.ui_frame);
         }
     }

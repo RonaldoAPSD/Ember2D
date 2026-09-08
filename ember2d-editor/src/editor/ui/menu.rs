@@ -48,9 +48,9 @@ pub fn menu_entries(kind: MenuKind) -> Vec<MenuEntry> {
             Item { label: "Undo", shortcut: "U/^Z", action: Undo },
             Item { label: "Redo", shortcut: "R/^Y", action: Redo },
             Sep,
-            Item { label: "Copy Select", shortcut: "C   ", action: SetTool(Copy) },
-            Item { label: "Cut Select", shortcut: "X   ", action: SetTool(Cut) },
-            Item { label: "Paste", shortcut: "V   ", action: SetTool(Paste) },
+            Item { label: "Copy Select", shortcut: "C   ", action: EnterCopy },
+            Item { label: "Cut Select", shortcut: "X   ", action: EnterCut },
+            Item { label: "Paste", shortcut: "V   ", action: EnterPaste },
         ],
         MenuKind::Level => vec![
             Item { label: "New Level", shortcut: "    ", action: NewLevel },
@@ -78,7 +78,7 @@ pub fn menu_entries(kind: MenuKind) -> Vec<MenuEntry> {
         ],
         MenuKind::Tools => vec![
             Item { label: "Paint", shortcut: "    ", action: SetTool(Paint) },
-            Item { label: "Select", shortcut: "Q   ", action: SetTool(Select) },
+            Item { label: "Select", shortcut: "Q   ", action: EnterInspect },
             Item { label: "Rect", shortcut: "    ", action: SetTool(Rect) },
             Item { label: "Line", shortcut: "L   ", action: SetTool(Line) },
             Item { label: "Fill", shortcut: "F   ", action: SetTool(Fill) },
@@ -107,6 +107,34 @@ fn menu_checkmark(action: &ToolbarAction, ms: &MenuState) -> char {
     match action {
         ToolbarAction::SetTool(t) => {
             if *t == ms.active_tool {
+                '>'
+            } else {
+                ' '
+            }
+        }
+        ToolbarAction::EnterInspect => {
+            if ms.inspecting {
+                '>'
+            } else {
+                ' '
+            }
+        }
+        ToolbarAction::EnterCopy => {
+            if ms.copying {
+                '>'
+            } else {
+                ' '
+            }
+        }
+        ToolbarAction::EnterCut => {
+            if ms.cutting {
+                '>'
+            } else {
+                ' '
+            }
+        }
+        ToolbarAction::EnterPaste => {
+            if ms.pasting {
                 '>'
             } else {
                 ' '
@@ -184,16 +212,22 @@ fn is_action_enabled(action: &ToolbarAction, ms: &MenuState) -> bool {
     match action {
         ToolbarAction::Undo => ms.can_undo,
         ToolbarAction::Redo => ms.can_redo,
-        ToolbarAction::SetTool(ToolKind::Paste) => ms.clipboard_full,
+        ToolbarAction::EnterPaste => ms.clipboard_full,
         _ => true,
     }
 }
 
+/// `mode_label` is the toolbar's own status text ("Paint ", "Select",
+/// "Copy  ", ...) — 7C-4 (master plan §5.3): computed by the caller from
+/// `EditorMode` rather than passed as a bare `ToolKind`, since `ToolKind`
+/// shrank to just the four `Paint` sub-tools and no longer has a variant
+/// for every mode this indicator shows (`ui/menu.rs` has no reason to
+/// depend on `editor::EditorMode` just to render six words).
 pub fn draw_menu_toolbar(
     renderer: &mut Renderer,
     font: &mut dyn Font,
     active_menu: Option<MenuKind>,
-    active_tool: ToolKind,
+    mode_label: &str,
     frame: &mut UiFrame,
 ) {
     let row = TOOLBAR_ROW;
@@ -210,17 +244,7 @@ pub fn draw_menu_toolbar(
             UiRect::from_cells(draw_col as i32, row as i32, cells(font, &padded), 1),
         );
     }
-    let tool_name = match active_tool {
-        ToolKind::Paint => "Paint ",
-        ToolKind::Select => "Select",
-        ToolKind::Rect => "Rect  ",
-        ToolKind::Line => "Line  ",
-        ToolKind::Fill => "Fill  ",
-        ToolKind::Copy => "Copy  ",
-        ToolKind::Cut => "Cut   ",
-        ToolKind::Paste => "Paste ",
-    };
-    let indicator = format!("[ {} ]", tool_name);
+    let indicator = format!("[ {} ]", mode_label);
     let col = renderer.width.saturating_sub(cells(font, &indicator) + 1);
     renderer.draw_str(col, row, &indicator, Color::Cyan, Color::DarkGrey);
 }

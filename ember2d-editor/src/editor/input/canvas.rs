@@ -2,10 +2,19 @@
 
 use super::super::commands::Command;
 use super::super::ui::ToolKind;
-use super::super::EditorState;
+use super::super::{EditorMode, EditorState};
 use ember2d::input::Key;
 
 impl EditorState {
+    /// Only ever called while `mode` is `Paint`/`Inspect`/`Select`/`Paste`
+    /// (`handle_update`'s dispatch handles every other mode itself) — see
+    /// `EditorMode`'s own doc comment (7C-4, master plan §5.3). `Paste` and
+    /// `Select` are fully self-contained (own Escape/click handling,
+    /// `return` before ever reaching canvas scrolling — matching the
+    /// original code's own early-return shape); `Paint` and `Inspect`
+    /// share the "which tile is the mouse over, and scroll/zoom" tracking
+    /// below, then diverge (`Inspect` stops there; `Paint` goes on to its
+    /// own tool-specific dispatch).
     pub(super) fn handle_canvas_input(
         &mut self,
         input: &ember2d::input::InputManager,
@@ -36,73 +45,24 @@ impl EditorState {
             self.pan_anchor = None;
         }
 
-        // ── Paste mode ────────────────────────────────────────────────────────
-        if self.pasting && !self.ignore_drag {
-            if input.just_pressed(Key::Escape) {
-                self.pasting = false;
-                self.active_tool = ToolKind::Paint;
+        match std::mem::take(&mut self.mode) {
+            EditorMode::Paste => {
+                self.handle_paste_input(input, mouse);
                 return;
             }
-            if input.just_pressed(Key::H) {
-                self.paste_flip_x = !self.paste_flip_x;
-            }
-            if input.just_pressed(Key::LeftBracket) {
-                self.paste_rotate = (self.paste_rotate + 3) % 4;
-            }
-            if input.just_pressed(Key::RightBracket) {
-                self.paste_rotate = (self.paste_rotate + 1) % 4;
-            }
-            if input.just_pressed(Key::J) {
-                self.paste_flip_y = !self.paste_flip_y;
-            }
-            if mouse.left_just_pressed() {
-                if let Some(cursor) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
-                    self.stamp_paste(cursor);
-                    self.pasting = false;
-                    self.active_tool = ToolKind::Paint;
-                    self.ignore_drag = true;
-                }
-            }
-            return;
-        }
-
-        // ── Copy/Cut select mode ──────────────────────────────────────────────
-        if self.selecting || self.cutting {
-            if input.just_pressed(Key::Escape) {
-                self.selecting = false;
-                self.cutting = false;
-                self.sel_anchor = None;
-                self.active_tool = ToolKind::Paint;
+            EditorMode::Select { start, cutting } => {
+                self.handle_select_input(start, cutting, input, mouse);
                 return;
             }
-
-            if !self.ignore_drag {
-                if mouse.left_just_pressed() {
-                    if let Some(pos) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
-                        self.sel_anchor = Some(pos);
-                    }
-                }
-                if mouse.left_just_released() {
-                    if let (Some(anchor), Some(current)) =
-                        (self.sel_anchor, self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y))
-                    {
-                        if self.cutting {
-                            self.cut_selection(anchor, current);
-                        } else {
-                            self.copy_selection(anchor, current);
-                        }
-                    }
-
-                    // Only finish/reset if we actually started a selection or if it was a deliberate click
-                    if self.sel_anchor.is_some() {
-                        self.selecting = false;
-                        self.cutting = false;
-                        self.sel_anchor = None;
-                        self.active_tool = ToolKind::Paint;
-                    }
-                }
+            mode @ (EditorMode::Paint(_) | EditorMode::Inspect) => {
+                self.mode = mode;
             }
-            return;
+            // Defensive: `handle_update` only reaches `handle_canvas_input`
+            // for the four variants above.
+            other => {
+                self.mode = other;
+                return;
+            }
         }
 
         // ── Track inspected tile (last canvas cell the mouse was over) ────────
@@ -128,7 +88,8 @@ impl EditorState {
             }
         }
 
-        if self.select_mode && click && on_canvas {
+        let inspecting = matches!(self.mode, EditorMode::Inspect);
+        if inspecting && click && on_canvas {
             self.selected_pos = self.inspected_pos;
             return;
         }
@@ -201,14 +162,18 @@ impl EditorState {
             self.clamp_scroll();
         }
 
-        // In select mode, no painting or erasing — only selection.
-        if self.select_mode {
+        // In Inspect mode, no painting or erasing — only selection (above).
+        if inspecting {
             return;
         }
+        let tool = match self.mode {
+            EditorMode::Paint(t) => t,
+            _ => return, // unreachable given the match above, but no unwrap needed
+        };
 
         // ── Toolbar sticky tools (no modifier needed) ─────────────────────────
         if !shift && !alt {
-            match self.active_tool {
+            match tool {
                 ToolKind::Rect => {
                     // R13 (7A-2, docs/ember2d-master-plan.md): without the
                     // `!self.ignore_drag` guard every other paint path in
@@ -253,7 +218,7 @@ impl EditorState {
                             } else {
                                 self.stamp_line(self.line_anchor.unwrap(), pos);
                                 self.line_anchor = None;
-                                self.active_tool = ToolKind::Paint;
+                                self.mode = EditorMode::Paint(ToolKind::Paint);
                                 self.ignore_drag = true;
                             }
                         }
@@ -279,7 +244,7 @@ impl EditorState {
                     }
                     return;
                 }
-                _ => {}
+                ToolKind::Paint => {}
             }
         }
 
@@ -362,6 +327,86 @@ impl EditorState {
                     self.undo.push(Command::EraseTile { before: removed });
                     self.unsaved = true;
                 }
+            }
+        }
+    }
+
+    /// Was the `self.pasting` branch of `handle_canvas_input` — see that
+    /// function's own doc comment (7C-4, master plan §5.3).
+    fn handle_paste_input(
+        &mut self,
+        input: &ember2d::input::InputManager,
+        mouse: &ember2d::mouse::MouseState,
+    ) {
+        self.mode = EditorMode::Paste;
+        if self.ignore_drag {
+            return;
+        }
+        if input.just_pressed(Key::Escape) {
+            self.mode = EditorMode::Paint(ToolKind::Paint);
+            return;
+        }
+        if input.just_pressed(Key::H) {
+            self.paste_flip_x = !self.paste_flip_x;
+        }
+        if input.just_pressed(Key::LeftBracket) {
+            self.paste_rotate = (self.paste_rotate + 3) % 4;
+        }
+        if input.just_pressed(Key::RightBracket) {
+            self.paste_rotate = (self.paste_rotate + 1) % 4;
+        }
+        if input.just_pressed(Key::J) {
+            self.paste_flip_y = !self.paste_flip_y;
+        }
+        if mouse.left_just_pressed() {
+            if let Some(cursor) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
+                self.stamp_paste(cursor);
+                self.mode = EditorMode::Paint(ToolKind::Paint);
+                self.ignore_drag = true;
+            }
+        }
+    }
+
+    /// Was the `self.selecting || self.cutting` branch of
+    /// `handle_canvas_input` — see that function's own doc comment (7C-4,
+    /// master plan §5.3). `start`/`cutting` are `EditorMode::Select`'s own
+    /// fields, replacing the deleted `sel_anchor`/`selecting`/`cutting`.
+    fn handle_select_input(
+        &mut self,
+        start: Option<(i32, i32)>,
+        cutting: bool,
+        input: &ember2d::input::InputManager,
+        mouse: &ember2d::mouse::MouseState,
+    ) {
+        self.mode = EditorMode::Select { start, cutting };
+
+        if input.just_pressed(Key::Escape) {
+            self.mode = EditorMode::Paint(ToolKind::Paint);
+            return;
+        }
+
+        if self.ignore_drag {
+            return;
+        }
+
+        if mouse.left_just_pressed() {
+            if let Some(pos) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
+                self.mode = EditorMode::Select { start: Some(pos), cutting };
+            }
+        }
+        if mouse.left_just_released() {
+            if let (Some(anchor), Some(current)) = (start, self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y))
+            {
+                if cutting {
+                    self.cut_selection(anchor, current);
+                } else {
+                    self.copy_selection(anchor, current);
+                }
+            }
+
+            // Only finish/reset if we actually started a selection or if it was a deliberate click
+            if start.is_some() {
+                self.mode = EditorMode::Paint(ToolKind::Paint);
             }
         }
     }

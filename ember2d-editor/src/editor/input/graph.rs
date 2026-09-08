@@ -2,21 +2,25 @@
 
 use super::super::graph_ui::{node_at, palette_entries, palette_make, port_at};
 use super::super::helpers::{apply_param_edit, param_default_for};
-use super::super::ui::WidgetId;
-use super::super::EditorState;
+use super::super::ui::{ToolKind, WidgetId};
+use super::super::{EditorMode, EditorState};
 use ember2d::input::Key;
 use ember2d_sim::graph::PortDir;
 
 impl EditorState {
+    /// 7C-4 (master plan §5.3): `gx`/`gy` come in from `mode` (moved out by
+    /// `handle_update`'s `mem::take`) instead of the deleted `graph_mode:
+    /// Option<(i32, i32)>` — restored at the top so every path below that
+    /// doesn't explicitly transition away (the vast majority) stays in
+    /// `Graph` mode without having to say so itself.
     pub(super) fn update_graph_mode(
         &mut self,
+        gx: i32,
+        gy: i32,
         input: &mut ember2d::input::InputManager,
         mouse: &ember2d::mouse::MouseState,
     ) {
-        let (gx, gy) = match self.graph_mode {
-            Some(p) => p,
-            None => return,
-        };
+        self.mode = EditorMode::Graph { gx, gy };
 
         let click = mouse.left_just_pressed();
         let rclick = mouse.right_just_pressed();
@@ -159,7 +163,7 @@ impl EditorState {
                 self.graph_connecting = None;
                 return;
             }
-            self.graph_mode = None;
+            self.mode = EditorMode::Paint(ToolKind::Paint);
             return;
         }
 

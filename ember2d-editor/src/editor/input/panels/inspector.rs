@@ -19,8 +19,9 @@ use super::super::super::commands::Command;
 use super::super::super::panel::PanelId;
 use super::super::super::ui::HierarchySelection;
 use super::super::super::ui::{InspectorField, WidgetId};
+use super::super::super::EditorMode;
 use super::super::super::EditorState;
-use super::super::super::{TextInput, TextInputPurpose};
+use super::super::super::TextInputPurpose;
 use ember2d_sim::graph::NodeGraph;
 
 impl EditorState {
@@ -31,7 +32,7 @@ impl EditorState {
                 self.grid.extra_spawns.get(i).map(|(_, x, y)| (*x as i32, *y as i32))
             }
             None => {
-                if self.select_mode {
+                if matches!(self.mode, EditorMode::Inspect) {
                     self.selected_pos
                 } else {
                     self.inspected_pos
@@ -47,34 +48,24 @@ impl EditorState {
                 if self.hierarchy_sel == Some(HierarchySelection::Player) {
                     match hit {
                         Some(WidgetId::InspectorRow(InspectorField::Glyph)) => {
-                            self.text_input = Some(TextInput {
-                                buffer: self.grid.player.glyph.to_string(),
-                                purpose: TextInputPurpose::PlayerGlyph,
-                            });
+                            self.prompt_buffer = self.grid.player.glyph.to_string();
+                            self.mode = EditorMode::Prompt(TextInputPurpose::PlayerGlyph);
                         }
                         Some(WidgetId::InspectorRow(InspectorField::Tag)) => {
-                            self.text_input = Some(TextInput {
-                                buffer: self.grid.player.tag.clone(),
-                                purpose: TextInputPurpose::PlayerTag,
-                            });
+                            self.prompt_buffer = self.grid.player.tag.clone();
+                            self.mode = EditorMode::Prompt(TextInputPurpose::PlayerTag);
                         }
                         Some(WidgetId::InspectorRow(InspectorField::Script)) => {
-                            self.text_input = Some(TextInput {
-                                buffer: self.grid.player.script.clone().unwrap_or_default(),
-                                purpose: TextInputPurpose::PlayerScript,
-                            });
+                            self.prompt_buffer = self.grid.player.script.clone().unwrap_or_default();
+                            self.mode = EditorMode::Prompt(TextInputPurpose::PlayerScript);
                         }
                         Some(WidgetId::InspectorRow(InspectorField::Layer)) => {
-                            self.text_input = Some(TextInput {
-                                buffer: self.grid.player.collider_layer.clone(),
-                                purpose: TextInputPurpose::PlayerColliderLayer,
-                            });
+                            self.prompt_buffer = self.grid.player.collider_layer.clone();
+                            self.mode = EditorMode::Prompt(TextInputPurpose::PlayerColliderLayer);
                         }
                         Some(WidgetId::InspectorRow(InspectorField::Mask)) => {
-                            self.text_input = Some(TextInput {
-                                buffer: self.grid.player.collider_mask.join(","),
-                                purpose: TextInputPurpose::PlayerColliderMask,
-                            });
+                            self.prompt_buffer = self.grid.player.collider_mask.join(",");
+                            self.mode = EditorMode::Prompt(TextInputPurpose::PlayerColliderMask);
                         }
                         Some(WidgetId::InspectorRow(InspectorField::Solid)) => {
                             let before = self.grid.player.clone();
@@ -122,7 +113,7 @@ impl EditorState {
                                         self.unsaved = true;
                                     }
                                 }
-                                self.graph_mode = Some((gx, gy));
+                                self.mode = EditorMode::Graph { gx, gy };
                                 self.graph_view_ox = 4;
                                 self.graph_view_oy = 3;
                                 self.graph_selected_node = None;
@@ -135,10 +126,8 @@ impl EditorState {
                                     .get(gx, gy, self.active_layer)
                                     .map(|t| t.glyph.to_string())
                                     .unwrap_or_default();
-                                self.text_input = Some(TextInput {
-                                    buffer: g,
-                                    purpose: TextInputPurpose::TileGlyph { gx, gy },
-                                });
+                                self.prompt_buffer = g;
+                            self.mode = EditorMode::Prompt(TextInputPurpose::TileGlyph { gx, gy });
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Tag)) => {
                                 let tag = self
@@ -146,10 +135,8 @@ impl EditorState {
                                     .get(gx, gy, self.active_layer)
                                     .map(|t| t.tag.clone())
                                     .unwrap_or_default();
-                                self.text_input = Some(TextInput {
-                                    buffer: tag,
-                                    purpose: TextInputPurpose::TileTag { gx, gy },
-                                });
+                                self.prompt_buffer = tag;
+                            self.mode = EditorMode::Prompt(TextInputPurpose::TileTag { gx, gy });
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Script)) => {
                                 let script = self
@@ -157,10 +144,8 @@ impl EditorState {
                                     .get(gx, gy, self.active_layer)
                                     .and_then(|t| t.script.clone())
                                     .unwrap_or_default();
-                                self.text_input = Some(TextInput {
-                                    buffer: script,
-                                    purpose: TextInputPurpose::ScriptPath { gx, gy },
-                                });
+                                self.prompt_buffer = script;
+                            self.mode = EditorMode::Prompt(TextInputPurpose::ScriptPath { gx, gy });
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Exit)) => {
                                 let path = self
@@ -168,10 +153,8 @@ impl EditorState {
                                     .get(gx, gy, self.active_layer)
                                     .and_then(|t| t.next_level.clone())
                                     .unwrap_or_default();
-                                self.text_input = Some(TextInput {
-                                    buffer: path,
-                                    purpose: TextInputPurpose::TileNextLevel { gx, gy },
-                                });
+                                self.prompt_buffer = path;
+                            self.mode = EditorMode::Prompt(TextInputPurpose::TileNextLevel { gx, gy });
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Layer)) => {
                                 let layer = self
@@ -179,10 +162,8 @@ impl EditorState {
                                     .get(gx, gy, self.active_layer)
                                     .map(|t| t.collider_layer.clone())
                                     .unwrap_or_default();
-                                self.text_input = Some(TextInput {
-                                    buffer: layer,
-                                    purpose: TextInputPurpose::TileColliderLayer { gx, gy },
-                                });
+                                self.prompt_buffer = layer;
+                            self.mode = EditorMode::Prompt(TextInputPurpose::TileColliderLayer { gx, gy });
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Mask)) => {
                                 let mask = self
@@ -190,10 +171,8 @@ impl EditorState {
                                     .get(gx, gy, self.active_layer)
                                     .map(|t| t.collider_mask.join(","))
                                     .unwrap_or_default();
-                                self.text_input = Some(TextInput {
-                                    buffer: mask,
-                                    purpose: TextInputPurpose::TileColliderMask { gx, gy },
-                                });
+                                self.prompt_buffer = mask;
+                            self.mode = EditorMode::Prompt(TextInputPurpose::TileColliderMask { gx, gy });
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Solid)) => {
                                 if let Some(tile) =

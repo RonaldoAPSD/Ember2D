@@ -86,7 +86,7 @@ impl EditorState {
                         } else if clean_name.ends_with(".level") {
                             if let Some(ref folder) = self.project_folder {
                                 let path = format!("{}/{}", folder, relative_path);
-                                self.modal = Some(crate::editor::Modal {
+                                self.mode = crate::editor::EditorMode::Modal(crate::editor::Modal {
                                     title: "Switch Level?".to_string(),
                                     message: format!("Load {}?", clean_name),
                                     purpose: crate::editor::ModalPurpose::ConfirmSwitchLevel {
