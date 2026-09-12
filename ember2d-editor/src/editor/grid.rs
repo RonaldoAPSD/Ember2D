@@ -6,26 +6,39 @@
 // It's distinct from LevelData (in src/level.rs):
 //
 //   LevelData  — the serialized format: a Vec<TileRecord> list, written to disk.
-//   LevelGrid  — the editor's working copy: a HashMap for O(1) lookup by position.
+//   LevelGrid  — the editor's working copy: a BTreeMap for O(log n) lookup by position.
 //
 // The editor always works with a LevelGrid. When the user saves or presses F5,
 // `to_level_data()` converts it back into the flat Vec format for disk/playmode.
 //
-// ── WHY HashMap<(i32, i32), TileRecord>? ─────────────────────────────────────
+// ── WHY BTreeMap<(i32, i32, u8), TileRecord>? ────────────────────────────────
 //
 // A Vec of tiles would require searching the entire list to find (or replace)
-// the tile at a given (x, y) position — O(n) per click. With a HashMap keyed
-// by (x, y), every get/place/erase is O(1): one hash lookup, always instant.
+// the tile at a given (x, y, layer) position — O(n) per click. With a map
+// keyed by (x, y, layer), every get/place/erase is fast: one lookup, no scan.
+//
+// D18 (7C-6, docs/ember2d-master-plan.md §5.3): this was a `HashMap` until
+// here — iteration order (`iter()`, `to_level_data()`'s old unsorted
+// `.values().collect()`) depended on insertion order and the process's own
+// hash seed, so saving the identical level twice, or on two machines, could
+// write the tiles in a different order each time (a meaningless diff, but a
+// diff — `roguelike_level_integrity.rs`'s own "editor-saved level" check
+// exists because of this). `BTreeMap` iterates in a fixed key order
+// regardless of insertion history or process; `to_level_data()` below still
+// does its own explicit `(layer, y, x)` sort on top (matching
+// `gen_roguelike.rs`'s convention) since the map's own key order —
+// `(x, y, layer)`, chosen for lookup ergonomics, not file layout — isn't
+// the order the file wants.
 //
 // Using i32 (not usize) allows negative coordinates without panics.
 // The editor clamps to [0..width, 0..height] in in_bounds(), but storing i32
 // avoids any underflow issues when computing neighbor positions.
 //
 // SPARSITY: only cells that have a tile placed on them exist in the map.
-// An empty 80×24 grid has zero entries — the HashMap is completely empty.
+// An empty 80×24 grid has zero entries — the map is completely empty.
 // This is efficient: most levels are sparse (lots of empty floor space).
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use ember2d_sim::level::{LevelData, PlayerRecord, TileRecord};
 
@@ -44,11 +57,12 @@ pub struct LevelGrid {
     /// Height of the level canvas in character rows.
     pub height: usize,
 
-    /// All tiles that have been placed, keyed by (column, row).
+    /// All tiles that have been placed, keyed by (column, row, layer).
     ///
     /// Only cells with a tile exist as entries — empty cells are simply absent.
-    /// This means a brand-new empty level has `tiles.len() == 0`.
-    pub tiles: HashMap<(i32, i32, u8), TileRecord>,
+    /// This means a brand-new empty level has `tiles.len() == 0`. `BTreeMap`,
+    /// not `HashMap` — see this module's own header comment (D18).
+    pub tiles: BTreeMap<(i32, i32, u8), TileRecord>,
 
     /// The position (column, row) where the player entity spawns when playing.
     /// Displayed as the green '@' marker on the canvas.
@@ -93,7 +107,7 @@ impl LevelGrid {
         LevelGrid {
             width,
             height,
-            tiles: HashMap::new(),
+            tiles: BTreeMap::new(),
             spawn_point: (1.0, 1.0),
             extra_spawns: Vec::new(),
             name: "Untitled".to_string(),
@@ -143,8 +157,9 @@ impl LevelGrid {
 
     /// Iterate over all placed tiles as ((column, row, layer), TileRecord) pairs.
     ///
-    /// The iteration order is undefined (HashMap doesn't guarantee order).
-    /// The editor's render function sorts by z_order after collecting.
+    /// Iterates in `(x, y, layer)` key order (deterministic — `BTreeMap`,
+    /// D18) — not draw order. The editor's render function sorts by
+    /// z_order after collecting, same as before this iterated a `HashMap`.
     pub fn iter(&self) -> impl Iterator<Item = (&(i32, i32, u8), &TileRecord)> {
         self.tiles.iter()
     }
@@ -189,9 +204,19 @@ impl LevelGrid {
     ///   - The save function (S key) to write a .level file to disk.
     ///   - F5 / play button to hand level data to PlayState.
     ///
-    /// The HashMap's values are collected into a Vec. The order is unspecified,
-    /// but the renderer in play mode sorts by z_order before drawing anyway.
+    /// D18 (7C-6, docs/ember2d-master-plan.md §5.3): explicitly sorted by
+    /// `(layer, y, x)`, matching `gen_roguelike.rs`'s own convention — the
+    /// map's own key order is `(x, y, layer)` (chosen for O(log n) lookup by
+    /// position, not file layout), so switching `tiles` to a `BTreeMap`
+    /// alone would still write a different tile order than the shipped
+    /// demos use. This sort is what actually makes saving the same level
+    /// twice produce a byte-identical file — the `BTreeMap` (vs. the old
+    /// `HashMap`) is what makes every OTHER iteration of `tiles` (this
+    /// method's own `.values()` below, `iter()`, `resize()`) deterministic
+    /// too, not just this one call site.
     pub fn to_level_data(&self) -> LevelData {
+        let mut tiles: Vec<TileRecord> = self.tiles.values().cloned().collect();
+        tiles.sort_by_key(|t| (t.layer, t.y, t.x));
         LevelData {
             version: ember2d_sim::level::LEVEL_FORMAT_VERSION,
             name: self.name.clone(),
@@ -199,7 +224,7 @@ impl LevelGrid {
             height: self.height,
             spawn_point: self.spawn_point,
             extra_spawns: self.extra_spawns.clone(),
-            tiles: self.tiles.values().cloned().collect(),
+            tiles,
             player: self.player.clone(),
             path: String::new(),
             seed: self.seed,
@@ -210,8 +235,8 @@ impl LevelGrid {
     /// Build a LevelGrid from a saved LevelData.
     ///
     /// Called when the editor opens a .level file from disk.
-    /// The flat Vec<TileRecord> in LevelData is inserted into the HashMap
-    /// one tile at a time, keyed by each tile's (x, y) position.
+    /// The flat Vec<TileRecord> in LevelData is inserted into the map one
+    /// tile at a time, keyed by each tile's (x, y, layer) position.
     pub fn from_level_data(data: &LevelData) -> Self {
         let mut grid = LevelGrid::new(data.width, data.height);
         grid.name = data.name.clone();
@@ -226,5 +251,56 @@ impl LevelGrid {
         }
 
         grid
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ember2d::renderer::color::Color;
+
+    /// D18 (7C-6, docs/ember2d-master-plan.md §5.3): `to_level_data` used
+    /// to collect a `HashMap`'s `.values()` directly with no sort at all —
+    /// saving the same grid twice (in the same process, in two different
+    /// processes, or after any edit that happened to rebuild the map in a
+    /// different insertion order) could write tiles in a different order
+    /// each time. Placed here in an order that's already sorted by
+    /// insertion (so a bug that only sorted correctly by accident would
+    /// still be caught by inserting out of order too, below).
+    #[test]
+    fn to_level_data_sorts_tiles_by_layer_then_y_then_x_regardless_of_insertion_order() {
+        let mut grid = LevelGrid::new(10, 10);
+        // Insert deliberately out of (layer, y, x) order.
+        grid.place(5, 0, 1, TileRecord::new(5, 0, 1, 'e', Color::White, Color::Reset, false, false, ""));
+        grid.place(0, 0, 0, TileRecord::new(0, 0, 0, 'a', Color::White, Color::Reset, false, false, ""));
+        grid.place(1, 0, 1, TileRecord::new(1, 0, 1, 'c', Color::White, Color::Reset, false, false, ""));
+        grid.place(0, 5, 1, TileRecord::new(0, 5, 1, 'd', Color::White, Color::Reset, false, false, ""));
+        grid.place(9, 0, 0, TileRecord::new(9, 0, 0, 'b', Color::White, Color::Reset, false, false, ""));
+
+        let data = grid.to_level_data();
+        let glyphs: Vec<char> = data.tiles.iter().map(|t| t.glyph).collect();
+        assert_eq!(
+            glyphs,
+            vec!['a', 'b', 'c', 'e', 'd'],
+            "expected (layer, y, x) order: (0,0,0)='a' (0,0,9)='b' (1,0,1)='c' (1,0,5)='e' (1,5,0)='d'"
+        );
+    }
+
+    /// The same grid saved twice (no edits in between) must produce
+    /// byte-identical `LevelData` — the actual "Test" this step's own plan
+    /// entry names ("open/save floor1.level with no edits -> git diff
+    /// empty"), pinned at the `LevelGrid` level rather than needing a real
+    /// file on disk.
+    #[test]
+    fn saving_the_same_grid_twice_produces_identical_tile_order() {
+        let mut grid = LevelGrid::new(10, 10);
+        grid.place(3, 2, 1, TileRecord::new(3, 2, 1, '#', Color::White, Color::Reset, true, false, ""));
+        grid.place(1, 1, 0, TileRecord::new(1, 1, 0, '.', Color::White, Color::Reset, false, false, ""));
+
+        let first = grid.to_level_data();
+        let second = grid.to_level_data();
+        let positions =
+            |data: &LevelData| data.tiles.iter().map(|t| (t.layer, t.y, t.x)).collect::<Vec<_>>();
+        assert_eq!(positions(&first), positions(&second));
     }
 }

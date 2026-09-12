@@ -13,6 +13,7 @@
 // The caller in mod.rs is responsible for applying/reversing the command's
 // effect on the grid after popping.
 
+use super::palette::TilePalette;
 use ember2d_sim::level::{PlayerRecord, TileRecord};
 use std::collections::VecDeque;
 
@@ -62,6 +63,17 @@ pub enum Command {
 
     /// Update the list of named entity spawns.
     UpdateExtraSpawns { before: Vec<(String, f32, f32)>, after: Vec<(String, f32, f32)> },
+
+    /// Undo/redo a palette edit (7C-6, master plan §5.3, D18) — a
+    /// whole-palette snapshot rather than a per-field command: the modal
+    /// palette editor's name/tag/glyph/solid/trigger/color fields can all
+    /// change within one open-edit-close session, and the docked panel's
+    /// standalone New/Delete-item buttons each mutate the same
+    /// `tiles: Vec<TileDefinition>` list shape. One snapshot per
+    /// undoable action (a whole editor session, or one New/Delete click)
+    /// keeps this at the same granularity `ResizeLevel`/`Batch` already
+    /// use for "many small changes, one undo step."
+    UpdatePalette { before: TilePalette, after: TilePalette },
 }
 
 // ── UndoStack ─────────────────────────────────────────────────────────────────

@@ -55,12 +55,41 @@ impl EditorState {
                             ];
                             if row_idx < self.file_browser_files.len() {
                                 let raw = &self.file_browser_files[row_idx];
-                                if !raw.contains("[UP]") {
-                                    let clean = if raw.len() > 3 { &raw[3..] } else { raw };
-                                    items.push((
-                                        "Delete",
-                                        ui::ContextMenuAction::DeleteFile(clean.to_string()),
-                                    ));
+                                if !raw.contains("[UP]") && !raw.starts_with("/ ") {
+                                    // 7C-6 (master plan §5.3): found live
+                                    // testing this step's own confirm-modal
+                                    // fix — `clean` was ALWAYS a bare
+                                    // filename (untrimmed, at that), never
+                                    // combined with `current_folder`/
+                                    // `project_folder` the way every other
+                                    // file action in this codebase already
+                                    // does (`file_and_script.rs`'s own
+                                    // `relative_path`/`path` construction).
+                                    // `std::fs::remove_file` resolves a
+                                    // relative path against the process's
+                                    // CWD, not the open project, so Delete
+                                    // silently did nothing (or, worse,
+                                    // deleted an unrelated same-named file
+                                    // in the CWD) for any project opened
+                                    // from somewhere other than the
+                                    // process's own working directory —
+                                    // which is the common case. Also
+                                    // excludes directory rows now (`/ `
+                                    // prefix) — deleting a whole folder was
+                                    // never a supported action here in the
+                                    // first place (`std::fs::remove_file`
+                                    // errors, silently, on a directory).
+                                    let clean = (if raw.len() > 3 { &raw[3..] } else { raw }).trim();
+                                    let relative = if self.current_folder == "." {
+                                        clean.to_string()
+                                    } else {
+                                        format!("{}/{}", self.current_folder, clean)
+                                    };
+                                    let path = match &self.project_folder {
+                                        Some(folder) => format!("{}/{}", folder, relative),
+                                        None => relative,
+                                    };
+                                    items.push(("Delete", ui::ContextMenuAction::DeleteFile(path)));
                                 }
                             }
                             self.mode = EditorMode::ContextMenu(ui::ContextMenu {

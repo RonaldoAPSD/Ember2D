@@ -4,6 +4,7 @@ use super::super::commands::Command;
 use super::super::ui::ToolKind;
 use super::super::{EditorMode, EditorState};
 use ember2d::input::Key;
+use ember2d_sim::level::TileRecord;
 
 impl EditorState {
     /// Only ever called while `mode` is `Paint`/`Inspect`/`Select`/`Paste`
@@ -171,6 +172,17 @@ impl EditorState {
             _ => return, // unreachable given the match above, but no unwrap needed
         };
 
+        // ── Close any in-progress freehand batch on release ───────────────────
+        // 7C-6 (master plan §5.3, D18): checked here, before any tool's own
+        // dispatch below (several of which `return` early), so it always
+        // runs regardless of which tool — and which of its branches —
+        // ends up populating the batch. Covers normal paint, scatter, and
+        // both drag-erase sites (base Paint tool and Rect's own copy)
+        // uniformly; see `commit_paint_batch`'s own doc comment.
+        if mouse.left_just_released() || mouse.right_just_released() {
+            self.commit_paint_batch();
+        }
+
         // ── Toolbar sticky tools (no modifier needed) ─────────────────────────
         if !shift && !alt {
             match tool {
@@ -194,17 +206,25 @@ impl EditorState {
                             self.stamp_rect(anchor, current);
                         }
                     }
-                    if mouse.right_just_pressed() {
+                    // 7C-6 (master plan §5.3, D18): `right_held` for
+                    // brush size 1, same restructuring as the base Paint
+                    // tool's own copy of this drag — see that one's own
+                    // comment for why `right_just_pressed`/`right_held`
+                    // can't be two separate branches here.
+                    if self.erase_size == 1 {
+                        if mouse.right_held() {
+                            if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y)
+                            {
+                                let lyr = self.active_layer;
+                                if let Some(removed) = self.grid.erase(gx, gy, lyr) {
+                                    self.record_paint_batch_edit(gx, gy, lyr, Some(removed), None);
+                                    self.unsaved = true;
+                                }
+                            }
+                        }
+                    } else if mouse.right_just_pressed() {
                         if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                             self.erase_brush(gx, gy);
-                        }
-                    } else if mouse.right_held() && self.erase_size == 1 {
-                        if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
-                            let lyr = self.active_layer;
-                            if let Some(removed) = self.grid.erase(gx, gy, lyr) {
-                                self.undo.push(Command::EraseTile { before: removed });
-                                self.unsaved = true;
-                            }
                         }
                     }
                     return;
@@ -274,12 +294,27 @@ impl EditorState {
                     return;
                 }
                 let lyr = self.active_layer;
-                if (gx * 1234 + gy * 5678 + self.undo.len() as i32) % 2 == 0 {
+                // 7C-6 (master plan §5.3, D18): was `(gx*1234 + gy*5678 +
+                // self.undo.len()) % 2 == 0` — despite appearances, that
+                // expression never actually depended on position at all
+                // (1234 and 5678 are both even, so `gx*1234`/`gy*5678` are
+                // always even regardless of `gx`/`gy`); its only real
+                // input was `self.undo.len()`'s parity, which used to
+                // change every time THIS drag painted a cell (each paint
+                // pushed its own undo command). Batching this drag into
+                // one `Command::Batch` on release (below) freezes
+                // `self.undo.len()` for the whole stroke, which would have
+                // turned "scatter" into "paint everything" or "paint
+                // nothing" for the entire drag depending on whatever the
+                // stack's length happened to be when it started. A real
+                // per-cell coin flip is both the more honest fix and the
+                // one that doesn't silently regress with this step's own
+                // batching change.
+                if rand::random::<bool>() {
                     let mut new_tile = self.palette.current().to_tile_record(gx, gy);
                     new_tile.layer = lyr;
                     let existing = self.grid.get(gx, gy, lyr).cloned();
-                    self.undo
-                        .push(Command::PlaceTile { before: existing, after: new_tile.clone() });
+                    self.record_paint_batch_edit(gx, gy, lyr, existing, Some(new_tile.clone()));
                     self.grid.place(gx, gy, lyr, new_tile);
                     self.unsaved = true;
                 }
@@ -307,8 +342,7 @@ impl EditorState {
                     })
                     .unwrap_or(false);
                 if !same {
-                    self.undo
-                        .push(Command::PlaceTile { before: existing, after: new_tile.clone() });
+                    self.record_paint_batch_edit(gx, gy, lyr, existing, Some(new_tile.clone()));
                     self.grid.place(gx, gy, lyr, new_tile);
                     self.unsaved = true;
                 }
@@ -316,17 +350,69 @@ impl EditorState {
         }
 
         // ── Right-click erase (brush size) ───────────────────────────────────
-        if mouse.right_just_pressed() {
+        // 7C-6 (master plan §5.3, D18): brush size 1 checks `right_held`
+        // (true on the press frame too, same as the paint path above),
+        // not `right_just_pressed`/`right_held` as two separate branches —
+        // routing the FIRST cell of a drag through the one-shot
+        // `erase_brush` below and only the REST through the batch used to
+        // still split one drag into two undo steps (a single-cell
+        // `erase_brush` push, plus a batch for everything after it). Brush
+        // sizes > 1 are unaffected: `erase_brush` stamps a shaped area
+        // once per click there, not a continuous per-cell drag, so it
+        // keeps using `right_just_pressed`.
+        if self.erase_size == 1 {
+            if mouse.right_held() {
+                if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
+                    let lyr = self.active_layer;
+                    if let Some(removed) = self.grid.erase(gx, gy, lyr) {
+                        self.record_paint_batch_edit(gx, gy, lyr, Some(removed), None);
+                        self.unsaved = true;
+                    }
+                }
+            }
+        } else if mouse.right_just_pressed() {
             if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
                 self.erase_brush(gx, gy);
             }
-        } else if mouse.right_held() && self.erase_size == 1 {
-            if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
-                let lyr = self.active_layer;
-                if let Some(removed) = self.grid.erase(gx, gy, lyr) {
-                    self.undo.push(Command::EraseTile { before: removed });
-                    self.unsaved = true;
-                }
+        }
+    }
+
+    /// Record one cell's edit into the in-progress freehand paint/scatter/
+    /// erase-drag batch (7C-6, master plan §5.3, D18), opening a new one
+    /// if none is in progress. `after: None` means the cell was erased.
+    /// A cell touched more than once in the same stroke keeps its
+    /// ORIGINAL `before` and only updates `after` — undoing the whole
+    /// stroke must restore what was there before the stroke started, not
+    /// whatever the second-to-last touch happened to leave.
+    pub(super) fn record_paint_batch_edit(
+        &mut self,
+        x: i32,
+        y: i32,
+        layer: u8,
+        before: Option<TileRecord>,
+        after: Option<TileRecord>,
+    ) {
+        self.paint_batch
+            .get_or_insert_with(std::collections::BTreeMap::new)
+            .entry((x, y, layer))
+            .and_modify(|(_, a)| *a = after.clone())
+            .or_insert((before, after));
+    }
+
+    /// Close the in-progress paint batch (if any) and push it as one undo
+    /// step — call on mouse-up. Every call site that records an edit
+    /// (`record_paint_batch_edit`) only does so when the cell actually
+    /// changed (mirroring the single-cell paint path's own `if !same`
+    /// check), so an empty batch here means the stroke never touched
+    /// anything — nothing to push, matching every other paint path's
+    /// no-op-click behavior.
+    pub(super) fn commit_paint_batch(&mut self) {
+        if let Some(batch) = self.paint_batch.take() {
+            let cells: Vec<_> =
+                batch.into_iter().map(|((x, y, layer), (before, after))| (x, y, layer, before, after)).collect();
+            if !cells.is_empty() {
+                self.undo.push(Command::Batch { cells });
+                self.unsaved = true;
             }
         }
     }

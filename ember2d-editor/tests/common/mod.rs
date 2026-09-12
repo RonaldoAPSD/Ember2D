@@ -31,11 +31,20 @@
 // reads the `UiFrame` the PREVIOUS frame's render pass populated) — this
 // harness renders once at construction, before any input, for the same
 // reason the real engine's first frame does.
+//
+// `mod common;` is pulled in separately by every `tests/*.rs` file
+// (`editor_input.rs`, `editor_undo.rs`, …), each compiled as its own
+// independent crate — so any helper only one of those files' tests calls
+// looks like dead code to the OTHERS' own compilation. Real, and harmless:
+// suppressed at the module level rather than tracking which helper each
+// binary happens to use.
+#![allow(dead_code)]
 
 use ember2d::gamepad::GamepadState;
 use ember2d::input::{InputManager, Key};
 use ember2d::mouse::{MouseButton, MouseState};
 use ember2d::renderer::{NullRenderer, ScreenMapping, CELL_H, CELL_W};
+use ember2d_editor::editor::ui::{menu_entries, MenuEntry, MenuKind, ToolbarAction, WidgetId};
 use ember2d_editor::editor::EditorState;
 use ember2d_sim::event::EventBus;
 use ember2d_sim::math::Vec2;
@@ -176,6 +185,18 @@ impl EditorHarness {
         self.end_frame();
     }
 
+    /// A right-click at logical pixel `(px, py)` — see `click`'s own doc
+    /// comment for the two-frame press/release shape.
+    pub fn right_click(&mut self, px: f32, py: f32) {
+        self.begin_frame();
+        self.move_mouse(px, py);
+        self.mouse.handle_pressed(MouseButton::Right);
+        self.end_frame();
+        self.begin_frame();
+        self.mouse.handle_released(MouseButton::Right);
+        self.end_frame();
+    }
+
     /// A left-button drag from `from` to `to`: press at `from` (one
     /// frame), move to `to` while still held (one frame), release (one
     /// frame).
@@ -189,6 +210,34 @@ impl EditorHarness {
         self.end_frame();
         self.begin_frame();
         self.mouse.handle_released(MouseButton::Left);
+        self.end_frame();
+    }
+
+    /// A left-button drag through every point in `path` in order — see
+    /// `drag_button_through`'s own doc comment for exactly what one call
+    /// simulates. Unlike `drag`, models a real multi-cell freehand stroke
+    /// rather than a single straight press-move-release.
+    pub fn drag_through(&mut self, path: &[(f32, f32)]) {
+        self.drag_button_through(MouseButton::Left, path);
+    }
+
+    /// A `button` drag through every point in `path` in order: press at
+    /// `path[0]` (one frame), move through each remaining point (one frame
+    /// each, button still held), release at the last point (one frame).
+    pub fn drag_button_through(&mut self, button: MouseButton, path: &[(f32, f32)]) {
+        let (first, rest) =
+            path.split_first().expect("drag_button_through needs at least one point");
+        self.begin_frame();
+        self.move_mouse(first.0, first.1);
+        self.mouse.handle_pressed(button);
+        self.end_frame();
+        for &(x, y) in rest {
+            self.begin_frame();
+            self.move_mouse(x, y);
+            self.end_frame();
+        }
+        self.begin_frame();
+        self.mouse.handle_released(button);
         self.end_frame();
     }
 
@@ -245,4 +294,62 @@ impl EditorHarness {
         self.input.text_buffer.push_str(text);
         self.end_frame();
     }
+}
+
+// ── Shared test helpers ──────────────────────────────────────────────────
+//
+// Used by both `tests/editor_input.rs` (7C-5) and `tests/editor_undo.rs`
+// (7C-6) — moved here (not duplicated) when splitting the latter out kept
+// `editor_input.rs` under CLAUDE.md's 750-line limit.
+
+/// Opens `kind`'s dropdown by clicking its menu-bar label (found via the
+/// last render pass's `UiFrame`, not a hardcoded pixel guess — the same
+/// discipline 7C-1 requires of the editor's own input handlers).
+pub fn open_menu(h: &mut EditorHarness, kind: MenuKind) {
+    let rect = h
+        .state
+        .ui_frame()
+        .rect_of(WidgetId::MenuLabel(kind))
+        .expect("menu label not found in the last render pass");
+    h.click(rect.x + 1.0, rect.y + 1.0);
+    assert_eq!(h.state.active_menu(), Some(kind), "clicking the label did not open its dropdown");
+}
+
+/// With `kind`'s dropdown already open (see `open_menu`), clicks whichever
+/// entry's action matches `pred`.
+pub fn click_menu_item(h: &mut EditorHarness, kind: MenuKind, pred: impl Fn(&ToolbarAction) -> bool) {
+    let entries = menu_entries(kind);
+    let idx = entries
+        .iter()
+        .position(|e| matches!(e, MenuEntry::Item { action, .. } if pred(action)))
+        .expect("no entry in this menu matches the requested action");
+    let rect = h
+        .state
+        .ui_frame()
+        .rect_of(WidgetId::MenuItem(kind, idx))
+        .expect("dropdown item not found in the last render pass");
+    h.click(rect.x + 1.0, rect.y + 1.0);
+}
+
+/// The center of the viewport's own content area — a real on-canvas pixel
+/// position, read from the current layout rather than guessed. Not
+/// necessarily a valid grid cell for a small level at zoom 1 (the
+/// viewport shows far more cells than a 32x20 level has) — use
+/// `canvas_pixel_for_grid` when the click needs to actually land on the
+/// level's own tiles.
+pub fn canvas_center(h: &EditorHarness) -> (f32, f32) {
+    let vp = h.state.panels().viewport().content_rect();
+    (vp.x + vp.w / 2.0, vp.y + vp.h / 2.0)
+}
+
+/// The pixel position `mouse_to_grid` maps back to grid cell `(gx, gy)`,
+/// given the current viewport rect/scroll/zoom (`impl_state/mod.rs`'s own
+/// `mouse_to_grid` formula, inverted) — a fresh harness's default level is
+/// 32x20 at zoom 1.0/scroll (0,0), so a small `(gx, gy)` lands inside it.
+pub fn canvas_pixel_for_grid(h: &EditorHarness, gx: i32, gy: i32) -> (f32, f32) {
+    let vp = h.state.panels().viewport().content_rect();
+    let zoom = 1.0; // EditorState::new's default
+    let local_x = (gx as f32 - 0.0 /* scroll.0 */ + 0.5) * zoom;
+    let local_y = (gy as f32 - 0.0 /* scroll.1 */ + 0.5) * zoom;
+    (vp.x + local_x * CELL_W as f32, vp.y + local_y * CELL_H as f32)
 }

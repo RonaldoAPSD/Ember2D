@@ -1,13 +1,41 @@
 // editor/input/graph.rs — Node graph editor input handling.
 
+use super::super::commands::Command;
 use super::super::graph_ui::{node_at, palette_entries, palette_make, port_at};
 use super::super::helpers::{apply_param_edit, param_default_for};
 use super::super::ui::{ToolKind, WidgetId};
 use super::super::{EditorMode, EditorState};
 use ember2d::input::Key;
-use ember2d_sim::graph::PortDir;
+use ember2d_sim::graph::{NodeGraph, PortDir};
 
 impl EditorState {
+    /// Apply one mutation to the node graph at `(gx, gy, layer)` as one
+    /// undoable edit (7C-6, master plan §5.3, D18 — graph edits had no
+    /// undo support at all before this step). Every call site below
+    /// already followed the same "clone the tile, mutate `.graph`, place
+    /// it back" shape with no undo push; this factors that out and adds
+    /// the push. Does nothing (and returns `None`, not calling `mutate`)
+    /// if the tile doesn't exist or has no graph — every caller already
+    /// only reaches these sites from a state that guarantees both, so
+    /// this is defensive, not a real path.
+    fn apply_graph_edit<R>(
+        &mut self,
+        gx: i32,
+        gy: i32,
+        layer: u8,
+        mutate: impl FnOnce(&mut NodeGraph) -> R,
+    ) -> Option<R> {
+        let tile = self.grid.get(gx, gy, layer).cloned()?;
+        tile.graph.as_ref()?;
+        let before = tile.clone();
+        let mut after = tile;
+        let result = mutate(after.graph.as_mut().unwrap());
+        self.grid.place(gx, gy, layer, after.clone());
+        self.undo.push(Command::PlaceTile { before: Some(before), after });
+        self.unsaved = true;
+        Some(result)
+    }
+
     /// 7C-4 (master plan §5.3): `gx`/`gy` come in from `mode` (moved out by
     /// `handle_update`'s `mem::take`) instead of the deleted `graph_mode:
     /// Option<(i32, i32)>` — restored at the top so every path below that
@@ -43,16 +71,11 @@ impl EditorState {
                 let buf_clone = buf.clone();
                 let nid_copy = nid;
                 self.graph_editing_param = None;
-                if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {
-                    let mut new_tile = tile.clone();
-                    if let Some(graph) = &mut new_tile.graph {
-                        if let Some(node) = graph.get_mut(nid_copy) {
-                            apply_param_edit(&mut node.kind, &buf_clone);
-                        }
+                self.apply_graph_edit(gx, gy, self.active_layer, |graph| {
+                    if let Some(node) = graph.get_mut(nid_copy) {
+                        apply_param_edit(&mut node.kind, &buf_clone);
                     }
-                    self.grid.place(gx, gy, self.active_layer, new_tile);
-                    self.unsaved = true;
-                }
+                });
             }
             if input.just_pressed(Key::Escape) {
                 self.graph_editing_param = None;
@@ -141,14 +164,9 @@ impl EditorState {
                 if let Some(kind) = palette_make(key) {
                     let graph_x = (px as i32) - self.graph_view_ox;
                     let graph_y = (py as i32) - self.graph_view_oy;
-                    if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {
-                        let mut new_tile = tile.clone();
-                        if let Some(graph) = &mut new_tile.graph {
-                            graph.add_node(kind, graph_x, graph_y);
-                        }
-                        self.grid.place(gx, gy, self.active_layer, new_tile);
-                        self.unsaved = true;
-                    }
+                    self.apply_graph_edit(gx, gy, self.active_layer, |graph| {
+                        graph.add_node(kind, graph_x, graph_y);
+                    });
                 }
                 self.graph_palette_open = None;
             }
@@ -183,18 +201,13 @@ impl EditorState {
         // Paste node
         if ctrl && input.just_pressed(Key::V) {
             if let Some(proto) = self.graph_clipboard.clone() {
-                if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {
-                    let mut new_tile = tile.clone();
-                    if let Some(graph) = &mut new_tile.graph {
-                        let nid = graph.add_node(
-                            proto.kind,
-                            col - self.graph_view_ox,
-                            row - self.graph_view_oy,
-                        );
-                        self.graph_selected_node = Some(nid);
-                    }
-                    self.grid.place(gx, gy, self.active_layer, new_tile);
-                    self.unsaved = true;
+                let ox = self.graph_view_ox;
+                let oy = self.graph_view_oy;
+                let nid = self.apply_graph_edit(gx, gy, self.active_layer, |graph| {
+                    graph.add_node(proto.kind, col - ox, row - oy)
+                });
+                if let Some(nid) = nid {
+                    self.graph_selected_node = Some(nid);
                 }
             }
         }
@@ -216,26 +229,14 @@ impl EditorState {
 
         // Auto-layout
         if input.just_pressed(Key::F) {
-            if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {
-                let mut new_tile = tile.clone();
-                if let Some(graph) = &mut new_tile.graph {
-                    graph.auto_layout();
-                }
-                self.grid.place(gx, gy, self.active_layer, new_tile);
-                self.unsaved = true;
-            }
+            self.apply_graph_edit(gx, gy, self.active_layer, |graph| graph.auto_layout());
         }
 
         // Delete selected node
         if input.just_pressed(Key::Delete) || input.just_pressed(Key::Backspace) {
             if let Some(sel) = self.graph_selected_node {
-                if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {
-                    let mut new_tile = tile.clone();
-                    if let Some(graph) = &mut new_tile.graph {
-                        graph.remove_node(sel);
-                    }
-                    self.grid.place(gx, gy, self.active_layer, new_tile);
-                    self.unsaved = true;
+                if self.apply_graph_edit(gx, gy, self.active_layer, |graph| graph.remove_node(sel)).is_some()
+                {
                     self.graph_selected_node = None;
                 }
             }
@@ -264,6 +265,13 @@ impl EditorState {
         if released && self.graph_dragging_node.is_some() {
             self.graph_dragging_node = None;
             self.unsaved = true;
+            // 7C-6 (master plan §5.3, D18): one `PlaceTile` for the whole
+            // drag, `before` = the snapshot taken when it started.
+            if let Some(before) = self.graph_drag_before.take() {
+                if let Some(after) = self.grid.get(gx, gy, self.active_layer).cloned() {
+                    self.undo.push(Command::PlaceTile { before: Some(before), after });
+                }
+            }
         }
 
         // ── Right click → open palette ────────────────────────────────────────
@@ -295,14 +303,9 @@ impl EditorState {
                     self.graph_connecting = Some((nid, dir_idx));
                 } else if dir == PortDir::In {
                     if let Some((from_id, from_di)) = self.graph_connecting.take() {
-                        if let Some(tile) = self.grid.get(gx, gy, self.active_layer).cloned() {
-                            let mut new_tile = tile.clone();
-                            if let Some(graph) = &mut new_tile.graph {
-                                graph.add_edge(from_id, from_di, nid, dir_idx);
-                            }
-                            self.grid.place(gx, gy, self.active_layer, new_tile);
-                            self.unsaved = true;
-                        }
+                        self.apply_graph_edit(gx, gy, self.active_layer, |graph| {
+                            graph.add_edge(from_id, from_di, nid, dir_idx);
+                        });
                     }
                 }
                 let _ = kind;
@@ -328,6 +331,10 @@ impl EditorState {
                             let row_in_node = row - ny;
                             if row_in_node == 0 {
                                 self.graph_dragging_node = Some((nid, col - nx, row - ny));
+                                // 7C-6 (master plan §5.3, D18): snapshot
+                                // now, before any position change — see
+                                // `graph_drag_before`'s own doc comment.
+                                self.graph_drag_before = self.grid.get(gx, gy, self.active_layer).cloned();
                             } else {
                                 self.graph_editing_param =
                                     Some((nid, param_default_for(&node.kind)));

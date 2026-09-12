@@ -1,7 +1,7 @@
 // editor/input/modal.rs — Button interaction logic for interactive modals.
 
 use super::super::ui::{ToolKind, WidgetId};
-use super::super::{EditorMode, EditorState, Modal};
+use super::super::{EditorMode, EditorState, Modal, TextInputPurpose};
 use ember2d::input::Key;
 
 impl EditorState {
@@ -55,17 +55,21 @@ impl EditorState {
     fn confirm_modal(&mut self, modal: Modal) {
         match modal.purpose {
             crate::editor::ModalPurpose::ConfirmSwitchLevel { path } => {
-                if let Ok(new_state) = crate::editor::EditorState::load(&path) {
-                    let mut ns = new_state;
-                    ns.project_folder = self.project_folder.clone();
-                    ns.project_name = self.project_name.clone();
-                    ns.panels = self.panels.clone();
-                    ns.current_folder = self.current_folder.clone();
-                    ns.refresh_project_files();
-
-                    // Destructure and replace our own state
-                    *self = ns;
-                }
+                self.switch_to_level(&path);
+            }
+            // 7C-6 (master plan §5.3): confirming proceeds exactly to
+            // where the un-confirmed "New Level" menu click used to go
+            // directly — see `handle_menu_dropdown_click`'s own comment
+            // on why this got a confirm step in front of it at all.
+            crate::editor::ModalPurpose::ConfirmNewLevel => {
+                self.prompt_buffer.clear();
+                self.mode = EditorMode::Prompt(TextInputPurpose::NewLevelName);
+            }
+            // 7C-6 (master plan §5.3): irreversible — no undo entry for
+            // this, unlike everything else this step added undo for.
+            crate::editor::ModalPurpose::ConfirmDeleteFile { path } => {
+                let _ = std::fs::remove_file(&path);
+                self.refresh_project_files();
             }
         }
     }

@@ -1,5 +1,7 @@
 // editor/mod.rs — Level editor core.
 
+use std::collections::BTreeMap;
+
 pub mod commands;
 pub mod grid;
 pub mod palette;
@@ -22,6 +24,12 @@ use palette::TilePalette;
 use panel::{PanelId, PanelManager};
 pub use ui::HierarchySelection;
 use ui::{MenuKind, ToolKind, UiFrame};
+
+/// One in-progress freehand paint/scatter/erase-drag batch's accumulated
+/// per-cell edits — see `EditorState::paint_batch`'s own doc comment
+/// (7C-6, master plan §5.3, D18). Named so clippy's `type_complexity`
+/// lint doesn't flag the field's own type directly.
+pub(super) type PaintBatch = BTreeMap<(i32, i32, u8), (Option<TileRecord>, Option<TileRecord>)>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaletteField {
@@ -49,7 +57,23 @@ pub(crate) enum EditorFocus {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModalPurpose {
+    /// Only shown when `self.unsaved` — see `handle_file_browser_click`'s
+    /// own comment (7C-6, master plan §5.3): a switch that would lose
+    /// nothing isn't destructive, so it proceeds straight through instead
+    /// of asking.
     ConfirmSwitchLevel { path: String },
+    /// Always shown, unconditionally — a new level's own name prompt (and
+    /// the auto-save it triggers) is easy to click into by mistake before
+    /// realizing the current level is about to be replaced (7C-6, master
+    /// plan §5.3, CLAUDE.md's "Development Rules": "new level... confirms
+    /// first," no `unsaved` qualifier there, unlike level switch above).
+    ConfirmNewLevel,
+    /// Always shown, unconditionally — deleting a file is irreversible
+    /// (no undo stack entry, unlike everything else this phase's own step
+    /// added undo for) regardless of whether the CURRENT level has
+    /// unsaved edits, so it isn't gated on `unsaved` the way level-switch
+    /// is (7C-6, master plan §5.3).
+    ConfirmDeleteFile { path: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -194,6 +218,18 @@ pub struct EditorState {
     pub(super) palette_editing_idx: usize,
     /// Meaningful only while `mode == EditorMode::PaletteEditor`.
     pub(super) palette_editor_focus: Option<PaletteField>,
+    /// Snapshot of `self.palette` from the instant the modal palette
+    /// editor was opened (7C-6, master plan §5.3, D18) — every field edit
+    /// inside it mutates `self.palette` immediately (there's no separate
+    /// "buffer" `Escape`'s own "dismiss without writing" comment might
+    /// suggest — that comment is about skipping the disk write, not
+    /// reverting in-memory state), so the whole open-edit-close session
+    /// becomes one `Command::UpdatePalette` pushed on exit, `before` =
+    /// this snapshot. `None` when no session is open; also `None` (not
+    /// reset) while a nested `ColorPicker` excursion is active, since that
+    /// always returns to the SAME `PaletteEditor` session rather than
+    /// starting a new one.
+    pub(super) palette_edit_before: Option<TilePalette>,
     pub(super) save_message: Option<String>,
     pub(super) save_message_timer: u32,
     pub(super) pending_transition: Option<Transition>,
@@ -206,6 +242,16 @@ pub struct EditorState {
     pub(super) rect_anchor: Option<(i32, i32)>,
     pub(super) line_anchor: Option<(i32, i32)>,
     pub(super) erase_size: usize,
+    /// A freehand paint/scatter/erase-drag stroke's accumulated per-cell
+    /// edits, open between mouse-down and mouse-up (7C-6, master plan
+    /// §5.3, D18) — closed into one `Command::Batch` on release instead of
+    /// pushing a separate `PlaceTile`/`EraseTile` per cell touched during
+    /// the drag. `BTreeMap` (not a `Vec`) so a cell touched more than once
+    /// in the same stroke keeps its original `before` and just updates
+    /// `after` (via `record_paint_batch_edit`), and so the final
+    /// `Command::Batch` gets a deterministic cell order for free — same
+    /// reasoning as `LevelGrid::tiles`. `None` when no stroke is open.
+    pub(super) paint_batch: Option<PaintBatch>,
     /// The text currently typed into an open `EditorMode::Prompt` — kept
     /// separate from the enum for the same reason `script_buffer` is
     /// (7C-4, master plan §5.3): a growable buffer mutated every keystroke
@@ -256,6 +302,12 @@ pub struct EditorState {
     pub(super) graph_selected_node: Option<ember2d_sim::graph::NodeId>,
     pub(super) graph_connecting: Option<(ember2d_sim::graph::NodeId, usize)>,
     pub(super) graph_dragging_node: Option<(ember2d_sim::graph::NodeId, i32, i32)>,
+    /// The dragged node's tile snapshot from the instant the drag started
+    /// (7C-6, master plan §5.3, D18) — dragging used to have no undo
+    /// tracking at all; this makes the WHOLE drag one `Command::PlaceTile`
+    /// pushed on release, not a push per frame. `None` when no drag is in
+    /// progress, same lifetime as `graph_dragging_node`.
+    pub(super) graph_drag_before: Option<TileRecord>,
     pub(super) graph_palette_open: Option<(usize, usize)>,
     pub(super) graph_palette_scroll: usize,
     pub(super) graph_palette_cursor: usize,
@@ -308,6 +360,7 @@ impl EditorState {
             palette_scroll: 0,
             palette_editing_idx: 0,
             palette_editor_focus: None,
+            palette_edit_before: None,
             save_message: None,
             save_message_timer: 0,
             pending_transition: None,
@@ -316,6 +369,7 @@ impl EditorState {
             rect_anchor: None,
             line_anchor: None,
             erase_size: 1,
+            paint_batch: None,
             prompt_buffer: String::new(),
             clipboard: Vec::new(),
             paste_flip_x: false,
@@ -351,6 +405,7 @@ impl EditorState {
             graph_selected_node: None,
             graph_connecting: None,
             graph_dragging_node: None,
+            graph_drag_before: None,
             graph_palette_open: None,
             graph_palette_scroll: 0,
             graph_palette_cursor: 0,
@@ -455,6 +510,10 @@ impl EditorState {
         self.show_physics
     }
 
+    pub fn palette_tile_count(&self) -> usize {
+        self.palette.tiles.len()
+    }
+
     pub fn show_grid(&self) -> bool {
         self.show_grid
     }
@@ -465,6 +524,14 @@ impl EditorState {
 
     pub fn unsaved(&self) -> bool {
         self.unsaved
+    }
+
+    pub fn undo_len(&self) -> usize {
+        self.undo.len()
+    }
+
+    pub fn redo_len(&self) -> usize {
+        self.undo.redo_len()
     }
 
     pub(super) fn load_palette(&mut self) {

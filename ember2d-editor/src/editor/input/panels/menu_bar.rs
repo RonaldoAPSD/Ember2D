@@ -10,6 +10,7 @@ use super::super::super::ui::{self, ToolbarAction, TOOLBAR_ROW};
 use super::super::super::EditorMode;
 use super::super::super::EditorState;
 use super::super::super::TextInputPurpose;
+use super::super::super::{Modal, ModalPurpose};
 use ember2d::input::Key;
 
 impl EditorState {
@@ -90,8 +91,19 @@ impl EditorState {
                         return true;
                     }
                     ToolbarAction::NewLevel => {
-                        self.prompt_buffer.clear();
-                        self.mode = EditorMode::Prompt(TextInputPurpose::NewLevelName);
+                        // 7C-6 (master plan §5.3): always confirms first
+                        // now (CLAUDE.md's "Development Rules": "new
+                        // level... confirms first," unconditionally,
+                        // unlike level-switch's own `unsaved`-gated
+                        // check) — `ModalPurpose::ConfirmNewLevel`'s own
+                        // "Yes" handler (`input/modal.rs`) is exactly
+                        // what used to run directly here.
+                        self.mode = EditorMode::Modal(Modal {
+                            title: "New Level?".to_string(),
+                            message: "Create a new level? The current one will be saved first."
+                                .to_string(),
+                            purpose: ModalPurpose::ConfirmNewLevel,
+                        });
                         return true;
                     }
                     _ => {

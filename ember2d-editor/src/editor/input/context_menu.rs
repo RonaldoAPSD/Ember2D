@@ -1,5 +1,6 @@
 // editor/input/context_menu.rs — Interaction for the right-click context menu.
 
+use super::super::commands::Command;
 use super::super::ui::{ContextMenu, ContextMenuAction, ToolKind, WidgetId};
 use super::super::{EditorMode, EditorState};
 use ember2d::input::Key;
@@ -61,7 +62,16 @@ impl EditorState {
     fn execute_context_action(&mut self, action: ContextMenuAction) {
         match action {
             ContextMenuAction::NewLevel => {
-                self.start_text_input(crate::editor::TextInputPurpose::NewLevelName);
+                // 7C-6 (master plan §5.3): same confirm-first treatment as
+                // the menu bar's own "New Level" (`menu_bar.rs`) — this is
+                // the identical action from a different entry point (the
+                // File Browser's right-click menu), so it needs the same
+                // guard.
+                self.mode = EditorMode::Modal(crate::editor::Modal {
+                    title: "New Level?".to_string(),
+                    message: "Create a new level? The current one will be saved first.".to_string(),
+                    purpose: crate::editor::ModalPurpose::ConfirmNewLevel,
+                });
             }
             ContextMenuAction::NewScript => {
                 self.start_text_input(crate::editor::TextInputPurpose::NewScriptName);
@@ -70,8 +80,14 @@ impl EditorState {
                 // TODO: folder creation
             }
             ContextMenuAction::DeleteFile(path) => {
-                let _ = std::fs::remove_file(path);
-                self.refresh_project_files();
+                // 7C-6 (master plan §5.3): used to delete immediately,
+                // with no confirmation at all — CLAUDE.md's own
+                // "Development Rules" names "delete file" explicitly.
+                self.mode = EditorMode::Modal(crate::editor::Modal {
+                    title: "Delete File?".to_string(),
+                    message: format!("Delete {}? This cannot be undone.", path),
+                    purpose: crate::editor::ModalPurpose::ConfirmDeleteFile { path },
+                });
             }
             ContextMenuAction::CloseTab(id) => {
                 self.panels.hide(id);
@@ -111,13 +127,23 @@ impl EditorState {
                 }
             }
             ContextMenuAction::DuplicateEntity(sel) => {
+                // 7C-6 (master plan §5.3, D18): hierarchy Duplicate/Delete
+                // had no undo support at all before this step — reuses
+                // the existing `UpdateExtraSpawns` command (already used
+                // by `MoveSpawn`'s sibling), a whole-list snapshot, since
+                // both actions already work by rewriting the whole list.
                 if let crate::editor::ui::HierarchySelection::Spawn(i) = sel {
                     if let Some(spawn) = self.grid.extra_spawns.get(i).cloned() {
+                        let before = self.grid.extra_spawns.clone();
                         self.grid.extra_spawns.push((
                             format!("{} Copy", spawn.0),
                             spawn.1 + 1.0,
                             spawn.2 + 1.0,
                         ));
+                        self.undo.push(Command::UpdateExtraSpawns {
+                            before,
+                            after: self.grid.extra_spawns.clone(),
+                        });
                         self.unsaved = true;
                     }
                 }
@@ -127,7 +153,12 @@ impl EditorState {
                     crate::editor::ui::HierarchySelection::Player => {} // Cannot delete player spawn
                     crate::editor::ui::HierarchySelection::Spawn(i) => {
                         if i < self.grid.extra_spawns.len() {
+                            let before = self.grid.extra_spawns.clone();
                             self.grid.extra_spawns.remove(i);
+                            self.undo.push(Command::UpdateExtraSpawns {
+                                before,
+                                after: self.grid.extra_spawns.clone(),
+                            });
                             self.hierarchy_sel = None;
                             self.unsaved = true;
                         }

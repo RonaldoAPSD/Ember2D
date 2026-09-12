@@ -6,62 +6,10 @@
 
 mod common;
 
-use common::EditorHarness;
+use common::{canvas_center, canvas_pixel_for_grid, click_menu_item, open_menu, EditorHarness};
 use ember2d::input::Key;
-use ember2d_editor::editor::ui::{menu_entries, MenuEntry, MenuKind, ToolbarAction, ToolKind, WidgetId};
+use ember2d_editor::editor::ui::{MenuKind, ToolbarAction, ToolKind, WidgetId};
 use ember2d_editor::editor::{EditorMode, TextInputPurpose};
-
-/// Opens `kind`'s dropdown by clicking its menu-bar label (found via the
-/// last render pass's `UiFrame`, not a hardcoded pixel guess — the same
-/// discipline 7C-1 requires of the editor's own input handlers).
-fn open_menu(h: &mut EditorHarness, kind: MenuKind) {
-    let rect = h
-        .state
-        .ui_frame()
-        .rect_of(WidgetId::MenuLabel(kind))
-        .expect("menu label not found in the last render pass");
-    h.click(rect.x + 1.0, rect.y + 1.0);
-    assert_eq!(h.state.active_menu(), Some(kind), "clicking the label did not open its dropdown");
-}
-
-/// With `kind`'s dropdown already open (see `open_menu`), clicks whichever
-/// entry's action matches `pred`.
-fn click_menu_item(h: &mut EditorHarness, kind: MenuKind, pred: impl Fn(&ToolbarAction) -> bool) {
-    let entries = menu_entries(kind);
-    let idx = entries
-        .iter()
-        .position(|e| matches!(e, MenuEntry::Item { action, .. } if pred(action)))
-        .expect("no entry in this menu matches the requested action");
-    let rect = h
-        .state
-        .ui_frame()
-        .rect_of(WidgetId::MenuItem(kind, idx))
-        .expect("dropdown item not found in the last render pass");
-    h.click(rect.x + 1.0, rect.y + 1.0);
-}
-
-/// The center of the viewport's own content area — a real on-canvas pixel
-/// position, read from the current layout rather than guessed. Not
-/// necessarily a valid grid cell for a small level at zoom 1 (the
-/// viewport shows far more cells than a 32x20 level has) — use
-/// `canvas_pixel_for_grid` when the click needs to actually land on the
-/// level's own tiles.
-fn canvas_center(h: &EditorHarness) -> (f32, f32) {
-    let vp = h.state.panels().viewport().content_rect();
-    (vp.x + vp.w / 2.0, vp.y + vp.h / 2.0)
-}
-
-/// The pixel position `mouse_to_grid` maps back to grid cell `(gx, gy)`,
-/// given the current viewport rect/scroll/zoom (`impl_state/mod.rs`'s own
-/// `mouse_to_grid` formula, inverted) — a fresh harness's default level is
-/// 32x20 at zoom 1.0/scroll (0,0), so a small `(gx, gy)` lands inside it.
-fn canvas_pixel_for_grid(h: &EditorHarness, gx: i32, gy: i32) -> (f32, f32) {
-    let vp = h.state.panels().viewport().content_rect();
-    let zoom = 1.0; // EditorState::new's default
-    let local_x = (gx as f32 - 0.0 /* scroll.0 */ + 0.5) * zoom;
-    let local_y = (gy as f32 - 0.0 /* scroll.1 */ + 0.5) * zoom;
-    (vp.x + local_x * ember2d::renderer::CELL_W as f32, vp.y + local_y * ember2d::renderer::CELL_H as f32)
-}
 
 // ── Baseline: the harness itself behaves like a fresh editor ────────────────
 
@@ -479,6 +427,9 @@ fn creating_a_new_level_via_the_level_menu_refreshes_the_file_browser() {
 
     open_menu(&mut h, MenuKind::Level);
     click_menu_item(&mut h, MenuKind::Level, |a| matches!(a, ToolbarAction::NewLevel));
+    // 7C-6 (master plan §5.3): New Level now confirms first.
+    assert!(matches!(h.state.mode(), EditorMode::Modal(_)), "New Level must confirm before opening the name prompt");
+    h.key(Key::Y);
     assert!(matches!(h.state.mode(), EditorMode::Prompt(TextInputPurpose::NewLevelName)));
 
     h.type_text("Test");

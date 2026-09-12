@@ -5,6 +5,7 @@
 // split's overall shape and the `bool` "did this section consume the
 // input" convention every extracted section follows.
 
+use super::super::super::commands::Command;
 use super::super::super::panel::PanelId;
 use super::super::super::ui::HierarchySelection;
 use super::super::super::ui::WidgetId;
@@ -79,6 +80,10 @@ impl EditorState {
                             return true;
                         }
                         Some(WidgetId::PaletteNewBtn) => {
+                            // 7C-6 (master plan §5.3, D18): a standalone
+                            // action, not part of a modal editor session —
+                            // its own direct before/after snapshot.
+                            let before = self.palette.clone();
                             self.palette.tiles.push(crate::editor::palette::TileDefinition {
                                 name: "New Item".into(),
                                 glyph: '?',
@@ -88,6 +93,7 @@ impl EditorState {
                                 trigger: false,
                                 tag: String::new(),
                             });
+                            self.undo.push(Command::UpdatePalette { before, after: self.palette.clone() });
                             self.palette.selected = self.palette.tiles.len() - 1;
                             self.palette_scroll = layout.len().saturating_sub(ch.saturating_sub(2));
                             self.save_message = Some("Added new palette item.".to_string());
@@ -98,6 +104,15 @@ impl EditorState {
                         Some(WidgetId::PaletteEditBtn) => {
                             self.mode = EditorMode::PaletteEditor;
                             self.palette_editing_idx = self.palette.selected;
+                            // 7C-6 (master plan §5.3, D18): the ONE place
+                            // a fresh palette-edit session starts — snapshot
+                            // here, not in `handle_palette_editor_input`
+                            // (which re-enters `PaletteEditor` every frame
+                            // the session stays open, including through a
+                            // `ColorPicker` excursion that always returns
+                            // to it). See `palette_edit_before`'s own doc
+                            // comment for where this gets pushed.
+                            self.palette_edit_before = Some(self.palette.clone());
                             return true;
                         }
                         Some(WidgetId::PaletteRow(idx)) => {

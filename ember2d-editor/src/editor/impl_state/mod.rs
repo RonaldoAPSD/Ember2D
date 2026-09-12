@@ -21,6 +21,26 @@ use std::collections::VecDeque;
 use std::path::Path;
 
 impl EditorState {
+    /// Actually perform a level switch, replacing this whole `EditorState`
+    /// with a freshly loaded one while keeping project context (7C-6,
+    /// master plan §5.3) — shared by `file_and_script.rs`'s direct-switch
+    /// path (nothing unsaved, so no confirmation needed) and
+    /// `input/modal.rs`'s `ConfirmSwitchLevel` "Yes" handler (there was
+    /// something to lose, so the user already confirmed). On load
+    /// failure, `self` is simply left as it was — there's nothing else to
+    /// fall back to.
+    pub(super) fn switch_to_level(&mut self, path: &str) {
+        if let Ok(new_state) = EditorState::load(path) {
+            let mut ns = new_state;
+            ns.project_folder = self.project_folder.clone();
+            ns.project_name = self.project_name.clone();
+            ns.panels = self.panels.clone();
+            ns.current_folder = self.current_folder.clone();
+            ns.refresh_project_files();
+            *self = ns;
+        }
+    }
+
     pub(super) fn save(&mut self) {
         let mut data = self.grid.to_level_data();
         self.migrate_graph_sidecars(&mut data);
@@ -190,6 +210,9 @@ impl EditorState {
             Command::UpdateExtraSpawns { after, .. } => {
                 self.grid.extra_spawns = after.clone();
             }
+            Command::UpdatePalette { after, .. } => {
+                self.palette = after.clone();
+            }
         }
     }
 
@@ -231,6 +254,9 @@ impl EditorState {
             }
             Command::UpdateExtraSpawns { before, .. } => {
                 self.grid.extra_spawns = before.clone();
+            }
+            Command::UpdatePalette { before, .. } => {
+                self.palette = before.clone();
             }
         }
     }

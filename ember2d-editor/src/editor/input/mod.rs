@@ -220,6 +220,18 @@ impl EditorState {
         }
     }
 
+    /// Close the palette editor, pushing the whole open-edit-close session
+    /// as one `Command::UpdatePalette` if a session was actually open
+    /// (7C-6, master plan §5.3, D18) — see `palette_edit_before`'s own doc
+    /// comment. Called from every exit path (`[X]`, Save & Close,
+    /// item-delete, Escape) so none of them can forget it.
+    fn close_palette_editor(&mut self) {
+        if let Some(before) = self.palette_edit_before.take() {
+            self.undo.push(Command::UpdatePalette { before, after: self.palette.clone() });
+        }
+        self.mode = EditorMode::Paint(ToolKind::Paint);
+    }
+
     fn handle_palette_editor_input(
         &mut self,
         input: &mut ember2d::input::InputManager,
@@ -283,7 +295,7 @@ impl EditorState {
             // 1. [X] button in title bar (Cancel)
             if mouse.cell_y == my && mouse.cell_x >= mx + mw - 4 && mouse.cell_x < mx + mw - 1 {
                 self.palette_editor_focus = None;
-                self.mode = EditorMode::Paint(ToolKind::Paint);
+                self.close_palette_editor();
                 return;
             }
 
@@ -294,7 +306,7 @@ impl EditorState {
                 if mouse.cell_x >= mx + 2 && mouse.cell_x < mx + 20 {
                     self.palette_editor_focus = None;
                     self.save_palette();
-                    self.mode = EditorMode::Paint(ToolKind::Paint);
+                    self.close_palette_editor();
                     return;
                 }
                 // [ Delete ] (right)
@@ -308,7 +320,7 @@ impl EditorState {
                         self.save_message = Some("Asset deleted.".to_string());
                         self.save_message_timer = 0;
                         self.save_palette();
-                        self.mode = EditorMode::Paint(ToolKind::Paint);
+                        self.close_palette_editor();
                     } else {
                         self.save_message = Some("Cannot delete last item!".to_string());
                         self.save_message_timer = 0;
@@ -396,7 +408,7 @@ impl EditorState {
             if self.palette_editor_focus.is_some() {
                 self.palette_editor_focus = None;
             } else {
-                self.mode = EditorMode::Paint(ToolKind::Paint);
+                self.close_palette_editor();
             }
         }
     }

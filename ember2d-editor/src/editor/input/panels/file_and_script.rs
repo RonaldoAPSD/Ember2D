@@ -86,13 +86,26 @@ impl EditorState {
                         } else if clean_name.ends_with(".level") {
                             if let Some(ref folder) = self.project_folder {
                                 let path = format!("{}/{}", folder, relative_path);
-                                self.mode = crate::editor::EditorMode::Modal(crate::editor::Modal {
-                                    title: "Switch Level?".to_string(),
-                                    message: format!("Load {}?", clean_name),
-                                    purpose: crate::editor::ModalPurpose::ConfirmSwitchLevel {
-                                        path,
-                                    },
-                                });
+                                // 7C-6 (master plan §5.3): only confirm
+                                // when there's actually something to lose
+                                // — CLAUDE.md's own "Development Rules"
+                                // names "switch level WITH UNSAVED EDITS"
+                                // specifically, unlike "new level"/"delete
+                                // file" above, which confirm
+                                // unconditionally. Used to always show
+                                // this modal, even with nothing unsaved.
+                                if self.unsaved {
+                                    self.mode =
+                                        crate::editor::EditorMode::Modal(crate::editor::Modal {
+                                            title: "Switch Level?".to_string(),
+                                            message: format!("Load {}?", clean_name),
+                                            purpose: crate::editor::ModalPurpose::ConfirmSwitchLevel {
+                                                path,
+                                            },
+                                        });
+                                } else {
+                                    self.switch_to_level(&path);
+                                }
                             }
                         }
                         return true;
