@@ -404,8 +404,6 @@ fn clicking_a_rhai_file_in_the_file_browser_opens_the_fullscreen_script_editor()
     assert!(h.state.panels().visible(ember2d_editor::editor::panel::PanelId::FileBrowser));
 
     // One idle frame so the panel's own row for `player.rhai` gets drawn
-    // (and its `UiFrame` hit registered) before we try to click it.
-    // One idle frame so the panel's own row for `player.rhai` gets drawn
     // (and its `UiFrame` hit registered) before we try to click it. Only
     // one file exists at the project root, so it's row 0.
     h.frame();
@@ -430,5 +428,66 @@ fn clicking_a_rhai_file_in_the_file_browser_opens_the_fullscreen_script_editor()
         matches!(h.state.mode(), EditorMode::Script),
         "clicking player.rhai in the File Browser must open (and stay in) the fullscreen script editor, got {:?}",
         h.state.mode()
+    );
+}
+
+// ── Repro: user report, a new project's level files never showing up ───────
+
+#[test]
+fn saving_a_brand_new_level_for_the_first_time_refreshes_the_file_browser() {
+    // Found live by the user (2026-09-12): a fresh project's first save
+    // (nothing existed at `save_path` yet) wrote the level file to disk
+    // but never called `refresh_project_files`, so it never appeared in
+    // the File Browser until something else (a folder navigation)
+    // happened to refresh it.
+    let dir = std::env::temp_dir()
+        .join(format!("ember2d-{}", std::process::id()))
+        .join("editor_input_save_refresh_repro");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+
+    let level_path = dir.join("ManualPass.level").to_string_lossy().into_owned();
+    let mut h = EditorHarness::with_state(ember2d_editor::editor::EditorState::new(&level_path));
+    h.state.open_project_folder(dir.to_string_lossy().into_owned());
+    assert!(h.state.file_browser_files().is_empty(), "nothing saved yet");
+
+    h.key(Key::S); // plain S: save (shortcuts.rs) — not Shift+S (save-as)
+
+    assert!(
+        h.state.file_browser_files().iter().any(|f| f.contains("ManualPass.level")),
+        "saving a level for the first time must refresh the File Browser: {:?}",
+        h.state.file_browser_files()
+    );
+}
+
+#[test]
+fn creating_a_new_level_via_the_level_menu_refreshes_the_file_browser() {
+    let dir = std::env::temp_dir()
+        .join(format!("ember2d-{}", std::process::id()))
+        .join("editor_input_new_level_refresh_repro");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+
+    // `with_state`, not `new()`: `NewLevelName`'s own commit handler
+    // saves the CURRENT level before switching (`text.rs`) — a
+    // default harness's relative "harness.level" save path would
+    // otherwise write a stray file next to the test binary's CWD
+    // instead of into this test's own temp dir.
+    let level_path = dir.join("current.level").to_string_lossy().into_owned();
+    let mut h = EditorHarness::with_state(ember2d_editor::editor::EditorState::new(&level_path));
+    h.state.open_project_folder(dir.to_string_lossy().into_owned());
+
+    open_menu(&mut h, MenuKind::Level);
+    click_menu_item(&mut h, MenuKind::Level, |a| matches!(a, ToolbarAction::NewLevel));
+    assert!(matches!(h.state.mode(), EditorMode::Prompt(TextInputPurpose::NewLevelName)));
+
+    h.type_text("Test");
+    h.key(Key::Enter);
+
+    assert!(matches!(h.state.mode(), EditorMode::Paint(ToolKind::Paint)));
+    assert!(
+        h.state.file_browser_files().iter().any(|f| f.contains("Test.level")),
+        "creating a new level must refresh the File Browser: {:?}",
+        h.state.file_browser_files()
     );
 }

@@ -439,6 +439,10 @@ impl EditorState {
         &self.script_buffer
     }
 
+    pub fn file_browser_files(&self) -> &[String] {
+        &self.file_browser_files
+    }
+
     pub fn prompt_buffer(&self) -> &str {
         &self.prompt_buffer
     }

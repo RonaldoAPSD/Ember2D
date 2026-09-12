@@ -29,6 +29,16 @@ impl EditorState {
                 self.unsaved = false;
                 self.save_message = Some(format!("Saved → {}", self.save_path));
                 self.save_message_timer = 0;
+                // Found live by the user (2026-09-12), same class of bug
+                // as the `NewLevelName` prompt's own fix: a brand-new
+                // project's first save (nothing existed at `save_path`
+                // yet) wrote the level file but never refreshed the File
+                // Browser, so it never appeared. Cheap to call
+                // unconditionally on every save (a single `read_dir`) —
+                // the common "already-listed, unchanged path" case is
+                // harmless, and there's no reliable way to tell "was this
+                // a new file" from here without stat'ing the path twice.
+                self.refresh_project_files();
             }
             Err(e) => {
                 self.save_message = Some(format!("Save FAILED: {}", e));

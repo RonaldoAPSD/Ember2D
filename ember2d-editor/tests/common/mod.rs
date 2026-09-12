@@ -74,8 +74,17 @@ impl EditorHarness {
     /// real `UiFrame` (the menu bar, the default docked panels), not an
     /// empty one from before anything was ever drawn.
     pub fn new() -> Self {
+        Self::with_state(EditorState::new("harness.level"))
+    }
+
+    /// Same as `new()`, but starting from a caller-built `EditorState`
+    /// (e.g. `EditorState::new(path)` with a save path inside a specific
+    /// project folder, or `EditorState::load(...)`) instead of the
+    /// harness's own default — for tests that need control over
+    /// `save_path`/`grid` before the first frame renders.
+    pub fn with_state(state: EditorState) -> Self {
         let mut h = EditorHarness {
-            state: EditorState::new("harness.level"),
+            state,
             input: InputManager::new(),
             mouse: MouseState::new(),
             gamepad: GamepadState::new(),

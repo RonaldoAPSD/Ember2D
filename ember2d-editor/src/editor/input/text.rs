@@ -254,6 +254,17 @@ impl EditorState {
                                     self.unsaved = false;
                                     self.save_message = Some(format!("New level: {}", path));
                                     self.save_message_timer = 0;
+                                    // Found live by the user (2026-09-12):
+                                    // the new level was written to disk
+                                    // but never appeared in the File
+                                    // Browser until something else (a
+                                    // folder navigation) happened to
+                                    // refresh it — every other file-
+                                    // creating action (New Script,
+                                    // confirming a level switch, this
+                                    // same prompt's context-menu twin)
+                                    // already calls this.
+                                    self.refresh_project_files();
                                 }
                                 Err(e) => {
                                     self.save_message = Some(format!("Error: {}", e));
