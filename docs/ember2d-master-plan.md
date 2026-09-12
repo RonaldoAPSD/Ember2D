@@ -297,6 +297,9 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R50 | S4 | `Renderer::draw_text_px`'s glyph destination rect always uses `GlyphInfo::atlas_rect.w`/`.h` directly as the drawn size — correct for `TtfFont` (whose atlas rasterizes each glyph AT the requested px, so `atlas_rect` already IS the intended render size) but wrong for `BitmapFont` at any non-native px: `atlas_rect` stays fixed at the native 8×8 texture region regardless of the requested size (only `advance`/`offset` scale), so a `BitmapFont` glyph requested at e.g. 16px would advance the pen 16px per character without the glyph itself actually being drawn any larger than 8×8 — a gap that predates 7B-5 but was undiscovered until this step's investigation, since `draw_text_px` had no live caller before it (its own doc comment used to say so) | `renderer/text.rs` (`draw_text_px`, dest rect construction) | `[ ]` unscheduled — not hit by 7B-5's own usage: `draw_str`'s new `draw_text_px` call is reached only when `ui_font_kind` is `Ttf`, so it never passes a `BitmapFont` in the first place (see R49, 7B-5's "Landed as" note) |
 | R51 | S2 | Maximizing (or otherwise growing) the editor window, then pressing F5 to play, leaves stale editor-panel pixels (the docked Inspector's title/tool text, colored bars) visibly stuck on screen wherever the play view's own grid is narrower than the resized window — found live by the user right after the 7B gate. Confirmed this is NOT an app-side "forgot to clear" bug: instrumented `Renderer::try_handle_resize` and verified the surface *is* reconfigured to the correct new size and the render pass's `LoadOp::Clear` covers the whole surface every frame (dozens of frames observed, well into active play — e.g. "Turn 20" in the user's own screenshot). A manual 1px-out-1px-back resize nudge afterward repainted *most* (not all) of the stale area, which points at a Windows DWM compositor caching artifact tied to wgpu's flip-model swapchain presentation during a resize/maximize transition, not application logic — a known-tricky class of issue on Windows with wgpu/winit, not something to guess-fix without real investigation | `ember2d/src/renderer/mod.rs` (`try_handle_resize`, `recompute_layout`); Windows DWM/wgpu swapchain presentation, not yet isolated to a specific engine file | `[ ]` unscheduled — needs focused investigation (try forcing a window repaint/invalidate after resize, a different present mode, or comparing against known wgpu/winit issue reports) before attempting a fix; reproduce with: maximize the editor window, then F5 |
 | R52 | S3 | 7C-1's own debug assertion in `handle_canvas_input` — "any click reaching here while `UiFrame::hit()` is `Some` is a bug" — fired constantly during ordinary use (both painting and legitimate widget clicks), found live by the user during 7C-2's manual smoke pass. Root cause: the assertion assumed panel input consuming a click already stops `handle_canvas_input` from running, but `handle_update` calls `handle_panel_input`/`handle_canvas_input`/`handle_shortcuts` unconditionally, one after another, regardless of what an earlier stage did — `handle_panel_input`'s own internal `return`s only stop itself. That's exactly the gap 7C-4's `Consumed \| Pass` chain is designed to close; the assertion's premise doesn't hold until then, so as written it couldn't distinguish a real bleed-through from any click that happens to also land on any registered widget anywhere on screen (which is most clicks). Painting itself was never actually broken — `handle_canvas_input`'s own `mouse_to_grid` bounds check is what really prevents unwanted painting, unrelated to whether `UiFrame::hit` matched something | `ember2d-editor/src/editor/input/canvas.rs` (`handle_canvas_input`) | `[x]` 7C-1 follow-up (`f89b301`) — assertion removed; re-add once a real `Consumed`/`Pass` signal exists to check instead of `UiFrame::hit` alone. 7C-4 (`0eb2db8`) replaced the boolean soup but deliberately did not build that signal (see 7C-4's own "Landed as" note) — still deferred, now past 7C-4 |
+| R53 | S4 | `cargo fmt --all -- --check` reports diffs in 63 files across all three non-`ember2d-app` crates, none of which touch 7C-1 through 7C-4's own changed lines (verified: `git stash` on top of `v0.5.7c`'s uncommitted tree still reproduces all 63) — the `v0.5.7b` baseline (§2.3) recorded this clean. Most likely cause is a local rustfmt version difference from whatever ran 7A-9's one-time `cargo fmt --all` pass, not anything a specific step's own diff introduced — the affected lines are scattered, small (mostly whether a boolean `if`/`let` condition wraps), and span files no 7C step touched | tree-wide, found running 7C-5's own gate checks | `[ ]` unscheduled — needs `cargo fmt --all` re-run and a fresh baseline recorded once whichever step next touches the affected files, or at the 7C gate itself; not this step's job per its own Scope |
+| R54 | S1 | The fullscreen script editor (`EditorMode::Script`) was completely unusable — opening it (clicking a `.rhai` file in the File Browser) worked for exactly one frame, then silently reverted to `Paint` on every frame after, invisible at 60fps: looked to the user like clicking the file did nothing. Root cause: 7C-4's `handle_update` dispatch (`match std::mem::take(&mut self.mode) { EditorMode::Script => { self.handle_script_mode_input(input, mouse); return; } ... }`) empties `self.mode` to `EditorMode::default()` before calling the handler — every OTHER hard-exclusive arm's own handler restores its mode as its first action (`handle_color_picker_input`/`handle_palette_editor_input`/`handle_place_spawn_input`/`handle_palette_search_input`), but `EditorMode::Script`'s arm never did, so `handle_script_mode_input`'s own `fullscreen = matches!(self.mode, EditorMode::Script)` always read `false` and nothing put `self.mode` back. A 7C-4 defect (`0eb2db8`), not a 7C-5 one — found live by the user testing 7C-5's own work, then reproduced and root-caused with the very `EditorHarness` 7C-5 built (`clicking_a_rhai_file_in_the_file_browser_opens_the_fullscreen_script_editor`, `editor_input.rs`) before this row existed — the harness catching a real, user-blocking bug moments after landing is itself evidence for why the step exists | `ember2d-editor/src/editor/input/mod.rs` (the `EditorMode::Script` arm) | `[x]` 7C-5 follow-up (`4ede7f5`) — `self.mode = EditorMode::Script;` restored at the call site (the arm has no payload to reconstruct it from inside the handler the way the others do), one line, before calling `handle_script_mode_input`. Regression test named above. `cargo test --workspace`: 279 (255 + 24), all pass; `cargo clippy --workspace --lib` unchanged at 56; `scripts/check.ps1` clean |
+| R55 | S2 | Typing into any text-capture widget (the fullscreen/docked script editor, prompts, palette editor/search, graph param fields) silently dropped scattered characters at ordinary typing speed on any display faster than 60Hz — found live by the user immediately after R54 unblocked the fullscreen editor for the first time ("Hello how are you doing today" arrived as " ello howre you dog ody"). Root cause, in `ember2d/src/engine.rs`'s `run()`/`poll_events()` (predates 7C-4 and 7C-5 both — present since R12/7A-2 introduced the `begin_text_capture`/`finish_frame_text_capture` mechanism, just never noticed because nothing had stress-typed the fullscreen editor before R54, and most prior manual passes likely ran on ~60Hz displays where the bug is structurally unreachable): `poll_events` (called once per REAL frame) unconditionally called `finish_frame_text_capture`, which wipes `text_buffer` unless some widget "renewed" capture — but the only place that renewal (`begin_text_capture`) can happen is inside a simulation step (`sim::step`, called from `update()`), and `GameplayLoop::RealTime`'s fixed-timestep accumulator legitimately produces real frames with zero steps whenever less than one `SIM_DT` (1/60s) of real time has accumulated — true for roughly half of all frames at 144Hz. Checking on a zero-step frame always found nothing had renewed the request (nothing could have) and wiped out keystrokes `poll_events` had just captured that same frame. `EditorHarness` (7C-5) could not have caught this: it pairs one simulated "frame" with exactly one `sim::step` call by construction, which structurally cannot reproduce a real frame with zero steps | `ember2d/src/engine.rs` (`Engine::poll_events`, `Engine::run`'s `RealTime`/turn-based branches); `ember2d/src/input.rs` (`text_capture_requested`, `begin_text_capture`, `finish_frame_text_capture` doc comments corrected to match) | `[x]` 7C-5 follow-up (`4ede7f5`) — `finish_frame_text_capture` moved out of `poll_events` (always) into `run()`, called only when a step actually ran this frame (`steps > 0` in the `RealTime` branch; unconditional in the turn-based branch, which always steps exactly once) — the check is now always paired with the step that could have renewed it, regardless of display refresh rate. No headless regression test: reproducing the real bug needs the actual decoupled poll/step timing a live windowed loop has, which neither `EditorHarness` nor `TurnHarness` model (both pair 1:1 by construction) — verified instead via `cargo test --workspace` (279, unchanged), `cargo clippy --workspace --lib` (56, unchanged), `scripts/check.ps1` clean, and `cargo test -p ember2d --test replay` 3× fresh processes (unaffected — `text_buffer` is UI-only state no script/gameplay code reads) |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -1387,10 +1390,11 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
     `draw_palette` (`graph_ui.rs`), and `draw_hierarchy` (`ui/panels/
     dock.rs`), each of which crossed the 7-argument default threshold
     once `frame`/`id` was added.
-  - **Not done this session:** interactive mouse smoke-testing of the 13
-    migrated widgets (a real GUI window this session can't drive) — needs
-    a manual pass, folded into this phase's own gate checklist run
-    (§3–§10) rather than repeated per-step.
+  - **Manual smoke pass confirmed 2026-09-12** (user, live editor session):
+    all 13 migrated widgets click correctly (confirm modal, color picker
+    hue/SV drag, palette editor swatches, context menu, graph palette,
+    hierarchy rows, file browser rows, start screen menu/folder/browser/
+    template items) — no regressions found.
   - **Correction, found during that manual pass (R52, `f89b301`):** the
     debug assertion this step added to `handle_canvas_input` fired
     constantly on ordinary use, not just genuine bleed-through — its
@@ -1648,17 +1652,19 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
     on R47's pre-existing `ember2d/tests/common/mod.rs` dead-code warnings;
     zero new warnings. `ember2d-sim` untouched by this step's diff (see
     Scope above), so the replay-3× determinism check doesn't apply here.
-  - **Not done this session:** the user's own manual pass (their explicit
-    choice over further automated verification, given zero existing input
-    coverage) — still outstanding, covering every mode: Paint/Rect/Line/Fill
-    tools, Inspect select-click, Copy/Cut marquee, Paste with flip/rotate,
-    both spawn-placement flows, palette editor + color picker, script editor
+  - **Manual pass confirmed 2026-09-12** (user, live editor session):
+    every `EditorMode` exercised — Paint/Rect/Line/Fill tools, Inspect
+    select-click, Copy/Cut marquee, Paste with flip/rotate, both
+    spawn-placement flows, palette editor + color picker, script editor
     docked and fullscreen, graph editor, context menu, the confirm modal,
-    and every text prompt. 7C-3's own outstanding screenshot-pair gap
-    (`docs/screenshots/7c-3/`) also still has no human pass and remains
-    open, unrelated to this step.
+    every text prompt — plus the viewport-as-panel behavior 7C-3 left for
+    a human pass (drag/dock, resize handle inert, close disabled). No
+    regressions found. 7C-3's own before/after screenshot-pair gap
+    (`docs/screenshots/7c-3/`, §8 requirement) is still separately
+    outstanding — a screenshot pair, not a functional check, so this pass
+    doesn't close it.
 
-#### `[ ]` 7C-5 — Headless editor input harness
+#### `[x]` 7C-5 — Headless editor input harness (`4ede7f5`)
 
 - **Why:** Everything that goes wrong in the editor is behind
   `&InputManager`/`&MouseState` on an 85-field struct with no way to inject
@@ -1677,6 +1683,115 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
 - **Done when:** ≥ 20 harness tests; every 7A-2 fix has one.
 - **Scope:** `ember2d-editor` (+ a `NullRenderer` in `ember2d` behind a
   `test-support` feature).
+- **Landed as:** 23 harness tests, `ember2d-editor/tests/{common/mod.rs,
+  editor_input.rs}`, `ember2d-editor` + `ember2d` only (matches Scope).
+  Deviations from the Change list's own literal text, all found during
+  investigation before writing any code:
+  - **`NullRenderer` isn't behind a `test-support` feature.** The literal
+    plan would need `ember2d`'s feature enabled only while `ember2d-editor`
+    builds its OWN tests, with no extra flag on the `cargo test --workspace`
+    command §0.5/§8 name everywhere — the only way to make that automatic is
+    a package listing itself as its own `dev-dependency` with the feature
+    turned on (a real but obscure Cargo pattern), unverified in this tree
+    and risky to get subtly wrong under the fixed verification commands the
+    whole team's workflow depends on. Simpler and lower-risk: `DrawSurface`/
+    `NullRenderer` are unconditional, always-compiled `ember2d` API — a
+    `NullRenderer` costs a few bytes and four no-op-ish methods in the
+    shipped binary, a trade this codebase already makes for `Box<dyn Font>`.
+    `cargo build --workspace`/`cargo run` never construct one; nothing
+    changes for the shipped app.
+  - **A new `DrawSurface` trait** (`ember2d/src/renderer/draw_surface.rs`),
+    not named in the Change list at all — required to make `NullRenderer`
+    usable. Every editor `draw_*` function took a concrete `&mut Renderer`,
+    which needs a real wgpu `Surface`/`Device`/`Window`
+    (`Renderer::new`) — there is no way to swap in a stand-in without
+    either this trait or a real (still-impossible) headless `Renderer`
+    construction path. Grepped the actual call surface first rather than
+    guessing: exactly 6 methods (`draw_char`, `draw_char_scaled_pixels`,
+    `draw_str`, `draw_rect_outline`, `draw_rect_filled`, `set_scissor`) plus
+    2 field reads (`width`/`height`, `pixel_width`/`pixel_height`, exposed
+    as trait accessor methods since a trait can't expose a field) across 53
+    call sites. This is deliberately NOT a revival of the `RenderBackend`
+    trait 7B-3 removed as needless indirection (`backend.rs`'s own comment
+    on that decision, still accurate) — that one abstracted over multiple
+    GPU backends behind the same live window and had no real second
+    implementor; this one abstracts over "is there a window at all," which
+    a headless test genuinely needs and `RenderBackend` never did.
+    `impl DrawSurface for Renderer` thin-delegates to the existing inherent
+    methods (unchanged, still callable directly everywhere else in
+    `ember2d`/`ember2d-editor`); `#[allow(clippy::too_many_arguments)]`
+    added to the two methods/impls whose argument count already exceeded
+    clippy's default on the inherent methods they mirror, keeping the
+    `--lib` count at the unchanged baseline of 56 rather than growing it.
+  - **43 of the 53 call sites converted, not all of them.** The other 10
+    are `start_screen/drawing.rs`'s widget-drawing functions — real, but
+    this step's own named Test list needs none of them (`StartScreen` has
+    its own separate `UiFrame`, already fully covered by 7C-1's own
+    verification), and touching them isn't required to reach ≥ 20 tests
+    or cover R12/R13/R14. Left as concrete `&mut Renderer`, unconverted;
+    revisit only if a future step's tests actually need to drive
+    `StartScreen` headlessly.
+  - **`impl_render.rs`'s `handle_render(ctx: RenderContext)`** (the one
+    `GameState::render` entry point, still taking a concrete `&mut
+    Renderer` via `RenderContext.renderer` — untouched, on purpose:
+    `RenderContext` is `ember2d`'s own core engine type, shared by every
+    `GameState` implementor including `PlayState`, and changing its
+    `renderer` field's type would be exactly the kind of central-`ember2d`
+    change this step's Scope doesn't cover) is now a 2-line wrapper around
+    a new `pub fn draw(&mut self, renderer: &mut dyn DrawSurface, mouse:
+    &MouseState)` holding the real body verbatim (mechanical extraction,
+    not a rewrite) — `EditorHarness` calls `draw` directly with a
+    `NullRenderer` it owns, bypassing `RenderContext` entirely.
+    `render_graph_mode`/`render_script_mode` (`draw`'s own two full-screen
+    sub-modes) converted the same way. The real app's own render path is
+    unchanged end to end — a concrete `&mut Renderer` still auto-coerces to
+    `&mut dyn DrawSurface` at this one call boundary, same as at all 43
+    converted `ember2d-editor` sites.
+  - **`EditorHarness` reuses `ember2d::sim::step`** (the same per-step
+    sequence `Engine::run()` and `ember2d/tests/common/mod.rs`'s
+    `TurnHarness` already share, per that module's own header comment on
+    why it exists) rather than hand-building an `UpdateContext` — the
+    Change list didn't name this, but it's the direct application of
+    `sim.rs`'s own stated purpose, and hand-duplicating the consume/decay
+    sequence a third time is exactly what that module exists to prevent.
+    `begin_frame`/`end_frame` around it reproduce `Engine::poll_events`'s
+    clear-before/`finish_frame_text_capture`-and-decay-after wrapping by
+    hand, since that half genuinely isn't in `sim::step`.
+  - **New read-only accessors on `EditorState`** (`mode`, `ui_frame`,
+    `panels`, `active_menu`, `grid`, `focused_panel`, `focus_is_canvas`,
+    `script_buffer`, `prompt_buffer`, `rect_anchor`, `show_physics`,
+    `show_grid`, `active_layer`, `unsaved`) — not named in the Change list,
+    but required for tests in a genuinely external crate (an integration
+    test binary only sees `pub` items) to observe anything; every existing
+    field stayed `pub(super)`, no setters were added alongside them, and
+    `EditorFocus` itself stays `pub(crate)` (`focus_is_canvas` exposes only
+    the one bit a test needs instead of widening that enum's visibility).
+  - **Verification beyond the standard per-step build/test:**
+    `cargo clippy --workspace --lib` unchanged at 56 (7C-4's baseline);
+    `--all-targets` 80 real warnings (2 additional "corrupt incremental
+    compilation artifact" lines are a toolchain/filesystem quirk this
+    session hit independently of any code change here, self-described as
+    harmless and auto-deleted, confirmed non-reproducing after deleting the
+    named files) — unchanged from 7C-4's own recorded 80. `cargo fmt --all
+    -- --check` reports 63 pre-existing diffs, none in code this step
+    touched (logged as **R53**, S4, unscheduled — not this step's job).
+    `scripts/check.ps1` clean. `cargo test --workspace`: 279 (255 + 24),
+    all pass. `ember2d-sim` untouched by this step's diff, so the sim
+    boundary invariant (§4.2) and the replay 3× gate don't apply here.
+  - **Not done this session:** the literal "manual smoke test" §8 asks for
+    per step doesn't apply in the usual sense — this step's entire point is
+    replacing exactly that with automated coverage; the harness tests
+    passing is most of the verification.
+  - **Immediate payoff:** the user's own manual pass, the very first time
+    the fullscreen script editor was ever reachable (see R54), found it
+    completely broken — a 7C-4 defect, not this step's own — and this
+    step's harness reproduced and root-caused it in minutes. Fixing R54
+    then surfaced a second, unrelated, longer-lived defect (R55, present
+    since 7A-2, silently dropping typed characters on any display faster
+    than 60Hz) the moment fullscreen typing became testable at all. Both
+    fixed as follow-ups (see their own rows, §3.2) rather than deferred —
+    the user was actively blocked by R54, and R55 was found investigating
+    R54 in the same sitting.
 
 #### `[ ]` 7C-6 — `LevelGrid` determinism and undo batching (D18)
 
