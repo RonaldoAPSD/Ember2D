@@ -55,17 +55,22 @@ re-export `EditorState`/`run_editor_app`/`run_play_app`/`StartScreen` —
 those aren't reachable from `ember2d` at all anymore; use
 `ember2d_editor::prelude` and `ember2d-app`'s own `app` module.
 
-`roguelike/` and `docs/` stay at the **repo root**, not inside any crate —
-`cargo run`'s CWD is wherever it's invoked from (the repo root, by
-convention), so `cargo run -- roguelike/floor1.level` keeps working
-unchanged. `cargo test`, however, runs each integration test binary with
-CWD set to *that package's own directory* (`ember2d/`, one level below the
-repo root) — `ember2d/tests/common/mod.rs`'s `ensure_workspace_root_cwd`
-fixes this for every test that loads real level content; a level-path
-constant used directly (not through `TurnHarness`) should be
-`concat!(env!("CARGO_MANIFEST_DIR"), "/../roguelike/...")`, not a bare
-`"roguelike/..."` literal — see `ember2d/tests/replay.rs`'s own comment on
-this for the full explanation.
+`demos/` (the `roguelike`/`shooter` demo projects — moved here from the
+repo root, 7C-5 follow-up, docs/ember2d-master-plan.md §5.3 R-series) and
+`docs/` stay at the **repo root**, not inside any crate — `cargo run`'s CWD
+is wherever it's invoked from (the repo root, by convention), so
+`cargo run -- demos/roguelike/floor1.level` keeps working unchanged.
+`Projects/` (also repo root) is the default location the start screen's
+New Project/Open Project browsers start from — created on demand if
+missing, kept out of git (see `.gitignore`) since it holds a developer's
+own local projects, not shipped content. `cargo test`, however, runs each
+integration test binary with CWD set to *that package's own directory*
+(`ember2d/`, one level below the repo root) — `ember2d/tests/common/mod.rs`'s
+`ensure_workspace_root_cwd` fixes this for every test that loads real level
+content; a level-path constant used directly (not through `TurnHarness`)
+should be `concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/...")`,
+not a bare `"demos/roguelike/..."` literal — see `ember2d/tests/replay.rs`'s
+own comment on this for the full explanation.
 
 ## Architecture
 

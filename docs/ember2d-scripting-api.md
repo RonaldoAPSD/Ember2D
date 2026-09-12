@@ -35,7 +35,7 @@ scripted entity's `on_update` → `on_turn` (only for whichever single actor
 `TurnScheduler` is resolving this step) → `on_collide` (only if a turn was
 actually resolved). `on_update` running *before* `on_turn`, not after, is
 deliberate and load-bearing: `on_update` is where a script's own lazy-init
-typically lives (see `roguelike/scripts/player.rhai`'s header comment), and
+typically lives (see `demos/roguelike/scripts/player.rhai`'s header comment), and
 `on_turn` reads that same state — the reverse order would mean a level's
 very first turn reads pre-init values.
 
@@ -71,7 +71,7 @@ Any per-entity value a script itself needs to remember across calls must
 go through `ctx.set_global`/`get_global` (level-scoped — resets on every
 level load) or `ctx.set_persistent`/`get_persistent` (survives level
 transitions) instead, keyed per-entity by string concatenation (e.g.
-`"hp_" + id`). See `roguelike/scripts/player.rhai` and `enemy_rat.rhai` for
+`"hp_" + id`). See `demos/roguelike/scripts/player.rhai` and `enemy_rat.rhai` for
 this in practice, including the sharp edge that comes with it: **a `get_*`
 never observes a `set_*` from earlier in the same script pass** — every
 write is deferred and only applied after every script has run that frame,
@@ -262,7 +262,7 @@ scheduling functions:
 This whole boundary is what makes a recorded/transmitted command stream
 (the eventual replay test, Step 5h; lockstep netcode, Phase 9b) fully
 determine what happens next without real key events at replay time. See
-`roguelike/scripts/player.rhai` for the full pattern, including how it
+`demos/roguelike/scripts/player.rhai` for the full pattern, including how it
 handles an action `on_turn` doesn't recognize for the player's current
 state (falls through to "no turn consumed", same as no command at all).
 
@@ -291,7 +291,7 @@ meant several actors acting in one round each paid their own animation's
 duration serially. The gate is per-actor now: a different actor's turn
 resolves immediately regardless of what's still playing, so their
 animations overlap in real time instead of stacking.
-`roguelike/scripts/enemy_rat.rhai` and `enemy_boss.rhai` call `animate_move`
+`demos/roguelike/scripts/enemy_rat.rhai` and `enemy_boss.rhai` call `animate_move`
 right alongside their own `set_position`; the player's own movement is
 deliberately left un-animated, both to avoid adding input latency to
 something that already felt instant, and because it means the player is
@@ -387,7 +387,7 @@ engine-owned state now, not smuggled through each entity's Rhai `Scope` as
 > either event reports `true` again, and keeps doing so until enough real
 > simulation steps decay it past that range (roughly 8 minutes at 60
 > steps/second). Logged as **D22** (docs/ember2d-refactor-plan.md §3), not
-> fixed — no shipped script (`roguelike/`, `shooter/`) calls any of these
+> fixed — no shipped script (`demos/roguelike/`, `demos/shooter/`) calls any of these
 > three functions today, so nothing observable is broken by it. Don't rely
 > on a single `timer_done` check being the last one that ever returns `true`
 > for a given name; a script that cares should track its own "already

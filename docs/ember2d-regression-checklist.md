@@ -14,7 +14,7 @@ stale the next time a step adds tests. This list is no longer the *only*
 safety net the way it was through Phase 3, but it's still the right net
 for anything automated tests can't reach.
 
-**Before first use:** open `roguelike/floor1.level` (or `--editor` it) —
+**Before first use:** open `demos/roguelike/floor1.level` (or `--editor` it) —
 the original `demo/` this checklist targeted is archived at
 `docs/archive/demo/` (Phase 4; see that folder's own README) and isn't run
 by anything anymore.
@@ -38,7 +38,7 @@ place to notice if it doesn't.
 - [✓] Bad path prints an error and exits without panicking
 - [✓] No args + unrecognised args print usage
 - [ ] `project.ron`'s `visual_style` drives `set_sprite_mode` on launch —
-      **not exercised**: both shipped demos (`roguelike/`, `shooter/`) use
+      **not exercised**: both shipped demos (`demos/roguelike/`, `demos/shooter/`) use
       `visual_style: ClassicASCII`; nothing in this repo sets `Sprites2D`
       to cross-check against (7B gate, 2026-09-07)
 - [✓] `project.ron`'s `gameplay_loop` is applied — confirmed by the two
@@ -134,7 +134,7 @@ place to notice if it doesn't.
 - [ ] Native file dialog (`rfd`) opens where wired
 - [ ] Grid overlay, physics overlay, help screen toggles; Escape closes help
 - [ ] Console shows script log; auto-opens on errors
-- [ ] Save, Save-As, New, Open, Close Project — **known gap, see D18** (§14): saving scrambles the level's tile order (`LevelGrid.tiles` is a `HashMap`, not sorted before writing `LevelData.tiles`). Not a reason to fail this item — tile *content* survives correctly, only *order* is unspecified — but don't use an editor-saved level to check for a clean diff, and re-run `cargo run --example gen_roguelike` if a `roguelike/*.level` file gets touched by the editor.
+- [ ] Save, Save-As, New, Open, Close Project — **known gap, see D18** (§14): saving scrambles the level's tile order (`LevelGrid.tiles` is a `HashMap`, not sorted before writing `LevelData.tiles`). Not a reason to fail this item — tile *content* survives correctly, only *order* is unspecified — but don't use an editor-saved level to check for a clean diff, and re-run `cargo run --example gen_roguelike` if a `demos/roguelike/*.level` file gets touched by the editor.
 
 ## 10. Editor — node graph
 
@@ -158,7 +158,7 @@ Only until visual scripting is shelved. Afterwards, confirm old levels with grap
       (7B gate, 2026-09-07 — green `@` at the level's authored spawn)
 - [ ] **Corrected in Step 4k**: movement is entirely script-driven as of
       Phase 4 — `PlayState` itself contains no movement code, no
-      tag-specific strings, no score. `roguelike/`'s own `player.rhai` does
+      tag-specific strings, no score. `demos/roguelike/`'s own `player.rhai` does
       turn-gated grid movement (bump-to-attack instead of colliding; no
       corridor snapping or diagonal normalization — those were
       realtime-AABB-movement concepts and no longer apply to this demo's
@@ -198,7 +198,7 @@ Only until visual scripting is shelved. Afterwards, confirm old levels with grap
 ## 12. Turn-based mode
 
 **Corrected in Step 4k: promoted to the primary play-mode section** —
-`roguelike/` is turn-based (`GameplayLoop::TurnBased`), and this is the
+`demos/roguelike/` is turn-based (`GameplayLoop::TurnBased`), and this is the
 model most of Phase 4's own automated tests (`tests/roguelike_*.rs`)
 already exercise headlessly via `TurnHarness`. This section is for what
 those tests can't see: how it actually *feels* to play.
@@ -340,7 +340,7 @@ baseline table in `docs/ember2d-phase6-plan.md` §1.
       sweep-and-prune (Step 8) land, most visibly at the 10,000-entity
       synthetic level. **Final: floor2 65% → 17%; n=10,000 synthetic 86% →
       22%.**
-- [x] Manual: `cargo run -- roguelike/floor2.level` with the F3 debug
+- [x] Manual: `cargo run -- demos/roguelike/floor2.level` with the F3 debug
       overlay feels smooth (informal cross-check against the bench numbers,
       not a replacement for them — the bench doesn't see the render path).
       **Confirmed at Step 13's conditional check: F3 overlay read `FPS:59`
