@@ -526,6 +526,10 @@ impl EditorState {
         self.unsaved
     }
 
+    pub fn script_unsaved(&self) -> bool {
+        self.script_unsaved
+    }
+
     pub fn undo_len(&self) -> usize {
         self.undo.len()
     }

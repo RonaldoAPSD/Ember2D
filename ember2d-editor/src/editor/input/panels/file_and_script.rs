@@ -94,7 +94,15 @@ impl EditorState {
                                 // file" above, which confirm
                                 // unconditionally. Used to always show
                                 // this modal, even with nothing unsaved.
-                                if self.unsaved {
+                                //
+                                // R60 (found live by the user, 2026-09-12):
+                                // `self.unsaved` alone missed a real case —
+                                // switching replaces the whole `EditorState`
+                                // (`switch_to_level`'s `*self = ns`), which
+                                // silently drops an open script buffer too.
+                                // A grid-clean level with an edited-but-not-
+                                // saved script must still confirm.
+                                if self.unsaved || self.script_unsaved {
                                     self.mode =
                                         crate::editor::EditorMode::Modal(crate::editor::Modal {
                                             title: "Switch Level?".to_string(),

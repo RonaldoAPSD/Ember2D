@@ -403,3 +403,74 @@ fn switching_levels_with_unsaved_edits_confirms_first() {
     h.key(Key::Y);
     assert_eq!(h.state.grid().width, 4, "confirming must actually load the other (4-wide) level");
 }
+
+// ── Repro: user report, 2026-09-12 — switching levels with an unsaved
+// script edit (no grid edit at all) silently discards it ──────────────────
+
+#[test]
+fn switching_levels_with_only_an_unsaved_script_edit_still_confirms_first() {
+    let dir = std::env::temp_dir()
+        .join(format!("ember2d-{}", std::process::id()))
+        .join("editor_input_switch_level_script_confirm_repro");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+    let other_path = dir.join("other.level");
+    ember2d_editor::editor::grid::LevelGrid::new(4, 4)
+        .to_level_data()
+        .save(other_path.to_str().unwrap())
+        .expect("seed level must save");
+    std::fs::write(dir.join("player.rhai"), "fn on_update(id, ctx) {}\n")
+        .expect("test script file must be writable");
+
+    let current_path = dir.join("current.level").to_string_lossy().into_owned();
+    let mut h = EditorHarness::with_state(ember2d_editor::editor::EditorState::new(&current_path));
+    h.state.open_project_folder(dir.to_string_lossy().into_owned());
+
+    open_menu(&mut h, MenuKind::View);
+    click_menu_item(&mut h, MenuKind::View, |a| matches!(a, ToolbarAction::ToggleFileBrowser));
+    h.frame();
+
+    let script_row = h
+        .state
+        .file_browser_files()
+        .iter()
+        .position(|f| f.contains("player.rhai"))
+        .expect("player.rhai must be listed");
+    let script_rect = h
+        .state
+        .ui_frame()
+        .rect_of(WidgetId::FileBrowserRow(script_row))
+        .expect("player.rhai's row was not drawn");
+    h.click(script_rect.x + 1.0, script_rect.y + 1.0);
+    assert!(matches!(h.state.mode(), EditorMode::Script), "clicking player.rhai must open the script editor");
+
+    h.type_text("// edited");
+    assert!(h.state.script_unsaved(), "typing into the script buffer must mark it dirty");
+    h.key(Key::Escape); // back to Paint — the level itself was never touched
+    assert!(!h.state.unsaved(), "no grid edit was made");
+    assert!(h.state.script_unsaved(), "the script edit is still unsaved after leaving fullscreen");
+
+    // File Browser is already visible from the toggle above — leaving it
+    // fullscreen (Escape) doesn't hide it again, unlike the toggle menu
+    // item, which would close it if clicked a second time here.
+    h.frame();
+
+    let level_row = h
+        .state
+        .file_browser_files()
+        .iter()
+        .position(|f| f.contains("other.level"))
+        .expect("other.level must be listed");
+    let level_rect = h
+        .state
+        .ui_frame()
+        .rect_of(WidgetId::FileBrowserRow(level_row))
+        .expect("other.level's row was not drawn");
+    h.click(level_rect.x + 1.0, level_rect.y + 1.0);
+
+    assert!(
+        matches!(h.state.mode(), EditorMode::Modal(_)),
+        "switching levels with an unsaved script edit (even with no grid edit) must confirm first, got {:?}",
+        h.state.mode()
+    );
+}
