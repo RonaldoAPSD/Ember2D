@@ -491,3 +491,54 @@ fn creating_a_new_level_via_the_level_menu_refreshes_the_file_browser() {
         h.state.file_browser_files()
     );
 }
+
+#[test]
+fn renaming_a_level_also_renames_its_file_on_disk() {
+    // Found live by the user (2026-09-12): "Rename Level" only ever
+    // updated `grid.name` (the title-bar display name) — the file on
+    // disk, and `save_path`, kept the old name forever, so the File
+    // Browser and the level's own displayed name silently drifted apart.
+    let dir = std::env::temp_dir()
+        .join(format!("ember2d-{}", std::process::id()))
+        .join("editor_input_rename_level_repro");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+
+    let old_path = dir.join("Test.level");
+    let mut seed = ember2d_editor::editor::grid::LevelGrid::new(4, 4);
+    seed.name = "Test".to_string();
+    seed.to_level_data().save(old_path.to_str().unwrap()).expect("seed level must save");
+
+    let mut h = EditorHarness::with_state(
+        ember2d_editor::editor::EditorState::load(old_path.to_str().unwrap()).unwrap(),
+    );
+    h.state.open_project_folder(dir.to_string_lossy().into_owned());
+    assert!(h.state.file_browser_files().iter().any(|f| f.contains("Test.level")));
+
+    open_menu(&mut h, MenuKind::Level);
+    click_menu_item(&mut h, MenuKind::Level, |a| matches!(a, ToolbarAction::RenameLevel));
+    assert!(matches!(h.state.mode(), EditorMode::Prompt(TextInputPurpose::LevelName)));
+
+    // RenameLevel seeds the prompt buffer with the current name — clear
+    // it before typing the real new name.
+    for _ in 0..h.state.prompt_buffer().chars().count() {
+        h.key(Key::Backspace);
+    }
+    h.type_text("Test4");
+    h.key(Key::Enter);
+
+    assert_eq!(h.state.grid().name, "Test4");
+    let new_path = dir.join("Test4.level");
+    assert!(new_path.exists(), "the renamed file must exist at the new name");
+    assert!(!old_path.exists(), "the old file must not be left behind under its old name");
+    assert!(
+        h.state.file_browser_files().iter().any(|f| f.contains("Test4.level")),
+        "the File Browser must show the renamed file: {:?}",
+        h.state.file_browser_files()
+    );
+    assert!(
+        !h.state.file_browser_files().iter().any(|f| f.contains("Test.level") && !f.contains("Test4")),
+        "the File Browser must not still show the old filename: {:?}",
+        h.state.file_browser_files()
+    );
+}

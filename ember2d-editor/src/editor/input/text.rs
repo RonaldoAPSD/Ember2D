@@ -8,6 +8,7 @@ use super::super::EditorState;
 use super::super::TextInputPurpose;
 use super::super::{DEFAULT_LEVEL_H, DEFAULT_LEVEL_W};
 use ember2d::input::Key;
+use ember2d_sim::scripting::LogEntry;
 
 impl EditorState {
     /// 7C-4 (master plan §5.3): `purpose` comes in owned from `mode` (moved
@@ -45,11 +46,38 @@ impl EditorState {
             self.mode = EditorMode::Paint(ToolKind::Paint);
             match purpose {
                 TextInputPurpose::LevelName => {
-                        if !buffer.is_empty() {
-                            self.grid.name = buffer;
-                            self.unsaved = true;
+                    if !buffer.is_empty() {
+                        self.grid.name = buffer.clone();
+                        self.unsaved = true;
+
+                        // Found live by the user (2026-09-12): renaming a
+                        // level only ever updated `grid.name` (the
+                        // in-memory/title-bar display name) — the file on
+                        // disk, and `save_path`, kept the old name
+                        // forever, so the File Browser and the level's
+                        // own displayed name silently drifted apart. If a
+                        // file already exists at the old `save_path`,
+                        // rename it alongside; either way, `save_path`
+                        // itself always moves to match so the next save
+                        // lands at the new name instead of the old one.
+                        if let Some(parent) = std::path::Path::new(&self.save_path).parent() {
+                            let new_path =
+                                parent.join(format!("{}.level", buffer)).to_string_lossy().into_owned();
+                            if new_path != self.save_path {
+                                if std::path::Path::new(&self.save_path).exists() {
+                                    if let Err(e) = std::fs::rename(&self.save_path, &new_path) {
+                                        self.console_log.push(LogEntry::error(format!(
+                                            "Failed to rename level file: {}",
+                                            e
+                                        )));
+                                    }
+                                }
+                                self.save_path = new_path;
+                                self.refresh_project_files();
+                            }
                         }
                     }
+                }
                     TextInputPurpose::SaveAs => {
                         if !buffer.is_empty() {
                             self.save_path = buffer;
