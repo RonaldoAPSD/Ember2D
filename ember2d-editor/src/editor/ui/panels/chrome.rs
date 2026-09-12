@@ -12,11 +12,11 @@ use super::super::rect::UiRect;
 use super::super::types::*;
 use super::super::widgets::{draw_button, draw_row};
 use crate::editor::palette::TilePalette;
-use ember2d::renderer::{color::Color, Font, Renderer};
+use ember2d::renderer::{color::Color, DrawSurface, Font};
 use ember2d_sim::level::TileRecord;
 
 pub fn draw_title_bar(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
     level_name: &str,
     unsaved: bool,
@@ -25,7 +25,7 @@ pub fn draw_title_bar(
     scroll: (f32, f32),
     level_size: (usize, usize),
 ) {
-    renderer.draw_rect_filled(0, 0, renderer.width, 1, ' ', Color::White, Color::DarkBlue);
+    renderer.draw_rect_filled(0, 0, renderer.width(), 1, ' ', Color::White, Color::DarkBlue);
     renderer.draw_str(1, 0, "EMBER2D EDITOR", Color::White, Color::DarkBlue);
 
     let saved_marker = if unsaved { "*" } else { " " };
@@ -38,12 +38,12 @@ pub fn draw_title_bar(
         "{}{}  {}×{}{}  U:{} R:{}",
         saved_marker, level_name, level_size.0, level_size.1, scroll_str, undo_count, redo_count
     );
-    let col = renderer.width.saturating_sub(cells(font, &info) + 1);
+    let col = renderer.width().saturating_sub(cells(font, &info) + 1);
     renderer.draw_str(col, 0, &info, Color::Yellow, Color::DarkBlue);
 }
 
 pub fn draw_status_bar(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     mouse: &ember2d::mouse::MouseState,
     _palette: &TilePalette,
     grid_overlay: bool,
@@ -57,8 +57,8 @@ pub fn draw_status_bar(
     canvas_y: usize,
     zoom: f32,
 ) {
-    let status_row = renderer.height - 1;
-    renderer.draw_rect_filled(0, status_row, renderer.width, 1, ' ', Color::White, Color::DarkGrey);
+    let status_row = renderer.height() - 1;
+    renderer.draw_rect_filled(0, status_row, renderer.width(), 1, ' ', Color::White, Color::DarkGrey);
     let cx = mouse.cell_x.saturating_sub(canvas_x) as f32 / zoom + scroll.0;
     let cy = mouse.cell_y.saturating_sub(canvas_y) as f32 / zoom + scroll.1;
     let pos_str = format!(" ({:3.1},{:3.1})", cx, cy);
@@ -108,7 +108,7 @@ pub fn draw_status_bar(
 /// single-panel dock's title row still claimed an invisible "tab" hitbox
 /// over its first `title.len()+2` cells even though no tab was ever drawn.
 pub fn draw_dock_tabs(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
     x: usize,
     y: usize,
@@ -143,7 +143,7 @@ pub fn draw_dock_tabs(
 }
 
 pub fn draw_text_input(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
     prompt: &str,
     buffer: &str,
@@ -222,7 +222,7 @@ pub fn draw_text_input(
 }
 
 pub fn draw_confirm_modal(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
     title: &str,
     message: &str,
@@ -260,15 +260,15 @@ pub fn draw_confirm_modal(
     draw_button(renderer, frame, WidgetId::ConfirmNo, no_x, btn_y, 9, " [ NO ]  ", Color::White, Color::Black);
 }
 
-pub fn draw_context_menu(renderer: &mut Renderer, menu: &ContextMenu, frame: &mut UiFrame) {
+pub fn draw_context_menu(renderer: &mut dyn DrawSurface, menu: &ContextMenu, frame: &mut UiFrame) {
     let mw = 20usize;
     let mh = menu.items.len() + 2;
     let mx = menu.x;
     let my = menu.y;
 
     // Boundary check
-    let mx = if mx + mw > renderer.width { renderer.width.saturating_sub(mw) } else { mx };
-    let my = if my + mh > renderer.height { renderer.height.saturating_sub(mh) } else { my };
+    let mx = if mx + mw > renderer.width() { renderer.width().saturating_sub(mw) } else { mx };
+    let my = if my + mh > renderer.height() { renderer.height().saturating_sub(mh) } else { my };
 
     // Fill background
     renderer.draw_rect_filled(mx, my, mw, mh, ' ', Color::White, Color::DarkGrey);

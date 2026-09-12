@@ -88,6 +88,23 @@ impl EditorState {
                 return;
             }
             EditorMode::Script => {
+                // Found live by the user (2026-09-12): every other
+                // hard-exclusive arm's own handler restores `self.mode`
+                // as its first action (see `handle_color_picker_input`/
+                // `handle_palette_editor_input`/`handle_place_spawn_input`/
+                // `handle_palette_search_input`'s own first lines) since
+                // `std::mem::take` above already emptied it to
+                // `EditorMode::default()`. This arm never did — a unit
+                // variant has no payload to reconstruct the handler side,
+                // so it's restored here instead, before the call.
+                // Without it, `handle_script_mode_input`'s own
+                // `fullscreen = matches!(self.mode, EditorMode::Script)`
+                // always read `false` (mode was already `Paint` by the
+                // time it ran), and `self.mode` stayed `Paint` for
+                // `draw()` to read — the fullscreen editor rendered for
+                // the one frame `load_script` set it, then silently
+                // reverted on every frame after, invisible at 60fps.
+                self.mode = EditorMode::Script;
                 self.handle_script_mode_input(input, mouse);
                 return;
             }

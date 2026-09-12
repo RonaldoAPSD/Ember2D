@@ -2,6 +2,7 @@
 
 use ember2d::engine::RenderContext;
 use ember2d::renderer::color::Color;
+use ember2d::renderer::DrawSurface;
 
 use super::graph_ui;
 use super::panel::{draw_panel_chrome, DockSide, PanelId};
@@ -15,13 +16,13 @@ use super::TextInputPurpose;
 impl EditorState {
     pub(super) fn render_graph_mode(
         &mut self,
-        renderer: &mut ember2d::renderer::Renderer,
+        renderer: &mut dyn DrawSurface,
         mouse: &ember2d::mouse::MouseState,
         gx: i32,
         gy: i32,
     ) {
-        let sw = renderer.width;
-        let sh = renderer.height;
+        let sw = renderer.width();
+        let sh = renderer.height();
 
         // Resolve graph reference
         let graph = match self.grid.get(gx, gy, self.active_layer).and_then(|t| t.graph.as_ref()) {
@@ -89,9 +90,9 @@ impl EditorState {
 }
 
 impl EditorState {
-    pub(super) fn render_script_mode(&mut self, renderer: &mut ember2d::renderer::Renderer) {
-        let sw = renderer.width;
-        let sh = renderer.height;
+    pub(super) fn render_script_mode(&mut self, renderer: &mut dyn DrawSurface) {
+        let sw = renderer.width();
+        let sh = renderer.height();
 
         // Title bar
         let title = match &self.script_path {
@@ -132,7 +133,20 @@ impl EditorState {
 impl EditorState {
     pub(super) fn handle_render(&mut self, ctx: RenderContext) {
         let RenderContext { renderer, mouse, .. } = ctx;
+        self.draw(renderer, mouse);
+    }
 
+    /// The real drawing body — was `handle_render`'s own, taking the full
+    /// `RenderContext` directly. Split out (7C-5, master plan §5.3) so it
+    /// can run against any `DrawSurface`, not just a concrete `Renderer`:
+    /// `EditorHarness` (`ember2d-editor/tests/common/mod.rs`) calls this
+    /// with a `NullRenderer` to populate `self.ui_frame` headlessly — the
+    /// same `UiFrame::push` calls 7C-1 already made part of drawing itself
+    /// run regardless of what actually consumes the draw calls. The real
+    /// `GameState::render`/`handle_render` path above still always passes
+    /// a concrete `Renderer`, auto-coerced to `&mut dyn DrawSurface` at
+    /// this call site — no change to how the live app renders.
+    pub fn draw(&mut self, renderer: &mut dyn DrawSurface, mouse: &ember2d::mouse::MouseState) {
         // Phase 7 Part 1d (docs/ember2d-phase7-plan.md): fresh every render
         // pass, unconditionally — see `ui_frame`'s own doc comment and
         // `ui/frame.rs`'s header comment for the one-frame lag this implies
@@ -161,15 +175,15 @@ impl EditorState {
         // sizing. `viewport` is the panel's CONTENT rect (inside its
         // border/title bar) — what `Layout.canvas_x`/`y`/`w`/`h` used to
         // mean, now read from the one place that actually knows it.
-        self.panels.apply_layout(renderer.pixel_width, renderer.pixel_height);
+        self.panels.apply_layout(renderer.pixel_width(), renderer.pixel_height());
         let viewport = self.panels.viewport().content_rect();
-        let (screen_w, screen_h) = (renderer.width, renderer.height);
+        let (screen_w, screen_h) = (renderer.width(), renderer.height());
 
         renderer.draw_rect_filled(
             0,
             0,
-            renderer.width,
-            renderer.height,
+            renderer.width(),
+            renderer.height(),
             ' ',
             Color::Reset,
             Color::Reset,

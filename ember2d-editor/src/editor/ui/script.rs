@@ -1,9 +1,9 @@
 // editor/ui/script.rs — Script editor rendering and Rhai syntax highlighting.
 
-use ember2d::renderer::{color::Color, Renderer};
+use ember2d::renderer::{color::Color, DrawSurface};
 
 pub fn draw_script_editor(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     path: Option<&str>,
     buffer: &[String],
     cursor: (usize, usize),
@@ -70,7 +70,7 @@ pub fn draw_script_editor(
 }
 
 fn draw_highlighted_rhai(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     x: usize,
     y: usize,
     line: &str,

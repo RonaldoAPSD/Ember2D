@@ -521,15 +521,10 @@ impl Engine {
         };
         let _ = self.event_loop.pump_app_events(Some(Duration::ZERO), &mut pump);
 
-        // R12 (7A-2, docs/ember2d-master-plan.md): the other half of
-        // InputManager's text-capture mechanism — see
-        // `text_capture_requested`'s own doc comment (input.rs). Whichever
-        // widget wants this frame's `text_buffer` must have called
-        // `begin_text_capture` during last frame's update (the only point
-        // in the loop before this one that could have); if nothing did,
-        // clear it now rather than let it silently carry into whatever
-        // becomes focused next.
-        self.input.finish_frame_text_capture();
+        // R55 (7C-5 follow-up, docs/ember2d-master-plan.md §5.1): used to
+        // also call `self.input.finish_frame_text_capture()` here — see
+        // `run()`'s own comment on why that's wrong and where the call
+        // moved instead.
     }
 
     /// Main engine execution loop.
@@ -610,6 +605,29 @@ impl Engine {
                     if steps >= MAX_SIM_STEPS {
                         self.simulation_accumulator = 0.0;
                     }
+                    // R55 (7C-5 follow-up, docs/ember2d-master-plan.md
+                    // §5.1): used to be an unconditional call inside
+                    // `poll_events` (once per REAL frame) instead of here
+                    // (once per completed step, when one actually ran).
+                    // `begin_text_capture` — the only thing that can
+                    // renew a capture request — only ever runs inside
+                    // `update()`, i.e. inside a step; on any display
+                    // faster than 60Hz, the accumulator above legitimately
+                    // produces real frames with `steps == 0` (not enough
+                    // real time has accumulated for a full `SIM_DT` yet).
+                    // Calling `finish_frame_text_capture` on one of those
+                    // frames anyway found nothing renewed it (nothing
+                    // COULD have, no step ran) and wiped `text_buffer` —
+                    // discarding whatever `poll_events` just captured from
+                    // real keystrokes typed during that same light frame.
+                    // At a typical 144Hz refresh, roughly half of all
+                    // frames run zero steps, so this silently dropped
+                    // scattered characters out of ordinary fast typing —
+                    // found live by the user testing the script editor
+                    // this step's own fix just made reachable.
+                    if steps > 0 {
+                        self.input.finish_frame_text_capture();
+                    }
                 } else {
                     // Turn-based mode still only runs one step per frame,
                     // but a buffered press may have been waiting several
@@ -650,6 +668,13 @@ impl Engine {
                         return Ok(Some(Transition::Quit));
                     }
                     self.simulation_accumulator = 0.0;
+                    // R55 (docs/ember2d-master-plan.md §5.1): turn-based
+                    // mode always runs exactly one step per frame (above,
+                    // unconditionally), so `finish_frame_text_capture` is
+                    // always paired with a step here too — see the
+                    // RealTime branch's own note for why that pairing is
+                    // the actual fix, not just where the call moved to.
+                    self.input.finish_frame_text_capture();
                 }
             }
 

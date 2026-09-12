@@ -11,10 +11,10 @@ use super::super::frame::{UiFrame, WidgetId};
 use super::super::rect::UiRect;
 use super::super::types::*;
 use super::super::widgets::{draw_button, draw_swatch, PALETTE_COLORS};
-use ember2d::renderer::{color::Color, Font, Renderer};
+use ember2d::renderer::{color::Color, DrawSurface, Font};
 
 pub fn draw_palette_editor_modal(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     pal: &crate::editor::palette::TileDefinition,
     focus: Option<&crate::editor::PaletteField>,
     screen_w: usize,
@@ -170,7 +170,7 @@ pub fn draw_palette_editor_modal(
 }
 
 pub fn draw_color_picker_modal(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     hsv: (f32, f32, f32),
     is_fg: bool,
     screen_w: usize,
@@ -267,7 +267,7 @@ pub fn draw_color_picker_modal(
     draw_button(renderer, frame, WidgetId::ColorPickerCancel, mx + mw - 14, btn_y, 12, " [ Cancel ] ", Color::White, Color::Black);
 }
 
-pub fn draw_color_picker(renderer: &mut Renderer, x: usize, y: usize, w: usize) {
+pub fn draw_color_picker(renderer: &mut dyn DrawSurface, x: usize, y: usize, w: usize) {
     renderer.draw_rect_filled(x, y, w, 3, ' ', Color::White, Color::Black);
     for (i, &col) in PALETTE_COLORS.iter().enumerate() {
         let cx = x + 1 + (i % 8) * 2;
@@ -277,7 +277,7 @@ pub fn draw_color_picker(renderer: &mut Renderer, x: usize, y: usize, w: usize) 
 }
 
 pub fn draw_help_overlay(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
     cx: usize,
     cy: usize,

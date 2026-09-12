@@ -12,7 +12,7 @@ use super::super::types::*;
 use super::super::widgets::draw_row;
 use crate::editor::grid::LevelGrid;
 use crate::editor::palette::TilePalette;
-use ember2d::renderer::{color::Color, Font, Renderer};
+use ember2d::renderer::{color::Color, DrawSurface, Font};
 use ember2d_sim::level::TileRecord;
 use ember2d_sim::scripting::{LogEntry, LogLevel};
 use std::collections::HashMap;
@@ -28,7 +28,7 @@ use std::collections::HashMap;
 /// 10-cell drawn width — both now register exactly what's drawn, nothing more
 /// or less.
 pub fn draw_palette_panel(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
     palette: &TilePalette,
     mode: Option<&str>,
@@ -148,7 +148,7 @@ pub fn draw_palette_panel(
 }
 
 pub fn draw_stats_panel(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     grid: &LevelGrid,
     palette: &TilePalette,
     cx: usize,
@@ -181,7 +181,7 @@ pub fn draw_stats_panel(
 }
 
 pub fn draw_console(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     log: &[LogEntry],
     cx: usize,
     cy: usize,
@@ -224,7 +224,7 @@ pub fn draw_console(
 /// ever pushed from inside the exact same guard that drew it, that's no
 /// longer possible.
 pub fn draw_inspector(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     tile: Option<&TileRecord>,
     pos: Option<(i32, i32)>,
     mode_tag: &str,
@@ -398,7 +398,7 @@ pub fn draw_inspector(
 
 #[allow(clippy::too_many_arguments)]
 pub fn draw_hierarchy(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     grid: &LevelGrid,
     hier_sel: Option<HierarchySelection>,
     hx: usize,
@@ -437,7 +437,7 @@ pub fn draw_hierarchy(
 
 #[allow(clippy::too_many_arguments)]
 pub fn draw_file_browser_panel(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     files: &[String],
     cursor: usize,
     scroll: usize,

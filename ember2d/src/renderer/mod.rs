@@ -3,6 +3,7 @@
 pub mod assets;
 pub mod backend;
 pub mod color;
+mod draw_surface;
 pub mod font;
 pub mod texture;
 
@@ -16,6 +17,7 @@ use winit::window::Window;
 pub use assets::AssetManager;
 pub use backend::WgpuBackend;
 pub use color::{Color, DEFAULT_BG, DEFAULT_FG};
+pub use draw_surface::{DrawSurface, NullRenderer};
 pub use font::{ui_font_from_env, BitmapFont, Font, GlyphInfo, TtfFont, UiFontKind};
 pub use texture::{Texture, TextureId};
 

@@ -2,7 +2,7 @@
 
 use super::rect::UiRect;
 use crate::editor::grid::LevelGrid;
-use ember2d::renderer::{color::Color, Renderer};
+use ember2d::renderer::{color::Color, DrawSurface};
 use ember2d_sim::level::TileRecord;
 
 /// Width/height of one character cell in pixels, re-exported from
@@ -29,7 +29,7 @@ pub fn grid_to_pixel(gx: i32, gy: i32, scroll: (f32, f32), zoom: f32, viewport: 
 
 #[allow(clippy::too_many_arguments)]
 pub fn draw_scaled_tile(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     gx: i32,
     gy: i32,
     glyph: char,
@@ -60,7 +60,7 @@ pub fn draw_scaled_tile(
 }
 
 pub fn draw_grid(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     grid: &LevelGrid,
     active_layer: u8,
     scroll: (f32, f32),
@@ -114,7 +114,7 @@ fn dim_color(c: Color) -> Color {
 }
 
 pub fn draw_grid_overlay(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     grid: &LevelGrid,
     scroll: (f32, f32),
     zoom: f32,
@@ -144,7 +144,7 @@ pub fn draw_grid_overlay(
 }
 
 pub fn draw_void(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     grid: &LevelGrid,
     scroll: (f32, f32),
     zoom: f32,
@@ -166,7 +166,7 @@ pub fn draw_void(
 }
 
 pub fn draw_level_boundary(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     grid: &LevelGrid,
     scroll: (f32, f32),
     zoom: f32,
@@ -184,7 +184,7 @@ pub fn draw_level_boundary(
 }
 
 pub fn draw_cursor_highlight(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     mouse: &ember2d::mouse::MouseState,
     palette: &crate::editor::palette::TilePalette,
     select_mode: bool,
@@ -231,7 +231,7 @@ pub fn draw_cursor_highlight(
 }
 
 pub fn draw_spawn_marker(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     spawn: (f32, f32),
     scroll: (f32, f32),
     zoom: f32,
@@ -251,7 +251,7 @@ pub fn draw_spawn_marker(
 }
 
 pub fn draw_extra_spawns(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     spawns: &[(String, f32, f32)],
     scroll: (f32, f32),
     zoom: f32,
@@ -290,7 +290,7 @@ pub fn draw_extra_spawns(
 }
 
 pub fn draw_rect_preview(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     anchor: (i32, i32),
     current: (i32, i32),
     glyph: char,
@@ -310,7 +310,7 @@ pub fn draw_rect_preview(
 }
 
 pub fn draw_line_preview(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     anchor: (i32, i32),
     current: (i32, i32),
     glyph: char,
@@ -324,7 +324,7 @@ pub fn draw_line_preview(
 }
 
 pub fn draw_selection_preview(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     anchor: (i32, i32),
     current: (i32, i32),
     scroll: (f32, f32),
@@ -365,7 +365,7 @@ pub fn draw_selection_preview(
 
 #[allow(clippy::too_many_arguments)]
 pub fn draw_paste_preview(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     clipboard: &[(i32, i32, TileRecord)],
     cursor: (i32, i32),
     flip_x: bool,
@@ -441,7 +441,7 @@ pub fn transform_offset(
 }
 
 pub fn draw_physics_overlay(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     grid: &LevelGrid,
     active_layer: u8,
     scroll: (f32, f32),
@@ -474,7 +474,7 @@ pub fn draw_physics_overlay(
 }
 
 pub fn draw_erase_preview(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     grid_pos: (i32, i32),
     erase_size: usize,
     scroll: (f32, f32),

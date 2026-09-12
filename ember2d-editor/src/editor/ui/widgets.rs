@@ -29,7 +29,7 @@
 
 use super::frame::{UiFrame, WidgetId};
 use super::rect::UiRect;
-use ember2d::renderer::{color::Color, Renderer};
+use ember2d::renderer::{color::Color, DrawSurface};
 
 /// A single clickable line of text — every modal "button" (confirm
 /// Yes/No, the advanced color picker's Apply/Cancel/title-close) is
@@ -37,7 +37,7 @@ use ember2d::renderer::{color::Color, Renderer};
 /// target.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_button(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     frame: &mut UiFrame,
     id: WidgetId,
     x: usize,
@@ -55,7 +55,7 @@ pub fn draw_button(
 /// rows, and graph-palette rows are all this shape.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_row(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     frame: &mut UiFrame,
     id: WidgetId,
     x: usize,
@@ -74,7 +74,7 @@ pub fn draw_row(
 /// glyph, `w` its cell width (3, to match the grid's own spacing).
 #[allow(clippy::too_many_arguments)]
 pub fn draw_swatch(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     frame: &mut UiFrame,
     id: WidgetId,
     x: usize,
@@ -98,7 +98,7 @@ pub fn draw_swatch(
 /// pushed at the exact point it's drawn.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_menu_item(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     frame: &mut UiFrame,
     id: WidgetId,
     x: usize,

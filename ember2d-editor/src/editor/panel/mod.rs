@@ -34,7 +34,7 @@
 
 pub use super::ui::{DockSide, PanelId};
 use super::ui::{UiFrame, UiRect, WidgetId};
-use ember2d::renderer::{color::Color, Renderer};
+use ember2d::renderer::{color::Color, DrawSurface};
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
 
@@ -644,7 +644,7 @@ impl PanelManager {
 /// itself to `fill_rect_px`/`draw_nine_slice` is Part 4's job; the hit
 /// rects pushed here are pixels regardless (`panel.rect` and
 /// `UiRect::from_cells`), matching every other `UiFrame` entry.
-pub fn draw_panel_chrome(renderer: &mut Renderer, panel: &Panel, frame: &mut UiFrame) {
+pub fn draw_panel_chrome(renderer: &mut dyn DrawSurface, panel: &Panel, frame: &mut UiFrame) {
     let x = panel.cell_x().max(0) as usize;
     let y = panel.cell_y().max(0) as usize;
     let w = panel.cell_w();

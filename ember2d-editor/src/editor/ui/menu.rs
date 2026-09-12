@@ -3,7 +3,7 @@
 use super::frame::{UiFrame, WidgetId};
 use super::rect::UiRect;
 use super::types::*;
-use ember2d::renderer::{color::Color, Font, Renderer};
+use ember2d::renderer::{color::Color, DrawSurface, Font};
 
 pub const MENU_W: usize = 22;
 
@@ -224,14 +224,14 @@ fn is_action_enabled(action: &ToolbarAction, ms: &MenuState) -> bool {
 /// for every mode this indicator shows (`ui/menu.rs` has no reason to
 /// depend on `editor::EditorMode` just to render six words).
 pub fn draw_menu_toolbar(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
     active_menu: Option<MenuKind>,
     mode_label: &str,
     frame: &mut UiFrame,
 ) {
     let row = TOOLBAR_ROW;
-    renderer.draw_rect_filled(0, row, renderer.width, 1, ' ', Color::White, Color::DarkGrey);
+    renderer.draw_rect_filled(0, row, renderer.width(), 1, ' ', Color::White, Color::DarkGrey);
     for &(col, label, kind) in menu_label_defs() {
         let open = active_menu == Some(kind);
         let (fg, bg) =
@@ -245,12 +245,12 @@ pub fn draw_menu_toolbar(
         );
     }
     let indicator = format!("[ {} ]", mode_label);
-    let col = renderer.width.saturating_sub(cells(font, &indicator) + 1);
+    let col = renderer.width().saturating_sub(cells(font, &indicator) + 1);
     renderer.draw_str(col, row, &indicator, Color::Cyan, Color::DarkGrey);
 }
 
 pub fn draw_menu_dropdown(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     menu: MenuKind,
     mouse_col: usize,
     mouse_row: usize,

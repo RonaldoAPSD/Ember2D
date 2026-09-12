@@ -389,6 +389,80 @@ impl EditorState {
         self.refresh_project_files();
     }
 
+    // ── Read-only accessors (7C-5, master plan §5.3) ───────────────────────
+    //
+    // `EditorState`'s fields are `pub(super)` — deliberately narrow, since
+    // most of them are mutated through dozens of call sites that all rely
+    // on `EditorMode`/undo/panel invariants holding. `EditorHarness`
+    // (`ember2d-editor/tests/common/mod.rs`) is a genuinely external crate
+    // (an integration test binary), so it can only see `pub` items —
+    // these are exactly the read-only observations that step's own tests
+    // need to assert on, and no more: what mode is active, what got
+    // painted, which widget frame a click would see, and the current
+    // panel layout. None of these exist to be mutated from outside; there
+    // is no `pub fn set_mode` or similar alongside them.
+
+    pub fn mode(&self) -> &EditorMode {
+        &self.mode
+    }
+
+    pub fn ui_frame(&self) -> &UiFrame {
+        &self.ui_frame
+    }
+
+    pub fn panels(&self) -> &PanelManager {
+        &self.panels
+    }
+
+    pub fn active_menu(&self) -> Option<MenuKind> {
+        self.active_menu
+    }
+
+    pub fn grid(&self) -> &LevelGrid {
+        &self.grid
+    }
+
+    pub fn focused_panel(&self) -> Option<PanelId> {
+        self.focused_panel
+    }
+
+    /// `true` when global shortcuts apply — `false` while the script
+    /// editor (fullscreen or docked-and-focused) owns the keyboard. A
+    /// plain `bool` rather than exposing `EditorFocus` itself, which is
+    /// `pub(crate)` (see its own doc comment) — this is the one bit of it
+    /// a test actually needs.
+    pub fn focus_is_canvas(&self) -> bool {
+        self.focus() == EditorFocus::Canvas
+    }
+
+    pub fn script_buffer(&self) -> &[String] {
+        &self.script_buffer
+    }
+
+    pub fn prompt_buffer(&self) -> &str {
+        &self.prompt_buffer
+    }
+
+    pub fn rect_anchor(&self) -> Option<(i32, i32)> {
+        self.rect_anchor
+    }
+
+    pub fn show_physics(&self) -> bool {
+        self.show_physics
+    }
+
+    pub fn show_grid(&self) -> bool {
+        self.show_grid
+    }
+
+    pub fn active_layer(&self) -> u8 {
+        self.active_layer
+    }
+
+    pub fn unsaved(&self) -> bool {
+        self.unsaved
+    }
+
     pub(super) fn load_palette(&mut self) {
         if let Some(ref folder) = self.project_folder {
             let path = format!("{}/project.palette.ron", folder);

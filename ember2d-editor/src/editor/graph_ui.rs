@@ -6,7 +6,7 @@
 // this half — which needs the renderer — stayed in `editor`.
 
 use super::ui::{draw_row, UiFrame, WidgetId};
-use ember2d::renderer::{color::Color, Font, Renderer};
+use ember2d::renderer::{color::Color, DrawSurface, Font};
 use ember2d_sim::graph::*;
 
 pub const NODE_MIN_W: usize = 20;
@@ -48,7 +48,7 @@ pub fn port_screen_pos(
 }
 
 pub fn draw_node(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
     node: &Node,
     selected: bool,
@@ -120,7 +120,7 @@ pub fn draw_node(
 }
 
 pub fn draw_wire(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     ox: i32,
     oy: i32,
     ix: i32,
@@ -173,7 +173,7 @@ pub fn draw_wire(
 }
 
 pub fn draw_graph(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
     graph: &NodeGraph,
     selected_node: Option<NodeId>,
@@ -264,7 +264,7 @@ pub fn draw_graph(
 
 #[allow(clippy::too_many_arguments)]
 pub fn draw_palette(
-    renderer: &mut Renderer,
+    renderer: &mut dyn DrawSurface,
     scroll: usize,
     cursor: usize,
     px: usize,

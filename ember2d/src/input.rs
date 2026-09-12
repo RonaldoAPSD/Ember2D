@@ -246,18 +246,30 @@ pub struct InputManager {
     pub text_buffer: String,
 
     /// R12 (7A-2, docs/ember2d-master-plan.md): set by `begin_text_capture`
-    /// when some focused widget wants this frame's `text_buffer` — checked
-    /// (and reset) by `finish_frame_text_capture`, which `Engine::poll_events`
-    /// calls once per frame. Without this, `text_buffer` had exactly one
-    /// consumer (`take_text`, called only from the level editor's modal text
-    /// prompt) while several OTHER editor surfaces (script editor, palette
-    /// editor, palette search, graph param fields) typed via the older
-    /// `key_to_char`/`just_pressed` path and never touched `text_buffer` at
-    /// all — so every keystroke typed anywhere else silently piled up here,
-    /// unconsumed, until whenever a prompt next opened, which then received
-    /// the entire backlog in one `take_text()` call. Now: no consumer this
-    /// frame means the buffer is wiped before it can carry over to a later,
-    /// unrelated one.
+    /// when some focused widget wants this step's `text_buffer` — checked
+    /// (and reset) by `finish_frame_text_capture`. Without this,
+    /// `text_buffer` had exactly one consumer (`take_text`, called only
+    /// from the level editor's modal text prompt) while several OTHER
+    /// editor surfaces (script editor, palette editor, palette search,
+    /// graph param fields) typed via the older `key_to_char`/`just_pressed`
+    /// path and never touched `text_buffer` at all — so every keystroke
+    /// typed anywhere else silently piled up here, unconsumed, until
+    /// whenever a prompt next opened, which then received the entire
+    /// backlog in one `take_text()` call. Now: no consumer since the last
+    /// check means the buffer is wiped before it can carry over to a
+    /// later, unrelated one.
+    ///
+    /// R55 (7C-5 follow-up, docs/ember2d-master-plan.md §5.1): despite the
+    /// name, `finish_frame_text_capture` is called once per completed
+    /// SIMULATION STEP now, not once per real frame — `Engine::run` calls
+    /// it right after a step actually ran (`sim::step`, the only place
+    /// `begin_text_capture` can be called from), not from
+    /// `Engine::poll_events` unconditionally. A real frame under
+    /// `GameplayLoop::RealTime`'s fixed-timestep accumulator can complete
+    /// with zero steps (any display faster than 60Hz produces these
+    /// constantly) — checking on one of those wiped `text_buffer` out from
+    /// under keystrokes `poll_events` had just captured that same frame,
+    /// since nothing could have renewed the request yet.
     text_capture_requested: bool,
 
     /// Set to true when the window is closed or a quit signal is received.
@@ -306,20 +318,24 @@ impl InputManager {
         std::mem::take(&mut self.text_buffer)
     }
 
-    /// Called by whichever widget currently wants this frame's captured
+    /// Called by whichever widget currently wants this step's captured
     /// text (a text prompt, the palette editor/search, a graph param field,
     /// the script editor) — see `text_capture_requested`'s own doc comment.
-    /// Must be called every frame the widget stays focused; it only protects
-    /// the frame it's called in.
+    /// Must be called every simulation step the widget stays focused (not
+    /// every real frame — see R55 on `text_capture_requested`); it only
+    /// protects the check that runs right after the step it's called in.
     pub fn begin_text_capture(&mut self) {
         self.text_capture_requested = true;
     }
 
-    /// `Engine::poll_events`'s end-of-frame half of the mechanism described
-    /// on `text_capture_requested`: if nothing asked to keep this frame's
+    /// `Engine::run`'s post-step half of the mechanism described on
+    /// `text_capture_requested`: if nothing asked to keep this step's
     /// text, wipe it now so it can never carry over into a future,
-    /// unrelated consumer. Either way, the request is one-shot — it must be
-    /// renewed every frame via `begin_text_capture`.
+    /// unrelated consumer. Either way, the request is one-shot — it must
+    /// be renewed every step via `begin_text_capture`. R55
+    /// (docs/ember2d-master-plan.md §5.1): must be called only when a
+    /// step actually ran (never unconditionally per real frame) — see
+    /// `Engine::run`'s own call sites for why.
     pub fn finish_frame_text_capture(&mut self) {
         if !self.text_capture_requested {
             self.text_buffer.clear();
