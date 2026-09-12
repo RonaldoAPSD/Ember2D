@@ -232,7 +232,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | D15 | S2 | Real runtime error swallowed if message contained "Function not found" | `scripting/engine.rs` | `[x]` Phase 4 |
 | D16 | S2 | Script HUD vanished on pause | `play.rs`, `scripting/engine.rs` | `[x]` Phase 4 Step 4g |
 | D17 | S1 | Save/load lost script globals | `save.rs`, `play.rs` | `[x]` Phase 5 Step 5c — **round trip still not faithful, see R7** |
-| D18 | S2 | Editor save scrambles tile order (HashMap) | `editor/grid.rs:202` | `[ ]` → **7C-6** |
+| D18 | S2 | Editor save scrambles tile order (HashMap) | `editor/grid.rs:202` | `[x]` 7C-6 (`b2a608f`) — `LevelGrid::tiles` is now a `BTreeMap`; `to_level_data` additionally sorts the collected `Vec<TileRecord>` by `(layer, y, x)` to match `gen_roguelike`'s on-disk convention (the map's own key order is `(x, y, layer)`, wrong for this purpose on its own) |
 | D19 | S2 | Keypress dropped during enemy animation | `play.rs` | `[x]` Phase 6 |
 | D20 | S2 | Animations stacked serially into input freeze | `play.rs` | `[x]` Phase 6 |
 | D21 | S3 | `check_hot_reload` syscall per script per step | `scripting/engine.rs` | `[x]` Phase 6 Step 6 |
@@ -306,6 +306,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R56 | S2 | A brand-new project's level files never appeared in the File Browser even after confirming on disk they existed — found live by the user manually testing New Project → new level creation. Two related gaps, neither in code this session touched before finding them: (1) `TextInputPurpose::NewLevelName`'s commit handler wrote the new `.level` file to disk but never called `refresh_project_files` (every sibling file-creating action — New Script, a level-switch confirm — already did); (2) plain `save()` (Ctrl+S/`S`) never did either, which matters specifically the first time a brand-new project's level is saved (no prior file at that path for the browser to have already listed) | `ember2d-editor/src/editor/input/text.rs` (`NewLevelName` arm); `ember2d-editor/src/editor/impl_state/mod.rs` (`save`) | `[x]` 7C-5 follow-up (`b065b54`) — `self.refresh_project_files()` added to both success paths. Regression tests: `saving_a_brand_new_level_for_the_first_time_refreshes_the_file_browser`, `creating_a_new_level_via_the_level_menu_refreshes_the_file_browser` (`editor_input.rs`) — new `EditorHarness::with_state` constructor and `EditorState::file_browser_files()` accessor added to make them possible. `cargo test --workspace`: 281 (255 + 26), all pass; `cargo clippy --workspace --lib` unchanged at 56; `scripts/check.ps1` clean |
 | R57 | S2 | "Rename Level" only ever updated `grid.name` (the title-bar display name) — the file on disk, and `save_path`, kept the old name forever, so a renamed level's File Browser entry and its own displayed name silently drifted apart — found live by the user manually testing (screenshot: title bar read "Test4" while the File Browser still listed "Test.level"/"Test2.level"/"Test3.level" from earlier renames, none of them ever cleaned up) | `ember2d-editor/src/editor/input/text.rs` (`TextInputPurpose::LevelName` arm) | `[x]` 7C-5 follow-up (`ff1cd3b`) — if a file already exists at the old `save_path`, `std::fs::rename` it to the new name alongside updating `grid.name`; `save_path` always moves to the new name either way (even with no file yet on disk), so the next save lands at the new name instead of the old one; `refresh_project_files` called when a rename actually changes the path. Regression test: `renaming_a_level_also_renames_its_file_on_disk` (`editor_input.rs`). `cargo test --workspace`: 282 (255 + 27), all pass; `cargo clippy --workspace --lib` unchanged at 56; `scripts/check.ps1` clean |
 | R58 | S4 | User-directed hygiene, not a found defect: `roguelike/`/`shooter/` demo projects sat at the repo root, and both the New Project and Open Project browsers defaulted to `std::env::current_dir()` (the repo root under `cargo run`) — a fresh user's first action was staring at the engine's own source tree | `roguelike/`, `shooter/` (moved); `ember2d-editor/src/editor/start_screen/logic.rs` (`init_fb`, `Screen::OpenProject`'s menu-1 arm) | `[x]` 7C-5 follow-up (`a41d8f4`) — `git mv roguelike demos/roguelike`, `git mv shooter demos/shooter`; every `"roguelike/"`/`"shooter/"` path reference updated across code, tests, examples, CI, and docs (`grep -rl` before and after, zero stragglers) — including the two bare `Path::new("roguelike")`/`("shooter")` output-dir constants in `gen_roguelike.rs`/`gen_shooter.rs` a trailing-slash-only search missed on the first pass, caught by `external_commands.rs` failing (the shipped `.level` files themselves embed `script`/`next_level` as literal `"roguelike/scripts/..."` RON strings, resolved at runtime — fixed by regenerating every shipped level via the now-corrected examples rather than hand-editing RON). New `StartScreen::default_projects_dir()` (repo-root `Projects/`, created on demand) replaces `current_dir()` at both `init_fb` and Open Project's own folder-listing entry point. `Projects/` added to `.gitignore` (developer-local projects, not shipped content — mirrors the existing `*.palette.ron` reasoning). No automated regression test for the `StartScreen` default-folder change itself (`StartScreen` has no headless harness the way `EditorState` does after 7C-5 — see 7C-5's own Scope) — verified by code inspection and the full `cargo test --workspace` pass (282, unchanged) confirming every demo-loading test still resolves its files correctly against the new paths; `cargo test -p ember2d --test replay` 3× fresh processes green; `cargo clippy --workspace --lib` unchanged at 56; `scripts/check.ps1` clean |
+| R59 | S2 | `ContextMenuAction::DeleteFile`'s path was built from the raw File Browser row label alone (`&raw[3..]`, then trimmed) and never combined with `current_folder`/`project_folder` the way every sibling file action already does — `std::fs::remove_file` therefore always resolved against the process's current working directory, not the project's actual location, so deleting a file from the browser silently failed (or, worse, could delete an unrelated same-named file sitting in the engine's own CWD) for any project opened from anywhere other than the repo root. Found live while writing 7C-6's own `deleting_a_file_from_the_browser_confirms_first_and_declining_keeps_it`/`confirming_a_file_delete_actually_deletes_it` regression tests — the new test failed against the pre-existing code before this step touched the surrounding confirm-dialog logic, isolating it as a defect this step did not introduce | `ember2d-editor/src/editor/input/panels/context_menu_trigger.rs` (the `DeleteFile` menu-item builder) | `[x]` 7C-6 (`b2a608f`) — path now joins `project_folder` and `current_folder` the same way every other file-referencing action in this file does; directory rows (`raw.starts_with("/ ")`) are now excluded from getting a Delete entry at all, since `std::fs::remove_file` never supported deleting a folder in the first place and previously did so silently-wrong via the same broken path. Regression tests above (`editor_undo.rs`) cover both the confirm-and-decline path and the confirm-and-delete path, the latter asserting the file is actually gone from disk at the correctly-joined path |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -1799,7 +1800,7 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
     the user was actively blocked by R54, and R55 was found investigating
     R54 in the same sitting.
 
-#### `[ ]` 7C-6 — `LevelGrid` determinism and undo batching (D18)
+#### `[x]` 7C-6 — `LevelGrid` determinism and undo batching (D18)
 
 - **Why:** D18 open since Phase 5; freehand strokes are not batched.
 - **Change:** `LevelGrid::tiles: BTreeMap<(i32, i32, u8), TileRecord>`;
@@ -1814,6 +1815,120 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
 - **Done when:** `roguelike_level_integrity.rs` passes on an editor-saved
   level; D18 marked `[x]` in §3.
 - **Scope:** `ember2d-editor`.
+- **Landed as (`b2a608f`):** the plan text above undersold this step's
+  real scope by a wide margin — investigated up front and the user
+  explicitly authorized doing "the full step" rather than narrowing it
+  (the established precedent from 7C-1). What actually shipped, by area:
+  - **Determinism (D18 itself).** `grid.rs`'s `tiles` field is a
+    `BTreeMap<(i32, i32, u8), TileRecord>` (was `HashMap`), keyed
+    `(x, y, layer)` for O(log n) point lookups by position — but that key
+    order is the wrong *iteration* order for the on-disk format, so
+    `to_level_data` still collects into a `Vec` and does an explicit
+    `.sort_by_key(|t| (t.layer, t.y, t.x))` on top, matching
+    `gen_roguelike`'s convention. Two new regression tests in `grid.rs`
+    pin both halves: insertion-order independence and save-twice
+    stability.
+  - **Paint/erase/scatter batching.** A new `paint_batch:
+    Option<PaintBatch>` field (`PaintBatch` is a `BTreeMap<(i32,i32,u8),
+    (Option<TileRecord>, Option<TileRecord>)>` type alias, added to dodge
+    a clippy `type_complexity` warning on the inline form) accumulates
+    per-cell before/after snapshots across a drag; `record_paint_batch_edit`
+    inserts or updates an entry (keeping the *original* before and the
+    *latest* after per cell), and `commit_paint_batch` — called once,
+    unconditionally, at the top of `handle_canvas_input` on
+    `left_just_released`/`right_just_released`, before the tool-specific
+    dispatch, so it fires no matter which tool's branch subsequently
+    returns — turns the whole batch into one `Command::Batch` push.
+    Found and fixed two latent bugs while wiring this up, both predating
+    this step: brush-size-1 erase split a drag into two separate undo
+    commands (the press frame went through the one-shot `erase_brush`
+    path via `right_just_pressed` while the rest of the drag batched
+    separately — restructured so `right_held` alone drives size-1 erase,
+    mirroring how paint already used `left_held` uniformly); and alt-drag
+    scatter's "randomness" (`(gx*1234 + gy*5678 + undo.len()) % 2`) never
+    actually depended on position at all (1234 and 5678 are both even) —
+    only on `undo.len()`'s parity, which froze for an entire drag once
+    batching stopped incrementing it per cell, turning scatter into
+    "paint everything" or "paint nothing" depending on when the drag
+    started. Replaced with `rand::random::<bool>()`.
+  - **Graph edits become undoable (new capability, not a fix — the graph
+    editor had no undo support at all before this step).** New
+    `apply_graph_edit` helper in `graph.rs` snapshots the tile, hands the
+    caller's closure a `&mut NodeGraph` to mutate, then pushes one
+    `Command::PlaceTile{before, after}`; used for param-edit commit,
+    add-node (palette and Ctrl+V paste, the latter returning the new
+    node id through the closure's return value), auto-layout (`F`), and
+    node deletion. Node dragging is separate (a drag isn't a single
+    mutate call): `graph_drag_before` snapshots the tile when a drag
+    starts and the drag-release handler pushes one `PlaceTile` comparing
+    against the tile after the move.
+  - **Hierarchy Duplicate/Delete become undoable** by snapshotting
+    `grid.extra_spawns` before the mutation and pushing
+    `Command::UpdateExtraSpawns{before, after}` — reusing the existing
+    command variant rather than adding a new one.
+  - **Palette edits become undoable (new `Command::UpdatePalette{before,
+    after}` variant).** Two distinct push sites, because there are two
+    distinct editing flows: the modal palette editor snapshots
+    `palette_edit_before` on open and pushes exactly one `UpdatePalette`
+    covering the whole edit session on any of its four exit paths (close,
+    Save & Close, Delete, Escape — all now routed through one new
+    `close_palette_editor` helper instead of four separate `self.mode =
+    ...` assignments); the standalone "New" button pushes its own
+    `UpdatePalette` immediately, since it isn't a session with a
+    close event.
+  - **Confirm before destructive actions.** Two new `ModalPurpose`
+    variants, `ConfirmNewLevel` and `ConfirmDeleteFile{path}` (doc-commented
+    to distinguish them from the pre-existing `ConfirmSwitchLevel`, which
+    alone is gated on `self.unsaved` — New Level and Delete File always
+    confirm, a level switch only confirms when there are actual unsaved
+    edits to lose). Both the Level-menu and the right-click New Level
+    entry points, and the File Browser's Delete entry, now show a modal
+    first; `modal.rs`'s handlers proceed to the real action (open the
+    rename prompt / `std::fs::remove_file` + refresh) only on
+    confirmation.
+  - **Found along the way, fixed, logged separately: R59.** Writing the
+    Delete File regression tests surfaced a genuine pre-existing bug in
+    `context_menu_trigger.rs` — the Delete menu item's path was never
+    joined with `current_folder`/`project_folder`, so deletion always
+    resolved against the process's CWD rather than the project's actual
+    location. Fixed and given its own row (§3.2) rather than folded into
+    this step's own listed Change, per "every fixed defect gets a named
+    regression test and a §3 row" — it's a real defect with its own
+    blast radius, not a mechanical part of the batching/undo work this
+    step set out to do.
+  - **`switch_to_level` helper.** All three ways a level can be replaced
+    wholesale (Level menu, File Browser click, and the load path
+    generally) were consolidated into one `impl_state` helper that loads
+    the new `EditorState` and carries over `project_folder`,
+    `project_name`, `panels`, and `current_folder` before replacing
+    `self` — used by both `ConfirmSwitchLevel`'s modal handler and the
+    File Browser's now-conditional (only-if-`unsaved`) switch click.
+  - **Test-file split (file-size limit, not scope creep).** 7C-6's tests
+    pushed `editor_input.rs` to 811 lines against the 750-line limit.
+    Rather than trim coverage, the four shared helpers used by both test
+    files (`open_menu`, `click_menu_item`, `canvas_center`,
+    `canvas_pixel_for_grid`) moved into `tests/common/mod.rs` as `pub
+    fn`s, and every 7C-6-specific test moved into a new
+    `tests/editor_undo.rs` (405 lines); `editor_input.rs` is back to 495
+    lines. Each test binary compiles `mod common;` independently, so
+    helpers used by only one binary looked like dead code to the other —
+    resolved with a single module-level `#![allow(dead_code)]` in
+    `common/mod.rs` (documented inline) rather than per-function
+    annotations.
+  - **Verification.** `cargo build --workspace --examples` clean.
+    `cargo test --workspace`: 295 (was 282 before this step — +13: 11 new
+    tests in `editor_undo.rs`, 2 in `grid.rs`), all pass. `cargo clippy
+    --workspace --lib` unchanged at 56 (two real new warnings surfaced
+    mid-step and were fixed rather than left, not counted against
+    baseline: a `clippy::question_mark` in `apply_graph_edit`, and a
+    `clippy::type_complexity` on `paint_batch`'s inline type, fixed by
+    the `PaintBatch` alias mentioned above); `--all-targets` unchanged at
+    80. `scripts/check.ps1` clean. `cargo test -p ember2d --test replay`
+    3× fresh processes green (this step never touches `ember2d-sim`, so
+    the sim boundary invariant, §4.2, doesn't apply, but the replay gate
+    was still re-run given the size of the undo/command surface this step
+    changed). `git diff --stat`: 16 files changed, all under
+    `ember2d-editor/`, matching this step's own Scope exactly.
 
 #### `[ ]` 7C-7 — Script errors reach the editor
 
