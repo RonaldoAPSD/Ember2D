@@ -23,10 +23,10 @@ use common::TurnHarness;
 
 // `CARGO_MANIFEST_DIR`-relative, not CWD-relative — see tests/replay.rs's
 // own comment on this (Step 5i's workspace split moved this crate below
-// `roguelike/`, and `cargo test` runs each integration test binary with
+// `demos/roguelike/`, and `cargo test` runs each integration test binary with
 // CWD set to the package's own directory).
-const FLOOR1: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../roguelike/floor1.level");
-const FLOOR2: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../roguelike/floor2.level");
+const FLOOR1: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/floor1.level");
+const FLOOR2: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/floor2.level");
 
 #[test]
 fn a_scripts_set_global_survives_a_real_ron_round_trip_through_save_and_load() {
@@ -138,7 +138,7 @@ fn a_saved_and_loaded_session_still_transitions_when_the_player_steps_onto_the_s
     let mut h = TurnHarness::load(FLOOR1);
     let player = h.player_id();
 
-    // floor1's real stairs tile (roguelike/floor1.level) — walking there
+    // floor1's real stairs tile (demos/roguelike/floor1.level) — walking there
     // for real isn't this test's point, so jump the player straight onto
     // it rather than scripting a route.
     h.world.transforms.get_mut(&player).unwrap().position = Vec2::new(36.0, 16.0);

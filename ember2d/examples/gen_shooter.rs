@@ -1,5 +1,5 @@
 // examples/gen_shooter.rs — generates the top-down shooter demo's
-// `shooter/arena.level` and `shooter/project.ron`.
+// `demos/shooter/arena.level` and `demos/shooter/project.ron`.
 //
 // ── WHY THIS EXISTS ──────────────────────────────────────────────────────────
 //
@@ -46,12 +46,12 @@
 // ── RUN ──────────────────────────────────────────────────────────────────────
 //   cargo run --example gen_shooter
 //
-// Regenerates `shooter/arena.level` and `shooter/project.ron` from scratch.
+// Regenerates `demos/shooter/arena.level` and `demos/shooter/project.ron` from scratch.
 
 use ember2d::prelude::*;
 
-const PLAYER_SCRIPT: &str = "shooter/scripts/player.rhai";
-const DIRECTOR_SCRIPT: &str = "shooter/scripts/director.rhai";
+const PLAYER_SCRIPT: &str = "demos/shooter/scripts/player.rhai";
+const DIRECTOR_SCRIPT: &str = "demos/shooter/scripts/director.rhai";
 
 // The arena is exactly the launch viewport (`Engine::new(80, 24, ...)` in
 // ember2d-app/src/main.rs), so the whole playfield is visible at once with no
@@ -208,8 +208,8 @@ fn arena() -> LevelData {
 }
 
 fn main() {
-    let out_dir = std::path::Path::new("shooter");
-    std::fs::create_dir_all(out_dir).expect("create shooter/ directory");
+    let out_dir = std::path::Path::new("demos/shooter");
+    std::fs::create_dir_all(out_dir).expect("create demos/shooter/ directory");
 
     let path = out_dir.join("arena.level");
     arena().save(path.to_str().unwrap()).expect("save level");
@@ -221,5 +221,5 @@ fn main() {
         ProjectData::new("Ember Assault", VisualStyle::ClassicASCII, GameplayLoop::RealTime);
     project.start_level = Some("arena.level".to_string());
     project.save(out_dir.to_str().unwrap()).expect("save project.ron");
-    println!("wrote shooter/project.ron");
+    println!("wrote demos/shooter/project.ron");
 }

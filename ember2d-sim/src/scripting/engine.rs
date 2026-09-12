@@ -194,7 +194,7 @@ impl ScriptEngine {
     /// error shape — wherever that happened, with no log entry, no
     /// disabled script, nothing: just a function that silently stopped
     /// executing partway through, every single call. (Found for real
-    /// authoring `roguelike/scripts/player.rhai` — see docs/HANDOFF.md.)
+    /// authoring `demos/roguelike/scripts/player.rhai` — see docs/HANDOFF.md.)
     /// Matching the error's exact payload instead of a substring of its
     /// Display text distinguishes the two cases correctly.
     fn is_missing_optional_fn(err: &rhai::EvalAltResult, fn_name: &str) -> bool {

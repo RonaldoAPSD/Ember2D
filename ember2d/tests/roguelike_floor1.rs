@@ -21,7 +21,7 @@ use ember2d::prelude::*;
 
 // `CARGO_MANIFEST_DIR`-relative, not CWD-relative — see tests/replay.rs's
 // own comment on this (Step 5i's workspace split, docs/ember2d-phase5-plan.md).
-const FLOOR1: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../roguelike/floor1.level");
+const FLOOR1: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/floor1.level");
 
 #[test]
 fn pressing_w_moves_the_player_one_cell_up_and_triggers_a_turn() {

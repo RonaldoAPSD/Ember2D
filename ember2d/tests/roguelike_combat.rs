@@ -12,10 +12,10 @@ use ember2d::prelude::*;
 
 // `CARGO_MANIFEST_DIR`-relative, not CWD-relative — see tests/replay.rs's
 // own comment on this (Step 5i's workspace split, docs/ember2d-phase5-plan.md,
-// moved this crate below `roguelike/`, and `cargo test` runs each
+// moved this crate below `demos/roguelike/`, and `cargo test` runs each
 // integration test binary with CWD set to the package's own directory).
-const FLOOR2: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../roguelike/floor2.level");
-const FLOOR3: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../roguelike/floor3.level");
+const FLOOR2: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/floor2.level");
+const FLOOR3: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/floor3.level");
 
 fn first_id_tagged(h: &TurnHarness, tag: &str) -> EntityId {
     h.world

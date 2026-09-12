@@ -17,7 +17,7 @@
 //
 // WHAT THIS MEASURES: `Simulation::step`/`late_step` cost and allocation
 // count, both scaling with entity count (synthetic levels at several sizes)
-// and against the real shipped content (`roguelike/floor1|2|3.level`). The
+// and against the real shipped content (`demos/roguelike/floor1|2|3.level`). The
 // counting global allocator below turns "no per-frame allocation
 // proportional to entity count" (Phase 6's actual done-when) into a number
 // you can read off a table, not an impression from playing the game.
@@ -27,7 +27,7 @@
 // are plain repo-root-relative, not `../`-prefixed like `tests/common/
 // mod.rs`'s `CARGO_MANIFEST_DIR` dance):
 //   cargo run --release -p ember2d-sim --example bench_sim
-//   cargo run --release -p ember2d-sim --example bench_sim -- --level roguelike/floor2.level --steps 300
+//   cargo run --release -p ember2d-sim --example bench_sim -- --level demos/roguelike/floor2.level --steps 300
 // (always --release: this crate's own code runs unoptimized otherwise, per
 // the [profile.dev] comment in the workspace root Cargo.toml, and that gap
 // dwarfs anything this file is trying to measure.)
@@ -102,8 +102,8 @@ fn alloc_snapshot() -> (usize, usize) {
 // docs/ember2d-phase6-plan.md's research numbers) so the collision phase's
 // cost scales realistically, not just the entity count.
 //
-// Actor tiles reuse the real `roguelike/scripts/enemy_rat.rhai` and the
-// player uses the real `roguelike/scripts/player.rhai` — this measures
+// Actor tiles reuse the real `demos/roguelike/scripts/enemy_rat.rhai` and the
+// player uses the real `demos/roguelike/scripts/player.rhai` — this measures
 // actual script-execution cost, not a stand-in. Paths are CWD-relative
 // (`resolve_exit_path` checks `Path::new(next).exists()` against CWD first),
 // so this must be run from the repo root, same as `gen_roguelike.rs`.
@@ -139,7 +139,7 @@ fn synth_level(n_tiles: usize, n_actors: usize, seed: u64) -> LevelData {
     if let Some(&(sx, sy)) = floor_cells.first() {
         data.spawn_point = (sx as f32, sy as f32);
     }
-    data.player.script = Some("roguelike/scripts/player.rhai".to_string());
+    data.player.script = Some("demos/roguelike/scripts/player.rhai".to_string());
 
     for &(ax, ay) in floor_cells.iter().skip(1).take(n_actors) {
         if let Some(tile) = data.tiles.iter_mut().find(|t| t.x == ax && t.y == ay) {
@@ -147,7 +147,7 @@ fn synth_level(n_tiles: usize, n_actors: usize, seed: u64) -> LevelData {
             tile.solid = true;
             tile.collider_layer = "solid".to_string();
             tile.tag = "enemy".to_string();
-            tile.script = Some("roguelike/scripts/enemy_rat.rhai".to_string());
+            tile.script = Some("demos/roguelike/scripts/enemy_rat.rhai".to_string());
             tile.actor = Some(ActorRecord { speed: 100 });
         }
     }
@@ -382,7 +382,7 @@ fn main() {
     }
 
     println!("\n--- shipped content ---");
-    for path in &["roguelike/floor1.level", "roguelike/floor2.level", "roguelike/floor3.level"] {
+    for path in &["demos/roguelike/floor1.level", "demos/roguelike/floor2.level", "demos/roguelike/floor3.level"] {
         bench_real_level(path, steps);
     }
 }

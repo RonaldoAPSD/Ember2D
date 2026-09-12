@@ -13,10 +13,10 @@ use std::path::Path;
 // tests/replay.rs's own comment on this (Step 5i's workspace split,
 // docs/ember2d-phase5-plan.md).
 const LEVELS: &[&str] = &[
-    concat!(env!("CARGO_MANIFEST_DIR"), "/../roguelike/floor1.level"),
-    concat!(env!("CARGO_MANIFEST_DIR"), "/../roguelike/floor2.level"),
-    concat!(env!("CARGO_MANIFEST_DIR"), "/../roguelike/floor3.level"),
-    concat!(env!("CARGO_MANIFEST_DIR"), "/../roguelike/victory.level"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/floor1.level"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/floor2.level"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/floor3.level"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/victory.level"),
 ];
 
 #[test]
@@ -76,7 +76,7 @@ fn every_levels_tiles_are_sorted_by_layer_then_y_then_x() {
 fn every_script_and_next_level_path_a_level_references_exists_on_disk() {
     // Unlike every other check in this file, this one resolves paths
     // (`tile.script`/`next_level`) *stored inside* the level data itself,
-    // authored repo-root-relative (e.g. "roguelike/scripts/enemy_rat.rhai")
+    // authored repo-root-relative (e.g. "demos/roguelike/scripts/enemy_rat.rhai")
     // — not just the `LEVELS` constants above, which are already
     // `CARGO_MANIFEST_DIR`-absolute. `cargo test` runs this binary with
     // CWD set to this package's own directory (`ember2d/`), one level

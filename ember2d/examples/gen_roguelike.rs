@@ -24,7 +24,7 @@
 // ── RUN ──────────────────────────────────────────────────────────────────────
 //   cargo run --example gen_roguelike
 //
-// Regenerates every file under `roguelike/*.level` and `roguelike/project.ron`
+// Regenerates every file under `demos/roguelike/*.level` and `demos/roguelike/project.ron`
 // from scratch. Re-run after editing a floor layout below; the output is
 // committed to git same as hand-authored content would be.
 
@@ -36,12 +36,12 @@ use ember2d::prelude::*;
 // import shared code; one file per *role*, attached to many tiles, is the
 // only sharing mechanism available.
 
-const PLAYER_SCRIPT: &str = "roguelike/scripts/player.rhai";
-const PICKUP_SCRIPT: &str = "roguelike/scripts/pickup.rhai";
-const STAIRS_SCRIPT: &str = "roguelike/scripts/stairs.rhai";
-const ENEMY_RAT_SCRIPT: &str = "roguelike/scripts/enemy_rat.rhai";
-const ENEMY_BOSS_SCRIPT: &str = "roguelike/scripts/enemy_boss.rhai";
-const VICTORY_SCRIPT: &str = "roguelike/scripts/victory.rhai";
+const PLAYER_SCRIPT: &str = "demos/roguelike/scripts/player.rhai";
+const PICKUP_SCRIPT: &str = "demos/roguelike/scripts/pickup.rhai";
+const STAIRS_SCRIPT: &str = "demos/roguelike/scripts/stairs.rhai";
+const ENEMY_RAT_SCRIPT: &str = "demos/roguelike/scripts/enemy_rat.rhai";
+const ENEMY_BOSS_SCRIPT: &str = "demos/roguelike/scripts/enemy_boss.rhai";
+const VICTORY_SCRIPT: &str = "demos/roguelike/scripts/victory.rhai";
 
 // Fixed per floor so every run of this generator — and every play of the
 // game — draws `random_*` (particles, etc.) from the same sequence.
@@ -218,7 +218,7 @@ fn floor1() -> LevelData {
         item(10, 6, '$', Color::Yellow, "gold"),
         item(20, 10, '$', Color::Yellow, "gold"),
         item(30, 5, '!', Color::Magenta, "potion"),
-        stairs((w - 4) as i32, (h - 4) as i32, "roguelike/floor2.level"),
+        stairs((w - 4) as i32, (h - 4) as i32, "demos/roguelike/floor2.level"),
     ];
 
     let mut data = build_level("Floor 1", &map, SEED_FLOOR1, spawn, features);
@@ -251,7 +251,7 @@ fn floor2() -> LevelData {
         item(50, 18, '$', Color::Yellow, "gold"),
         item(66, 4, '$', Color::Yellow, "gold"),
         item(55, 27, '!', Color::Magenta, "potion"),
-        stairs(65, 27, "roguelike/floor3.level"),
+        stairs(65, 27, "demos/roguelike/floor3.level"),
     ];
 
     let mut data = build_level("Floor 2", &map, SEED_FLOOR2, spawn, features);
@@ -281,7 +281,7 @@ fn floor3() -> LevelData {
         rat(45, 15),
         boss(40, 10),
         item(48, 4, '$', Color::Yellow, "gold"),
-        stairs(49, 18, "roguelike/victory.level"),
+        stairs(49, 18, "demos/roguelike/victory.level"),
     ];
 
     let mut data = build_level("Floor 3", &map, SEED_FLOOR3, spawn, features);
@@ -307,8 +307,8 @@ fn victory() -> LevelData {
 }
 
 fn main() {
-    let out_dir = std::path::Path::new("roguelike");
-    std::fs::create_dir_all(out_dir).expect("create roguelike/ directory");
+    let out_dir = std::path::Path::new("demos/roguelike");
+    std::fs::create_dir_all(out_dir).expect("create demos/roguelike/ directory");
 
     let floors: Vec<(LevelData, &str)> = vec![
         (floor1(), "floor1.level"),
@@ -329,5 +329,5 @@ fn main() {
         ProjectData::new("Roguelike", VisualStyle::ClassicASCII, GameplayLoop::TurnBased);
     project.start_level = Some("floor1.level".to_string());
     project.save(out_dir.to_str().unwrap()).expect("save project.ron");
-    println!("wrote roguelike/project.ron");
+    println!("wrote demos/roguelike/project.ron");
 }

@@ -25,8 +25,8 @@
 # docs/ember2d-regression-checklist.md §15 — 3x per OS per push (below) is
 # the right automated scope for this workflow; that 5x discipline stays a
 # manual pre-merge gate for anyone touching sim ordering, deferred writes,
-# or RNG. Also not run here: regenerating roguelike/*.level or
-# shooter/arena.level via `cargo run --example gen_roguelike`/`gen_shooter`
+# or RNG. Also not run here: regenerating demos/roguelike/*.level or
+# demos/shooter/arena.level via `cargo run --example gen_roguelike`/`gen_shooter`
 # — that's a content-authoring step, not a build/test gate; the checked-in
 # level files are what roguelike_level_integrity.rs already asserts
 # against, including their format version (R8, 7A-4).

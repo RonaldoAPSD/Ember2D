@@ -15,7 +15,7 @@
             trigger: false,
             tag: "director",
             layer: 0,
-            script: Some("shooter/scripts/director.rhai"),
+            script: Some("demos/shooter/scripts/director.rhai"),
         ),
         (
             x: 6,
@@ -3799,7 +3799,7 @@
         trigger: false,
         tag: "player",
         camera_follow: true,
-        script: Some("shooter/scripts/player.rhai"),
+        script: Some("demos/shooter/scripts/player.rhai"),
         collider_layer: "",
         collider_mask: [],
         collider_w: 0.7,

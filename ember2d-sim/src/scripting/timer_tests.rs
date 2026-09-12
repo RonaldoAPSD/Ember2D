@@ -9,7 +9,7 @@
 // already uses for `apply.rs`/`api_spatial.rs`, applied to a test module
 // instead of an `impl` block.
 //
-// Nothing shipped (`roguelike/`, `shooter/`) calls `start_timer`/`timer_done`/
+// Nothing shipped (`demos/roguelike/`, `demos/shooter/`) calls `start_timer`/`timer_done`/
 // `cancel_timer` at all, so this is the only coverage the mechanism has. Each
 // test seeds `engine.timers` directly (same "poke the field, don't go through
 // the API" trick `engine_tests.rs`'s own

@@ -7,6 +7,22 @@ use crate::editor::helpers::{key_to_char, TEXT_INPUT_KEYS};
 use ember2d::input::Key;
 use ember2d::project::ProjectData;
 
+/// Found live by the user (2026-09-12): both the New Project folder
+/// browser and Open Project's own listing used to start at
+/// `std::env::current_dir()` — the repo root, when launched via `cargo
+/// run` — meaning every new/opened project browse began by staring at the
+/// engine's own source tree. `Projects/` (repo root, alongside `demos/`
+/// and `docs/` — see CLAUDE.md's "Workspace layout") is now the one
+/// default location both flows start from instead; created on demand
+/// (best-effort — a failure here just leaves the browser showing an empty
+/// listing at a path that doesn't exist yet, not a hard error) so it's
+/// there to browse into even on a fresh clone.
+fn default_projects_dir() -> std::path::PathBuf {
+    let dir = std::env::current_dir().unwrap_or_default().join("Projects");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
 impl StartScreen {
     pub(super) fn auto_folder(&self) -> String {
         if self.name_buf.is_empty() {
@@ -19,7 +35,7 @@ impl StartScreen {
     }
 
     pub(super) fn init_fb(&mut self) {
-        self.fb_path = std::env::current_dir().unwrap_or_default();
+        self.fb_path = default_projects_dir();
         self.fb_cursor = 0;
         self.refresh_fb_entries();
     }
@@ -182,7 +198,7 @@ impl StartScreen {
                             self.screen = Screen::NewName;
                         }
                         1 => {
-                            self.fb_path = std::env::current_dir().unwrap_or_default();
+                            self.fb_path = default_projects_dir();
                             self.refresh_projects();
                             self.screen = Screen::OpenProject;
                         }

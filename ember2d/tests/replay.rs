@@ -35,12 +35,12 @@ use ember2d::prelude::*;
 
 // `CARGO_MANIFEST_DIR`-relative, not CWD-relative — Step 5i's workspace
 // split (docs/ember2d-phase5-plan.md) moved this crate into `ember2d/`,
-// one level below `roguelike/`, and `cargo test` (unlike `cargo run`) runs
+// one level below `demos/roguelike/`, and `cargo test` (unlike `cargo run`) runs
 // each integration test binary with its CWD set to the *package's own*
 // directory rather than wherever the test was invoked from. A bare
-// `"roguelike/..."` literal would only resolve for `cargo run`; this
+// `"demos/roguelike/..."` literal would only resolve for `cargo run`; this
 // resolves for both.
-const FLOOR2: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../roguelike/floor2.level");
+const FLOOR2: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/floor2.level");
 
 /// Checkpoint interval, in scripted-session actions — not raw sim steps.
 /// `TurnHarness::turn` itself already spans however many follow-up frames

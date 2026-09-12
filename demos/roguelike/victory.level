@@ -2214,7 +2214,7 @@
         trigger: false,
         tag: "player",
         camera_follow: true,
-        script: Some("roguelike/scripts/victory.rhai"),
+        script: Some("demos/roguelike/scripts/victory.rhai"),
         collider_layer: "",
         collider_mask: [],
         collider_w: 0.75,
