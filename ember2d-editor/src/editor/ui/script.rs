@@ -1,6 +1,7 @@
 // editor/ui/script.rs — Script editor rendering and Rhai syntax highlighting.
 
 use ember2d::renderer::{color::Color, DrawSurface};
+use ember2d::theme::{PaletteRole, Theme};
 
 /// A script buffer position, `(char_idx, line_idx)` — same shape as
 /// `EditorState::script_cursor` (7C-8, master plan §5.3).
@@ -9,6 +10,7 @@ pub type ScriptPos = (usize, usize);
 #[allow(clippy::too_many_arguments)]
 pub fn draw_script_editor(
     renderer: &mut dyn DrawSurface,
+    theme: &Theme,
     path: Option<&str>,
     buffer: &[String],
     cursor: ScriptPos,
@@ -37,7 +39,18 @@ pub fn draw_script_editor(
     // `error` consumes one at the bottom.
     find_query: Option<&str>,
 ) {
-    let bg_col = Color::Black;
+    // The buffer's own background is the theme's `InputBg` role — a script
+    // buffer is an editable text surface, same reasoning `chrome.rs`'s
+    // `draw_text_input`/`draw_inspector` (`dock.rs`) apply to their own
+    // editable fields. The header/find-bar bars use the same
+    // black-on-accent "text-on-accent" treatment as `dock.rs`'s panel
+    // headers (`draw_hierarchy`, `draw_console`) — no themed role for that
+    // combination exists yet (7D-1's own documented gap).
+    let bg_col = theme.role_color(PaletteRole::InputBg);
+    let accent = theme.role_color(PaletteRole::Accent);
+    let danger = theme.role_color(PaletteRole::Danger);
+    let dim = theme.role_color(PaletteRole::TextDim);
+    let selection_bg = theme.role_color(PaletteRole::Selection);
     renderer.draw_rect_filled(cx, cy, cw, ch, ' ', Color::White, bg_col);
 
     let title = match path {
@@ -45,14 +58,14 @@ pub fn draw_script_editor(
         None => " (no script open) ".to_string(),
     };
     let header = format!(" {:<width$}", title, width = cw.saturating_sub(1));
-    renderer.draw_str(cx, cy, &header, Color::Black, Color::Cyan);
+    renderer.draw_str(cx, cy, &header, Color::Black, accent);
 
     let find_rows = usize::from(find_query.is_some());
     let text_start = cy + 1 + find_rows;
     if let Some(query) = find_query {
         let text = format!(" Find: {}_", query);
         let text: String = format!("{:<width$}", text, width = cw).chars().take(cw).collect();
-        renderer.draw_str(cx, cy + 1, &text, Color::Black, Color::Yellow);
+        renderer.draw_str(cx, cy + 1, &text, Color::Black, accent);
     }
     // Reserve the bottom row for the error message when there is one —
     // matches the header's own "consume one row" shape above.
@@ -63,7 +76,7 @@ pub fn draw_script_editor(
             cx + 1,
             text_start,
             "Select a .rhai file from the Files panel to edit.",
-            Color::Grey,
+            dim,
             bg_col,
         );
         return;
@@ -82,14 +95,14 @@ pub fn draw_script_editor(
         }
 
         let line_bg = if err_line == Some(i) {
-            renderer.draw_rect_filled(cx, row, cw, 1, ' ', Color::White, Color::DarkRed);
-            Color::DarkRed
+            renderer.draw_rect_filled(cx, row, cw, 1, ' ', Color::White, danger);
+            danger
         } else {
             bg_col
         };
 
         let num_str = format!("{:3} ", i + 1);
-        renderer.draw_str(cx, row, &num_str, Color::DarkGrey, line_bg);
+        renderer.draw_str(cx, row, &num_str, dim, line_bg);
 
         let line_char_count = line.chars().count();
         // 7C-8 (master plan §5.3): a trailing `…` when the line has more
@@ -120,9 +133,10 @@ pub fn draw_script_editor(
             line_bg,
             comment_starts[i],
             sel_range,
+            selection_bg,
         );
         if clipped {
-            renderer.draw_char(line_x + highlight_w, row, '\u{2026}', Color::DarkGrey, line_bg);
+            renderer.draw_char(line_x + highlight_w, row, '\u{2026}', dim, line_bg);
         }
 
         if i == cursor.1 && cursor.0 >= hscroll {
@@ -137,7 +151,7 @@ pub fn draw_script_editor(
             let cursor_x = line_x + visible_col;
             if cursor_x < cx + cw {
                 let char_at_cursor = line.chars().nth(cursor.0).unwrap_or(' ');
-                renderer.draw_char(cursor_x, row, char_at_cursor, Color::Black, Color::Cyan);
+                renderer.draw_char(cursor_x, row, char_at_cursor, Color::Black, accent);
             }
         }
     }
@@ -146,7 +160,7 @@ pub fn draw_script_editor(
         let row = cy + ch - 1;
         let text = format!(" ERROR Line {}: {}", line + 1, msg);
         let text: String = format!("{:<width$}", text, width = cw).chars().take(cw).collect();
-        renderer.draw_str(cx, row, &text, Color::White, Color::DarkRed);
+        renderer.draw_str(cx, row, &text, theme.role_color(PaletteRole::TitleText), danger);
     }
 }
 
@@ -222,13 +236,20 @@ fn block_comment_starts(buffer: &[String]) -> Vec<bool> {
 /// lands mid-token highlights the whole token rather than splitting it,
 /// the same kind of approximation `block_comment_starts` already accepts
 /// at line boundaries.
-fn sel_bg(i: usize, sel_range: Option<(usize, usize)>, default: Color) -> Color {
+fn sel_bg(i: usize, sel_range: Option<(usize, usize)>, default: Color, selection_bg: Color) -> Color {
     match sel_range {
-        Some((s, e)) if i >= s && i < e => Color::DarkBlue,
+        Some((s, e)) if i >= s && i < e => selection_bg,
         _ => default,
     }
 }
 
+/// The Rhai token colors below (keyword Cyan, string Yellow, number
+/// Magenta, ...) stay literal, un-themed — 7D-2 (master plan §5.4): this
+/// is Rhai syntax highlighting, a semantic signal about the CONTENT being
+/// edited, not decorative editor chrome, same reasoning `dock.rs` applies
+/// to console log levels and file-browser icon kinds. Only the background
+/// underneath a token (`bg`/`selection_bg`, passed in from the theme by
+/// `draw_script_editor`) is themed.
 #[allow(clippy::too_many_arguments)]
 fn draw_highlighted_rhai(
     renderer: &mut dyn DrawSurface,
@@ -239,6 +260,7 @@ fn draw_highlighted_rhai(
     bg: Color,
     starts_in_block_comment: bool,
     sel_range: Option<(usize, usize)>,
+    selection_bg: Color,
 ) {
     let keywords = [
         "let", "const", "fn", "if", "else", "while", "loop", "for", "in", "return", "break",
@@ -253,7 +275,7 @@ fn draw_highlighted_rhai(
 
     while i < chars.len() && (col - x) < max_w {
         let ch = chars[i];
-        let bg = sel_bg(i, sel_range, bg);
+        let bg = sel_bg(i, sel_range, bg, selection_bg);
 
         // Block comments (may span lines — `starts_in_block_comment`
         // above carries the state in; `block_comment_starts` carries it

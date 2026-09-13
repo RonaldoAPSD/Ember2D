@@ -109,6 +109,7 @@ impl EditorState {
         // Editor area
         ui::draw_script_editor(
             renderer,
+            &self.theme,
             self.script_path.as_deref(),
             &self.script_buffer,
             self.script_cursor,
@@ -480,6 +481,7 @@ impl EditorState {
                 PanelId::ScriptEditor => {
                     ui::draw_script_editor(
                         renderer,
+                        &self.theme,
                         self.script_path.as_deref(),
                         &self.script_buffer,
                         self.script_cursor,
