@@ -2054,7 +2054,7 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
     halves' own unit tests, consistent with how this repo treats
     anything needing a real winit event loop.
 
-#### `[ ]` 7C-8 — Text editor completeness
+#### `[x]` 7C-8 — Text editor completeness
 
 - **Why:** No selection, clipboard, undo, find, horizontal scroll.
 - **Change:** selection (Shift+arrows, Shift+click, Ctrl+A), clipboard via
@@ -2065,6 +2065,106 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
   including non-ASCII.
 - **Done when:** checklist §8 extended and passing.
 - **Scope:** `ember2d-editor`.
+- **Landed as (`1747b9d`):** investigated up front — unlike 7C-6/7C-7,
+  this step's plan text held: everything fit inside `ember2d-editor`, no
+  hidden structural blocker. The one item needing sign-off (the new
+  `arboard` dependency) was flagged and confirmed before writing any code,
+  specifically on the basis that the script editor's OWN `String` buffer
+  — not `arboard`'s live OS clipboard — is the real source of truth a
+  paste reads from, so a cut/copy → paste round trip inside the editor
+  never depends on a display/clipboard server existing (CI runs both
+  target OSes headless); `arboard` is used only as a best-effort ONE-WAY
+  sync out to the OS clipboard on cut/copy, so text copied in the editor
+  can be pasted into another application — pulling text FROM another
+  application INTO the editor is explicitly not supported by this step,
+  a deliberate scope cut flagged here rather than silently left out.
+  - **Selection.** `EditorState::script_selection_anchor: Option<(usize,
+    usize)>` (same `(char, line)` shape as `script_cursor`, which is
+    always the moving end); `script_selection()` normalizes it against
+    the cursor into reading-order `(start, end)`. Shift+arrows/Home/End
+    and Shift+click open or extend a selection via one shared
+    `update_selection_anchor` helper; any plain (non-Shift) move
+    collapses it — simpler than real editors' "collapse to the near
+    edge" convention, and a deliberate scope cut for this step (documented
+    on the helper itself). The level grid's own `EditorMode::Select`
+    (tile-shaped, 2D) turned out to have nothing code-level to reuse for
+    1D text ranges — only the "own mode variant, own clipboard field"
+    pattern carried over, confirmed by investigation before writing code.
+  - **Clipboard.** New `script_clipboard: String` field, separate from
+    the grid's own tile clipboard. Cut/copy write to it (and best-effort
+    mirror to `arboard`); paste always reads it. Persists across
+    switching to a different script (unlike selection/undo/hscroll/find,
+    which `load_script` resets) — matching how a real clipboard behaves.
+  - **Per-buffer undo.** A dedicated `script_undo`/`script_redo: Vec<(Vec<String>,
+    (usize, usize))>` stack — whole-buffer-and-cursor snapshots, not
+    diffs (scripts are small text files; simplicity wins here) — entirely
+    separate from `commands::UndoStack` (grid-command-shaped, 7C-6,
+    nothing reusable). Consecutive edits of the same `ScriptEditGroup`
+    (`Insert` or `Delete`) coalesce into one checkpoint via
+    `checkpoint_script_edit`, so a typed word or a run of Backspaces
+    undoes as one step; Enter, cut, paste, and replacing a selection
+    always force a fresh checkpoint via `push_undo_checkpoint` instead, so
+    they never coalesce with anything. Undo/redo re-run
+    `check_script_syntax` immediately (unlike normal typing, which waits
+    for the 7C-7 idle timer) — a discrete user action deserves instant
+    feedback, not a 500ms wait.
+  - **Incremental find.** Ctrl+F opens a one-line find bar
+    (`script_find_active`/`script_find_query`) that owns all input while
+    open. Live-as-you-type search always re-searches from
+    `script_find_origin` (the cursor position when Ctrl+F was pressed),
+    so growing or shrinking the query re-searches consistently instead of
+    drifting forward; Enter searches from the current match's end,
+    advancing through the buffer and wrapping around. A found match is
+    shown by setting the SAME selection anchor/cursor pair a manual
+    selection would — free rendering reuse, no separate highlight path.
+    Case-insensitive via `to_lowercase()`, ASCII-width assumed (documented
+    limitation, matching the file's existing "good enough, not a real
+    parser" tokenizer).
+  - **Horizontal scroll + `…` marker.** New `script_hscroll: usize`,
+    auto-tracked exactly like the existing vertical `script_scroll` (same
+    "keep the cursor in the visible window" logic, just on the other
+    axis). Rendering slices the hscroll'd-off prefix from each line
+    before syntax-highlighting the rest, rather than threading a "skip
+    until column N" flag through `draw_highlighted_rhai`'s six-odd
+    branches — a token that straddles the hscroll cut can mis-highlight
+    for one frame at the boundary, the same class of approximation
+    `block_comment_starts` already accepts at line boundaries. A trailing
+    `…` replaces the last visible column whenever a line has more content
+    than fits.
+  - **Selection rendering** applies a `Color::DarkBlue` background per
+    highlighted TOKEN (using its first character's index) rather than
+    per character within multi-char tokens — a selection boundary
+    landing mid-identifier highlights the whole identifier. A visual
+    approximation only; cut/copy/paste/delete all operate on exact
+    character ranges regardless of how the selection renders.
+  - **Delete key-repeat gap, found and fixed as an aside.** 7B-4 added
+    `is_repeating` to Up/Down/Left/Right/Tab/Enter/Backspace but missed
+    Delete — found during this step's own up-front investigation, not a
+    discovered defect with its own blast radius (nothing was broken,
+    Delete simply didn't repeat on hold the way every sibling key already
+    did), so fixed inline rather than given its own R-row. No dedicated
+    regression test, matching every other key's own repeat behavior here
+    — none of them have one either, since the harness has no way to drive
+    `InputManager::handle_repeat` without a live event loop.
+  - **Verification.** `cargo build --workspace --examples` clean. `cargo
+    test --workspace`: 313 (was 305), all pass — 8 new tests in
+    `editor_script.rs` covering select-all/cut/paste (the plan's own
+    named test, non-ASCII included), copy-leaves-original, Shift+Right
+    selection with plain-move collapse, typing-replaces-selection, a
+    typing burst undoing as one step, switching edit kinds starting a
+    new undo step, Ctrl+F find-and-advance, and horizontal scroll
+    triggering past the visible width. `cargo clippy --workspace --lib`:
+    briefly 56 (was 55) — `draw_highlighted_rhai` crossed clippy's
+    7-argument default with the new `sel_range` parameter and needed its
+    own `#[allow(clippy::too_many_arguments)]` (matching
+    `draw_script_editor`'s own, added 7C-7); fixed immediately, back to
+    55. `--all-targets` unchanged at 80. `scripts/check.ps1` clean.
+    `cargo test -p ember2d --test replay` 3× fresh processes green (this
+    step never touches `ember2d`/`ember2d-sim`, so the determinism
+    boundary, §4.2, doesn't apply, but the gate was re-run anyway). `git
+    diff --stat` confined entirely to `ember2d-editor` (plus its own
+    `Cargo.toml`/`Cargo.lock` for `arboard`), matching this step's Scope
+    exactly.
 
 #### `[ ]` 7C-9 — Decision gate: own chrome or egui (§7.1)
 
