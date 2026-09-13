@@ -265,16 +265,15 @@ pub fn draw_console(
 /// content from something else entirely occupied). Since a hit is now only
 /// ever pushed from inside the exact same guard that drew it, that's no
 /// longer possible.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_inspector(
     renderer: &mut dyn DrawSurface,
+    font: &mut dyn Font,
     theme: &Theme,
     tile: Option<&TileRecord>,
     pos: Option<(i32, i32)>,
     mode_tag: &str,
-    ix: usize,
-    cy: usize,
-    iw: usize,
-    ch: usize,
+    content: Rect,
     frame: &mut UiFrame,
 ) {
     use InspectorField::*;
@@ -283,84 +282,62 @@ pub fn draw_inspector(
     let text_fg = theme.role_color(PaletteRole::TextPrimary);
     let dim = theme.role_color(PaletteRole::TextDim);
     let accent = theme.role_color(PaletteRole::Accent);
+    let row_h = theme.metrics.row_h;
+    let text_px = theme.font_sizes.body;
+    let max_rows = ((content.h / row_h).floor() as usize).max(1);
+    // Row INDEX, not a pixel offset — these used to be cell offsets added
+    // to `cy` (`INSP_GLYPH_OFF` etc., `ui/types.rs`); the row NUMBERS are
+    // unchanged (still nothing else reads these constants — grep-confirmed
+    // before this conversion), only what they get multiplied by is (real
+    // `row_h`, not `CELL_H`).
+    let row_rect = |i: usize| Rect::new(content.x, content.y + i as f32 * row_h, content.w, row_h);
 
-    renderer.draw_rect_filled(ix, cy, iw, ch, ' ', Color::White, panel_bg);
-    let mode_line = format!(" {:<width$}", mode_tag, width = iw.saturating_sub(1));
-    renderer.draw_str(ix, cy, &mode_line, Color::Black, accent);
+    renderer.fill_rect_px(content, panel_bg);
+    draw_text_row(renderer, font, mode_tag, row_rect(0), text_px, Color::Black, accent);
 
-    let sep: String =
-        std::iter::once(' ').chain(std::iter::repeat_n('-', iw.saturating_sub(1))).collect();
+    let sep: String = "-".repeat((content.w / font.measure("-", text_px).0.max(1.0)) as usize);
 
     let Some(tile) = tile else {
-        let hint = if pos.is_some() { "(empty cell)" } else { "hover a tile" };
-        renderer.draw_str(ix + 1, cy + 2, hint, dim, panel_bg);
+        let hint = if pos.is_some() { " (empty cell)" } else { " hover a tile" };
+        draw_text_row(renderer, font, hint, row_rect(2), text_px, dim, panel_bg);
         return;
     };
 
     // ── Tile Edit Mode ───────────────────────────────────────────────────
     if let Some((gx, gy)) = pos {
-        renderer.draw_str(ix, cy + 1, &format!(" ({},{})", gx, gy), accent, panel_bg);
+        draw_text_row(renderer, font, &format!(" ({},{})", gx, gy), row_rect(1), text_px, accent, panel_bg);
     }
-    let glyph_str = format!("  '{}' {:<width$}", tile.glyph, "glyph", width = iw.saturating_sub(6));
-    renderer.draw_str(ix, cy + INSP_GLYPH_OFF, &glyph_str, tile.fg, input_bg);
-    frame.push(
-        WidgetId::InspectorRow(Glyph),
-        UiRect::from_cells(ix as i32, (cy + INSP_GLYPH_OFF) as i32, iw, 1),
-    );
+    let glyph_str = format!("  '{}' glyph", tile.glyph);
+    draw_text_row(renderer, font, &glyph_str, row_rect(INSP_GLYPH_OFF), text_px, tile.fg, input_bg);
+    frame.push(WidgetId::InspectorRow(Glyph), UiRect::new(content.x, row_rect(INSP_GLYPH_OFF).y, content.w, row_h));
 
-    renderer.draw_str(ix, cy + 4, &sep, dim, panel_bg);
-    renderer.draw_str(ix, cy + 5, " Tag:", dim, panel_bg);
+    draw_text_row(renderer, font, &sep, row_rect(4), text_px, dim, panel_bg);
+    draw_text_row(renderer, font, " Tag:", row_rect(INSP_TAG_OFF), text_px, dim, panel_bg);
     let tag_disp = if tile.tag.is_empty() { "(none)" } else { &tile.tag };
-    let tag_line = format!("  {:<width$}", tag_disp, width = iw.saturating_sub(3));
-    renderer.draw_str(ix, cy + INSP_TAG_OFF + 1, &tag_line, text_fg, input_bg);
+    draw_text_row(renderer, font, &format!("  {}", tag_disp), row_rect(INSP_TAG_OFF + 1), text_px, text_fg, input_bg);
     // The click target is the "Tag:" LABEL's own row (`INSP_TAG_OFF`), one
-    // row above where `tag_line`'s value actually renders
-    // (`INSP_TAG_OFF + 1`) — that's exactly where the pre-migration
-    // `tag_row` hitbox already was, preserved as-is here rather than
-    // "fixed" to also cover the value row, since that would be a UX change
-    // this phase wasn't asked to make, not a draw/hit-test drift fix.
-    frame.push(
-        WidgetId::InspectorRow(Tag),
-        UiRect::from_cells(ix as i32, (cy + INSP_TAG_OFF) as i32, iw, 1),
-    );
+    // row above where the value actually renders (`INSP_TAG_OFF + 1`) —
+    // that's exactly where the pre-migration `tag_row` hitbox already was,
+    // preserved as-is here rather than "fixed" to also cover the value
+    // row, since that would be a UX change this phase wasn't asked to make.
+    frame.push(WidgetId::InspectorRow(Tag), UiRect::new(content.x, row_rect(INSP_TAG_OFF).y, content.w, row_h));
 
-    renderer.draw_str(ix, cy + 7, &sep, dim, panel_bg);
-    renderer.draw_str(
-        ix,
-        cy + INSP_SOLID_OFF,
-        &format!(" [{}] Solid", if tile.solid { 'x' } else { ' ' }),
-        text_fg,
-        input_bg,
-    );
-    frame.push(
-        WidgetId::InspectorRow(Solid),
-        UiRect::from_cells(ix as i32, (cy + INSP_SOLID_OFF) as i32, iw, 1),
-    );
-    renderer.draw_str(
-        ix,
-        cy + INSP_TRIG_OFF,
-        &format!(" [{}] Trigger", if tile.trigger { 'x' } else { ' ' }),
-        text_fg,
-        input_bg,
-    );
-    frame.push(
-        WidgetId::InspectorRow(Trigger),
-        UiRect::from_cells(ix as i32, (cy + INSP_TRIG_OFF) as i32, iw, 1),
-    );
-    renderer.draw_str(
-        ix,
-        cy + INSP_CAM_OFF,
-        &format!(" [{}] Camera follow", if tile.camera_follow { 'x' } else { ' ' }),
-        text_fg,
-        input_bg,
-    );
-    frame.push(
-        WidgetId::InspectorRow(CameraFollow),
-        UiRect::from_cells(ix as i32, (cy + INSP_CAM_OFF) as i32, iw, 1),
-    );
+    draw_text_row(renderer, font, &sep, row_rect(7), text_px, dim, panel_bg);
+    let solid_label = format!(" [{}] Solid", if tile.solid { 'x' } else { ' ' });
+    draw_text_row(renderer, font, &solid_label, row_rect(INSP_SOLID_OFF), text_px, text_fg, input_bg);
+    frame.push(WidgetId::InspectorRow(Solid), UiRect::new(content.x, row_rect(INSP_SOLID_OFF).y, content.w, row_h));
+    let trig_label = format!(" [{}] Trigger", if tile.trigger { 'x' } else { ' ' });
+    draw_text_row(renderer, font, &trig_label, row_rect(INSP_TRIG_OFF), text_px, text_fg, input_bg);
+    frame.push(WidgetId::InspectorRow(Trigger), UiRect::new(content.x, row_rect(INSP_TRIG_OFF).y, content.w, row_h));
+    let cam_label = format!(" [{}] Camera follow", if tile.camera_follow { 'x' } else { ' ' });
+    draw_text_row(renderer, font, &cam_label, row_rect(INSP_CAM_OFF), text_px, text_fg, input_bg);
+    frame.push(WidgetId::InspectorRow(CameraFollow), UiRect::new(content.x, row_rect(INSP_CAM_OFF).y, content.w, row_h));
 
-    renderer.draw_str(ix, cy + 12, &sep, dim, panel_bg);
-    renderer.draw_str(ix, cy + 13, " Script:", dim, panel_bg);
+    draw_text_row(renderer, font, &sep, row_rect(12), text_px, dim, panel_bg);
+    // No " Script:" label draw here — it used to share `INSP_SCRIPT_OFF`'s
+    // own row with the value line right below, which unconditionally
+    // overwrote it every time (found converting this function; the label
+    // was already fully dead, not a behavior change to drop it).
     let (script_disp, script_fg) = match &tile.script {
         Some(path) => {
             let short = path
@@ -368,81 +345,59 @@ pub fn draw_inspector(
                 .or_else(|| path.rfind('\\'))
                 .map(|i| &path[i + 1..])
                 .unwrap_or(path.as_str());
-            (format!("  {:<width$}", short, width = iw.saturating_sub(3)), text_fg)
+            (format!("  {}", short), text_fg)
         }
-        None => (format!("  {:<width$}", "(none)", width = iw.saturating_sub(3)), dim),
+        None => ("  (none)".to_string(), dim),
     };
-    renderer.draw_str(ix, cy + INSP_SCRIPT_OFF, &script_disp, script_fg, input_bg);
-    frame.push(
-        WidgetId::InspectorRow(Script),
-        UiRect::from_cells(ix as i32, (cy + INSP_SCRIPT_OFF) as i32, iw, 1),
-    );
+    draw_text_row(renderer, font, &script_disp, row_rect(INSP_SCRIPT_OFF), text_px, script_fg, input_bg);
+    frame.push(WidgetId::InspectorRow(Script), UiRect::new(content.x, row_rect(INSP_SCRIPT_OFF).y, content.w, row_h));
     let (exit_disp, exit_fg) = match &tile.next_level {
-        Some(p) => (format!("  >{:<width$}", p, width = iw.saturating_sub(4)), accent),
-        None => (format!("  {:<width$}", "(no exit)", width = iw.saturating_sub(3)), dim),
+        Some(p) => (format!("  >{}", p), accent),
+        None => ("  (no exit)".to_string(), dim),
     };
-    renderer.draw_str(ix, cy + INSP_EXIT_OFF, &exit_disp, exit_fg, input_bg);
-    frame.push(
-        WidgetId::InspectorRow(Exit),
-        UiRect::from_cells(ix as i32, (cy + INSP_EXIT_OFF) as i32, iw, 1),
-    );
+    draw_text_row(renderer, font, &exit_disp, row_rect(INSP_EXIT_OFF), text_px, exit_fg, input_bg);
+    frame.push(WidgetId::InspectorRow(Exit), UiRect::new(content.x, row_rect(INSP_EXIT_OFF).y, content.w, row_h));
 
-    renderer.draw_str(ix, cy + 16, &sep, dim, panel_bg);
-    if cy + 17 < cy + ch {
-        renderer.draw_str(ix, cy + 17, " Scripting:", dim, panel_bg);
-    }
-    if cy + INSP_GRAPH_BTN < cy + ch {
+    draw_text_row(renderer, font, &sep, row_rect(16), text_px, dim, panel_bg);
+    // No " Scripting:" label either — same dead-draw reasoning as
+    // " Script:" above, overwritten every time by the graph button drawn
+    // right after it at the same `INSP_GRAPH_BTN` row.
+    if INSP_GRAPH_BTN < max_rows {
         if tile.graph.is_some() {
             let n = tile.graph.as_ref().map(|g| g.nodes.len()).unwrap_or(0);
             let e = tile.graph.as_ref().map(|g| g.edges.len()).unwrap_or(0);
-            let btn = "  [Edit Graph]".to_string();
-            let btn: String = format!("{:<width$}", btn, width = iw).chars().take(iw).collect();
-            renderer.draw_str(ix, cy + INSP_GRAPH_BTN, &btn, Color::Black, accent);
-            if cy + 19 < cy + ch {
+            draw_text_row(renderer, font, "  [Edit Graph]", row_rect(INSP_GRAPH_BTN), text_px, Color::Black, accent);
+            if 19 < max_rows {
                 let info = format!("  {} nodes  {} edges", n, e);
-                let info: String = info.chars().take(iw).collect();
-                renderer.draw_str(ix, cy + 19, &info, dim, panel_bg);
+                draw_text_row(renderer, font, &info, row_rect(19), text_px, dim, panel_bg);
             }
         } else {
             // A distinct "create" action, not decorative chrome — stays
             // literal green rather than a theme role, same reasoning as
             // `draw_console`'s own untouched log-level colors.
-            let btn = "  [New Graph]".to_string();
-            let btn: String = format!("{:<width$}", btn, width = iw).chars().take(iw).collect();
-            renderer.draw_str(ix, cy + INSP_GRAPH_BTN, &btn, Color::Black, Color::DarkGreen);
+            draw_text_row(renderer, font, "  [New Graph]", row_rect(INSP_GRAPH_BTN), text_px, Color::Black, Color::DarkGreen);
         }
-        frame.push(
-            WidgetId::InspectorRow(GraphBtn),
-            UiRect::from_cells(ix as i32, (cy + INSP_GRAPH_BTN) as i32, iw, 1),
-        );
+        frame.push(WidgetId::InspectorRow(GraphBtn), UiRect::new(content.x, row_rect(INSP_GRAPH_BTN).y, content.w, row_h));
     }
-    if cy + 20 < cy + ch {
-        renderer.draw_str(ix, cy + 20, &sep, dim, panel_bg);
+    if 20 < max_rows {
+        draw_text_row(renderer, font, &sep, row_rect(20), text_px, dim, panel_bg);
     }
-    if cy + INSP_LAYER_OFF < cy + ch {
-        renderer.draw_str(ix, cy + INSP_LAYER_OFF, " Layer:", dim, panel_bg);
-        let layer_disp =
-            if tile.collider_layer.is_empty() { "(any)" } else { &tile.collider_layer };
-        let layer_line = format!("  {:<width$}", layer_disp, width = iw.saturating_sub(3));
-        renderer.draw_str(ix, cy + INSP_LAYER_OFF, &layer_line, accent, input_bg);
-        frame.push(
-            WidgetId::InspectorRow(Layer),
-            UiRect::from_cells(ix as i32, (cy + INSP_LAYER_OFF) as i32, iw, 1),
-        );
+    if INSP_LAYER_OFF < max_rows {
+        // No " Layer:" label — same dead-draw reasoning as above, both
+        // drawn at `INSP_LAYER_OFF`.
+        let layer_disp = if tile.collider_layer.is_empty() { "(any)" } else { &tile.collider_layer };
+        draw_text_row(renderer, font, &format!("  {}", layer_disp), row_rect(INSP_LAYER_OFF), text_px, accent, input_bg);
+        frame.push(WidgetId::InspectorRow(Layer), UiRect::new(content.x, row_rect(INSP_LAYER_OFF).y, content.w, row_h));
     }
-    if cy + INSP_MASK_OFF < cy + ch {
-        renderer.draw_str(ix, cy + INSP_MASK_OFF, " Mask:", dim, panel_bg);
+    if INSP_MASK_OFF < max_rows {
+        // No " Mask:" label — same dead-draw reasoning as above.
         let mask_str = if tile.collider_mask.is_empty() {
             "(all layers)".to_string()
         } else {
             tile.collider_mask.join(",")
         };
-        let mask_line = format!("  {:<width$}", mask_str, width = iw.saturating_sub(3));
-        renderer.draw_str(ix, cy + INSP_MASK_OFF, &mask_line, accent, input_bg);
-        frame.push(
-            WidgetId::InspectorRow(Mask),
-            UiRect::from_cells(ix as i32, (cy + INSP_MASK_OFF) as i32, iw, 1),
-        );
+        draw_text_row(renderer, font, &format!("  {}", mask_str), row_rect(INSP_MASK_OFF), text_px, accent, input_bg);
+        frame.push(WidgetId::InspectorRow(Mask), UiRect::new(content.x, row_rect(INSP_MASK_OFF).y, content.w, row_h));
     }
 }
 
