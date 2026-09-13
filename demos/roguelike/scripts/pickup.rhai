@@ -1,4 +1,4 @@
-// roguelike/scripts/pickup.rhai — gold and potion tiles handle their own
+// demos/roguelike/scripts/pickup.rhai — gold and potion tiles handle their own
 // pickup. Shared by every pickup tile across every floor; which resource a
 // given tile grants comes from its own authored `tag` ("gold" or
 // "potion" — see examples/gen_roguelike.rs), never from a tag string in
@@ -24,7 +24,7 @@ fn on_collide(id, other, ctx) {
     else if kind == "potion" { ctx.set_persistent("potions", or_zero(ctx.get_persistent("potions")) + 1); }
 
     ctx.emit_particles(ctx.get_x(id), ctx.get_y(id), "+", "Yellow");
-    // roguelike/audio (hurt.ogg, music.ogg, victory.ogg) has nothing that
+    // demos/roguelike/audio (hurt.ogg, music.ogg, victory.ogg) has nothing that
     // fits a pickup chime — left silent rather than reusing a
     // thematically-wrong clip.
     ctx.despawn(id);

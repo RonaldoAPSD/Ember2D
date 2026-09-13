@@ -1,4 +1,4 @@
-// shooter/scripts/player.rhai — twin-stick player controller for the
+// demos/shooter/scripts/player.rhai — twin-stick player controller for the
 // realtime arena demo: WASD moves, the mouse aims and left-click shoots, and
 // this script owns the player's HP, the stats bar, and the death/restart
 // screen.
@@ -86,7 +86,7 @@ fn on_input(id, ctx) {
         // until something overwrites it, so skipping this would leave the
         // corpse drifting into a wall.
         ctx.set_velocity(id, 0.0, 0.0);
-        if ctx.just_pressed("r") { ctx.load_level("shooter/arena.level"); }
+        if ctx.just_pressed("r") { ctx.load_level("demos/shooter/arena.level"); }
         return;
     }
     do_move(id, ctx);

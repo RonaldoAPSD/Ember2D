@@ -1,4 +1,4 @@
-// roguelike/scripts/stairs.rhai — shared by every floor's stairs-down tile.
+// demos/roguelike/scripts/stairs.rhai — shared by every floor's stairs-down tile.
 //
 // The engine still owns the actual level transition (`TileRecord.next_level`
 // + `Collider.locked`, resolved in `play.rs::late_update`); this script only
@@ -21,7 +21,7 @@ fn on_collide(id, other, ctx) {
         let depth = ctx.get_persistent("depth");
         if depth == () { depth = 0; }
         ctx.set_persistent("depth", depth + 1);
-        // roguelike/audio has nothing that fits descending stairs — left
+        // demos/roguelike/audio has nothing that fits descending stairs — left
         // silent rather than reusing a thematically-wrong clip.
     }
 }

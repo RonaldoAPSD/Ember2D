@@ -1,4 +1,4 @@
-// roguelike/scripts/victory.rhai — the finale level's player script. Not
+// demos/roguelike/scripts/victory.rhai — the finale level's player script. Not
 // player.rhai: there's no combat, no pickups, and nothing else on this
 // level ever acts, so there's no reason for turn-based gating — reusing
 // player.rhai's whole turn/hp/attack machinery here would just be dead
@@ -41,7 +41,7 @@ fn on_turn(id, ctx) {
 
 fn on_update(id, ctx) {
     if !ctx.has_global("music_started") {
-        ctx.play_music("roguelike/audio/victory.ogg");
+        ctx.play_music("demos/roguelike/audio/victory.ogg");
         ctx.set_global("music_started", true);
     }
 

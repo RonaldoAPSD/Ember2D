@@ -1,4 +1,4 @@
-// roguelike/scripts/player.rhai — player controller: turn-gated grid
+// demos/roguelike/scripts/player.rhai — player controller: turn-gated grid
 // movement, bump-to-attack, quaffing, and the HUD.
 //
 // Phase 4 (docs/ember2d-refactor-plan.md) moves all of this out of Rust —
@@ -120,7 +120,7 @@ fn on_update(id, ctx) {
         hp = ctx.get_persistent("hp");
     }
     if !ctx.has_global("music_started") {
-        ctx.play_music("roguelike/audio/music.ogg");
+        ctx.play_music("demos/roguelike/audio/music.ogg");
         ctx.set_global("music_started", true);
     }
 
@@ -141,7 +141,7 @@ fn on_turn(id, ctx) {
             ctx.set_persistent("potions", 1);
             ctx.set_persistent("depth", 1);
             ctx.set_persistent("turns_taken", 0);
-            ctx.load_level("roguelike/floor1.level");
+            ctx.load_level("demos/roguelike/floor1.level");
         }
         return; // dead: never consumes a turn, restart included — the
                 // level transition (if any) happens regardless.
@@ -220,10 +220,10 @@ fn attack(target, ctx) {
     ctx.set_global(key, ehp - 3);
     ctx.emit_particles(ctx.get_x(target), ctx.get_y(target), "*", "Red");
     ctx.shake_camera(1.0, 0.1);
-    // roguelike/audio has no dedicated attack sound — hurt.ogg (the only
+    // demos/roguelike/audio has no dedicated attack sound — hurt.ogg (the only
     // impact-shaped clip available) does double duty for both landing a
     // hit and taking one.
-    ctx.play_sound("roguelike/audio/hurt.ogg");
+    ctx.play_sound("demos/roguelike/audio/hurt.ogg");
 }
 
 fn draw_hud(ctx) {

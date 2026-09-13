@@ -1,4 +1,4 @@
-// roguelike/scripts/enemy_rat.rhai — a weak melee enemy: chases the player
+// demos/roguelike/scripts/enemy_rat.rhai — a weak melee enemy: chases the player
 // with greedy dominant-axis stepping and bump-attacks when adjacent.
 //
 // STEP 5f (docs/ember2d-phase5-plan.md) TURN SCHEDULER: on_turn now does
@@ -82,7 +82,7 @@ fn on_update(id, ctx) {
     }
 
     if hp <= 0 {
-        // No dedicated death sound in roguelike/audio — hurt.ogg already
+        // No dedicated death sound in demos/roguelike/audio — hurt.ogg already
         // plays when a hit lands (on either side); nothing thematically
         // right is left for this, so this stays silent like pickup.rhai/
         // stairs.rhai do.
@@ -118,7 +118,7 @@ fn on_turn(id, ctx) {
     if adjacent {
         ctx.set_persistent("hp", or_zero(ctx.get_persistent("hp")) - 2);
         ctx.shake_camera(2.0, 0.2);
-        ctx.play_sound("roguelike/audio/hurt.ogg");
+        ctx.play_sound("demos/roguelike/audio/hurt.ogg");
     } else {
         let step_x = 0.0;
         let step_y = 0.0;

@@ -1,4 +1,4 @@
-// shooter/scripts/director.rhai — the whole game except the player: the
+// demos/shooter/scripts/director.rhai — the whole game except the player: the
 // ten-wave state machine, enemy spawning and steering, bullet hit resolution,
 // scoring, and the wave banner.
 //

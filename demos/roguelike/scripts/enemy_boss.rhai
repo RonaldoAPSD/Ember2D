@@ -1,4 +1,4 @@
-// roguelike/scripts/enemy_boss.rhai — floor 3's boss: the exact same
+// demos/roguelike/scripts/enemy_boss.rhai — floor 3's boss: the exact same
 // turn-scheduled chase-and-bump-attack model as enemy_rat.rhai (see that
 // file's header comment for the full reasoning — on_turn vs. on_update,
 // why the awareness tint and decision are split, why damage writes the
@@ -66,7 +66,7 @@ fn on_turn(id, ctx) {
     if adjacent {
         ctx.set_persistent("hp", or_zero(ctx.get_persistent("hp")) - 3);
         ctx.shake_camera(2.0, 0.2);
-        ctx.play_sound("roguelike/audio/hurt.ogg");
+        ctx.play_sound("demos/roguelike/audio/hurt.ogg");
     } else {
         let step_x = 0.0;
         let step_y = 0.0;
