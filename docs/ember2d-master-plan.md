@@ -2518,7 +2518,7 @@ View › Theme lists `themes/*`; switching reloads chrome and font without
 restart. New doc: file format, palette roles, how to author a chrome atlas,
 how the two shipped themes differ.
 
-- **Landed as (`<pending>`)** — the switching mechanism and its tests are
+- **Landed as (`6464dd3`)** — the switching mechanism and its tests are
   done; `docs/ember2d-theming.md` describes the ONE shipped theme
   (`ember-clean`), not two — `themes/ember-pixel` is still deferred (7D-1's
   own "Landed as" note), so the doc's "how the two shipped themes differ"
