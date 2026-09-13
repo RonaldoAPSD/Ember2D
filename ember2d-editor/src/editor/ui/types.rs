@@ -108,6 +108,9 @@ pub enum MenuKind {
     View,
     Tools,
     Layers,
+    /// 7D-4 (master plan §5.4): the one menu whose entries aren't a fixed
+    /// compile-time list — see `menu.rs`'s own `theme_menu_entries`.
+    Theme,
 }
 
 pub struct MenuState {
@@ -132,6 +135,9 @@ pub struct MenuState {
     pub cutting: bool,
     pub pasting: bool,
     pub active_layer: u8,
+    /// 7D-4 (master plan §5.4): `self.theme.name` — which `View > Theme`
+    /// entry (`menu_checkmark`) gets the active checkmark.
+    pub current_theme: String,
 }
 
 #[derive(Debug, Clone)]
@@ -170,6 +176,10 @@ pub enum ToolbarAction {
     NewScript,
     OpenDocs,
     SetLayer(u8),
+    /// 7D-4 (master plan §5.4): switch to `themes/<name>/` at runtime — the
+    /// one `ToolbarAction` a `MenuEntry` gets from `theme_menu_entries`
+    /// rather than `menu_entries`'s fixed per-`MenuKind` lists.
+    SetTheme(String),
 }
 
 // ── Chrome row constants ────────────────────────────────────────────────────────

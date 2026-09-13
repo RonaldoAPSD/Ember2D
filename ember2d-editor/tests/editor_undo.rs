@@ -7,7 +7,10 @@
 
 mod common;
 
-use common::{canvas_pixel_for_grid, click_menu_item, open_menu, select_dock_tab, EditorHarness};
+use common::{
+    canvas_pixel_for_grid, click_menu_item, ensure_workspace_root_cwd, open_menu, select_dock_tab,
+    EditorHarness,
+};
 use ember2d::input::Key;
 use ember2d_editor::editor::ui::{MenuKind, ToolbarAction, ToolKind, WidgetId};
 use ember2d_editor::editor::EditorMode;
@@ -334,6 +337,7 @@ fn confirming_a_file_delete_actually_deletes_it() {
 fn switching_levels_with_nothing_unsaved_does_not_confirm() {
     // 7C-6 (master plan §5.3): used to always show the "Switch Level?"
     // modal, even with nothing to lose.
+    ensure_workspace_root_cwd(); // before EditorState::new, below — see its own doc comment
     let dir = std::env::temp_dir()
         .join(format!("ember2d-{}", std::process::id()))
         .join("editor_input_switch_level_no_confirm_repro");
@@ -371,6 +375,7 @@ fn switching_levels_with_nothing_unsaved_does_not_confirm() {
 
 #[test]
 fn switching_levels_with_unsaved_edits_confirms_first() {
+    ensure_workspace_root_cwd(); // before EditorState::new, below — see its own doc comment
     let dir = std::env::temp_dir()
         .join(format!("ember2d-{}", std::process::id()))
         .join("editor_input_switch_level_confirm_repro");
@@ -412,6 +417,7 @@ fn switching_levels_with_unsaved_edits_confirms_first() {
 
 #[test]
 fn switching_levels_with_only_an_unsaved_script_edit_still_confirms_first() {
+    ensure_workspace_root_cwd(); // before EditorState::new, below — see its own doc comment
     let dir = std::env::temp_dir()
         .join(format!("ember2d-{}", std::process::id()))
         .join("editor_input_switch_level_script_confirm_repro");

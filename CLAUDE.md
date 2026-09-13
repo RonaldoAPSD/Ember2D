@@ -15,6 +15,7 @@ Ember2D is a 2D/ASCII game engine and editor in Rust. GPU rendering via `wgpu` w
 | `docs/ember2d-master-plan.md` | **The single living plan.** Phase and step status (§2, §5), the one defect register (§3), architecture invariants (§4), decision gates (§7), verification protocol (§8). **Read §2 and the step you're working on before writing any code.** Every step has a status marker — update it in the same commit as the code. |
 | `docs/ember2d-scripting-api.md` | The Rhai API. This is the engine's real public contract — treat breaking it like breaking the level format. |
 | `docs/ember2d-regression-checklist.md` | Manual test checklist. Run the sections named in the phase at every phase gate (master plan §0.5). |
+| `docs/ember2d-theming.md` | Editor chrome theme file format, palette/slice roles, how to author a chrome atlas, runtime theme switching (7D-4, master plan §5.4). |
 | `docs/archive/` | Completed phase plans, the original refactor plan, the RPG feasibility study, the old handoff note. Historical record only — master plan Appendix B says what each still holds. Never update these. |
 
 ## Build & Run

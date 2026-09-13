@@ -175,7 +175,7 @@ start screen's New/Open Project browsers start from.
 | **7A** | Stabilisation sprint | `[x]` `v0.5.7a` — A.10 |
 | **7B** | Renderer foundation | `[x]` `v0.5.7b` — A.11 |
 | 7C | Editor foundation | `[ ]` — §5.3 (all 9 steps `[x]`, 7C-9's own §7.1 decision recorded; phase gate itself — §3–§10 manual pass, tag `v0.5.7c` — pending the user) |
-| 7D | Theme and restyle | `[~]` — §5.4 (7D-1 done; 7D-2's color/9-slice pass covers every panel now, `UiRect::from_cells` deletion still open) |
+| 7D | Theme and restyle | `[~]` — §5.4 (7D-1/7D-4 done; 7D-2's `from_cells` deletion and 7D-3, which depends on it, still open) |
 | 7E | Editor features | `[ ]` — §5.5 |
 | 7.5 | Scripting completeness | `[ ]` — §5.6 |
 | 8 | Tilemap, assets, animation authoring | `[ ]` — §5.7 |
@@ -2500,11 +2500,118 @@ deleted at the end of this step; panels size to content and theme metrics.
 independent. Nearest-neighbour for bitmap/9-slice; TTF rasterises at the
 scaled size. Runtime switch via View › UI Scale.
 
-#### `[ ]` 7D-4 — Theme switching and `docs/ember2d-theming.md`
+- **Investigated, not started (2026-09-12):** genuinely blocked on 7D-2's
+  own deferred `UiRect::from_cells` removal, not merely unstarted.
+  Pixel-space drawing (`draw_text_px`/`draw_nine_slice_px`, the only calls
+  a `ui_scale` multiplier could actually apply to) exists in exactly one
+  place — `draw_panel_chrome`'s own frame/title bar. Every panel's actual
+  CONTENT (all of `dock.rs`, `chrome.rs`'s modals, `menu.rs`, `script.rs`,
+  `graph_ui.rs`) still draws through the fixed 8×16 cell grid, which has
+  no scale knob. Doing 7D-3 today could only mean scaling the outer panel
+  frame while its content stays pinned — inconsistent, not a real setting.
+  Given the choice between that and 7D-4 (theme switching, confirmed
+  independent of the cell-grid layout), the user picked 7D-4 first.
+
+#### `[~]` 7D-4 — Theme switching and `docs/ember2d-theming.md`
 
 View › Theme lists `themes/*`; switching reloads chrome and font without
 restart. New doc: file format, palette roles, how to author a chrome atlas,
 how the two shipped themes differ.
+
+- **Landed as (`<pending>`)** — the switching mechanism and its tests are
+  done; `docs/ember2d-theming.md` describes the ONE shipped theme
+  (`ember-clean`), not two — `themes/ember-pixel` is still deferred (7D-1's
+  own "Landed as" note), so the doc's "how the two shipped themes differ"
+  section doesn't exist yet; it'll be added when/if that theme ships.
+  - **`MenuKind::Theme`** (`ui/types.rs`) is a new TOP-LEVEL menu (after
+    Layers), not a submenu under View — the menu system has no submenu
+    concept, and this is the first menu whose entries are runtime-known
+    rather than a fixed compile-time list. `MenuEntry` gained a
+    `DynamicItem { label: String, action: ToolbarAction }` variant for
+    exactly this (a shipped theme's directory name isn't a `&'static
+    str`); `ToolbarAction::SetTheme(String)` is the action it carries.
+    `theme_menu_entries(available: &[String]) -> Vec<MenuEntry>`
+    (`ui/menu.rs`) builds one `DynamicItem` per name — both real call
+    sites (`draw_menu_dropdown`, and `handle_menu_dropdown_click`'s
+    re-resolve-by-index in `input/panels/menu_bar.rs`) special-case
+    `MenuKind::Theme` to call it instead of the static `menu_entries`, so
+    the two stay in sync the same way `menu_entries` itself already had to
+    for every other menu. `menu_entries`'s own `MenuKind::Theme` arm is an
+    explicit `vec![]`, never actually reached, kept non-wildcard so a
+    future genuinely-fixed `MenuKind` can't silently fall through unnoticed.
+  - **`EditorState` gains `available_themes: Vec<String>`**, scanned ONCE
+    at startup by `theme_loader::list_available_themes` (every `themes/*`
+    subdirectory with a real `theme.ron` in it, sorted, never empty — a
+    missing/unreadable `themes/` dir still returns `[DEFAULT_THEME]`, the
+    same "menu always has something selectable" contract `Theme::load`'s
+    own fallback already keeps at the single-theme level). Not re-scanned
+    while running — a theme dropped into `themes/` mid-session needs a
+    restart to appear, an explicit, documented tradeoff, not an oversight.
+  - **`EditorState::switch_theme(&mut self, name: &str)`**
+    (`theme_loader.rs`) reloads `theme`/`theme_chrome_tex`/`font` in
+    place via `load_editor_theme_named` (the first slice's own loader,
+    generalized from a hardcoded `"ember-clean"` to take any name) — the
+    `ToolbarAction::SetTheme` handler in `input/panels/menu_bar.rs` is the
+    one caller. **Investigated before writing this**, since 7D-2's own
+    doc comment on `Renderer.ui_assets` (7D-1) claimed runtime switching
+    "DOES need" a persistent, evictable `AssetManager` the way the
+    one-shot first-slice load doesn't: `Texture::id` (renderer/texture.rs)
+    is a process-wide `AtomicU64`, not scoped to one `AssetManager`
+    instance, so a throwaway `AssetManager` on every switch still hands
+    out a genuinely unique id — no collision, no stale-texture bug. The
+    old theme's GPU-resident texture becomes unreferenced until
+    `WgpuBackend`'s own LRU `texture_budget` (R26, §5.2) evicts it rather
+    than being freed immediately, an acceptable tradeoff for a rarely-used,
+    user-initiated action switching between a handful of small chrome
+    atlases — not worth wiring a second `AssetManager` through
+    `EditorState` just to avoid. `Renderer.ui_assets` stays unused by the
+    editor; nothing yet claims that reservation.
+  - **Found and fixed a real, pre-existing test-coverage gap while writing
+    this step's own tests**: `cargo test` runs `ember2d-editor`'s
+    integration tests with CWD set to `ember2d-editor/` (this crate's own
+    manifest dir), not the repo root where `themes/ember-clean/` actually
+    lives — since `Theme::load` never fails outward, every
+    `EditorHarness`-built `EditorState` since 7D-2's very first slice had
+    silently been getting `Theme::fallback()` (magenta chrome, no slices,
+    the bitmap font), not the real shipped theme. No earlier test happened
+    to assert on real theme content closely enough to notice. Fixed with
+    the same `ensure_workspace_root_cwd` idiom
+    `ember2d/tests/common/mod.rs` already uses for level-loading tests —
+    added to `ember2d-editor/tests/common/mod.rs`, called from
+    `EditorHarness::new`/`with_state` and from the handful of tests that
+    construct an `EditorState` directly as `with_state`'s own argument
+    (too late for `with_state`'s internal call to help, since Rust
+    evaluates that argument first). New regression test:
+    `a_fresh_editor_loads_the_real_shipped_theme_not_the_fallback`
+    (`tests/editor_theme.rs`) — the fallback theme would fail every
+    assertion in it.
+  - **Tests** (`tests/editor_theme.rs`, new file — same one-file-per-
+    feature-area split as `editor_script.rs`/`editor_undo.rs`): the CWD
+    regression above; `available_themes` finds the shipped theme;
+    `list_available_themes` falls back to `[DEFAULT_THEME]` for a missing
+    directory (a `#[cfg(test)]` unit test in `theme_loader.rs` itself,
+    since the function is `pub(super)` — deliberately the ONLY CWD-
+    mutating test in that binary, isolated to its own temp directory, to
+    avoid racing any other test that assumes a particular CWD);
+    `theme_menu_entries` lists one entry per available theme; a full
+    click-through-the-real-menu round trip
+    (`selecting_the_current_theme_from_its_own_menu_round_trips_without_
+    crashing`) exercising the entire click → hit-test → action →
+    `switch_theme` reload pipeline end-to-end. Only one theme ships today,
+    so nothing yet proves switching between two DIFFERENT themes' visual
+    content — that's `themes/ember-pixel` actually shipping, still
+    deferred.
+  - **Verification.** `cargo build --workspace --examples` clean. `cargo
+    test --workspace`: 327 (was 322), all pass. `cargo clippy --workspace
+    --all-targets` unchanged at 75. `scripts/check.ps1` clean (after
+    trimming a few doc comments in `editor/mod.rs` to stay under the
+    750-line limit once the new `available_themes` field/its accessor
+    pushed it over — `theme()`/`available_themes()` moved to
+    `theme_loader.rs`, same accessor contract, to make room). `cargo test
+    -p ember2d --test replay` 3× fresh processes green. Manually verified
+    by launching the real editor, opening the new `Theme` menu label,
+    confirming the checkmark on the active theme, and clicking it —
+    dropdown closes, chrome stays intact, editor doesn't crash.
 
 **Phase 7D gate:** §0.5, full checklist §3–§9, then tag `v0.5.7d`.
 

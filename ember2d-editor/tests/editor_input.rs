@@ -6,7 +6,10 @@
 
 mod common;
 
-use common::{canvas_center, canvas_pixel_for_grid, click_menu_item, open_menu, select_dock_tab, EditorHarness};
+use common::{
+    canvas_center, canvas_pixel_for_grid, click_menu_item, ensure_workspace_root_cwd, open_menu,
+    select_dock_tab, EditorHarness,
+};
 use ember2d::input::Key;
 use ember2d_editor::editor::ui::{MenuKind, ToolbarAction, ToolKind, WidgetId};
 use ember2d_editor::editor::{EditorMode, TextInputPurpose};
@@ -387,6 +390,7 @@ fn saving_a_brand_new_level_for_the_first_time_refreshes_the_file_browser() {
     // but never called `refresh_project_files`, so it never appeared in
     // the File Browser until something else (a folder navigation)
     // happened to refresh it.
+    ensure_workspace_root_cwd(); // before EditorState::new, below — see its own doc comment
     let dir = std::env::temp_dir()
         .join(format!("ember2d-{}", std::process::id()))
         .join("editor_input_save_refresh_repro");
@@ -409,6 +413,7 @@ fn saving_a_brand_new_level_for_the_first_time_refreshes_the_file_browser() {
 
 #[test]
 fn creating_a_new_level_via_the_level_menu_refreshes_the_file_browser() {
+    ensure_workspace_root_cwd(); // before EditorState::new, below — see its own doc comment
     let dir = std::env::temp_dir()
         .join(format!("ember2d-{}", std::process::id()))
         .join("editor_input_new_level_refresh_repro");
@@ -448,6 +453,7 @@ fn renaming_a_level_also_renames_its_file_on_disk() {
     // updated `grid.name` (the title-bar display name) — the file on
     // disk, and `save_path`, kept the old name forever, so the File
     // Browser and the level's own displayed name silently drifted apart.
+    ensure_workspace_root_cwd(); // before EditorState::load, below — see its own doc comment
     let dir = std::env::temp_dir()
         .join(format!("ember2d-{}", std::process::id()))
         .join("editor_input_rename_level_repro");

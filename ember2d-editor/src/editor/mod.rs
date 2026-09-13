@@ -25,7 +25,7 @@ use ember2d_sim::scripting::LogEntry;
 use grid::LevelGrid;
 use palette::TilePalette;
 use panel::{PanelId, PanelManager};
-use theme_loader::load_editor_theme;
+use theme_loader::{list_available_themes, load_editor_theme_named, DEFAULT_THEME};
 pub use ui::HierarchySelection;
 use ui::{MenuKind, ToolKind, UiFrame};
 
@@ -227,15 +227,20 @@ impl EditorMode {
 pub struct EditorState {
     /// The editor's own chrome — panels, menus, modals, text fields; never
     /// the tile grid/viewport/node graph canvas (7C-9 decision gate, §7.1).
-    /// Loaded once by `load_editor_theme` (see its own doc comment) and
-    /// never `None` — a missing/broken `themes/ember-clean/` falls back
-    /// to `Theme::fallback` internally rather than leaving this field
-    /// unusable (7D-1, master plan §5.4).
+    /// Loaded by `load_editor_theme_named`; a missing/broken theme
+    /// directory falls back to `Theme::fallback` internally rather than
+    /// leaving this field unusable (7D-1, §5.4). Reloaded in place by
+    /// `switch_theme` (7D-4) when the user picks a `View > Theme` entry.
     pub(super) theme: Theme,
     /// `self.theme.chrome` (a `TextureId`), already resolved to real
-    /// pixel data — see `load_editor_theme`'s own doc comment for why
+    /// pixel data — see `load_editor_theme_named`'s own doc comment for why
     /// this is a plain owned `Texture`, not a kept-alive `AssetManager`.
     pub(super) theme_chrome_tex: Texture,
+    /// Every `themes/*` subdirectory with a real `theme.ron` in it, scanned
+    /// ONCE at startup (`list_available_themes`) — what `View > Theme`
+    /// lists (7D-4, §5.4). Not re-scanned while running, so a theme
+    /// dropped into `themes/` mid-session needs a restart to appear.
+    pub(super) available_themes: Vec<String>,
     pub(super) grid: LevelGrid,
     pub(super) palette: TilePalette,
     pub(super) undo: UndoStack,
@@ -380,10 +385,11 @@ pub struct EditorState {
     /// through `Font::measure`/`glyph` on this (Phase 7 Part 2c), and a
     /// growing set of chrome call sites now draw through it directly via
     /// `draw_text_px` too. This IS the theme's own loaded font
-    /// (`load_editor_theme`, `theme_loader.rs`) — exactly the swap this
-    /// field's original Part 2c doc comment predicted ("so a future
+    /// (`load_editor_theme_named`, `theme_loader.rs`) — exactly the swap
+    /// this field's original Part 2c doc comment predicted ("so a future
     /// theme can swap it for a `TtfFont` without call sites changing
-    /// again"): one field, not a second `theme_font` alongside it.
+    /// again"): one field, not a second `theme_font` alongside it. Also
+    /// reassigned by `switch_theme` (7D-4) when the theme changes at runtime.
     pub(super) font: Box<dyn Font>,
     pub(super) focused_panel: Option<PanelId>,
     pub(super) show_physics: bool,
@@ -437,10 +443,11 @@ const PLACEHOLDER_SCREEN_H: usize = 24;
 
 impl EditorState {
     pub fn new(save_path: &str) -> Self {
-        let (theme, theme_chrome_tex, theme_font) = load_editor_theme();
+        let (theme, theme_chrome_tex, theme_font) = load_editor_theme_named(DEFAULT_THEME);
         EditorState {
             theme,
             theme_chrome_tex,
+            available_themes: list_available_themes(),
             grid: LevelGrid::new(DEFAULT_LEVEL_W, DEFAULT_LEVEL_H),
             palette: TilePalette::default_palette(),
             undo: UndoStack::new(),
@@ -578,6 +585,9 @@ impl EditorState {
     pub fn active_menu(&self) -> Option<MenuKind> {
         self.active_menu
     }
+
+    // `theme()`/`available_themes()` moved to `theme_loader.rs` (7D-4,
+    // same accessor contract) purely to keep this file under 750 lines.
 
     pub fn grid(&self) -> &LevelGrid {
         &self.grid

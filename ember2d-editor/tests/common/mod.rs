@@ -44,7 +44,7 @@ use ember2d::gamepad::GamepadState;
 use ember2d::input::{InputManager, Key};
 use ember2d::mouse::{MouseButton, MouseState};
 use ember2d::renderer::{NullRenderer, ScreenMapping, CELL_H, CELL_W};
-use ember2d_editor::editor::ui::{menu_entries, MenuEntry, MenuKind, ToolbarAction, WidgetId};
+use ember2d_editor::editor::ui::{menu_entries, theme_menu_entries, MenuEntry, MenuKind, ToolbarAction, WidgetId};
 use ember2d_editor::editor::EditorState;
 use ember2d_sim::event::EventBus;
 use ember2d_sim::math::Vec2;
@@ -58,6 +58,25 @@ use std::collections::{BTreeMap, HashMap};
 /// not a degenerate corner case.
 pub const PIXEL_W: usize = 1280;
 pub const PIXEL_H: usize = 720;
+
+/// `cargo test` runs this binary with CWD set to `ember2d-editor/` (this
+/// crate's own manifest dir), not the repo root — but `EditorState::new`/
+/// `::load` load the chrome theme from a `themes/<name>/` path relative to
+/// CWD (`theme_loader.rs`), which only exists at the repo root. Without
+/// this, every test-constructed `EditorState` silently got
+/// `Theme::fallback()` (magenta chrome, no slices, the built-in bitmap
+/// font) instead of the real shipped theme — found investigating 7D-4
+/// (master plan §5.4), a pre-existing gap since 7D-2's very first slice
+/// that no earlier test happened to assert on real theme content closely
+/// enough to catch. Same idiom as `ember2d/tests/common/mod.rs`'s own
+/// `ensure_workspace_root_cwd` for level-loading tests. Must run BEFORE
+/// `EditorState::new`/`::load` is called — calling it only inside
+/// `EditorHarness::with_state` is too late for a caller that builds the
+/// `EditorState` as that call's own argument expression, which several
+/// tests below do.
+pub fn ensure_workspace_root_cwd() {
+    let _ = std::env::set_current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/.."));
+}
 
 /// One simulated frame's fixed timestep — 60fps, matching `engine.rs`'s
 /// own `SIM_DT`. Not imported directly (`ember2d::engine::SIM_DT` isn't
@@ -83,6 +102,7 @@ impl EditorHarness {
     /// real `UiFrame` (the menu bar, the default docked panels), not an
     /// empty one from before anything was ever drawn.
     pub fn new() -> Self {
+        ensure_workspace_root_cwd();
         Self::with_state(EditorState::new("harness.level"))
     }
 
@@ -92,6 +112,7 @@ impl EditorHarness {
     /// harness's own default — for tests that need control over
     /// `save_path`/`grid` before the first frame renders.
     pub fn with_state(state: EditorState) -> Self {
+        ensure_workspace_root_cwd();
         let mut h = EditorHarness {
             state,
             input: InputManager::new(),
@@ -328,6 +349,24 @@ pub fn click_menu_item(h: &mut EditorHarness, kind: MenuKind, pred: impl Fn(&Too
         .ui_frame()
         .rect_of(WidgetId::MenuItem(kind, idx))
         .expect("dropdown item not found in the last render pass");
+    h.click(rect.x + 1.0, rect.y + 1.0);
+}
+
+/// `click_menu_item`'s counterpart for `MenuKind::Theme` (7D-4, master plan
+/// §5.4): that menu's entries come from `EditorState::available_themes` at
+/// runtime (`theme_menu_entries`), not `menu_entries`'s fixed per-kind
+/// list, so `click_menu_item`'s own lookup can't find them.
+pub fn click_theme_menu_item(h: &mut EditorHarness, name: &str) {
+    let entries = theme_menu_entries(h.state.available_themes());
+    let idx = entries
+        .iter()
+        .position(|e| matches!(e, MenuEntry::DynamicItem { label, .. } if label == name))
+        .unwrap_or_else(|| panic!("no theme menu entry named {name:?}"));
+    let rect = h
+        .state
+        .ui_frame()
+        .rect_of(WidgetId::MenuItem(MenuKind::Theme, idx))
+        .expect("theme dropdown item not found in the last render pass");
     h.click(rect.x + 1.0, rect.y + 1.0);
 }
 

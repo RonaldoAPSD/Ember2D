@@ -10,6 +10,11 @@ pub const MENU_W: usize = 22;
 
 pub enum MenuEntry {
     Item { label: &'static str, shortcut: &'static str, action: ToolbarAction },
+    /// A runtime-known label (7D-4, master plan §5.4) — `theme_menu_entries`
+    /// is the one place that builds these, since a shipped theme's
+    /// directory name isn't a compile-time `&'static str` the way every
+    /// other menu's entries are.
+    DynamicItem { label: String, action: ToolbarAction },
     Sep,
 }
 
@@ -21,7 +26,22 @@ fn menu_label_defs() -> &'static [(usize, &'static str, MenuKind)] {
         (20, "View", MenuKind::View),
         (26, "Tools", MenuKind::Tools),
         (33, "Layers", MenuKind::Layers),
+        (41, "Theme", MenuKind::Theme),
     ]
+}
+
+/// `MenuKind::Theme`'s entries — one per `EditorState::available_themes`
+/// (7D-4, master plan §5.4), unlike every other menu's fixed
+/// `menu_entries` list. Both real call sites (`draw_menu_dropdown` below,
+/// and `handle_menu_dropdown_click`'s re-resolve-by-index in
+/// `input/panels/menu_bar.rs`) special-case `MenuKind::Theme` to call this
+/// instead of `menu_entries`, so the two stay in sync the same way
+/// `menu_entries` itself already had to for every other menu.
+pub fn theme_menu_entries(available: &[String]) -> Vec<MenuEntry> {
+    available
+        .iter()
+        .map(|name| MenuEntry::DynamicItem { label: name.clone(), action: ToolbarAction::SetTheme(name.clone()) })
+        .collect()
 }
 
 fn menu_label_col(kind: MenuKind) -> usize {
@@ -89,6 +109,12 @@ pub fn menu_entries(kind: MenuKind) -> Vec<MenuEntry> {
             Item { label: "Main", shortcut: "2   ", action: SetLayer(1) },
             Item { label: "Foreground", shortcut: "3   ", action: SetLayer(2) },
         ],
+        // Never actually reached — both real call sites special-case
+        // `MenuKind::Theme` to call `theme_menu_entries` instead (see its
+        // own doc comment). Kept as an explicit empty arm, not folded into
+        // a wildcard, so adding a genuinely new fixed-list `MenuKind` later
+        // can't silently fall through here unnoticed.
+        MenuKind::Theme => vec![],
     }
 }
 
@@ -205,6 +231,7 @@ fn menu_checkmark(action: &ToolbarAction, ms: &MenuState) -> char {
             }
         }
         ToolbarAction::SetLayer(l) if *l == ms.active_layer => 'x',
+        ToolbarAction::SetTheme(name) if *name == ms.current_theme => 'x',
         _ => ' ',
     }
 }
@@ -255,10 +282,12 @@ pub fn draw_menu_toolbar(
     renderer.draw_str(col, row, &indicator, accent, panel_bg);
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_menu_dropdown(
     renderer: &mut dyn DrawSurface,
     theme: &Theme,
     menu: MenuKind,
+    available_themes: &[String],
     mouse_col: usize,
     mouse_row: usize,
     ms: &MenuState,
@@ -266,7 +295,11 @@ pub fn draw_menu_dropdown(
 ) {
     let start_col = menu_label_col(menu);
     let start_row = TOOLBAR_ROW + 1;
-    let entries = menu_entries(menu);
+    // `MenuKind::Theme`'s entries are runtime-known (`available_themes`),
+    // not the fixed per-kind list every other menu draws from — see
+    // `theme_menu_entries`'s own doc comment.
+    let entries =
+        if menu == MenuKind::Theme { theme_menu_entries(available_themes) } else { menu_entries(menu) };
     let panel_bg = theme.role_color(PaletteRole::PanelBg);
     let text_fg = theme.role_color(PaletteRole::TextPrimary);
     let dim = theme.role_color(PaletteRole::TextDim);
@@ -303,6 +336,20 @@ pub fn draw_menu_dropdown(
                 // a disabled/greyed item was always still clickable,
                 // no-opping harmlessly downstream — see this file's own
                 // note on `is_action_enabled` being cosmetic only).
+                frame.push(
+                    WidgetId::MenuItem(menu, i),
+                    UiRect::from_cells(start_col as i32, row as i32, MENU_W, 1),
+                );
+            }
+            MenuEntry::DynamicItem { label, action } => {
+                let hovered =
+                    mouse_row == row && mouse_col >= start_col && mouse_col < start_col + MENU_W;
+                let check = menu_checkmark(action, ms);
+                // No themed "text-on-accent" role — same gap as above.
+                let (fg, bg) = if hovered { (Color::Black, accent) } else { (text_fg, panel_bg) };
+                let text = format!(" {} {:<width$} ", check, label, width = MENU_W.saturating_sub(4));
+                let text: String = text.chars().take(MENU_W).collect();
+                renderer.draw_str(start_col, row, &text, fg, bg);
                 frame.push(
                     WidgetId::MenuItem(menu, i),
                     UiRect::from_cells(start_col as i32, row as i32, MENU_W, 1),

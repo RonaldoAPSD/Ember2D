@@ -6,7 +6,7 @@
 // follows.
 
 use super::super::super::ui::WidgetId;
-use super::super::super::ui::{self, ToolbarAction, TOOLBAR_ROW};
+use super::super::super::ui::{self, MenuKind, ToolbarAction, TOOLBAR_ROW};
 use super::super::super::EditorMode;
 use super::super::super::EditorState;
 use super::super::super::TextInputPurpose;
@@ -53,9 +53,19 @@ impl EditorState {
             // list `draw_menu_dropdown` drew from, by index.
             let action = match self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) {
                 Some(WidgetId::MenuItem(hit_menu, idx)) if hit_menu == menu => {
-                    match ui::menu_entries(menu).into_iter().nth(idx) {
+                    // `MenuKind::Theme`'s entries are runtime-known — same
+                    // special case `draw_menu_dropdown` (`ui/menu.rs`)
+                    // makes when drawing this same list, so the two stay
+                    // in sync (menu.rs's own doc comment on this).
+                    let entries = if menu == MenuKind::Theme {
+                        ui::theme_menu_entries(&self.available_themes)
+                    } else {
+                        ui::menu_entries(menu)
+                    };
+                    match entries.into_iter().nth(idx) {
                         Some(ui::MenuEntry::Item { action, .. }) => Some(action),
-                        _ => None,
+                        Some(ui::MenuEntry::DynamicItem { action, .. }) => Some(action),
+                        None | Some(ui::MenuEntry::Sep) => None,
                     }
                 }
                 _ => None,
@@ -104,6 +114,14 @@ impl EditorState {
                                 .to_string(),
                             purpose: ModalPurpose::ConfirmNewLevel,
                         });
+                        return true;
+                    }
+                    ToolbarAction::SetTheme(name) => {
+                        // 7D-4 (master plan §5.4): reloads theme/
+                        // theme_chrome_tex/font in place — see
+                        // `EditorState::switch_theme`'s own doc comment
+                        // (theme_loader.rs).
+                        self.switch_theme(&name);
                         return true;
                     }
                     _ => {

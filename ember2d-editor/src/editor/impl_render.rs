@@ -571,12 +571,14 @@ impl EditorState {
                 cutting: matches!(self.mode, EditorMode::Select { cutting: true, .. }),
                 pasting: matches!(self.mode, EditorMode::Paste),
                 active_layer: self.active_layer,
+                current_theme: self.theme.name.clone(),
             };
 
             ui::draw_menu_dropdown(
                 renderer,
                 &self.theme,
                 menu,
+                &self.available_themes,
                 mouse.cell_x,
                 mouse.cell_y,
                 &menu_state,
