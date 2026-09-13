@@ -134,13 +134,69 @@ try {
     Pop-Location
 }
 
-# --- 4. Doc numbers (7A-6, docs/ember2d-master-plan.md par.5.1) ---
+# --- 4. No chrome file references CELL_W/CELL_H (7D-3, docs/ember2d-master-plan.md
+# par.5.4, checkpoint 6's "chrome audit") - the editor's panels/bars/menus/
+# modals/dock content/script editor size themselves off the active theme's
+# own row height/border/padding (ChromeMetrics) now, not the engine's fixed
+# 8x16 glyph cell. Comment-only lines are exempt (Test-IsCommentLine, same
+# convention as the ember2d-sim determinism checks above) - this codebase's
+# own doc comments explain several of these conversions BY quoting the old
+# CELL_W/CELL_H-based formula they replaced. $chromeCellAllowlist is every
+# file with a REAL, deliberate, already-reviewed reason to keep one live
+# reference: the level canvas/viewport (`ui/canvas.rs`) and the "viewport
+# seam" cell math that converts between screen pixels and the engine's
+# fixed tile grid (`input/canvas.rs`, `impl_state/mod.rs`), never chrome
+# sizing; `panel/mod.rs`'s own documented `cell_x/y/w/h` rounding bridge
+# (the node graph and the still-cell-grid docked script editor OUTER
+# frame, per that file's own doc comment); `ui/types.rs`'s `cells()`
+# helper (only ever called by `graph_ui.rs` and `start_screen/`, both
+# excluded below); a literal, un-themed font8x8 tile-glyph preview
+# (`ui/panels/dock.rs`, `ui/panels/modals.rs` - the "never themed" 7D-2
+# precedent) and the advanced color picker's own literal HSV color grid
+# (`input/palette_editor.rs`, `ui/panels/modals.rs` - same "literal
+# content, not chrome" reasoning as `PALETTE_COLORS`); `ui/widgets.rs`'s
+# `draw_row`/`draw_menu_item` (still called only by `graph_ui.rs`/
+# `start_screen/`); and `ui/panels/chrome.rs`'s own fixed-pixel-budget
+# modal/button-width literals (`40.0 * CELL_W`, etc. - a footprint
+# constant, not a live dependency on the engine's cell grid) alongside
+# R83's own logged, not-yet-converted `ContextMenu.x/y` cell-to-pixel
+# conversion. `graph_ui.rs`/`start_screen/` themselves need no entry here -
+# neither references CELL_W/CELL_H directly (they draw in raw cell
+# coordinates via `draw_str`/`draw_char`, needing no named constant) - but
+# `start_screen/` is still excluded from `$chromeFiles` below on principle,
+# since 7D-3 never touches it at all.
+$chromeCellAllowlist = @(
+    "ui\canvas.rs",
+    "input\canvas.rs",
+    "impl_state\mod.rs",
+    "input\palette_editor.rs",
+    "panel\mod.rs",
+    "ui\types.rs",
+    "ui\panels\dock.rs",
+    "ui\panels\modals.rs",
+    "ui\panels\chrome.rs",
+    "ui\widgets.rs"
+)
+$editorRoot = Join-Path $root "ember2d-editor\src\editor"
+$chromeFiles = Get-ChildItem -Path $editorRoot -Recurse -Filter "*.rs" |
+    Where-Object { $_.FullName -notmatch "\\start_screen\\" }
+foreach ($file in $chromeFiles) {
+    $rel = $file.FullName.Substring($editorRoot.Length + 1)
+    if ($chromeCellAllowlist -contains $rel) { continue }
+    $hits = Select-String -Path $file.FullName -Pattern "CELL_W|CELL_H"
+    foreach ($hit in $hits) {
+        if (Test-IsCommentLine $hit.Line) { continue }
+        $failures += "editor\$rel`:$($hit.LineNumber): chrome code referencing CELL_W/CELL_H (forbidden - docs/ember2d-master-plan.md 7D-3, use ChromeMetrics/theme.metrics instead)"
+    }
+}
+
+# --- 5. Doc numbers (7A-6, docs/ember2d-master-plan.md par.5.1) ---
 & (Join-Path $PSScriptRoot "doc-check.ps1")
 if ($LASTEXITCODE -ne 0) {
     $failures += "scripts/doc-check.ps1 failed (see its own output above)"
 }
 
-# --- 5. cargo fmt --check ---
+# --- 6. cargo fmt --check ---
 # Not yet applicable - 7A-9 (docs/ember2d-master-plan.md par.5.1) hasn't
 # chosen Option A (adopt rustfmt) or Option B (formally opt out) yet. Add
 # the cargo fmt --check call here once it has.

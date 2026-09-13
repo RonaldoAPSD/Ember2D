@@ -105,9 +105,15 @@ impl EditorState {
             ContextMenuAction::FloatPanel(id) => {
                 let p = self.panels.get_mut(id);
                 p.dock = crate::editor::ui::DockSide::None;
-                // Cell (10, 10) in pixels (Phase 7 Part 1c) — was `p.x = 10; p.y = 10;`.
-                p.rect.x = 10.0 * ember2d::renderer::CELL_W as f32;
-                p.rect.y = 10.0 * ember2d::renderer::CELL_H as f32;
+                // A fixed top-left offset (7D-3 chrome audit,
+                // docs/ember2d-master-plan.md §5.4, checkpoint 6) — was
+                // `10.0 * CELL_W`/`10.0 * CELL_H` (Phase 7 Part 1c's own
+                // `p.x = 10; p.y = 10;` multiplied out), the last chrome
+                // panel-positioning site still keyed off the engine's cell
+                // grid. Same numeric position (80, 160) at the old fixed
+                // 8x16 cell size, now a bare point literal.
+                p.rect.x = 80.0;
+                p.rect.y = 160.0;
             }
             ContextMenuAction::FocusCamera(sel) => {
                 let pos = match sel {

@@ -13,19 +13,19 @@
 // need: draw one thing, and push its rect in the same call, so the two
 // can never again go out of sync.
 //
-// `draw_button`/`draw_row`/`draw_swatch` are intentionally near-identical
-// (one `draw_str` call, then one `push`) — kept as three separate,
-// semantically-named functions rather than one generic helper because
-// each documents a different kind of call site (a modal action, a list
-// entry, a color cell), matching this step's own Change list. `draw_row`
-// and `draw_menu_item` cover the widgets built from more than one
+// `draw_row`/`draw_menu_item` cover the widgets built from more than one
 // `draw_str` call (a hierarchy row is one call; a StartScreen menu item is
 // two, label plus description); sites whose visual shape is bespoke enough
-// that none of the four fit (the file browser's icon+name row, StartScreen's
+// that none of these fit (the file browser's icon+name row, StartScreen's
 // folder/project browsers, the template cards) still push their own rect
 // directly, exactly as `ui/panels/dock.rs`'s Inspector rows already did
 // before this step — see that file's own `draw_inspector` for the
-// precedent.
+// precedent. `draw_button`/`draw_swatch`, this pair's own former CELL_W/
+// CELL_H-addressed siblings, were deleted in 7D-3's chrome audit
+// (docs/ember2d-master-plan.md §5.4, checkpoint 6) once their own last
+// caller converted to `draw_button_px`/`draw_swatch_px` — `draw_row` stays
+// (still `graph_ui.rs`'s own cell-grid, per the 7C-9 decision gate), as
+// does `draw_menu_item` (`start_screen/`, deliberately excluded).
 
 use super::frame::{UiFrame, WidgetId};
 use super::rect::UiRect;
@@ -58,11 +58,10 @@ pub fn draw_text_row(
     renderer.draw_text_px(font, text, Vec2::new(rect.x, baseline_y), px, fg)
 }
 
-/// The pixel-space twin of `draw_button` below — same shape as
-/// `draw_row_px`, kept as its own named function for the same reason
-/// `draw_button`/`draw_row`/`draw_swatch` already are (this file's own
-/// header comment): each documents a different KIND of call site (a
-/// modal action) even though the bodies are identical.
+/// Same shape as `draw_row_px`, kept as its own named function for the
+/// same reason `draw_row`/`draw_swatch_px` are (this file's own header
+/// comment): each documents a different KIND of call site (a modal
+/// action) even though the bodies are identical.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_button_px(
     renderer: &mut dyn DrawSurface,
@@ -79,9 +78,8 @@ pub fn draw_button_px(
     frame.push(id, UiRect::new(rect.x, rect.y, rect.w, rect.h));
 }
 
-/// The pixel-space twin of `draw_swatch` below — same reasoning as
-/// `draw_button_px`'s own doc comment for why this duplicates
-/// `draw_row_px`'s body under its own name.
+/// Same reasoning as `draw_button_px`'s own doc comment for why this
+/// duplicates `draw_row_px`'s body under its own name.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_swatch_px(
     renderer: &mut dyn DrawSurface,
@@ -121,55 +119,10 @@ pub fn draw_row_px(
     frame.push(id, UiRect::new(rect.x, rect.y, rect.w, rect.h));
 }
 
-/// A single clickable line of text — every modal "button" (confirm
-/// Yes/No, the advanced color picker's Apply/Cancel/title-close) is
-/// exactly this shape: one `draw_str` call whose own rect IS the click
-/// target.
-#[allow(clippy::too_many_arguments)]
-pub fn draw_button(
-    renderer: &mut dyn DrawSurface,
-    frame: &mut UiFrame,
-    id: WidgetId,
-    x: usize,
-    y: usize,
-    w: usize,
-    label: &str,
-    fg: Color,
-    bg: Color,
-) {
-    renderer.draw_str(x, y, label, fg, bg);
-    frame.push(
-        id,
-        UiRect::new(x as f32 * CELL_W as f32, y as f32 * CELL_H as f32, w as f32 * CELL_W as f32, CELL_H as f32),
-    );
-}
-
 /// A single-line, full-row list entry — context menu items, hierarchy
 /// rows, and graph-palette rows are all this shape.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_row(
-    renderer: &mut dyn DrawSurface,
-    frame: &mut UiFrame,
-    id: WidgetId,
-    x: usize,
-    y: usize,
-    w: usize,
-    label: &str,
-    fg: Color,
-    bg: Color,
-) {
-    renderer.draw_str(x, y, label, fg, bg);
-    frame.push(
-        id,
-        UiRect::new(x as f32 * CELL_W as f32, y as f32 * CELL_H as f32, w as f32 * CELL_W as f32, CELL_H as f32),
-    );
-}
-
-/// One color swatch cell of a color grid (the palette editor's foreground
-/// and background tables) — `label` is the pre-formatted `"[#]"`/`"[*]"`
-/// glyph, `w` its cell width (3, to match the grid's own spacing).
-#[allow(clippy::too_many_arguments)]
-pub fn draw_swatch(
     renderer: &mut dyn DrawSurface,
     frame: &mut UiFrame,
     id: WidgetId,

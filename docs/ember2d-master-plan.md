@@ -331,6 +331,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R80 | S4 | The start screen (pre-project, no theme loaded yet) stays on its own hardcoded bitmap-font look and won't follow the editor's new UI scale — same class of deliberate exclusion as 7D-2's own start-screen note | `ember2d-editor/src/editor/start_screen/` | `[ ]` deferred — out of 7D-3's own scope by design |
 | R81 | S4 | Neither the menu dropdown nor the context menu clamps its own position to stay on-screen — reachable today only at extreme window sizes, but a high UI scale on a short window makes it easy to open a dropdown whose bottom rows render off the bottom edge | `ember2d-editor/src/editor/ui/menu.rs`; `ui/panels/chrome.rs` (context menu) | `[ ]` unscheduled |
 | R82 | S4 | `GlyphAtlas::pack`'s shelf-packing places glyphs edge-to-edge with no padding between them — latent bleeding risk if texture filtering or non-integer glyph scaling is ever introduced (today's nearest-neighbour sampling with exact-pixel glyph draws doesn't trigger it) | `ember2d/src/renderer/font/atlas.rs` (`pack`) | `[ ]` unscheduled |
+| R83 | S4 | `ContextMenu.x`/`.y` are still `usize` cell coordinates (`mouse.cell_x`/`mouse.cell_y` at the moment a right-click opens one), converted to pixels once in `draw_context_menu` (`ui/panels/chrome.rs`) — the last chrome-content site still keyed off a cell reading rather than storing the exact `mouse.pixel_x`/`pixel_y` the click itself already carries. Not a functional bug today (the conversion is exact — `CELL_W`/`CELL_H` are the same compile-time constants on both sides) — found and left as-is by 7D-3's checkpoint 6 chrome audit, which fixed every OTHER live chrome CELL_W/CELL_H dependency it found | `ember2d-editor/src/editor/ui/types.rs` (`ContextMenu`); `input/panels/context_menu_trigger.rs` (every site that constructs one); `ui/panels/chrome.rs:439-440` (`draw_context_menu`'s conversion) | `[ ]` unscheduled — convert `ContextMenu.x`/`.y` to `f32` points, sourced from `mouse.pixel_x`/`pixel_y` directly, dropping the `CELL_W`/`CELL_H` conversion entirely |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -2873,8 +2874,41 @@ deleted at the end of this step; panels size to content and theme metrics.
     fullscreen `scripts/enemy_boss.rhai`): syntax-highlighted, themed title/
     status bars, a click on a specific character (line 3, "header") landed
     exactly on it (status bar read "Line: 3  Col: 12", matching the click).
-  - Remaining checkpoints (not yet landed): chrome audit · live UI-scale
-    menu + docs.
+  - **Checkpoint 6 — chrome audit.** New `scripts/check.ps1` §4: every
+    `.rs` file under `ember2d-editor/src/editor` (excluding `start_screen/`,
+    deliberately out of scope) fails the check if it references
+    `CELL_W`/`CELL_H` in real code (comment lines exempt, matching the
+    existing determinism-check convention) — an explicit allowlist covers
+    every already-reviewed, deliberate exception: the level canvas
+    (`ui/canvas.rs`), the viewport-seam cell math (`input/canvas.rs`,
+    `impl_state/mod.rs`), `panel/mod.rs`'s own documented cell-rounding
+    bridge, `ui/types.rs`'s `cells()` helper (only called by `graph_ui.rs`/
+    `start_screen/`), literal font8x8 tile-glyph previews and the advanced
+    color picker's own literal HSV grid (`ui/panels/dock.rs`,
+    `ui/panels/modals.rs`, `input/palette_editor.rs`), `ui/widgets.rs`'s
+    `draw_row`/`draw_menu_item` (still used only by `graph_ui.rs`/
+    `start_screen/`), and `ui/panels/chrome.rs`'s own fixed-pixel-budget
+    modal/button-width literals. Running this check against the tree found
+    (and fixed) one real, live violation the audit's own rewrite of this
+    step's earlier checkpoints hadn't touched: `input/context_menu.rs`'s
+    `FloatPanel` action positioned a newly-floated panel at
+    `10.0 * CELL_W`/`10.0 * CELL_H` (a Phase 7 Part 1c leftover, predating
+    this whole points conversion) — now a bare point literal at the same
+    numeric position. Also deleted `ui/widgets.rs`'s cell-based
+    `draw_button`/`draw_swatch` — dead code, `draw_button_px`/
+    `draw_swatch_px` replaced their last real callers in an earlier
+    checkpoint. Logged, not fixed (not a functional bug — the conversion is
+    exact either way): **R83**, `ContextMenu.x`/`.y` still store a cell
+    reading (`mouse.cell_x`/`cell_y`) rather than the exact pixel position
+    the click itself already carries, converted once in
+    `draw_context_menu`. `cargo test --workspace`: 373 (unchanged — no new
+    tests this checkpoint, a lint/cleanup pass, not a behavior change).
+    Clippy: 44 warnings workspace-wide, none new. `scripts/check.ps1`
+    clean, and confirmed to actually catch the `context_menu.rs` violation
+    when temporarily reintroduced. `cargo test -p ember2d --test replay`
+    3× fresh processes green. Confirmed live (screenshot): editor
+    unchanged.
+  - Remaining checkpoints (not yet landed): live UI-scale menu + docs.
 
 **Preserved from the original two-pass investigation, for context:**
 first pass (2026-09-12) thought the step was blocked on 7D-2's own deferred
