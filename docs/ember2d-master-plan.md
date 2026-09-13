@@ -2825,7 +2825,7 @@ deleted at the end of this step; panels size to content and theme metrics.
     and correctly targeted, Foreground/Background color grids and their
     `[ Advanced ]` buttons open the color picker, hue bar/SV map/Apply/
     Cancel all functional, Save & Close commits one undo step.
-  - **Checkpoint 5 — script editor, in points, through the `code_font`.**
+  - **Checkpoint 5 — script editor, in points, through the `code_font` (`f6403b7`).**
     New `ui/script_layout.rs` (`ScriptLayout::compute`: header/find-bar/
     error/text rects, a gutter sized from the buffer's own real line count,
     `char_w` from the code font's own monospace advance, `visible_rows`/
