@@ -36,6 +36,7 @@ impl EditorState {
         graph_ui::draw_graph(
             renderer,
             self.font.as_mut(),
+            &self.theme,
             &graph,
             self.graph_selected_node,
             self.graph_connecting,
@@ -75,6 +76,7 @@ impl EditorState {
         if let Some((px, py)) = self.graph_palette_open {
             graph_ui::draw_palette(
                 renderer,
+                &self.theme,
                 self.graph_palette_scroll,
                 self.graph_palette_cursor,
                 px,

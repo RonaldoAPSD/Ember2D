@@ -7,6 +7,7 @@
 
 use super::ui::{draw_row, UiFrame, WidgetId};
 use ember2d::renderer::{color::Color, DrawSurface, Font};
+use ember2d::theme::{PaletteRole, Theme};
 use ember2d_sim::graph::*;
 
 pub const NODE_MIN_W: usize = 20;
@@ -47,9 +48,20 @@ pub fn port_screen_pos(
     Some((col, row))
 }
 
+/// Nodes stay flat theme-colored fills rather than 9-slice (same call as
+/// `chrome.rs`'s title/status bars, 7D-2, master plan §5.4) — a graph can
+/// hold many nodes redrawn every frame, and unlike the editor's fixed
+/// chrome, a node's size varies per-instance (`node_size` above), so a
+/// 9-sliced border would need its own per-node draw-call budget for a
+/// shape this simple. Port glyph/label colors (White=Exec, Yellow=data-in,
+/// Cyan=data-out) stay literal — they signal PORT KIND, not chrome, same
+/// "semantic color" reasoning `dock.rs` applies to log levels and entity
+/// kinds.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_node(
     renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
+    theme: &Theme,
     node: &Node,
     selected: bool,
     view_ox: i32,
@@ -66,8 +78,19 @@ pub fn draw_node(
     let sx = sx.max(0) as usize;
     let sy = sy.max(0) as usize;
 
-    let (title_fg, title_bg) =
-        if selected { (Color::Black, Color::Cyan) } else { (Color::White, Color::DarkBlue) };
+    let panel_bg = theme.role_color(PaletteRole::PanelBg);
+    let border = theme.role_color(PaletteRole::PanelBorder);
+    let accent = theme.role_color(PaletteRole::Accent);
+    let dim = theme.role_color(PaletteRole::TextDim);
+
+    // No themed "text-on-accent" role exists (same gap `chrome.rs`'s
+    // `draw_dock_tabs` comments on), so a selected node stays plain
+    // black-on-accent.
+    let (title_fg, title_bg) = if selected {
+        (Color::Black, accent)
+    } else {
+        (theme.role_color(PaletteRole::TitleText), theme.role_color(PaletteRole::TitleBg))
+    };
     let title = node.kind.title();
     let title_str: String =
         format!(" {:<width$}", title, width = w.saturating_sub(2)).chars().take(w).collect();
@@ -76,14 +99,14 @@ pub fn draw_node(
     let body_rows = h.saturating_sub(2);
     for r in 0..body_rows {
         let fill: String = std::iter::repeat_n(' ', w).collect();
-        renderer.draw_str(sx, sy + 1 + r, &fill, Color::White, Color::DarkGrey);
+        renderer.draw_str(sx, sy + 1 + r, &fill, Color::White, panel_bg);
     }
     let bot_line: String = std::iter::once('+')
         .chain(std::iter::repeat_n('-', w.saturating_sub(2)))
         .chain(std::iter::once('+'))
         .collect();
     if sy + h - 1 < screen_h {
-        renderer.draw_str(sx, sy + h - 1, &bot_line, Color::DarkGrey, Color::DarkGrey);
+        renderer.draw_str(sx, sy + h - 1, &bot_line, border, border);
     }
 
     let ports = ports_for(&node.kind);
@@ -95,9 +118,9 @@ pub fn draw_node(
         }
         let (glyph, glyph_fg) =
             if spec.kind == PortKind::Exec { ('>', Color::White) } else { ('*', Color::Yellow) };
-        renderer.draw_char(sx, row, glyph, glyph_fg, Color::DarkGrey);
+        renderer.draw_char(sx, row, glyph, glyph_fg, panel_bg);
         let lbl: String = format!(" {}", spec.label).chars().take(w.saturating_sub(1)).collect();
-        renderer.draw_str(sx + 1, row, &lbl, Color::White, Color::DarkGrey);
+        renderer.draw_str(sx + 1, row, &lbl, Color::White, panel_bg);
     }
     for (dir_idx, (_, spec)) in outs.iter().enumerate() {
         let row = sy + 1 + dir_idx;
@@ -111,14 +134,15 @@ pub fn draw_node(
         let glyph_col = sx + w - 1;
         let lbl_col = glyph_col.saturating_sub(lbl_len + 1);
         if glyph_col < screen_w {
-            renderer.draw_char(glyph_col, row, glyph, glyph_fg, Color::DarkGrey);
+            renderer.draw_char(glyph_col, row, glyph, glyph_fg, panel_bg);
         }
         if lbl_col < screen_w && lbl_col > sx {
-            renderer.draw_str(lbl_col, row, lbl, Color::DarkGrey, Color::DarkGrey);
+            renderer.draw_str(lbl_col, row, lbl, dim, panel_bg);
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_wire(
     renderer: &mut dyn DrawSurface,
     ox: i32,
@@ -127,6 +151,7 @@ pub fn draw_wire(
     iy: i32,
     edge_idx: usize,
     color: Color,
+    bg: Color,
     screen_w: usize,
     screen_h: usize,
 ) {
@@ -143,7 +168,7 @@ pub fn draw_wire(
         let x1 = routing_x;
         for x in x0.min(x1)..=x0.max(x1) {
             if x >= 0 && (x as usize) < screen_w {
-                renderer.draw_char(x as usize, oy as usize, '-', color, Color::Black);
+                renderer.draw_char(x as usize, oy as usize, '-', color, bg);
             }
         }
     }
@@ -155,7 +180,7 @@ pub fn draw_wire(
         for y in y0..=y1 {
             if y >= 0 && (y as usize) < screen_h {
                 let ch = if y == oy || y == iy { '+' } else { '|' };
-                renderer.draw_char(routing_x as usize, y as usize, ch, color, Color::Black);
+                renderer.draw_char(routing_x as usize, y as usize, ch, color, bg);
             }
         }
     }
@@ -166,15 +191,17 @@ pub fn draw_wire(
         let x1 = ix - 1;
         for x in x0.min(x1)..=x0.max(x1) {
             if x >= 0 && (x as usize) < screen_w {
-                renderer.draw_char(x as usize, iy as usize, '-', color, Color::Black);
+                renderer.draw_char(x as usize, iy as usize, '-', color, bg);
             }
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_graph(
     renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
+    theme: &Theme,
     graph: &NodeGraph,
     selected_node: Option<NodeId>,
     connecting: Option<(NodeId, usize)>,
@@ -185,9 +212,12 @@ pub fn draw_graph(
     screen_w: usize,
     screen_h: usize,
 ) {
+    let panel_bg = theme.role_color(PaletteRole::PanelBg);
+    let dim = theme.role_color(PaletteRole::TextDim);
+    let accent = theme.role_color(PaletteRole::Accent);
     for y in 0..screen_h {
         let row: String = std::iter::repeat_n(' ', screen_w).collect();
-        renderer.draw_str(0, y, &row, Color::DarkGrey, Color::Black);
+        renderer.draw_str(0, y, &row, dim, panel_bg);
     }
     let mut port_positions: Vec<(NodeId, Vec<(i32, i32)>, Vec<(i32, i32)>)> = Vec::new();
     for node in &graph.nodes {
@@ -217,11 +247,15 @@ pub fn draw_graph(
                 (out_pos.get(edge.from_port), in_pos.get(edge.to_port))
             {
                 let sel = selected_node.is_some_and(|s| s == edge.from_node || s == edge.to_node);
-                let color = if sel { Color::Cyan } else { Color::DarkGrey };
-                draw_wire(renderer, ox, oy, ix, iy, ei, color, screen_w, screen_h);
+                let color = if sel { accent } else { dim };
+                draw_wire(renderer, ox, oy, ix, iy, ei, color, panel_bg, screen_w, screen_h);
             }
         }
     }
+    // The in-progress wire while dragging a new connection also draws in
+    // `accent` (was a distinct literal Yellow before theming) — no third
+    // themed role exists between "selected" and "idle" wire states, and
+    // this one already stands out by following the mouse every frame.
     if let Some((from_id, from_port_di)) = connecting {
         if let Some((_, _, out_pos)) = port_positions.iter().find(|(id, _, _)| *id == from_id) {
             if let Some(&(ox, oy)) = out_pos.get(from_port_di) {
@@ -249,7 +283,8 @@ pub fn draw_graph(
                     target_x,
                     target_y,
                     0,
-                    Color::Yellow,
+                    accent,
+                    panel_bg,
                     screen_w,
                     screen_h,
                 );
@@ -258,13 +293,14 @@ pub fn draw_graph(
     }
     for node in &graph.nodes {
         let sel = selected_node == Some(node.id);
-        draw_node(renderer, font, node, sel, view_ox, view_oy, screen_w, screen_h);
+        draw_node(renderer, font, theme, node, sel, view_ox, view_oy, screen_w, screen_h);
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 pub fn draw_palette(
     renderer: &mut dyn DrawSurface,
+    theme: &Theme,
     scroll: usize,
     cursor: usize,
     px: usize,
@@ -273,23 +309,32 @@ pub fn draw_palette(
     screen_h: usize,
     frame: &mut UiFrame,
 ) {
+    let panel_bg = theme.role_color(PaletteRole::PanelBg);
+    let text_fg = theme.role_color(PaletteRole::TextPrimary);
+    let dim = theme.role_color(PaletteRole::TextDim);
+    let accent = theme.role_color(PaletteRole::Accent);
+    let title_fg = theme.role_color(PaletteRole::TitleText);
+    let title_bg = theme.role_color(PaletteRole::TitleBg);
+
     let entries = palette_entries();
     let visible_h = (screen_h.saturating_sub(py + 1)).min(18);
     let w = 22usize;
     let hdr = format!("{:=<width$}", "= Add Node ", width = w);
-    renderer.draw_str(px, py, &hdr, Color::White, Color::DarkBlue);
+    renderer.draw_str(px, py, &hdr, title_fg, title_bg);
     for (i, entry) in entries.iter().skip(scroll).take(visible_h).enumerate() {
         let row = py + 1 + i;
         if row >= screen_h {
             break;
         }
         let real_idx = scroll + i;
+        // No themed "text-on-accent" role — same gap `chrome.rs`'s
+        // `draw_dock_tabs` comments on.
         let (fg, bg) = if real_idx == cursor {
-            (Color::Black, Color::Cyan)
+            (Color::Black, accent)
         } else if entry.0.is_empty() {
-            (Color::DarkGrey, Color::Black)
+            (dim, panel_bg)
         } else {
-            (Color::White, Color::Black)
+            (text_fg, panel_bg)
         };
         let label = if entry.0.is_empty() {
             format!(" [{:-<width$}]", entry.1, width = w.saturating_sub(4))
@@ -306,7 +351,7 @@ pub fn draw_palette(
     }
     let end_row = py + 1 + visible_h;
     if end_row < screen_h && scroll + visible_h < entries.len() {
-        renderer.draw_str(px, end_row, "  V more", Color::DarkGrey, Color::Black);
+        renderer.draw_str(px, end_row, "  V more", dim, panel_bg);
     }
 }
 
