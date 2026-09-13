@@ -15,7 +15,7 @@ use crate::editor::palette::TilePalette;
 use ember2d::renderer::{color::Color, DrawSurface, Font};
 use ember2d::theme::{PaletteRole, Theme};
 use ember2d_sim::level::TileRecord;
-use ember2d_sim::math::Rect;
+use ember2d_sim::math::{Rect, Vec2};
 use ember2d_sim::scripting::{LogEntry, LogLevel};
 use std::collections::HashMap;
 
@@ -519,15 +519,13 @@ pub fn draw_hierarchy(
 #[allow(clippy::too_many_arguments)]
 pub fn draw_file_browser_panel(
     renderer: &mut dyn DrawSurface,
+    font: &mut dyn Font,
     theme: &Theme,
     files: &[String],
     cursor: usize,
     scroll: usize,
     current_folder: &str,
-    cx: usize,
-    cy: usize,
-    cw: usize,
-    ch: usize,
+    content: Rect,
     frame: &mut UiFrame,
 ) {
     let panel_bg = theme.role_color(PaletteRole::PanelBg);
@@ -535,42 +533,52 @@ pub fn draw_file_browser_panel(
     let dim = theme.role_color(PaletteRole::TextDim);
     let accent = theme.role_color(PaletteRole::Accent);
     let selection = theme.role_color(PaletteRole::Selection);
+    let row_h = theme.metrics.row_h;
+    let text_px = theme.font_sizes.body;
 
-    renderer.draw_rect_filled(cx, cy, cw, ch, ' ', Color::White, panel_bg);
+    renderer.fill_rect_px(content, panel_bg);
 
-    // Breadcrumbs / Current Path
+    // Breadcrumbs / Current Path — no themed "text-on-accent" role exists
+    // (same gap `chrome.rs`'s `draw_dock_tabs` comments on), so this
+    // header stays plain black-on-accent.
     let path_label = format!(" Content > {}", current_folder.replace("./", "").replace("/", " > "));
-    let header = format!(" {:<width$}", path_label, width = cw.saturating_sub(1));
-    renderer.draw_str(cx, cy, &header, Color::Black, accent);
+    let header_rect = Rect::new(content.x, content.y, content.w, row_h);
+    draw_text_row(renderer, font, &path_label, header_rect, text_px, Color::Black, accent);
 
-    let list_start = cy + 1;
-    let max_visible = ch.saturating_sub(1);
+    let list_top = content.y + row_h;
+    let max_visible = ((content.h - row_h) / row_h).floor().max(0.0) as usize;
 
     if files.is_empty() {
-        renderer.draw_str(cx + 1, list_start, "(empty folder)", dim, panel_bg);
+        let empty_rect = Rect::new(content.x, list_top, content.w, row_h);
+        draw_text_row(renderer, font, " (empty folder)", empty_rect, text_px, dim, panel_bg);
         return;
     }
 
+    // Fixed pixel columns for the icon tag and the name that follows it —
+    // every icon tag is the same 5-character width ("[DIR]"/"[LVL]"/
+    // "[SCR]"/"[---]"), and Cascadia Mono is a real monospace face, so
+    // measuring any one of them gives a stable name-column start (matches
+    // the old cell math's fixed `cx + 7` exactly, derived from the real
+    // font instead of assuming fixed 8px cells).
+    let name_x = content.x + font.measure("[DIR] ", text_px).0;
     for (i, raw_line) in files.iter().enumerate().skip(scroll).take(max_visible) {
-        let row = list_start + (i - scroll);
-        if row >= cy + ch {
-            break;
-        }
+        let row_index = i - scroll + 1;
+        let row_rect = Rect::new(content.x, content.y + row_index as f32 * row_h, content.w, row_h);
 
         let is_selected = i == cursor;
         let bg = if is_selected { selection } else { panel_bg };
-
-        renderer.draw_rect_filled(cx, row, cw, 1, ' ', Color::White, bg);
+        renderer.fill_rect_px(row_rect, bg);
         // 7C-1 (master plan §5.3): registers this row's rect at the exact
         // point it's drawn, replacing `handle_file_browser_click`'s own
         // independently-recomputed `row_idx` arithmetic (E5). Pushed once
-        // here (rather than through `draw_row`) since a file browser row
-        // draws more than one `draw_str` call — an icon tag, then the name
-        // — depending on which of the four content branches below runs.
-        frame.push(WidgetId::FileBrowserRow(i), UiRect::from_cells(cx as i32, row as i32, cw, 1));
+        // here (rather than through `draw_row_px`) since a file browser
+        // row draws more than one text run — an icon tag, then the name —
+        // depending on which of the four content branches below runs.
+        frame.push(WidgetId::FileBrowserRow(i), UiRect::new(row_rect.x, row_rect.y, row_rect.w, row_rect.h));
 
         if raw_line.contains("[UP]") {
-            renderer.draw_str(cx + 1, row, " .. [PARENT FOLDER] ", accent, bg);
+            let baseline_y = row_rect.y + font.ascent(text_px);
+            renderer.draw_text_px(font, " .. [PARENT FOLDER] ", Vec2::new(row_rect.x, baseline_y), text_px, accent);
             continue;
         }
 
@@ -589,12 +597,9 @@ pub fn draw_file_browser_panel(
 
         let name = if raw_line.len() > skip { &raw_line[skip..] } else { raw_line };
         let icon_tag = format!("[{}]", icon);
-        renderer.draw_str(cx + 1, row, &icon_tag, fg, bg);
-
-        let name_x = cx + 7;
-        let max_name_w = cw.saturating_sub(8);
-        let clipped_name: String = name.chars().take(max_name_w).collect();
-        renderer.draw_str(name_x, row, &clipped_name, text_fg, bg);
+        let baseline_y = row_rect.y + font.ascent(text_px);
+        renderer.draw_text_px(font, &icon_tag, Vec2::new(row_rect.x, baseline_y), text_px, fg);
+        renderer.draw_text_px(font, name, Vec2::new(name_x, baseline_y), text_px, text_fg);
     }
 }
 
