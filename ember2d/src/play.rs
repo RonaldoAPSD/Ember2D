@@ -736,6 +736,13 @@ impl GameState for PlayState {
     fn take_transition(&mut self) -> Option<Transition> {
         self.pending_transition.take()
     }
+
+    // 7C-7 (master plan §5.3, R18): reuses the existing `take_log` — see
+    // that method's own doc comment for why it's a `mem::take`, not a
+    // clone.
+    fn take_script_log(&mut self) -> Vec<LogEntry> {
+        self.take_log()
+    }
 }
 
 // Tests split into play/tests.rs — see that file's header comment — once

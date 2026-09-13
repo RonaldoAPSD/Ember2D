@@ -118,6 +118,7 @@ impl EditorState {
             1,
             sw,
             sh - 2,
+            self.script_error(),
         );
 
         // Status bar
@@ -473,6 +474,7 @@ impl EditorState {
                         pcy,
                         pcw,
                         pch,
+                        self.script_error(),
                     );
                 }
                 PanelId::FileBrowser => {

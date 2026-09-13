@@ -21,6 +21,7 @@ use crate::sim;
 use ember2d_sim::event::EventBus;
 use ember2d_sim::level::LevelData;
 use ember2d_sim::math::Vec2;
+use ember2d_sim::scripting::LogEntry;
 use ember2d_sim::world::{EntityId, World};
 
 // ── Mode transition ───────────────────────────────────────────────────────────
@@ -138,6 +139,25 @@ pub trait GameState {
     fn take_transition(&mut self) -> Option<Transition> {
         None
     }
+
+    /// Drains this state's own script log for the caller to hand to
+    /// whatever comes next on the stack (7C-7, master plan §5.3, R18) —
+    /// needed because `Engine`'s stack stores `Box<dyn GameState>` with no
+    /// downcasting, so `app.rs` can't reach a popped state's concrete
+    /// fields directly (`PlayState::take_log`, in this case) once
+    /// `pop_state` has handed it back as a trait object. Default no-op:
+    /// only a state that actually keeps a script log (`PlayState`) needs
+    /// to override this.
+    fn take_script_log(&mut self) -> Vec<LogEntry> {
+        Vec::new()
+    }
+    /// Receives a script log drained from another, now-popped state (7C-7,
+    /// master plan §5.3, R18) — e.g. `EditorState` after F5 returns, so a
+    /// script error the player triggered during preview reaches the
+    /// editor's own console instead of vanishing with the `PlayState` that
+    /// logged it. Default no-op: only a state with somewhere to put it
+    /// (`EditorState`) needs to override this.
+    fn receive_script_log(&mut self, _entries: Vec<LogEntry>) {}
 }
 
 // ── winit 0.30 ApplicationHandler shims ─────────────────────────────────────
@@ -500,6 +520,18 @@ impl Engine {
 
     pub fn state_stack_len(&self) -> usize {
         self.state_stack.len()
+    }
+
+    /// The top of the state stack, mutably (7C-7, master plan §5.3, R18) —
+    /// lets a caller reach the current state's `GameState` methods (e.g.
+    /// `receive_script_log`) without needing to hold onto the concrete
+    /// value itself, which `push_state`'s `Box<dyn GameState>` already
+    /// erased.
+    pub fn top_state_mut(&mut self) -> Option<&mut (dyn GameState + '_)> {
+        match self.state_stack.last_mut() {
+            Some(s) => Some(s.as_mut()),
+            None => None,
+        }
     }
 
     fn poll_events(&mut self) {

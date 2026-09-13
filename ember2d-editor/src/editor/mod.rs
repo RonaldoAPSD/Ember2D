@@ -270,6 +270,19 @@ pub struct EditorState {
     pub(super) script_cursor: (usize, usize),
     pub(super) script_scroll: usize,
     pub(super) script_unsaved: bool,
+    /// First live-compile error in the currently open script, if any (7C-7,
+    /// master plan §5.3, R18): `(0-based line, message)`. Refreshed by
+    /// `check_script_syntax` (on save, and on the idle timer below); `None`
+    /// means "compiles cleanly" as much as "nothing checked yet" — there is
+    /// no separate "unknown" state, matching every other status flag here.
+    pub(super) script_error: Option<(usize, String)>,
+    /// Frames since the script buffer was last edited (7C-7, master plan
+    /// §5.3, R18) — `note_script_edit` (input/script_editor.rs) resets this
+    /// to 0 on every keystroke; `handle_script_mode_input` increments it
+    /// once per frame and triggers `check_script_syntax` when it reaches
+    /// `SCRIPT_IDLE_CHECK_FRAMES`, so a live syntax check runs ~500ms after
+    /// the user stops typing rather than on every character.
+    pub(super) script_idle_timer: u32,
     pub project_folder: Option<String>,
     pub project_name: Option<String>,
     pub(super) console_log: Vec<LogEntry>,
@@ -384,6 +397,8 @@ impl EditorState {
             script_cursor: (0, 0),
             script_scroll: 0,
             script_unsaved: false,
+            script_error: None,
+            script_idle_timer: 0,
             project_folder: None,
             project_name: None,
             console_log: Vec::new(),
@@ -530,6 +545,16 @@ impl EditorState {
         self.script_unsaved
     }
 
+    /// The current script buffer's first live-compile error, if any (7C-7,
+    /// master plan §5.3, R18).
+    pub fn script_error(&self) -> Option<(usize, &str)> {
+        self.script_error.as_ref().map(|(line, msg)| (*line, msg.as_str()))
+    }
+
+    pub fn console_log(&self) -> &[LogEntry] {
+        &self.console_log
+    }
+
     pub fn undo_len(&self) -> usize {
         self.undo.len()
     }
@@ -629,5 +654,10 @@ impl GameState for EditorState {
     }
     fn take_transition(&mut self) -> Option<Transition> {
         self.pending_transition.take()
+    }
+
+    // 7C-7 (master plan §5.3, R18): reuses the existing `receive_log`.
+    fn receive_script_log(&mut self, entries: Vec<LogEntry>) {
+        self.receive_log(entries);
     }
 }

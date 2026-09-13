@@ -504,12 +504,40 @@ impl EditorState {
                 self.script_cursor = (0, 0);
                 self.script_scroll = 0;
                 self.script_unsaved = false;
+                // 7C-7 (master plan §5.3, R18): a fresh file starts with no
+                // known error state, not the previous script's — checked
+                // fresh below rather than assumed clean, since the file on
+                // disk could itself be broken.
+                self.script_idle_timer = 0;
                 self.mode = EditorMode::Script;
                 self.focused_panel = Some(PanelId::ScriptEditor);
+                self.check_script_syntax();
             } else {
                 self.console_log.push(LogEntry::error(format!("Failed to load script: {}", name)));
             }
         }
+    }
+
+    /// Live syntax check for the currently open script buffer (7C-7,
+    /// master plan §5.3, R18) — a throwaway `rhai::Engine`, deliberately
+    /// NOT `ember2d-sim`'s `ScriptEngine::compile_str`: that one caches an
+    /// AST by key, so re-checking the same path after an in-place edit
+    /// would just keep returning the FIRST compile's cached result forever
+    /// (see `ScriptEngine::compile_str`'s own `ast_cache` check). This only
+    /// ever needs a parse result, never a cached AST to actually run, so a
+    /// disposable `Engine` sidesteps that entirely. Also needs
+    /// `rhai::ParseError`'s structured `Position` (line/column) directly —
+    /// `compile_str` only ever produces a pre-formatted `LogEntry` string,
+    /// which has nowhere for a line number to go.
+    pub(super) fn check_script_syntax(&mut self) {
+        let source = self.script_buffer.join("\n");
+        self.script_error = match rhai::Engine::new().compile(&source) {
+            Ok(_) => None,
+            Err(e) => {
+                let line = e.1.line().map(|l| l.saturating_sub(1)).unwrap_or(0);
+                Some((line, e.to_string()))
+            }
+        };
     }
 
     pub(super) fn save_script(&mut self) {
@@ -522,6 +550,7 @@ impl EditorState {
                 self.script_unsaved = false;
                 self.save_message = Some(format!("Saved script: {}", name));
                 self.save_message_timer = 0;
+                self.check_script_syntax();
             }
         }
     }

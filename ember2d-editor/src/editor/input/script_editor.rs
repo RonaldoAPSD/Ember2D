@@ -19,7 +19,21 @@ fn char_byte_offset(s: &str, char_idx: usize) -> usize {
     s.char_indices().nth(char_idx).map(|(b, _)| b).unwrap_or(s.len())
 }
 
+/// ~500ms at the editor's fixed 60Hz step (7C-7, master plan §5.3, R18) —
+/// see `EditorState::script_idle_timer`'s own doc comment.
+const SCRIPT_IDLE_CHECK_FRAMES: u32 = 30;
+
 impl EditorState {
+    /// Every script-buffer mutation site below calls this instead of
+    /// setting `script_unsaved` directly (7C-7, master plan §5.3, R18) —
+    /// the one place that also resets the idle timer, so a live syntax
+    /// check fires ~500ms after the LATEST edit, not the first one in a
+    /// typing burst.
+    fn note_script_edit(&mut self) {
+        self.script_unsaved = true;
+        self.script_idle_timer = 0;
+    }
+
     // `pub(crate)`, not `pub(super)`: the R11 regression test
     // (impl_state/tests.rs, a sibling module of `editor::input`) drives this
     // directly rather than through a full `InputManager`/event-loop harness
@@ -35,6 +49,17 @@ impl EditorState {
         }
         if self.script_path.is_none() {
             return;
+        }
+
+        // 7C-7 (master plan §5.3, R18): idle-triggered live syntax check —
+        // counts frames since the last edit (`note_script_edit` resets it
+        // to 0), so a fast typist doesn't recompile on every keystroke.
+        // `==`, not `>=`: fires exactly once per idle stretch, not every
+        // frame after the threshold, without needing a separate "already
+        // checked this stretch" flag.
+        self.script_idle_timer = self.script_idle_timer.saturating_add(1);
+        if self.script_idle_timer == SCRIPT_IDLE_CHECK_FRAMES {
+            self.check_script_syntax();
         }
 
         let p = self.panels.get(PanelId::ScriptEditor);
@@ -177,7 +202,7 @@ impl EditorState {
             let byte_col = char_byte_offset(&self.script_buffer[row], col);
             self.script_buffer[row].insert(byte_col, ch);
             self.script_cursor.0 += 1;
-            self.script_unsaved = true;
+            self.note_script_edit();
         }
 
         if input.just_pressed(Key::Tab) || input.is_repeating(Key::Tab) {
@@ -186,7 +211,7 @@ impl EditorState {
             let byte_col = char_byte_offset(&self.script_buffer[row], col);
             self.script_buffer[row].insert_str(byte_col, "  ");
             self.script_cursor.0 += 2;
-            self.script_unsaved = true;
+            self.note_script_edit();
         }
 
         if input.just_pressed(Key::Enter) || input.is_repeating(Key::Enter) {
@@ -199,7 +224,7 @@ impl EditorState {
             self.script_buffer.insert(row + 1, right.to_string());
             self.script_cursor.1 += 1;
             self.script_cursor.0 = 0;
-            self.script_unsaved = true;
+            self.note_script_edit();
         }
 
         if input.just_pressed(Key::Backspace) || input.is_repeating(Key::Backspace) {
@@ -209,13 +234,13 @@ impl EditorState {
                 let byte_col = char_byte_offset(&self.script_buffer[row], col - 1);
                 self.script_buffer[row].remove(byte_col);
                 self.script_cursor.0 -= 1;
-                self.script_unsaved = true;
+                self.note_script_edit();
             } else if row > 0 {
                 let current_line = self.script_buffer.remove(row);
                 self.script_cursor.1 -= 1;
                 self.script_cursor.0 = self.script_buffer[self.script_cursor.1].chars().count();
                 self.script_buffer[self.script_cursor.1].push_str(&current_line);
-                self.script_unsaved = true;
+                self.note_script_edit();
             }
         }
 
@@ -226,11 +251,11 @@ impl EditorState {
             if col < char_count {
                 let byte_col = char_byte_offset(&self.script_buffer[row], col);
                 self.script_buffer[row].remove(byte_col);
-                self.script_unsaved = true;
+                self.note_script_edit();
             } else if row + 1 < self.script_buffer.len() {
                 let next_line = self.script_buffer.remove(row + 1);
                 self.script_buffer[row].push_str(&next_line);
-                self.script_unsaved = true;
+                self.note_script_edit();
             }
         }
 

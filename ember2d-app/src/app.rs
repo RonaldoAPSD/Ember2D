@@ -64,8 +64,24 @@ pub fn run_editor_app(
 
                     match engine.run()? {
                         Some(Transition::ToEditor) => {
+                            // 7C-7 (master plan §5.3, R18): a `PlayState`
+                            // popped here (or a `PauseMenuState` above it)
+                            // is gone the moment its `Box<dyn GameState>`
+                            // drops — draining each one's script log via
+                            // the trait (`take_script_log`, default no-op
+                            // for anything that doesn't override it) is
+                            // the only way to keep a script error the
+                            // player triggered from vanishing with the
+                            // state that logged it, since neither state is
+                            // reachable as its concrete type once pushed.
+                            let mut script_log = Vec::new();
                             while engine.state_stack_len() > 1 {
-                                engine.pop_state();
+                                if let Some(mut popped) = engine.pop_state() {
+                                    script_log.extend(popped.take_script_log());
+                                }
+                            }
+                            if let Some(editor) = engine.top_state_mut() {
+                                editor.receive_script_log(script_log);
                             }
                             engine.reset_world();
                             break; // Back to editor loop
