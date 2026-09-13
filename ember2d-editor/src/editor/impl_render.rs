@@ -432,6 +432,7 @@ impl EditorState {
                 PanelId::Hierarchy => {
                     ui::draw_hierarchy(
                         renderer,
+                        &self.theme,
                         &self.grid,
                         self.hierarchy_sel,
                         pcx,
@@ -445,6 +446,7 @@ impl EditorState {
                     ui::draw_palette_panel(
                         renderer,
                         self.font.as_mut(),
+                        &self.theme,
                         &self.palette,
                         mode_label,
                         self.palette_scroll,
@@ -458,6 +460,7 @@ impl EditorState {
                 PanelId::Inspector => {
                     ui::draw_inspector(
                         renderer,
+                        &self.theme,
                         insp_tile,
                         insp_pos,
                         insp_mode_tag,
@@ -469,10 +472,10 @@ impl EditorState {
                     );
                 }
                 PanelId::Console => {
-                    ui::draw_console(renderer, &self.console_log, pcx, pcy, pcw, pch);
+                    ui::draw_console(renderer, &self.theme, &self.console_log, pcx, pcy, pcw, pch);
                 }
                 PanelId::Stats => {
-                    ui::draw_stats_panel(renderer, &self.grid, &self.palette, pcx, pcy, pcw, pch);
+                    ui::draw_stats_panel(renderer, &self.theme, &self.grid, &self.palette, pcx, pcy, pcw, pch);
                 }
                 PanelId::ScriptEditor => {
                     ui::draw_script_editor(
@@ -495,6 +498,7 @@ impl EditorState {
                 PanelId::FileBrowser => {
                     ui::draw_file_browser_panel(
                         renderer,
+                        &self.theme,
                         &self.file_browser_files,
                         self.file_browser_cursor,
                         self.file_browser_scroll,

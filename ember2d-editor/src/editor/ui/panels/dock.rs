@@ -13,6 +13,7 @@ use super::super::widgets::draw_row;
 use crate::editor::grid::LevelGrid;
 use crate::editor::palette::TilePalette;
 use ember2d::renderer::{color::Color, DrawSurface, Font};
+use ember2d::theme::{PaletteRole, Theme};
 use ember2d_sim::level::TileRecord;
 use ember2d_sim::scripting::{LogEntry, LogLevel};
 use std::collections::HashMap;
@@ -27,9 +28,11 @@ use std::collections::HashMap;
 /// left edge counted, out to the edge of the panel) against its actual
 /// 10-cell drawn width — both now register exactly what's drawn, nothing more
 /// or less.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_palette_panel(
     renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
+    theme: &Theme,
     palette: &TilePalette,
     mode: Option<&str>,
     scroll: usize,
@@ -39,6 +42,12 @@ pub fn draw_palette_panel(
     ch: usize,
     frame: &mut UiFrame,
 ) {
+    let panel_bg = theme.role_color(PaletteRole::PanelBg);
+    let text_fg = theme.role_color(PaletteRole::TextPrimary);
+    let dim = theme.role_color(PaletteRole::TextDim);
+    let accent = theme.role_color(PaletteRole::Accent);
+    let selection = theme.role_color(PaletteRole::Selection);
+
     if let Some(m) = mode {
         // Rust's own `{:^width$}` centers by character count, same
         // "1 char = 1 cell" assumption as a hand-rolled `.len()` centering
@@ -52,7 +61,7 @@ pub fn draw_palette_panel(
         let left_pad = total_pad / 2;
         let right_pad = total_pad - left_pad;
         let header = format!(" {}{}{} ", " ".repeat(left_pad), m, " ".repeat(right_pad));
-        renderer.draw_str(cx, cy, &header, Color::Black, Color::Cyan);
+        renderer.draw_str(cx, cy, &header, Color::Black, accent);
     }
 
     // 1. Search Bar
@@ -66,8 +75,8 @@ pub fn draw_palette_panel(
         cx,
         search_row,
         &search_label,
-        if palette.search.is_empty() { Color::DarkGrey } else { Color::White },
-        Color::Black,
+        if palette.search.is_empty() { dim } else { text_fg },
+        panel_bg,
     );
     frame.push(WidgetId::PaletteSearchBar, UiRect::from_cells(cx as i32, search_row as i32, cw, 1));
 
@@ -89,25 +98,19 @@ pub fn draw_palette_panel(
                 let label = format!("{} {}", icon, name);
                 let clipped: String =
                     format!("{:<width$}", label, width = cw).chars().take(cw).collect();
-                renderer.draw_str(cx, row, &clipped, Color::Yellow, Color::DarkGrey);
+                renderer.draw_str(cx, row, &clipped, accent, panel_bg);
             }
             PaletteRow::Item(idx) => {
                 let tile = &palette.tiles[*idx];
                 let is_selected = *idx == palette.selected;
-                let row_bg = if is_selected { Color::DarkBlue } else { Color::DarkGrey };
+                let row_bg = if is_selected { selection } else { panel_bg };
 
                 // Row background
                 renderer.draw_rect_filled(cx, row, cw, 1, ' ', Color::White, row_bg);
 
                 // Indented glyph container [ # ]
                 let gx = cx + 2;
-                renderer.draw_str(
-                    gx,
-                    row,
-                    "[   ]",
-                    if is_selected { Color::Cyan } else { Color::White },
-                    row_bg,
-                );
+                renderer.draw_str(gx, row, "[   ]", if is_selected { accent } else { text_fg }, row_bg);
                 renderer.draw_char(gx + 2, row, tile.glyph, tile.fg, tile.bg);
 
                 // Indented name
@@ -118,7 +121,7 @@ pub fn draw_palette_panel(
                     name_col,
                     row,
                     &name_disp,
-                    if is_selected { Color::White } else { Color::Grey },
+                    if is_selected { text_fg } else { dim },
                     row_bg,
                 );
 
@@ -129,7 +132,7 @@ pub fn draw_palette_panel(
                     _ => None,
                 };
                 if let Some(num) = shortcut {
-                    renderer.draw_str(cx + cw - 1, row, &num, Color::Yellow, row_bg);
+                    renderer.draw_str(cx + cw - 1, row, &num, accent, row_bg);
                 }
             }
         }
@@ -138,9 +141,9 @@ pub fn draw_palette_panel(
 
     // [+ New] and [ Edit ] buttons at the bottom row
     let btn_row = cy + ch - 1;
-    renderer.draw_str(cx, btn_row, " [ + New ] ", Color::White, Color::DarkCyan);
+    renderer.draw_str(cx, btn_row, " [ + New ] ", text_fg, selection);
     frame.push(WidgetId::PaletteNewBtn, UiRect::from_cells(cx as i32, btn_row as i32, 11, 1));
-    renderer.draw_str(cx + cw - 10, btn_row, " [ Edit ] ", Color::White, Color::DarkBlue);
+    renderer.draw_str(cx + cw - 10, btn_row, " [ Edit ] ", text_fg, panel_bg);
     frame.push(
         WidgetId::PaletteEditBtn,
         UiRect::from_cells((cx + cw - 10) as i32, btn_row as i32, 10, 1),
@@ -149,6 +152,7 @@ pub fn draw_palette_panel(
 
 pub fn draw_stats_panel(
     renderer: &mut dyn DrawSurface,
+    theme: &Theme,
     grid: &LevelGrid,
     palette: &TilePalette,
     cx: usize,
@@ -156,6 +160,7 @@ pub fn draw_stats_panel(
     cw: usize,
     ch: usize,
 ) {
+    let panel_bg = theme.role_color(PaletteRole::PanelBg);
     let mut counts: HashMap<String, usize> = HashMap::new();
     for (_, tile) in grid.iter() {
         *counts.entry(tile.tag.clone()).or_insert(0) += 1;
@@ -169,25 +174,28 @@ pub fn draw_stats_panel(
         let count = counts.get(&def.tag).copied().unwrap_or(0);
         let label = format!(" {}: {:>4}", def.name, count);
         let clipped: String = label.chars().take(cw).collect();
-        renderer.draw_str(cx, row, &clipped, def.fg, Color::DarkGrey);
+        renderer.draw_str(cx, row, &clipped, def.fg, panel_bg);
     }
     renderer.draw_str(
         cx,
         cy + ch - 1,
         &format!(" Total:{:>4}", total),
-        Color::White,
-        Color::DarkGrey,
+        theme.role_color(PaletteRole::TextPrimary),
+        panel_bg,
     );
 }
 
 pub fn draw_console(
     renderer: &mut dyn DrawSurface,
+    theme: &Theme,
     log: &[LogEntry],
     cx: usize,
     cy: usize,
     cw: usize,
     ch: usize,
 ) {
+    let panel_bg = theme.role_color(PaletteRole::PanelBg);
+    let text_fg = theme.role_color(PaletteRole::TextPrimary);
     let visible = ch;
     let start = log.len().saturating_sub(visible);
     for (i, entry) in log.iter().skip(start).enumerate() {
@@ -195,15 +203,19 @@ pub fn draw_console(
         if row >= cy + ch {
             break;
         }
-        let (prefix, pfg, tbg) = match entry.level {
-            LogLevel::Error => ("[ERR]", Color::Red, Color::Black),
-            LogLevel::Warning => ("[WRN]", Color::Yellow, Color::Black),
-            LogLevel::Info => ("[OK] ", Color::DarkGreen, Color::Black),
+        // Log-level colors are semantic status signals (error/warning/ok),
+        // not decorative chrome — left as literal Red/Yellow/DarkGreen
+        // rather than theme roles, same as `draw_status_bar`'s own
+        // untouched danger-adjacent hints elsewhere.
+        let (prefix, pfg) = match entry.level {
+            LogLevel::Error => ("[ERR]", Color::Red),
+            LogLevel::Warning => ("[WRN]", Color::Yellow),
+            LogLevel::Info => ("[OK] ", Color::DarkGreen),
         };
         let max_text = cw.saturating_sub(7);
         let text = truncate_chars(&entry.text, max_text);
-        renderer.draw_str(cx, row, prefix, pfg, tbg);
-        renderer.draw_str(cx + 6, row, &text, Color::White, tbg);
+        renderer.draw_str(cx, row, prefix, pfg, panel_bg);
+        renderer.draw_str(cx + 6, row, &text, text_fg, panel_bg);
     }
 }
 
@@ -225,6 +237,7 @@ pub fn draw_console(
 /// longer possible.
 pub fn draw_inspector(
     renderer: &mut dyn DrawSurface,
+    theme: &Theme,
     tile: Option<&TileRecord>,
     pos: Option<(i32, i32)>,
     mode_tag: &str,
@@ -235,35 +248,41 @@ pub fn draw_inspector(
     frame: &mut UiFrame,
 ) {
     use InspectorField::*;
-    renderer.draw_rect_filled(ix, cy, iw, ch, ' ', Color::White, Color::DarkGrey);
+    let panel_bg = theme.role_color(PaletteRole::PanelBg);
+    let input_bg = theme.role_color(PaletteRole::InputBg);
+    let text_fg = theme.role_color(PaletteRole::TextPrimary);
+    let dim = theme.role_color(PaletteRole::TextDim);
+    let accent = theme.role_color(PaletteRole::Accent);
+
+    renderer.draw_rect_filled(ix, cy, iw, ch, ' ', Color::White, panel_bg);
     let mode_line = format!(" {:<width$}", mode_tag, width = iw.saturating_sub(1));
-    renderer.draw_str(ix, cy, &mode_line, Color::Black, Color::Cyan);
+    renderer.draw_str(ix, cy, &mode_line, Color::Black, accent);
 
     let sep: String =
         std::iter::once(' ').chain(std::iter::repeat_n('-', iw.saturating_sub(1))).collect();
 
     let Some(tile) = tile else {
         let hint = if pos.is_some() { "(empty cell)" } else { "hover a tile" };
-        renderer.draw_str(ix + 1, cy + 2, hint, Color::DarkGrey, Color::DarkGrey);
+        renderer.draw_str(ix + 1, cy + 2, hint, dim, panel_bg);
         return;
     };
 
     // ── Tile Edit Mode ───────────────────────────────────────────────────
     if let Some((gx, gy)) = pos {
-        renderer.draw_str(ix, cy + 1, &format!(" ({},{})", gx, gy), Color::Cyan, Color::DarkGrey);
+        renderer.draw_str(ix, cy + 1, &format!(" ({},{})", gx, gy), accent, panel_bg);
     }
     let glyph_str = format!("  '{}' {:<width$}", tile.glyph, "glyph", width = iw.saturating_sub(6));
-    renderer.draw_str(ix, cy + INSP_GLYPH_OFF, &glyph_str, tile.fg, Color::DarkBlue);
+    renderer.draw_str(ix, cy + INSP_GLYPH_OFF, &glyph_str, tile.fg, input_bg);
     frame.push(
         WidgetId::InspectorRow(Glyph),
         UiRect::from_cells(ix as i32, (cy + INSP_GLYPH_OFF) as i32, iw, 1),
     );
 
-    renderer.draw_str(ix, cy + 4, &sep, Color::DarkGrey, Color::DarkGrey);
-    renderer.draw_str(ix, cy + 5, " Tag:", Color::DarkGrey, Color::DarkGrey);
+    renderer.draw_str(ix, cy + 4, &sep, dim, panel_bg);
+    renderer.draw_str(ix, cy + 5, " Tag:", dim, panel_bg);
     let tag_disp = if tile.tag.is_empty() { "(none)" } else { &tile.tag };
     let tag_line = format!("  {:<width$}", tag_disp, width = iw.saturating_sub(3));
-    renderer.draw_str(ix, cy + INSP_TAG_OFF + 1, &tag_line, Color::White, Color::DarkBlue);
+    renderer.draw_str(ix, cy + INSP_TAG_OFF + 1, &tag_line, text_fg, input_bg);
     // The click target is the "Tag:" LABEL's own row (`INSP_TAG_OFF`), one
     // row above where `tag_line`'s value actually renders
     // (`INSP_TAG_OFF + 1`) — that's exactly where the pre-migration
@@ -275,13 +294,13 @@ pub fn draw_inspector(
         UiRect::from_cells(ix as i32, (cy + INSP_TAG_OFF) as i32, iw, 1),
     );
 
-    renderer.draw_str(ix, cy + 7, &sep, Color::DarkGrey, Color::DarkGrey);
+    renderer.draw_str(ix, cy + 7, &sep, dim, panel_bg);
     renderer.draw_str(
         ix,
         cy + INSP_SOLID_OFF,
         &format!(" [{}] Solid", if tile.solid { 'x' } else { ' ' }),
-        Color::White,
-        Color::DarkBlue,
+        text_fg,
+        input_bg,
     );
     frame.push(
         WidgetId::InspectorRow(Solid),
@@ -291,8 +310,8 @@ pub fn draw_inspector(
         ix,
         cy + INSP_TRIG_OFF,
         &format!(" [{}] Trigger", if tile.trigger { 'x' } else { ' ' }),
-        Color::White,
-        Color::DarkBlue,
+        text_fg,
+        input_bg,
     );
     frame.push(
         WidgetId::InspectorRow(Trigger),
@@ -302,16 +321,16 @@ pub fn draw_inspector(
         ix,
         cy + INSP_CAM_OFF,
         &format!(" [{}] Camera follow", if tile.camera_follow { 'x' } else { ' ' }),
-        Color::White,
-        Color::DarkBlue,
+        text_fg,
+        input_bg,
     );
     frame.push(
         WidgetId::InspectorRow(CameraFollow),
         UiRect::from_cells(ix as i32, (cy + INSP_CAM_OFF) as i32, iw, 1),
     );
 
-    renderer.draw_str(ix, cy + 12, &sep, Color::DarkGrey, Color::DarkGrey);
-    renderer.draw_str(ix, cy + 13, " Script:", Color::DarkGrey, Color::DarkGrey);
+    renderer.draw_str(ix, cy + 12, &sep, dim, panel_bg);
+    renderer.draw_str(ix, cy + 13, " Script:", dim, panel_bg);
     let (script_disp, script_fg) = match &tile.script {
         Some(path) => {
             let short = path
@@ -319,30 +338,28 @@ pub fn draw_inspector(
                 .or_else(|| path.rfind('\\'))
                 .map(|i| &path[i + 1..])
                 .unwrap_or(path.as_str());
-            (format!("  {:<width$}", short, width = iw.saturating_sub(3)), Color::White)
+            (format!("  {:<width$}", short, width = iw.saturating_sub(3)), text_fg)
         }
-        None => (format!("  {:<width$}", "(none)", width = iw.saturating_sub(3)), Color::DarkGrey),
+        None => (format!("  {:<width$}", "(none)", width = iw.saturating_sub(3)), dim),
     };
-    renderer.draw_str(ix, cy + INSP_SCRIPT_OFF, &script_disp, script_fg, Color::DarkBlue);
+    renderer.draw_str(ix, cy + INSP_SCRIPT_OFF, &script_disp, script_fg, input_bg);
     frame.push(
         WidgetId::InspectorRow(Script),
         UiRect::from_cells(ix as i32, (cy + INSP_SCRIPT_OFF) as i32, iw, 1),
     );
     let (exit_disp, exit_fg) = match &tile.next_level {
-        Some(p) => (format!("  >{:<width$}", p, width = iw.saturating_sub(4)), Color::Cyan),
-        None => {
-            (format!("  {:<width$}", "(no exit)", width = iw.saturating_sub(3)), Color::DarkGrey)
-        }
+        Some(p) => (format!("  >{:<width$}", p, width = iw.saturating_sub(4)), accent),
+        None => (format!("  {:<width$}", "(no exit)", width = iw.saturating_sub(3)), dim),
     };
-    renderer.draw_str(ix, cy + INSP_EXIT_OFF, &exit_disp, exit_fg, Color::DarkBlue);
+    renderer.draw_str(ix, cy + INSP_EXIT_OFF, &exit_disp, exit_fg, input_bg);
     frame.push(
         WidgetId::InspectorRow(Exit),
         UiRect::from_cells(ix as i32, (cy + INSP_EXIT_OFF) as i32, iw, 1),
     );
 
-    renderer.draw_str(ix, cy + 16, &sep, Color::DarkGrey, Color::DarkGrey);
+    renderer.draw_str(ix, cy + 16, &sep, dim, panel_bg);
     if cy + 17 < cy + ch {
-        renderer.draw_str(ix, cy + 17, " Scripting:", Color::DarkGrey, Color::DarkGrey);
+        renderer.draw_str(ix, cy + 17, " Scripting:", dim, panel_bg);
     }
     if cy + INSP_GRAPH_BTN < cy + ch {
         if tile.graph.is_some() {
@@ -350,13 +367,16 @@ pub fn draw_inspector(
             let e = tile.graph.as_ref().map(|g| g.edges.len()).unwrap_or(0);
             let btn = "  [Edit Graph]".to_string();
             let btn: String = format!("{:<width$}", btn, width = iw).chars().take(iw).collect();
-            renderer.draw_str(ix, cy + INSP_GRAPH_BTN, &btn, Color::Black, Color::Cyan);
+            renderer.draw_str(ix, cy + INSP_GRAPH_BTN, &btn, Color::Black, accent);
             if cy + 19 < cy + ch {
                 let info = format!("  {} nodes  {} edges", n, e);
                 let info: String = info.chars().take(iw).collect();
-                renderer.draw_str(ix, cy + 19, &info, Color::DarkGrey, Color::DarkGrey);
+                renderer.draw_str(ix, cy + 19, &info, dim, panel_bg);
             }
         } else {
+            // A distinct "create" action, not decorative chrome — stays
+            // literal green rather than a theme role, same reasoning as
+            // `draw_console`'s own untouched log-level colors.
             let btn = "  [New Graph]".to_string();
             let btn: String = format!("{:<width$}", btn, width = iw).chars().take(iw).collect();
             renderer.draw_str(ix, cy + INSP_GRAPH_BTN, &btn, Color::Black, Color::DarkGreen);
@@ -367,28 +387,28 @@ pub fn draw_inspector(
         );
     }
     if cy + 20 < cy + ch {
-        renderer.draw_str(ix, cy + 20, &sep, Color::DarkGrey, Color::DarkGrey);
+        renderer.draw_str(ix, cy + 20, &sep, dim, panel_bg);
     }
     if cy + INSP_LAYER_OFF < cy + ch {
-        renderer.draw_str(ix, cy + INSP_LAYER_OFF, " Layer:", Color::DarkGrey, Color::DarkGrey);
+        renderer.draw_str(ix, cy + INSP_LAYER_OFF, " Layer:", dim, panel_bg);
         let layer_disp =
             if tile.collider_layer.is_empty() { "(any)" } else { &tile.collider_layer };
         let layer_line = format!("  {:<width$}", layer_disp, width = iw.saturating_sub(3));
-        renderer.draw_str(ix, cy + INSP_LAYER_OFF, &layer_line, Color::Cyan, Color::DarkBlue);
+        renderer.draw_str(ix, cy + INSP_LAYER_OFF, &layer_line, accent, input_bg);
         frame.push(
             WidgetId::InspectorRow(Layer),
             UiRect::from_cells(ix as i32, (cy + INSP_LAYER_OFF) as i32, iw, 1),
         );
     }
     if cy + INSP_MASK_OFF < cy + ch {
-        renderer.draw_str(ix, cy + INSP_MASK_OFF, " Mask:", Color::DarkGrey, Color::DarkGrey);
+        renderer.draw_str(ix, cy + INSP_MASK_OFF, " Mask:", dim, panel_bg);
         let mask_str = if tile.collider_mask.is_empty() {
             "(all layers)".to_string()
         } else {
             tile.collider_mask.join(",")
         };
         let mask_line = format!("  {:<width$}", mask_str, width = iw.saturating_sub(3));
-        renderer.draw_str(ix, cy + INSP_MASK_OFF, &mask_line, Color::Cyan, Color::DarkBlue);
+        renderer.draw_str(ix, cy + INSP_MASK_OFF, &mask_line, accent, input_bg);
         frame.push(
             WidgetId::InspectorRow(Mask),
             UiRect::from_cells(ix as i32, (cy + INSP_MASK_OFF) as i32, iw, 1),
@@ -399,6 +419,7 @@ pub fn draw_inspector(
 #[allow(clippy::too_many_arguments)]
 pub fn draw_hierarchy(
     renderer: &mut dyn DrawSurface,
+    theme: &Theme,
     grid: &LevelGrid,
     hier_sel: Option<HierarchySelection>,
     hx: usize,
@@ -407,17 +428,22 @@ pub fn draw_hierarchy(
     hh: usize,
     frame: &mut UiFrame,
 ) {
-    renderer.draw_rect_filled(hx, hy, hw, hh, ' ', Color::White, Color::DarkGrey);
+    let panel_bg = theme.role_color(PaletteRole::PanelBg);
+    let dim = theme.role_color(PaletteRole::TextDim);
+    let accent = theme.role_color(PaletteRole::Accent);
+    renderer.draw_rect_filled(hx, hy, hw, hh, ' ', Color::White, panel_bg);
     let sep: String = std::iter::repeat_n('-', hw).collect();
-    renderer.draw_str(hx, hy, &sep, Color::DarkGrey, Color::DarkGrey);
+    renderer.draw_str(hx, hy, &sep, dim, panel_bg);
     // 7C-1 (master plan §5.3): `draw_row` registers each row at the exact
     // point it's drawn, replacing `handle_hierarchy_click`'s own
-    // independently-recomputed `hier_row` arithmetic (E5).
+    // independently-recomputed `hier_row` arithmetic (E5). Entity-kind
+    // colors (player green, spawn yellow) are semantic, not chrome — left
+    // literal, same reasoning as `draw_console`'s log-level colors; only
+    // the SELECTED state and background follow the theme.
     if hh > 1 {
         let player_sel = hier_sel == Some(HierarchySelection::Player);
         let label = format!(" {} Player{}", grid.player.glyph, " ".repeat(hw.saturating_sub(9)));
-        let (fg, bg) =
-            if player_sel { (Color::Black, Color::Cyan) } else { (Color::Green, Color::DarkGrey) };
+        let (fg, bg) = if player_sel { (Color::Black, accent) } else { (Color::Green, panel_bg) };
         draw_row(renderer, frame, WidgetId::HierarchyRow(HierarchySelection::Player), hx, hy + 1, hw, &label, fg, bg);
     }
     for (i, (name, _, _)) in grid.extra_spawns.iter().enumerate() {
@@ -429,8 +455,7 @@ pub fn draw_hierarchy(
         let max_name = hw.saturating_sub(3);
         let short: String = name.chars().take(max_name).collect();
         let label = format!(" ! {:<width$}", short, width = max_name);
-        let (fg, bg) =
-            if spawn_sel { (Color::Black, Color::Cyan) } else { (Color::Yellow, Color::DarkGrey) };
+        let (fg, bg) = if spawn_sel { (Color::Black, accent) } else { (Color::Yellow, panel_bg) };
         draw_row(renderer, frame, WidgetId::HierarchyRow(HierarchySelection::Spawn(i)), hx, row, hw, &label, fg, bg);
     }
 }
@@ -438,6 +463,7 @@ pub fn draw_hierarchy(
 #[allow(clippy::too_many_arguments)]
 pub fn draw_file_browser_panel(
     renderer: &mut dyn DrawSurface,
+    theme: &Theme,
     files: &[String],
     cursor: usize,
     scroll: usize,
@@ -448,18 +474,24 @@ pub fn draw_file_browser_panel(
     ch: usize,
     frame: &mut UiFrame,
 ) {
-    renderer.draw_rect_filled(cx, cy, cw, ch, ' ', Color::White, Color::DarkGrey);
+    let panel_bg = theme.role_color(PaletteRole::PanelBg);
+    let text_fg = theme.role_color(PaletteRole::TextPrimary);
+    let dim = theme.role_color(PaletteRole::TextDim);
+    let accent = theme.role_color(PaletteRole::Accent);
+    let selection = theme.role_color(PaletteRole::Selection);
+
+    renderer.draw_rect_filled(cx, cy, cw, ch, ' ', Color::White, panel_bg);
 
     // Breadcrumbs / Current Path
     let path_label = format!(" Content > {}", current_folder.replace("./", "").replace("/", " > "));
     let header = format!(" {:<width$}", path_label, width = cw.saturating_sub(1));
-    renderer.draw_str(cx, cy, &header, Color::Black, Color::Cyan);
+    renderer.draw_str(cx, cy, &header, Color::Black, accent);
 
     let list_start = cy + 1;
     let max_visible = ch.saturating_sub(1);
 
     if files.is_empty() {
-        renderer.draw_str(cx + 1, list_start, "(empty folder)", Color::Grey, Color::DarkGrey);
+        renderer.draw_str(cx + 1, list_start, "(empty folder)", dim, panel_bg);
         return;
     }
 
@@ -470,7 +502,7 @@ pub fn draw_file_browser_panel(
         }
 
         let is_selected = i == cursor;
-        let bg = if is_selected { Color::DarkBlue } else { Color::DarkGrey };
+        let bg = if is_selected { selection } else { panel_bg };
 
         renderer.draw_rect_filled(cx, row, cw, 1, ' ', Color::White, bg);
         // 7C-1 (master plan §5.3): registers this row's rect at the exact
@@ -482,10 +514,13 @@ pub fn draw_file_browser_panel(
         frame.push(WidgetId::FileBrowserRow(i), UiRect::from_cells(cx as i32, row as i32, cw, 1));
 
         if raw_line.contains("[UP]") {
-            renderer.draw_str(cx + 1, row, " .. [PARENT FOLDER] ", Color::Yellow, bg);
+            renderer.draw_str(cx + 1, row, " .. [PARENT FOLDER] ", accent, bg);
             continue;
         }
 
+        // File-kind colors (dir/level/script) are semantic icon tags, not
+        // chrome — left literal, same reasoning as `draw_console`'s
+        // log-level colors and `draw_hierarchy`'s entity-kind colors.
         let (icon, fg, skip) = if raw_line.starts_with("/ ") {
             ("DIR", Color::Yellow, 2)
         } else if raw_line.starts_with("[] ") {
@@ -493,7 +528,7 @@ pub fn draw_file_browser_panel(
         } else if raw_line.starts_with("{} ") {
             ("SCR", Color::Green, 3)
         } else {
-            ("---", Color::Grey, 3)
+            ("---", dim, 3)
         };
 
         let name = if raw_line.len() > skip { &raw_line[skip..] } else { raw_line };
@@ -503,13 +538,7 @@ pub fn draw_file_browser_panel(
         let name_x = cx + 7;
         let max_name_w = cw.saturating_sub(8);
         let clipped_name: String = name.chars().take(max_name_w).collect();
-        renderer.draw_str(
-            name_x,
-            row,
-            &clipped_name,
-            if is_selected { Color::White } else { Color::White },
-            bg,
-        );
+        renderer.draw_str(name_x, row, &clipped_name, text_fg, bg);
     }
 }
 
