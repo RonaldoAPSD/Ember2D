@@ -58,6 +58,46 @@ pub fn draw_text_row(
     renderer.draw_text_px(font, text, Vec2::new(rect.x, baseline_y), px, fg)
 }
 
+/// The pixel-space twin of `draw_button` below — same shape as
+/// `draw_row_px`, kept as its own named function for the same reason
+/// `draw_button`/`draw_row`/`draw_swatch` already are (this file's own
+/// header comment): each documents a different KIND of call site (a
+/// modal action) even though the bodies are identical.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_button_px(
+    renderer: &mut dyn DrawSurface,
+    frame: &mut UiFrame,
+    font: &mut dyn Font,
+    id: WidgetId,
+    rect: Rect,
+    px: f32,
+    label: &str,
+    fg: Color,
+    bg: Color,
+) {
+    draw_text_row(renderer, font, label, rect, px, fg, bg);
+    frame.push(id, UiRect::new(rect.x, rect.y, rect.w, rect.h));
+}
+
+/// The pixel-space twin of `draw_swatch` below — same reasoning as
+/// `draw_button_px`'s own doc comment for why this duplicates
+/// `draw_row_px`'s body under its own name.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_swatch_px(
+    renderer: &mut dyn DrawSurface,
+    frame: &mut UiFrame,
+    font: &mut dyn Font,
+    id: WidgetId,
+    rect: Rect,
+    px: f32,
+    label: &str,
+    fg: Color,
+    bg: Color,
+) {
+    draw_text_row(renderer, font, label, rect, px, fg, bg);
+    frame.push(id, UiRect::new(rect.x, rect.y, rect.w, rect.h));
+}
+
 /// The pixel-space twin of `draw_row` below — a full-row list entry
 /// (hierarchy rows, file browser rows) drawn through `draw_text_row` at a
 /// real pixel rect, with its hit rect pushed at that EXACT same rect

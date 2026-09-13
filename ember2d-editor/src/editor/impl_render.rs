@@ -184,7 +184,7 @@ impl EditorState {
         // mean, now read from the one place that actually knows it.
         self.panels.apply_layout(renderer.pixel_width(), renderer.pixel_height());
         let viewport = self.panels.viewport().content_rect();
-        let (screen_w, screen_h) = (renderer.width(), renderer.height());
+        let (screen_w, screen_h) = (renderer.pixel_width() as f32, renderer.pixel_height() as f32);
 
         renderer.draw_rect_filled(
             0,
@@ -276,13 +276,26 @@ impl EditorState {
                         DockSide::Bottom => self.panels.active_bottom,
                         DockSide::None => None,
                     };
+                    // `CELL_H`, not `theme.metrics.row_h` — this strip sits
+                    // exactly where `draw_panel_chrome`'s own title-bar row
+                    // does (`panel/mod.rs`, still `CELL_H`-tall; that
+                    // function's own pixel-layout conversion is 7D-2's
+                    // first slice, separate from this one), and
+                    // `Panel::content_y()`'s "one row below the top" still
+                    // assumes that same height. A taller strip here would
+                    // silently overlap the panel's own content by the
+                    // difference.
+                    let strip = ember2d_sim::math::Rect::new(
+                        panel.rect.x,
+                        panel.rect.y,
+                        panel.rect.w,
+                        ember2d::renderer::CELL_H as f32,
+                    );
                     ui::draw_dock_tabs(
                         renderer,
                         self.font.as_mut(),
                         &self.theme,
-                        panel.cell_x().max(0) as usize,
-                        panel.cell_y().max(0) as usize,
-                        panel.cell_w(),
+                        strip,
                         &tab_info,
                         active,
                         &mut self.ui_frame,
@@ -526,6 +539,7 @@ impl EditorState {
             if let Some(pal) = self.palette.tiles.get(self.palette_editing_idx) {
                 ui::draw_palette_editor_modal(
                     renderer,
+                    self.font.as_mut(),
                     &self.theme,
                     &self.theme_chrome_tex,
                     pal,
@@ -541,6 +555,7 @@ impl EditorState {
             let is_fg = *is_fg;
             ui::draw_color_picker_modal(
                 renderer,
+                self.font.as_mut(),
                 &self.theme,
                 &self.theme_chrome_tex,
                 self.color_picker_hsv,
@@ -629,6 +644,7 @@ impl EditorState {
 
         ui::draw_status_bar(
             renderer,
+            self.font.as_mut(),
             &self.theme,
             mouse,
             &self.palette,
@@ -710,7 +726,7 @@ impl EditorState {
         }
 
         if let EditorMode::ContextMenu(cm) = &self.mode {
-            ui::draw_context_menu(renderer, &self.theme, &self.theme_chrome_tex, cm, &mut self.ui_frame);
+            ui::draw_context_menu(renderer, self.font.as_mut(), &self.theme, &self.theme_chrome_tex, cm, &mut self.ui_frame);
         }
     }
 }
