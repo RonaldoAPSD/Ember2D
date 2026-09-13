@@ -2792,7 +2792,7 @@ deleted at the end of this step; panels size to content and theme metrics.
     `--editor demos/roguelike/floor1.level`, maximized window): chrome bars
     now 20px (was 16px, the confirmed-with-the-user visual change), status
     bar readout no longer overlaps, viewport/panels/dock content all correct.
-  - **Checkpoint 4 — modals.** New `WidgetId` variants
+  - **Checkpoint 4 — modals (`e229b56`).** New `WidgetId` variants
     (`PaletteEditorClose`/`Field`/`Toggle`/`CustomColor`/`SaveClose`/
     `Delete`) — `draw_palette_editor_modal` (`ui/panels/modals.rs`) now
     pushes every interactive row/button at the exact point it's drawn,
