@@ -97,7 +97,7 @@ fn uv_rect_for_normalizes_a_pixel_sub_rect_to_0_1() {
 #[test]
 fn nine_slice_quads_produces_nine_quads_with_the_center_at_index_4() {
     let dest = Rect::new(10.0, 20.0, 100.0, 60.0);
-    let quads = nine_slice_quads(dest, 30.0, 30.0, (5.0, 5.0, 5.0, 5.0));
+    let quads = nine_slice_quads(dest, Rect::new(0.0, 0.0, 30.0, 30.0), (5.0, 5.0, 5.0, 5.0));
     assert_eq!(quads.len(), 9);
 
     // Corners keep the exact border size on both source and dest sides
@@ -121,7 +121,7 @@ fn nine_slice_quads_produces_nine_quads_with_the_center_at_index_4() {
 #[test]
 fn nine_slice_quads_with_zero_border_degenerates_to_one_stretched_center() {
     let dest = Rect::new(0.0, 0.0, 40.0, 20.0);
-    let quads = nine_slice_quads(dest, 8.0, 8.0, (0.0, 0.0, 0.0, 0.0));
+    let quads = nine_slice_quads(dest, Rect::new(0.0, 0.0, 8.0, 8.0), (0.0, 0.0, 0.0, 0.0));
     assert_eq!(quads.len(), 9);
     // The four true corners (0, 2, 6, 8) collapse to zero in BOTH
     // dimensions — there's no border pixel to draw. The four edges
@@ -168,8 +168,49 @@ fn nine_slice_quads_clamps_a_dest_smaller_than_the_combined_borders() {
     // dest (30px) is smaller than the combined left+right border (40px)
     // — the middle column must clamp to zero width, not go negative.
     let dest = Rect::new(0.0, 0.0, 30.0, 30.0);
-    let quads = nine_slice_quads(dest, 100.0, 100.0, (20.0, 20.0, 20.0, 20.0));
+    let quads = nine_slice_quads(dest, Rect::new(0.0, 0.0, 100.0, 100.0), (20.0, 20.0, 20.0, 20.0));
     let (center_d, _) = quads[4];
     assert_eq!(center_d.w, 0.0);
     assert_eq!(center_d.h, 0.0);
+}
+
+/// Regression test (7D-2, master plan §5.4): found live running the
+/// editor after wiring `SliceRole`'s own `NineSlice.src` through a shared
+/// theme atlas — `draw_nine_slice`/`nine_slice_quads` originally hardcoded
+/// `src_x`/`src_y` starting at `(0.0, 0.0)` (`texture.width`/`.height`
+/// AS the whole source region), which was fine for a texture dedicated to
+/// exactly one 9-slice but silently sampled from the WRONG region — often
+/// spilling into several OTHER slices packed into the same atlas — the
+/// instant `src` named a sub-rect anywhere but the atlas's own origin.
+/// Visually this showed up as small chrome elements (the close button,
+/// resize grip) rendering as a tiled mosaic of several unrelated slice
+/// colors instead of their own single intended one.
+#[test]
+fn nine_slice_quads_offsets_every_src_rect_by_a_non_zero_atlas_origin() {
+    let dest = Rect::new(0.0, 0.0, 100.0, 100.0);
+    // A slice living at (64.0, 32.0) in a larger shared atlas, not at the
+    // atlas's own origin.
+    let src = Rect::new(64.0, 32.0, 30.0, 30.0);
+    let quads = nine_slice_quads(dest, src, (5.0, 5.0, 5.0, 5.0));
+
+    let (_, top_left_s) = quads[0];
+    assert_eq!(
+        top_left_s,
+        Rect::new(64.0, 32.0, 5.0, 5.0),
+        "the top-left corner's source rect must start at the atlas sub-rect's own origin, not (0,0)"
+    );
+
+    let (_, bottom_right_s) = quads[8];
+    assert_eq!(
+        bottom_right_s,
+        Rect::new(89.0, 57.0, 5.0, 5.0),
+        "the bottom-right corner must stay within this slice's own 30x30 region, offset by src's origin"
+    );
+
+    let (_, center_s) = quads[4];
+    assert_eq!(
+        center_s,
+        Rect::new(69.0, 37.0, 20.0, 20.0),
+        "the stretched center must sample this slice's own middle, not the atlas's"
+    );
 }

@@ -34,7 +34,9 @@
 
 pub use super::ui::{DockSide, PanelId};
 use super::ui::{UiFrame, UiRect, WidgetId};
-use ember2d::renderer::{color::Color, DrawSurface};
+use ember2d::renderer::{color::Color, DrawSurface, Font, Texture};
+use ember2d::theme::{PaletteRole, SliceRole, Theme};
+use ember2d_sim::math::{Rect, Vec2};
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
 
@@ -634,22 +636,34 @@ impl PanelManager {
 
 // ── draw_panel_chrome ─────────────────────────────────────────────────────────
 
-/// Draw the title bar and resize handle for a panel, and register each
-/// interactive element's hit rect in `frame` at the exact point it's drawn
-/// (Phase 7 Part 1d, docs/ember2d-phase7-plan.md) — see `ui/frame.rs`'s
+/// Draw a panel's frame, title bar, close button, and resize handle through
+/// the editor's theme (7D-2, master plan §5.4 — the first slice of the
+/// chrome rewrite: this function only, panel CONTENT — inspector rows,
+/// console text, etc. — stays on the old cell-grid drawing for now, a
+/// deliberate scope cut agreed with the user given the size of a full
+/// rewrite). Registers each interactive element's hit rect in `frame` at
+/// the exact point it's drawn (Phase 7 Part 1d) — see `ui/frame.rs`'s
 /// header comment for why this one function doing both is what closes
-/// defect E5.
+/// defect E5; that discipline is unchanged by which pixels actually land.
 ///
-/// Title bar at panel.y: `= Title ... [X]`
-/// Resize handle [~] at bottom-right corner of the panel.
+/// `theme`/`chrome_tex`/`font` come from `EditorState::theme`/
+/// `theme_chrome_tex`/`theme_font` (see `load_editor_theme`'s own doc
+/// comment, editor/mod.rs) — resolved once, passed in rather than looked
+/// up here, so this function stays free of any asset/GPU dependency
+/// itself (same reasoning `DrawSurface::draw_nine_slice_px` documents for
+/// taking an already-resolved `&Texture`).
 ///
-/// Still entirely cell-based drawing itself (Phase 7 Part 1c) — reads the
-/// panel's geometry through `cell_x`/`cell_y`/`cell_w`/`cell_h` rather than
-/// raw fields, which no longer exist on `Panel`. Migrating the drawing
-/// itself to `fill_rect_px`/`draw_nine_slice` is Part 4's job; the hit
-/// rects pushed here are pixels regardless (`panel.rect` and
-/// `UiRect::from_cells`), matching every other `UiFrame` entry.
-pub fn draw_panel_chrome(renderer: &mut dyn DrawSurface, panel: &Panel, frame: &mut UiFrame) {
+/// The viewport is excluded entirely (still a flat black fill, no chrome)
+/// — it stays on the engine's own renderer regardless of theme (7C-9
+/// decision gate, §7.1); it's the one panel this function never themes.
+pub fn draw_panel_chrome(
+    renderer: &mut dyn DrawSurface,
+    panel: &Panel,
+    frame: &mut UiFrame,
+    theme: &Theme,
+    chrome_tex: &Texture,
+    font: &mut dyn Font,
+) {
     let x = panel.cell_x().max(0) as usize;
     let y = panel.cell_y().max(0) as usize;
     let w = panel.cell_w();
@@ -658,62 +672,86 @@ pub fn draw_panel_chrome(renderer: &mut dyn DrawSurface, panel: &Panel, frame: &
         return;
     }
 
-    // 1. Fill panel interior
-    let interior_bg = if panel.id == PanelId::Viewport { Color::Black } else { Color::DarkGrey };
-    renderer.draw_rect_filled(x, y, w, h, ' ', Color::White, interior_bg);
+    if panel.id == PanelId::Viewport {
+        renderer.draw_rect_filled(x, y, w, h, ' ', Color::White, Color::Black);
+        return;
+    }
 
-    // 2. Title Bar (Top border area)
-    renderer.draw_rect_filled(x, y, w, 1, ' ', Color::White, Color::DarkBlue);
+    let full_rect = Rect::new(panel.rect.x, panel.rect.y, panel.rect.w, panel.rect.h);
+    let title_rect = Rect::new(panel.rect.x, panel.rect.y, panel.rect.w, CELL_H);
+
+    // 1. Frame — one 9-slice covering the WHOLE panel, corners/edges/center
+    // (its center IS the interior fill the old flat implementation drew as
+    // a separate step). Falls back to a flat fill if the theme doesn't
+    // define this role (7D-1's own "missing slice, no fabricated
+    // geometry" contract — see `Theme::slice`'s own doc comment).
+    match theme.slice(SliceRole::Panel) {
+        Some(slice) => renderer.draw_nine_slice_px(full_rect, chrome_tex, slice.src, slice.border, Color::White),
+        None => renderer.draw_rect_filled(x, y, w, h, ' ', Color::White, Color::DarkGrey),
+    }
+
+    // 2. Title bar — a second 9-slice over just the top strip, drawn AFTER
+    // the frame so it wins there.
+    match theme.slice(SliceRole::TitleBar) {
+        Some(slice) => renderer.draw_nine_slice_px(title_rect, chrome_tex, slice.src, slice.border, Color::White),
+        None => renderer.draw_rect_filled(x, y, w, 1, ' ', Color::White, Color::DarkBlue),
+    }
     frame.push(
         WidgetId::TitleBar(panel.id),
         UiRect::new(panel.rect.x, panel.rect.y, panel.rect.w, CELL_H),
     );
 
+    // 3. Title text — measure-centered in the title bar, minus the close
+    // button's own reserved width on the right (plan: "measure-centred
+    // title... one slice for the close button").
     let dock_indicator = match panel.dock {
         DockSide::Left => "< ",
         DockSide::Right => "> ",
         DockSide::Bottom => "v ",
-        DockSide::None => "= ",
+        DockSide::None => "",
     };
-    let title = format!("{}{} ", dock_indicator, panel.title);
-    let clipped: String = title.chars().take(w.saturating_sub(6)).collect();
-    renderer.draw_str(x + 1, y, &clipped, Color::White, Color::DarkBlue);
+    let title = format!("{}{}", dock_indicator, panel.title);
+    let title_px = theme.font_sizes.body;
+    let close_w = CELL_W * 2.0;
+    let avail_w = (panel.rect.w - close_w).max(0.0);
+    let (measured_w, _) = font.measure(&title, title_px);
+    let text_x = panel.rect.x + ((avail_w - measured_w).max(0.0) / 2.0).round();
+    let baseline_y = (panel.rect.y + font.ascent(title_px)).round();
+    renderer.draw_text_px(
+        font,
+        &title,
+        Vec2::new(text_x, baseline_y),
+        title_px,
+        theme.role_color(PaletteRole::TitleText),
+    );
 
-    if w >= 5 && panel.id != PanelId::Viewport {
-        renderer.draw_str(x + w - 4, y, "[X]", Color::White, Color::DarkBlue);
-        // Pushed at the SAME `x + w - 4` cell offset the draw call above
-        // just used, three cells wide (matching the three characters
-        // "[X]") — this fixes a pre-existing one-cell mismatch the old,
-        // independently-computed `Panel::on_close_btn` hitbox had (it
-        // covered cells [w-3, w-2), one cell right of the actual glyphs).
-        // That drift is exactly defect E5; there is now only one place
-        // that decides where this button is.
-        frame.push(
-            WidgetId::CloseBtn(panel.id),
-            UiRect::from_cells((x + w - 4) as i32, y as i32, 3, 1),
-        );
+    // 4. Close button — a small themed square at the title bar's right
+    // edge, an "X" drawn in the same theme font as the title.
+    let close_rect = Rect::new(panel.rect.right() - close_w, panel.rect.y, close_w, CELL_H);
+    if let Some(slice) = theme.slice(SliceRole::Button) {
+        renderer.draw_nine_slice_px(close_rect, chrome_tex, slice.src, slice.border, Color::White);
     }
+    let (x_w, _) = font.measure("X", title_px);
+    let x_x = (close_rect.x + (close_w - x_w) / 2.0).round();
+    renderer.draw_text_px(
+        font,
+        "X",
+        Vec2::new(x_x, baseline_y),
+        title_px,
+        theme.role_color(PaletteRole::TextPrimary),
+    );
+    frame.push(
+        WidgetId::CloseBtn(panel.id),
+        UiRect::new(close_rect.x, close_rect.y, close_rect.w, close_rect.h),
+    );
 
-    // 3. Side and Bottom Borders (blended)
-    let border_fg = Color::Grey;
-    let border_bg = interior_bg;
-
-    // Left & Right
-    for row in (y + 1)..(y + h - 1) {
-        renderer.draw_char(x, row, '|', border_fg, border_bg);
-        renderer.draw_char(x + w - 1, row, '|', border_fg, border_bg);
+    // 5. Resize handle — a themed square at the bottom-right corner.
+    let grip_size = CELL_W.min(CELL_H);
+    let grip_rect =
+        Rect::new(panel.rect.right() - grip_size, panel.rect.bottom() - grip_size, grip_size, grip_size);
+    if let Some(slice) = theme.slice(SliceRole::ResizeGrip) {
+        renderer.draw_nine_slice_px(grip_rect, chrome_tex, slice.src, slice.border, Color::White);
     }
-    // Bottom
-    let bot_str: String = std::iter::repeat_n('-', w).collect();
-    renderer.draw_str(x, y + h - 1, &bot_str, border_fg, border_bg);
-
-    // 4. Corners
-    renderer.draw_char(x, y, '+', Color::White, Color::DarkBlue);
-    renderer.draw_char(x + w - 1, y, '+', Color::White, Color::DarkBlue);
-    renderer.draw_char(x, y + h - 1, '+', border_fg, border_bg);
-
-    // 5. Resize handle [+] at bottom-right corner
-    renderer.draw_char(x + w - 1, y + h - 1, '+', Color::Cyan, border_bg);
     frame.push(
         WidgetId::ResizeHandle(panel.id),
         UiRect::new(panel.rect.right() - CELL_W, panel.rect.bottom() - CELL_H, CELL_W, CELL_H),

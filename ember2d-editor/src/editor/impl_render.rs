@@ -249,7 +249,14 @@ impl EditorState {
             let pcx = panel.content_x();
             let pch = panel.content_h();
             let pcw = panel.content_w();
-            draw_panel_chrome(renderer, panel, &mut self.ui_frame);
+            draw_panel_chrome(
+                renderer,
+                panel,
+                &mut self.ui_frame,
+                &self.theme,
+                &self.theme_chrome_tex,
+                self.theme_font.as_mut(),
+            );
 
             // Draw tabs if docked
             if panel.dock != DockSide::None {

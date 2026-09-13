@@ -19,9 +19,35 @@
 // inherent method/field, unchanged — this trait only adds a second,
 // test-only implementor.
 
-use super::{Color, Renderer, CELL_H, CELL_W};
+use super::{Color, Font, Renderer, Texture, CELL_H, CELL_W};
+use ember2d_sim::math::{Rect, Vec2};
 
 pub trait DrawSurface {
+    /// 7D-2 (docs/ember2d-master-plan.md §5.4): the theme-chrome twin of
+    /// `draw_rect_filled` — draws `texture` as a 9-slice into `dest`,
+    /// corners/edges unstretched by `border`. `src` is this 9-slice's own
+    /// sub-rect of `texture` — a theme's chrome atlas packs every
+    /// `SliceRole` into ONE shared texture (`NineSlice::src`, 7D-1), so
+    /// this can't assume the whole texture is the 9-slice the way
+    /// `Renderer::draw_nine_slice`'s very first caller did. Takes an
+    /// already-resolved `&Texture`, not a `TextureId`/`AssetManager`
+    /// lookup, so this trait stays exactly as narrow as
+    /// `draw_char`/`draw_rect_filled` above — resolving a theme's
+    /// `chrome: TextureId` into pixels is the caller's job (`EditorState`
+    /// owns its own resolved copy; see its own doc comment on why that's
+    /// simpler than keeping an `AssetManager` alive just to re-resolve
+    /// one id every frame).
+    fn draw_nine_slice_px(&mut self, dest: Rect, texture: &Texture, src: Rect, border: (f32, f32, f32, f32), tint: Color);
+    /// The theme-chrome twin of `draw_str` — draws `text` through an
+    /// arbitrary caller-owned `Font` (a theme's own loaded Cascadia
+    /// instance, not `Renderer::ui_font`) at a real pixel position/size,
+    /// baseline-positioned like `Renderer::draw_text_px` itself (see that
+    /// method's own doc comment). Returns the horizontal advance, matching
+    /// `Renderer::draw_text_px` — `NullRenderer`'s own impl still computes
+    /// this via `Font::measure` rather than returning a dummy `0.0`, since
+    /// title-centering math that runs headlessly (7C-5 tests) needs a real
+    /// width to center against, not just the side effect of drawing.
+    fn draw_text_px(&mut self, font: &mut dyn Font, text: &str, pos: Vec2, px: f32, color: Color) -> f32;
     fn draw_char(&mut self, x: usize, y: usize, ch: char, fg: Color, bg: Color);
     /// Same argument count as `Renderer::draw_char_scaled_pixels` (which
     /// this mirrors) already carries unsuppressed at the `v0.5.7b`
@@ -68,6 +94,12 @@ pub trait DrawSurface {
 }
 
 impl DrawSurface for Renderer {
+    fn draw_nine_slice_px(&mut self, dest: Rect, texture: &Texture, src: Rect, border: (f32, f32, f32, f32), tint: Color) {
+        Renderer::draw_nine_slice(self, dest, texture, src, border, tint);
+    }
+    fn draw_text_px(&mut self, font: &mut dyn Font, text: &str, pos: Vec2, px: f32, color: Color) -> f32 {
+        Renderer::draw_text_px(self, font, text, pos, px, color)
+    }
     fn draw_char(&mut self, x: usize, y: usize, ch: char, fg: Color, bg: Color) {
         Renderer::draw_char(self, x, y, ch, fg, bg);
     }
@@ -146,6 +178,13 @@ impl NullRenderer {
 }
 
 impl DrawSurface for NullRenderer {
+    fn draw_nine_slice_px(&mut self, _dest: Rect, _texture: &Texture, _src: Rect, _border: (f32, f32, f32, f32), _tint: Color) {}
+    fn draw_text_px(&mut self, font: &mut dyn Font, text: &str, _pos: Vec2, px: f32, _color: Color) -> f32 {
+        // No-op drawing, but a REAL measured width — headless tests that
+        // center title text against this return value (7D-2) need the
+        // same number a real render would produce, not a dummy `0.0`.
+        font.measure(text, px).0
+    }
     fn draw_char(&mut self, _x: usize, _y: usize, _ch: char, _fg: Color, _bg: Color) {}
     #[allow(clippy::too_many_arguments)]
     fn draw_char_scaled_pixels(

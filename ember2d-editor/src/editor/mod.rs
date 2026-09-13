@@ -14,14 +14,18 @@ pub mod helpers;
 mod impl_render;
 mod impl_state;
 mod input;
+mod theme_loader;
 
 use commands::UndoStack;
 use ember2d::engine::{GameState, RenderContext, Transition, UpdateContext};
+use ember2d::renderer::{Font, Texture};
+use ember2d::theme::Theme;
 use ember2d_sim::level::TileRecord;
 use ember2d_sim::scripting::LogEntry;
 use grid::LevelGrid;
 use palette::TilePalette;
 use panel::{PanelId, PanelManager};
+use theme_loader::load_editor_theme;
 pub use ui::HierarchySelection;
 use ui::{MenuKind, ToolKind, UiFrame};
 
@@ -221,6 +225,22 @@ impl EditorMode {
 }
 
 pub struct EditorState {
+    /// The editor's own chrome — panels, menus, modals, text fields; never
+    /// the tile grid/viewport/node graph canvas (7C-9 decision gate, §7.1).
+    /// Loaded once by `load_editor_theme` (see its own doc comment) and
+    /// never `None` — a missing/broken `themes/ember-clean/` falls back
+    /// to `Theme::fallback` internally rather than leaving this field
+    /// unusable (7D-1, master plan §5.4).
+    pub(super) theme: Theme,
+    /// `self.theme.chrome` (a `TextureId`), already resolved to real
+    /// pixel data — see `load_editor_theme`'s own doc comment for why
+    /// this is a plain owned `Texture`, not a kept-alive `AssetManager`.
+    pub(super) theme_chrome_tex: Texture,
+    /// The theme's own font, loaded once to match `self.theme.font` — a
+    /// `BitmapFont` needs no file and never fails; a `Ttf` choice whose
+    /// file can't be read/parsed falls back to `BitmapFont` too (loud
+    /// visually — wrong font is obvious — never a panic).
+    pub(super) theme_font: Box<dyn Font>,
     pub(super) grid: LevelGrid,
     pub(super) palette: TilePalette,
     pub(super) undo: UndoStack,
@@ -419,7 +439,11 @@ const PLACEHOLDER_SCREEN_H: usize = 24;
 
 impl EditorState {
     pub fn new(save_path: &str) -> Self {
+        let (theme, theme_chrome_tex, theme_font) = load_editor_theme();
         EditorState {
+            theme,
+            theme_chrome_tex,
+            theme_font,
             grid: LevelGrid::new(DEFAULT_LEVEL_W, DEFAULT_LEVEL_H),
             palette: TilePalette::default_palette(),
             undo: UndoStack::new(),

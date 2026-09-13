@@ -451,14 +451,23 @@ impl Renderer {
     /// combined borders. See `nine_slice_quads` for the actual per-quad
     /// math, pulled out as a free function so it's testable without a live
     /// GPU-backed `Renderer` — same reasoning as `screen_cell_to_pixel`.
+    /// `src` is the 9-slice's own region within `texture`'s pixels — NOT
+    /// necessarily the whole texture (7D-2, master plan §5.4: a theme's
+    /// chrome atlas packs many named `SliceRole`s into one shared
+    /// texture, each a `NineSlice { src, border }` sub-rect of it, the
+    /// same way a sprite atlas already works via `draw_texture_px`'s own
+    /// `src: Option<Rect>`). Pass `Rect::new(0.0, 0.0, texture.width as
+    /// f32, texture.height as f32)` for a texture that's dedicated to
+    /// exactly one 9-slice (this call's only shape before 7D-2).
     pub fn draw_nine_slice(
         &mut self,
         dest: ember2d_sim::math::Rect,
         texture: &Texture,
+        src: ember2d_sim::math::Rect,
         border: (f32, f32, f32, f32),
         tint: Color,
     ) {
-        for (d, s) in nine_slice_quads(dest, texture.width as f32, texture.height as f32, border) {
+        for (d, s) in nine_slice_quads(dest, src, border) {
             self.draw_texture_px(d, texture, Some(s), tint);
         }
     }
@@ -696,25 +705,27 @@ fn uv_rect_for(texture_w: u32, texture_h: u32, src: ember2d_sim::math::Rect) -> 
 }
 
 /// The nine (dest, src) rect pairs `draw_nine_slice` draws, in row-major
-/// order — index 4 is always the stretched center. `border` is `(left,
-/// top, right, bottom)` in SOURCE pixels; corners keep that exact size on
-/// both sides (source and dest), which is what makes them 1:1 rather than
-/// stretched, as long as `dest` is at least as large as the combined
-/// left+right / top+bottom borders — a smaller `dest` clamps the
-/// middle column/row to zero width/height rather than going negative.
+/// order — index 4 is always the stretched center. `src` is the 9-slice's
+/// own region of the texture (7D-2, master plan §5.4 — an atlas sub-rect,
+/// not necessarily the whole texture); `border` is `(left, top, right,
+/// bottom)` in SOURCE pixels, relative to `src`'s own origin, not the
+/// texture's. Corners keep that exact size on both sides (source and
+/// dest), which is what makes them 1:1 rather than stretched, as long as
+/// `dest` is at least as large as the combined left+right / top+bottom
+/// borders — a smaller `dest` clamps the middle column/row to zero
+/// width/height rather than going negative.
 fn nine_slice_quads(
     dest: ember2d_sim::math::Rect,
-    tex_w: f32,
-    tex_h: f32,
+    src: ember2d_sim::math::Rect,
     border: (f32, f32, f32, f32),
 ) -> Vec<(ember2d_sim::math::Rect, ember2d_sim::math::Rect)> {
     use ember2d_sim::math::Rect;
 
     let (bl, bt, br, bb) = border;
-    let src_x = [0.0, bl, tex_w - br];
-    let src_w = [bl, (tex_w - bl - br).max(0.0), br];
-    let src_y = [0.0, bt, tex_h - bb];
-    let src_h = [bt, (tex_h - bt - bb).max(0.0), bb];
+    let src_x = [src.x, src.x + bl, src.x + src.w - br];
+    let src_w = [bl, (src.w - bl - br).max(0.0), br];
+    let src_y = [src.y, src.y + bt, src.y + src.h - bb];
+    let src_h = [bt, (src.h - bt - bb).max(0.0), bb];
 
     let dst_x = [dest.x, dest.x + bl, dest.x + dest.w - br];
     let dst_w = [bl, (dest.w - bl - br).max(0.0), br];
