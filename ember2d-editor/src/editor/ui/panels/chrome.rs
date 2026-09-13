@@ -23,8 +23,10 @@ use ember2d_sim::math::Rect;
 /// geometry" contract) — shared by every BOX-shaped modal below
 /// (`draw_text_input`/`draw_confirm_modal`/`draw_context_menu`) so none
 /// of them reimplements `draw_panel_chrome`'s own fallback logic
-/// (`panel/mod.rs`) a third time.
-fn draw_themed_frame(
+/// (`panel/mod.rs`) a third time. `pub(super)` (rather than private) so
+/// `modals.rs` — a sibling under `panels/`, theming its own box-shaped
+/// overlays in 7D-2's later slice — can reuse it instead of a third copy.
+pub(super) fn draw_themed_frame(
     renderer: &mut dyn DrawSurface,
     theme: &Theme,
     chrome_tex: &Texture,
@@ -47,7 +49,7 @@ fn draw_themed_frame(
 
 /// The title-bar strip on top of a `draw_themed_frame` box — one cell
 /// tall, `SliceRole::TitleBar`, same fallback contract as the frame above.
-fn draw_themed_title_strip(
+pub(super) fn draw_themed_title_strip(
     renderer: &mut dyn DrawSurface,
     theme: &Theme,
     chrome_tex: &Texture,

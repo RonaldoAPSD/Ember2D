@@ -518,6 +518,8 @@ impl EditorState {
             if let Some(pal) = self.palette.tiles.get(self.palette_editing_idx) {
                 ui::draw_palette_editor_modal(
                     renderer,
+                    &self.theme,
+                    &self.theme_chrome_tex,
                     pal,
                     self.palette_editor_focus.as_ref(),
                     screen_w,
@@ -531,6 +533,8 @@ impl EditorState {
             let is_fg = *is_fg;
             ui::draw_color_picker_modal(
                 renderer,
+                &self.theme,
+                &self.theme_chrome_tex,
                 self.color_picker_hsv,
                 is_fg,
                 screen_w,
@@ -673,6 +677,7 @@ impl EditorState {
             ui::draw_help_overlay(
                 renderer,
                 self.font.as_mut(),
+                &self.theme,
                 vp.content_x(),
                 vp.content_y(),
                 vp.content_w(),
