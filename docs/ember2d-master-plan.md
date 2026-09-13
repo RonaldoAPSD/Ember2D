@@ -2696,7 +2696,7 @@ deleted at the end of this step; panels size to content and theme metrics.
     theme loading, `code_font` default), all pass. `cargo clippy --workspace
     --all-targets` unchanged at 73. `scripts/check.ps1` clean. `cargo test
     -p ember2d --test replay` 3× fresh processes green.
-  - **Checkpoint 2 — editor foundation, UI scale pinned to R.** New
+  - **Checkpoint 2 — editor foundation, UI scale pinned to R (`00273bd`).** New
     `editor/prefs.rs` (`EditorPrefs`/`PrefsStore`/`UiScaleChoice`, per-user
     config dir — `%APPDATA%\Ember2D\editor_prefs.ron` on Windows,
     `$XDG_CONFIG_HOME/ember2d/` else `$HOME/.config/ember2d/` elsewhere;
