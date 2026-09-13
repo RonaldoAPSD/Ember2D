@@ -175,7 +175,7 @@ start screen's New/Open Project browsers start from.
 | **7A** | Stabilisation sprint | `[x]` `v0.5.7a` — A.10 |
 | **7B** | Renderer foundation | `[x]` `v0.5.7b` — A.11 |
 | 7C | Editor foundation | `[ ]` — §5.3 (all 9 steps `[x]`, 7C-9's own §7.1 decision recorded; phase gate itself — §3–§10 manual pass, tag `v0.5.7c` — pending the user) |
-| 7D | Theme and restyle | `[~]` — §5.4 (7D-1's `Theme` resource/logic done; two shipped themes' real chrome art still needed) |
+| 7D | Theme and restyle | `[~]` — §5.4 (7D-1 done; 7D-2's color/9-slice pass covers every panel now, `UiRect::from_cells` deletion still open) |
 | 7E | Editor features | `[ ]` — §5.5 |
 | 7.5 | Scripting completeness | `[ ]` — §5.6 |
 | 8 | Tilemap, assets, animation authoring | `[ ]` — §5.7 |
@@ -2339,15 +2339,77 @@ deleted at the end of this step; panels size to content and theme metrics.
 - **Done when:** the editor no longer looks cell-quantised; `from_cells` is
   gone; the pixel theme at 2× and the clean theme both render crisply
   (7B-2 makes this possible).
-- **Landed as (`4dc90ed`), first slice only — investigated up front,
-  scoped down with the user given this step's real size (~24 draw
-  functions, 35 `from_cells` call sites across 11 files) matches exactly
-  the "chrome work causes burnout" shape §7.1 warns about by name.**
-  `draw_panel_chrome` alone now draws through the theme; every panel's
-  own CONTENT (inspector rows, console text, hierarchy tree, file
-  browser rows, dock tabs) is unchanged, still the old flat cell-grid
-  drawing — a deliberate, explicit scope cut, not an oversight, agreed
-  with the user before writing any code.
+- **Landed as (`4dc90ed`, first slice), then extended across every
+  remaining panel (`c754447`, `a80abb7`, `373246b`, `5bf1de6`,
+  `c210901`) once the user explicitly authorized continuing the full
+  step unattended** ("continue everything until 7D-2 is complete") —
+  investigated up front, initially scoped down to just `draw_panel_chrome`
+  given this step's real size (~24 draw functions, 35 `from_cells` call
+  sites across 11 files) matches exactly the "chrome work causes burnout"
+  shape §7.1 warns about by name, then widened once the user chose to
+  keep going.
+  - **Color/9-slice theming now covers every `ui::draw_*` function**, not
+    just `draw_panel_chrome`: `ui/panels/chrome.rs` (title bar, status
+    bar, dock tabs, text-input modal, confirm modal, context menu —
+    `c754447`), `ui/menu.rs` (toolbar, dropdown — `c754447`),
+    `ui/panels/dock.rs` (palette, stats, console, inspector, hierarchy,
+    file browser — `a80abb7`), `ui/panels/modals.rs` (palette editor,
+    color picker, help overlay — `373246b`), `ui/script.rs` (the script
+    editor's own chrome — `5bf1de6`), and `graph_ui.rs` (node graph:
+    nodes, wires, the Add Node palette — `c210901`). `ui/widgets.rs`
+    needed no changes (`draw_button`/`draw_row`/`draw_swatch` already
+    take `fg`/`bg` as plain parameters; theming happens at each call
+    site, covered above).
+  - **Consistent color-role mapping applied everywhere**: panel
+    backgrounds → `PanelBg`, editable-field backgrounds (script buffer,
+    text-input modal, inspector value rows) → `InputBg`, primary text →
+    `TextPrimary`, secondary/hint text → `TextDim`, highlighted
+    backgrounds/selected rows → `Accent` or `Selection`, title strips →
+    `TitleBg`/`TitleText`, destructive actions (palette editor's Delete
+    button, script error line/message) → the new use of `Danger`. Two new
+    shared helpers, `draw_themed_frame`/`draw_themed_title_strip`
+    (`chrome.rs`, `pub(super)` so `modals.rs` reuses them too), draw a
+    real `SliceRole::Panel`/`TitleBar` 9-slice for every BOX-shaped
+    overlay (text input, confirm modal, context menu, palette editor,
+    color picker) with the same "fall back to a flat fill if the theme
+    lacks the role" contract 7D-1 established; single-row-tall bars
+    (title bar, status bar, dock tabs, menu bar/dropdown, node-graph Add
+    Node header) stay flat fills on purpose — the theme's 6px 9-slice
+    border would consume most of a 16px row.
+  - **Semantic (not decorative) colors were deliberately left literal
+    throughout**, each documented inline at its own site: console
+    log-level colors, hierarchy entity-kind colors (player/spawn),
+    file-browser icon-kind colors (dir/level/script), the Inspector's
+    "New Graph" button, `PALETTE_COLORS`/the color picker's hue bar and
+    saturation/value map (literal RGB/HSV — the content being picked, not
+    chrome), Rhai syntax-highlight token colors in `script.rs`, and
+    node-graph port glyph colors (white=exec, yellow=data-in,
+    cyan=data-out, signaling port KIND). No themed "text-on-accent"
+    `PaletteRole` exists (7D-1's own documented gap) — every bright-accent
+    background with text on it (active dock tab, selected menu/context-
+    menu row, selected node title, hovered dropdown item) still uses
+    literal `Color::Black`, each site cross-referencing this same note.
+  - **Font unification**: the separate `theme_font` field added in the
+    first slice was removed — `EditorState::font` (pre-existing since
+    Phase 7 Part 2c, documented back then as "a future theme can swap it
+    for a TtfFont without call sites changing again") is now set directly
+    from the loaded theme font at construction, matching that field's own
+    original intent instead of duplicating it.
+  - **`EditorState` fields are `theme: Theme`, `theme_chrome_tex:
+    Texture`, and `font: Box<dyn Font>`** (not a separate `theme_font` —
+    see above), resolved by `editor/theme_loader.rs` (split out of
+    `mod.rs` to stay under the 750-line limit), loaded EAGERLY and
+    unconditionally in `EditorState::new`
+    — not lazily on first render as originally planned, once investigation
+    showed `AssetManager::new()` needs no live GPU/window at all (only the
+    eventual texture *upload* does, inside `Renderer::draw_texture_px`
+    itself). The resolved `Texture` is cloned out and the loading
+    `AssetManager` is dropped immediately, so `EditorHarness` (headless
+    tests) gets the exact same real theme the live app does — no separate
+    test-only code path, and (deliberately) no use of `Renderer.ui_assets`
+    (7D-1) for this narrow slice at all; that field stays reserved for
+    7D-4's runtime theme-switching, which does need a persistent,
+    evictable `AssetManager` the way this one-shot load doesn't.
   - **`draw_panel_chrome`** (`ember2d-editor/src/editor/panel/mod.rs`)
     rewritten: one `SliceRole::Panel` 9-slice for the whole frame (its
     stretched center replaces the old separate "fill interior" step —
@@ -2364,20 +2426,6 @@ deleted at the end of this step; panels size to content and theme metrics.
     2-cell square at the title bar's right edge, not the old 3-char
     `[X]`) — no existing test exercised those specific rects, confirmed
     by grep before changing them, so nothing broke.
-  - **`EditorState` gains `theme: Theme`, `theme_chrome_tex: Texture`,
-    `theme_font: Box<dyn Font>`** (`editor/theme_loader.rs`, split out of
-    `mod.rs` to stay under the 750-line limit), loaded EAGERLY and
-    unconditionally in `EditorState::new` — not lazily on first render as
-    originally planned, once investigation showed `AssetManager::new()`
-    needs no live GPU/window at all (only the eventual texture *upload*
-    does, inside `Renderer::draw_texture_px` itself). The resolved
-    `Texture` is cloned out and the loading `AssetManager` is dropped
-    immediately, so `EditorHarness` (headless tests) gets the exact same
-    real theme the live app does — no separate test-only code path, and
-    (deliberately) no use of `Renderer.ui_assets` (7D-1) for this narrow
-    slice at all; that field stays reserved for 7D-4's runtime
-    theme-switching, which does need a persistent, evictable
-    `AssetManager` the way this one-shot load doesn't.
   - **`DrawSurface` (the 7C-5 headless-testing trait) gains
     `draw_nine_slice_px`/`draw_text_px`**, mirroring
     `Renderer::draw_nine_slice`/`draw_text_px` exactly (`NullRenderer`'s
@@ -2395,21 +2443,27 @@ deleted at the end of this step; panels size to content and theme metrics.
     viewport), not by any automated test, since the pre-existing
     `nine_slice_quads` unit tests only ever exercised a texture dedicated
     to one slice.
-  - **NOT done this step (explicitly deferred, not forgotten):**
-    buttons/inputs/tabs/scrollbars/checkboxes for panel CONTENT (not just
-    the frame), `draw_dock_tabs` (still hardcoded `Color::DarkBlue`/
-    `Color::Grey`), all ~23 other `ui::draw_*` functions, and
-    `UiRect::from_cells`'s eventual deletion (still load-bearing for
-    every panel's own content this step didn't touch). The visual result
-    is intentionally subtle at this stage — a themed frame/title bar
-    around still-old-style content — confirmed by actually running the
-    editor and screenshotting it (before/after the R63 fix), not just
-    asserted from test output.
-  - **Verification.** `cargo build --workspace --examples` clean. `cargo
-    test --workspace`: 322 (was 321), all pass — new:
-    `nine_slice_quads_offsets_every_src_rect_by_a_non_zero_atlas_origin`
-    (`renderer/tests.rs`, R63's own regression test). `cargo clippy
-    --workspace --lib`/`--all-targets` unchanged at 55/80 (one new
+  - **STILL NOT done — this is why 7D-2 stays `[~]`, not `[x]`:**
+    `UiRect::from_cells`'s deletion (35 call sites across 11 files) and
+    the pixel-space layout conversion that implies. Every panel now draws
+    through the theme's COLORS and, for box-shaped overlays, real 9-slice
+    geometry, but the underlying LAYOUT is still the old cell-quantised
+    grid everywhere — panels, rows, and text all still position in whole
+    character cells via `from_cells`/`draw_str`/`draw_char`, not the
+    free pixel positions this step's own "Done when" bar calls for
+    ("the editor no longer looks cell-quantised"). Deliberately not
+    attempted in the same push as the color pass: the plan's own existing
+    comment on `from_cells` calls its removal "purely a coordinate-system
+    change with zero visual difference" — real reward is low and the risk
+    is real (35 call sites is exactly the shape of defect E5, hit-rects
+    silently drifting from what's drawn), so it stays a separate,
+    dedicated step rather than bundled in under time pressure at the end
+    of an unattended run.
+  - **Verification, first slice (`4dc90ed`).** `cargo build --workspace
+    --examples` clean. `cargo test --workspace`: 322 (was 321), all
+    pass — new: `nine_slice_quads_offsets_every_src_rect_by_a_non_zero_
+    atlas_origin` (`renderer/tests.rs`, R63's own regression test). `cargo
+    clippy --workspace --lib`/`--all-targets` unchanged at 55/80 (one new
     `clippy::single_match` surfaced mid-step from a `match ... { Some =>
     ..., None => {} }` and was fixed immediately, not counted against
     baseline). `scripts/check.ps1` clean. `cargo test -p ember2d --test
@@ -2418,6 +2472,27 @@ deleted at the end of this step; panels size to content and theme metrics.
     and screenshotting it, per CLAUDE.md's own "use the feature" rule for
     UI changes — this is what caught R63 in the first place, since no
     automated test renders real pixels.
+  - **Verification, each subsequent checkpoint** (`c754447`, `a80abb7`,
+    `373246b`, `5bf1de6`, `c210901`) **repeated the same sequence**:
+    `cargo build -p ember2d-editor` clean; `cargo test --workspace`
+    stayed at 322/322 the whole way (no test ever needed updating — no
+    checkpoint touched hit-rect geometry, only draw colors/9-slice fill,
+    so no `WidgetId`/`UiRect` assertion was affected); `cargo clippy
+    --workspace --all-targets` tracked (new `#[allow(too_many_arguments)]`
+    on functions that crossed the 7-arg threshold by gaining a `&Theme`
+    parameter kept the total from climbing: 79 → 78 → 78 → 78 → 75, never
+    higher than the pre-7D-2 baseline); `scripts/check.ps1` clean at every
+    checkpoint; `cargo test -p ember2d --test replay` 3× fresh processes
+    green at every checkpoint. The dock.rs, modals.rs, and script.rs/
+    graph_ui.rs checkpoints were also manually verified by launching the
+    real editor and screenshotting Hierarchy/Inspector/Console/File
+    Browser/the script editor's empty state/the View menu dropdown, per
+    CLAUDE.md's "use the feature" rule — all consistent with the palette
+    (amber accent, Cascadia Code body text) chosen in the first slice.
+    This entire extension ran unattended per explicit user authorization
+    ("continue everything until 7D-2 is complete... test and take all the
+    screenshots you need that you are capable of doing alone") while the
+    user was away from the session.
 
 #### `[ ]` 7D-3 — Integer UI scale, separate from canvas zoom
 

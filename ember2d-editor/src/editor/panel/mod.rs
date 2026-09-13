@@ -637,21 +637,22 @@ impl PanelManager {
 // ── draw_panel_chrome ─────────────────────────────────────────────────────────
 
 /// Draw a panel's frame, title bar, close button, and resize handle through
-/// the editor's theme (7D-2, master plan §5.4 — the first slice of the
-/// chrome rewrite: this function only, panel CONTENT — inspector rows,
-/// console text, etc. — stays on the old cell-grid drawing for now, a
-/// deliberate scope cut agreed with the user given the size of a full
-/// rewrite). Registers each interactive element's hit rect in `frame` at
-/// the exact point it's drawn (Phase 7 Part 1d) — see `ui/frame.rs`'s
-/// header comment for why this one function doing both is what closes
-/// defect E5; that discipline is unchanged by which pixels actually land.
+/// the editor's theme (7D-2, master plan §5.4 — this was the first
+/// function converted; every panel's own CONTENT — inspector rows,
+/// console text, dock tabs, modals, the script editor, the node graph —
+/// is themed too now, each in its own file under `ui/`). Registers each
+/// interactive element's hit rect in `frame` at the exact point it's
+/// drawn (Phase 7 Part 1d) — see `ui/frame.rs`'s header comment for why
+/// this one function doing both is what closes defect E5; that
+/// discipline is unchanged by which pixels actually land.
 ///
 /// `theme`/`chrome_tex`/`font` come from `EditorState::theme`/
-/// `theme_chrome_tex`/`theme_font` (see `load_editor_theme`'s own doc
-/// comment, editor/mod.rs) — resolved once, passed in rather than looked
-/// up here, so this function stays free of any asset/GPU dependency
-/// itself (same reasoning `DrawSurface::draw_nine_slice_px` documents for
-/// taking an already-resolved `&Texture`).
+/// `theme_chrome_tex`/`font` (see `load_editor_theme`'s own doc comment,
+/// editor/mod.rs — `font` IS the theme's own loaded font, not a separate
+/// field) — resolved once, passed in rather than looked up here, so this
+/// function stays free of any asset/GPU dependency itself (same reasoning
+/// `DrawSurface::draw_nine_slice_px` documents for taking an
+/// already-resolved `&Texture`).
 ///
 /// The viewport is excluded entirely (still a flat black fill, no chrome)
 /// — it stays on the engine's own renderer regardless of theme (7C-9
