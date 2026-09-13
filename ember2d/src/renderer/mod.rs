@@ -150,6 +150,14 @@ pub struct Renderer {
     ui_font: Box<dyn Font>,
     ui_font_px: f32,
     ui_font_kind: UiFontKind,
+
+    /// Chrome textures (theme atlases) loaded via `theme::Theme::load`
+    /// (7D-1, master plan §5.4) — deliberately separate from the game's own
+    /// `AssetManager` (which lives on `Engine`/`RenderContext`, cleared on
+    /// every project switch): a theme's chrome atlas is an editor-wide
+    /// resource, not a per-project asset, and must survive exactly the
+    /// clears that evict the game's own textures.
+    pub ui_assets: AssetManager,
 }
 
 impl Renderer {
@@ -279,6 +287,7 @@ impl Renderer {
             ui_font,
             ui_font_px,
             ui_font_kind,
+            ui_assets: AssetManager::new(),
         })
     }
 

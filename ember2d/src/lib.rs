@@ -26,6 +26,7 @@ pub mod press_buffer;
 pub mod project;
 pub mod renderer;
 pub mod sim;
+pub mod theme;
 pub mod ui;
 
 /// The ember2d prelude: import everything a game needs in one shot.
@@ -102,4 +103,10 @@ pub mod prelude {
 
     // ── Engine transition ─────────────────────────────────────────────────
     pub use crate::engine::Transition;
+
+    // ── Theme (7D-1, docs/ember2d-master-plan.md §5.4) ──────────────────────
+    // Chrome-only styling data — panels, menus, modals, text fields; never
+    // the viewport/tile grid/node graph canvas, which stay on the engine's
+    // own renderer regardless of theme (7C-9 decision gate, §7.1).
+    pub use crate::theme::{FontChoice, FontSizes, Metrics, NineSlice, PaletteRole, SliceRole, Theme};
 }
