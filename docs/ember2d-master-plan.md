@@ -174,7 +174,7 @@ start screen's New/Open Project browsers start from.
 | 7 Parts 1–2 | Pixel-space `UiRect`/`UiFrame`, `Font` trait, glyph atlas, TTF | `[x]` `cf59f42` — A.9 |
 | **7A** | Stabilisation sprint | `[x]` `v0.5.7a` — A.10 |
 | **7B** | Renderer foundation | `[x]` `v0.5.7b` — A.11 |
-| 7C | Editor foundation | `[ ]` — §5.3 |
+| 7C | Editor foundation | `[ ]` — §5.3 (all 9 steps `[x]`, 7C-9's own §7.1 decision recorded; phase gate itself — §3–§10 manual pass, tag `v0.5.7c` — pending the user) |
 | 7D | Theme and restyle | `[ ]` — §5.4 |
 | 7E | Editor features | `[ ]` — §5.5 |
 | 7.5 | Scripting completeness | `[ ]` — §5.6 |
@@ -2167,12 +2167,49 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
     `Cargo.toml`/`Cargo.lock` for `arboard`), matching this step's Scope
     exactly.
 
-#### `[ ]` 7C-9 — Decision gate: own chrome or egui (§7.1)
+#### `[x]` 7C-9 — Decision gate: own chrome or egui (§7.1)
 
 Evaluated here, with 7C-1 through 7C-8 as evidence. Record the decision and
 its reasoning in §7.1 and proceed to 7D (own chrome) or 7D′ (egui skin).
 
-**Phase 7C gate:** §0.5, then tag `v0.5.7c`.
+- **Decision recorded:** §7.1 — own chrome, both switch-to-egui triggers
+  false (session count, test count, and the selection/clipboard check all
+  came back the opposite of what would have triggered a switch). Proceeding
+  to Phase 7D below.
+- **Found along the way: R61.** This step's own required demo smoke-launch
+  (§0.5 item 6, run early since it's part of what "evaluating the gate"
+  needs anyway) turned up 8 shipped `.rhai` scripts still referencing
+  pre-`demos/`-move paths — R58 regenerated levels' own `script`/
+  `next_level` fields but never touched hand-written script TEXT calling
+  `play_sound`/`play_music`/`load_level` with a literal path. Fixed; see
+  R61's own row (§3.2) for the full account and the new regression test.
+- **Phase gate status (§0.5): partial, by necessity.** Items 1–4 and 7 are
+  fully verified below. Item 6 (both demos play) is smoke-tested (launch,
+  a few seconds, no crash/error — the check that found R61) but not
+  interactively played through — that needs a human at the keyboard, which
+  this session doesn't have. Item 5 (the regression checklist sections
+  named for this phase, §3–§10, run BY HAND) has NOT been run — it is
+  fundamentally a manual, visual, interactive pass (clicking, watching the
+  screen) that requires the user, the same way every prior phase gate's
+  own manual pass in this project's history has (the R54–R61 defects this
+  whole 7C phase found were all discovered by the user's own hands-on
+  testing, not by this session). Tagging `v0.5.7c` and fast-forwarding
+  `main` are exactly the "hard to reverse, affects shared state" class of
+  action this project's own working agreement holds back for explicit
+  confirmation — **not done in this session**; pending the user's own
+  §3–§10 pass and go-ahead.
+  - §0.5 item 1: `cargo build --workspace --examples` clean; `cargo test
+    --workspace`: 315, all pass.
+  - §0.5 item 2: `cargo clippy --workspace --all-targets` unchanged at 80
+    (7C-4's own baseline, held through every step since).
+  - §0.5 item 3: `scripts/check.ps1` clean.
+  - §0.5 item 4: `cargo test -p ember2d --test replay` 3× fresh processes
+    green, locally (CI itself still blocked by the account billing lock,
+    R37/R40 — unchanged from every prior gate's own note).
+  - §0.5 item 7: this entry, §7.1, and §2 (below) are this same commit.
+
+**Phase 7C gate:** §0.5, then tag `v0.5.7c`. *(Automated portion verified
+below; manual regression pass and the tag itself are pending the user.)*
 
 ---
 
@@ -2646,7 +2683,16 @@ script editor's text widget. The refactor plan's warning stands: the
 original burnout came from chrome work; sessions without visible progress
 are the signal.
 
-**Decision:** *(pending)*
+**Decision:** **Own chrome.** Neither trigger for switching to egui fired:
+7C-1 through 7C-8 landed as 8 numbered steps across 2 calendar days
+(2026-09-07 for 7C-1..7C-4, 2026-09-12 for 7C-5..7C-8 — `git log`,
+comfortably under the 12-session threshold), and the editor harness sits
+at 51 tests (`editor_input.rs` 27 + `editor_undo.rs` 12 +
+`editor_script.rs` 12), well past the 20-test bar. 7C-8 also landed with
+BOTH selection and clipboard, the specific "still missing" trigger the
+gate named — not partially, not deferred. Kept as planned: viewport,
+tile grid, painting, picking, node graph canvas on the engine's own
+renderer. Proceeding to Phase 7D (own chrome), not 7D′.
 
 ### 7.2 Tilemap component — decided at start of Phase 8
 
