@@ -126,9 +126,15 @@ fn main() {
         // directory the way its own atlas is; the bundled Cascadia file
         // lives under `ember2d/assets/`, not under `themes/` at all).
         font: FontChoice::Ttf { path: "ember2d/assets/fonts/CascadiaMono.ttf".to_string() },
+        // `None` (7D-3, docs/ember2d-master-plan.md §5.4) — `font` above
+        // (Cascadia MONO) is already a monospace face, so the script
+        // editor's own fallback-to-`font` behavior (`ThemeData::code_font`'s
+        // own doc comment) is exactly the right font for this theme; a
+        // second, separate `code_font` entry would just name the same file
+        // twice.
+        code_font: None,
         font_sizes: FontSizes { small: 11.0, body: 13.0, heading: 16.0 },
         metrics: Metrics { padding: 6.0, border: BORDER, row_h: 20.0, min_target: 22.0 },
-        ui_scale: 1,
     };
 
     let ron_str = ron::ser::to_string_pretty(&data, ron::ser::PrettyConfig::default())

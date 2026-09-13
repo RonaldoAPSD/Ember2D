@@ -59,6 +59,16 @@ impl Font for TtfFont {
         self.atlas.take_dirty()
     }
 
+    /// A fresh, empty `GlyphAtlas` at `w`×`h` (7D-3, docs/ember2d-master-plan.md
+    /// §5.4) — every previously-cached glyph is dropped; `Font::texture_id`
+    /// changes (a new `Texture::blank` mints a new id via the process-wide
+    /// `NEXT_ID` counter, `renderer/texture.rs`), so a caller holding the
+    /// OLD id (e.g. an already-uploaded GPU texture) simply stops
+    /// referencing it rather than corrupting it in place.
+    fn reset_atlas(&mut self, w: u32, h: u32) {
+        self.atlas = GlyphAtlas::new(w, h, 0x0000_0000);
+    }
+
     fn glyph(&mut self, ch: char, px: f32) -> Option<GlyphInfo> {
         self.atlas.get_or_rasterize(&self.font, self.font_id, ch, px)
     }
@@ -193,5 +203,27 @@ mod tests {
         // this atlas — the very first request must come back empty
         // (`None`), not panic or silently write out of bounds.
         assert_eq!(font.glyph('A', 32.0), None);
+    }
+
+    /// R50 (§3 in the master plan, fixed 7D-3): for `TtfFont`, the drawn
+    /// size always equals the atlas rect's own size — see `GlyphInfo::size`'s
+    /// own doc comment for why that's specific to this implementation.
+    #[test]
+    fn ttf_glyph_size_equals_its_atlas_rect() {
+        let mut font = test_font();
+        let g = font.glyph('A', 32.0).unwrap();
+        assert_eq!(g.size, ember2d_sim::math::Vec2::new(g.atlas_rect.w, g.atlas_rect.h));
+    }
+
+    #[test]
+    fn reset_atlas_gives_the_font_a_fresh_texture_id() {
+        let mut font = test_font();
+        let id_before = font.texture_id();
+        font.glyph('A', 16.0); // populate the old atlas
+        font.reset_atlas(256, 256);
+        assert_ne!(font.texture_id(), id_before, "a reset atlas must be a genuinely new texture");
+        // The new atlas starts empty — re-rasterizing must still work, not
+        // silently return None because of stale internal state.
+        assert!(font.glyph('A', 16.0).is_some());
     }
 }

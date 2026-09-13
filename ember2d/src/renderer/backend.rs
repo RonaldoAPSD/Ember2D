@@ -3,6 +3,7 @@
 use crate::renderer::color::{Color, DEFAULT_BG, DEFAULT_FG};
 use crate::renderer::texture::Texture;
 use crate::renderer::{CELL_H, CELL_W};
+use ember2d_sim::math::Rect;
 use std::collections::HashMap;
 
 /// R26 (7B-3, docs/ember2d-master-plan.md §5.2): `texture_cache`'s default
@@ -69,7 +70,7 @@ pub struct WgpuBackend {
 
     instances: Vec<SpriteInstance>,
     batches: Vec<Batch>,
-    current_scissor: Option<(u32, u32, u32, u32)>,
+    current_scissor: Option<Rect>,
 
     font_texture_id: u64,
     texture_cache: HashMap<u64, wgpu::BindGroup>,
@@ -510,10 +511,16 @@ impl WgpuBackend {
         });
     }
 
+    /// `px`/`py` are `f32` (7D-3, docs/ember2d-master-plan.md §5.4, was
+    /// `i32`) — `Renderer::draw_char_scaled_pixels` (its one pre-7D-3
+    /// caller, always a whole logical pixel already) casts when calling
+    /// this; the new `Renderer::draw_char_px` (`UiPainter::tile_glyph`'s
+    /// own backing method) needs the real fractional position a UI-points
+    /// preview glyph can land at.
     pub fn draw_char_scaled_pixels(
         &mut self,
-        px: i32,
-        py: i32,
+        px: f32,
+        py: f32,
         ch: char,
         fg: Color,
         bg: Color,
@@ -527,8 +534,8 @@ impl WgpuBackend {
         let uv_y = ch_idx as f32 / 128.0;
         // 7B-2 (docs/ember2d-master-plan.md §5.2, R21): was a hardcoded
         // `/ 8.0` / `/ 16.0` literal pair duplicating CELL_W/CELL_H.
-        let cell_x = px as f32 / CELL_W as f32;
-        let cell_y = py as f32 / CELL_H as f32;
+        let cell_x = px / CELL_W as f32;
+        let cell_y = py / CELL_H as f32;
 
         self.instances.push(SpriteInstance {
             position: [cell_x, cell_y],
@@ -549,10 +556,16 @@ impl WgpuBackend {
     /// `uv_rect` is a normalized `[x, y, w, h]` (0..1) sub-rect of the
     /// texture to sample — `None` samples the whole thing. This is what
     /// `SpriteSource::Texture::src` (Step 3b) backs, e.g. for sprite sheets.
+    /// `px`/`py` are `f32` (7D-3, docs/ember2d-master-plan.md §5.4, was
+    /// `i32`) — `Renderer::draw_texture_px` snaps its own `dest` to the
+    /// physical pixel grid and needs the exact, possibly-fractional
+    /// logical-pixel result of that snap to reach the GPU unrounded;
+    /// `Renderer::draw_texture`/`draw_texture_world` (world-space, cell-
+    /// quantized already) cast their whole-logical-pixel positions here.
     pub fn draw_texture(
         &mut self,
-        px: i32,
-        py: i32,
+        px: f32,
+        py: f32,
         texture: &Texture,
         size: [f32; 2],
         rotation: f32,
@@ -563,8 +576,8 @@ impl WgpuBackend {
 
         // 7B-2 (docs/ember2d-master-plan.md §5.2, R21): was a hardcoded
         // `/ 8.0` / `/ 16.0` literal pair duplicating CELL_W/CELL_H.
-        let cell_x = px as f32 / CELL_W as f32;
-        let cell_y = py as f32 / CELL_H as f32;
+        let cell_x = px / CELL_W as f32;
+        let cell_y = py / CELL_H as f32;
         let (uv_offset, uv_size) = match uv_rect {
             Some([x, y, w, h]) => ([x, y], [w, h]),
             None => ([0.0, 0.0], [1.0, 1.0]),
@@ -584,7 +597,10 @@ impl WgpuBackend {
         });
     }
 
-    pub fn set_scissor(&mut self, rect: Option<(u32, u32, u32, u32)>) {
+    /// `f32` logical pixels (7D-3, docs/ember2d-master-plan.md §5.4, was
+    /// `Option<(u32, u32, u32, u32)>`) — see `Renderer::set_scissor`'s own
+    /// doc comment.
+    pub fn set_scissor(&mut self, rect: Option<Rect>) {
         self.current_scissor = rect;
     }
 
@@ -691,20 +707,25 @@ impl WgpuBackend {
 
             for batch in &self.batches {
                 if let Some(bind_group) = self.texture_cache.get(&batch.texture_id) {
-                    let (raw_x, raw_y, raw_w, raw_h) = if let Some((x, y, w, h)) = batch.scissor {
+                    let (raw_x, raw_y, raw_w, raw_h) = if let Some(r) = batch.scissor {
                         // Scissor rects are always relative to the render
                         // target itself, independent of whatever viewport
-                        // is set — panels specify these in logical pixels,
-                        // so both the per-axis scale AND the letterbox
-                        // origin (`render_scale`/`render_origin`, set once
-                        // a frame from `Renderer::screen_mapping()`) are
-                        // needed to land on the same physical pixels the
-                        // viewport above just placed the actual content at.
+                        // is set — panels specify these in logical pixels
+                        // (`f32`, 7D-3, docs/ember2d-master-plan.md §5.4 —
+                        // was `u32`, which threw away sub-logical-pixel
+                        // precision before this ever reached the ONE
+                        // rounding step that actually matters, to a whole
+                        // PHYSICAL pixel, right here), so both the per-axis
+                        // scale AND the letterbox origin
+                        // (`render_scale`/`render_origin`, set once a frame
+                        // from `Renderer::screen_mapping()`) are needed to
+                        // land on the same physical pixels the viewport
+                        // above just placed the actual content at.
                         (
-                            (self.render_origin.0 + x as f32 * self.render_scale.0).round() as u32,
-                            (self.render_origin.1 + y as f32 * self.render_scale.1).round() as u32,
-                            (w as f32 * self.render_scale.0).round() as u32,
-                            (h as f32 * self.render_scale.1).round() as u32,
+                            (self.render_origin.0 + r.x * self.render_scale.0).round() as u32,
+                            (self.render_origin.1 + r.y * self.render_scale.1).round() as u32,
+                            (r.w * self.render_scale.0).round() as u32,
+                            (r.h * self.render_scale.1).round() as u32,
                         )
                     } else {
                         // "No explicit scissor" means "no clipping" — the

@@ -311,13 +311,20 @@ impl EditorState {
                     // of literal 7B-2 already replaced everywhere else this
                     // conversion happens (`UiRect::from_cells`,
                     // `backend.rs`'s own draw calls).
-                    let (sc_x, sc_y, sc_w, sc_h) = (
-                        (pcx * ember2d::renderer::CELL_W) as u32,
-                        (pcy * ember2d::renderer::CELL_H) as u32,
-                        (pcw * ember2d::renderer::CELL_W) as u32,
-                        (pch * ember2d::renderer::CELL_H) as u32,
+                    // 7D-3 (docs/ember2d-master-plan.md §5.4): `set_scissor`
+                    // now takes an `f32` logical-pixel `Rect` (was a `u32`
+                    // tuple) — this call site's own cell-rounded-vs-exact-px
+                    // mismatch against the canvas draw below (R66, §3) is
+                    // fixed separately, in the same step's viewport-seam
+                    // commit; this is only the mechanical type-signature
+                    // update, same values as before.
+                    let scissor_rect = ember2d_sim::math::Rect::new(
+                        (pcx * ember2d::renderer::CELL_W) as f32,
+                        (pcy * ember2d::renderer::CELL_H) as f32,
+                        (pcw * ember2d::renderer::CELL_W) as f32,
+                        (pch * ember2d::renderer::CELL_H) as f32,
                     );
-                    renderer.set_scissor(Some((sc_x, sc_y, sc_w, sc_h)));
+                    renderer.set_scissor(Some(scissor_rect));
 
                     // Render Viewport content within its panel area
                     ui::draw_void(renderer, &self.grid, self.scroll, self.zoom, viewport);

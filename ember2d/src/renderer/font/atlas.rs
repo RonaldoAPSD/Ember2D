@@ -39,6 +39,39 @@ pub struct GlyphAtlas {
     dirty: bool,
 }
 
+/// A `GlyphAtlas` side length (a square power-of-two texture) big enough to
+/// hold the editor's ASCII prewarm set (`theme_loader::ASCII_PREWARM`, the
+/// printable ASCII range) at up to three font sizes, at `max_raster_px`
+/// (7D-3, docs/ember2d-master-plan.md §5.4 — R75: sized once per UI-scale
+/// change, since a higher `ui_scale` rasterizes every glyph physically
+/// larger and the pre-7D-3 fixed `DEFAULT_ATLAS_SIZE` would otherwise start
+/// silently dropping glyphs at high scale, per this module's own "no
+/// eviction" doc comment above). Rather than computing each glyph's exact
+/// `fontdue` metrics (which vary per font and aren't known until rasterized
+/// — a chicken-and-egg problem for sizing the atlas BEFORE rasterizing into
+/// it), this uses a deliberately generous per-glyph bounding box
+/// (`max_raster_px` square plus 2px of shelf-packing slack, larger than any
+/// real glyph at that size) and rounds the total area up to the next power
+/// of two, clamped to `512` (never smaller than the pre-7D-3
+/// `DEFAULT_ATLAS_SIZE`) and `4096` (`wgpu::Limits::default()`'s texture
+/// dimension ceiling is 8192 — this leaves headroom rather than pushing
+/// against it).
+///
+/// `#[allow(dead_code)]`: this commit (7D-3's renderer-foundation checkpoint)
+/// adds the function and its own tests; the real caller
+/// (`ember2d-editor/src/editor/theme_loader.rs`'s `load_theme_fonts`) lands
+/// in the step's next checkpoint — see master plan §5.4's own commit
+/// sequence for this step.
+#[allow(dead_code)]
+pub fn glyph_atlas_side_for(max_raster_px: f32) -> u32 {
+    const GLYPHS_PER_SIZE: f32 = 96.0; // printable ASCII, 0x20..=0x7E plus one
+    const SIZES_TO_PREWARM: f32 = 3.0; // a theme's small/body/heading
+    let glyph_area = (max_raster_px.max(1.0) + 2.0).powi(2);
+    let total_area = glyph_area * GLYPHS_PER_SIZE * SIZES_TO_PREWARM;
+    let side = total_area.sqrt().ceil() as u32;
+    side.next_power_of_two().clamp(512, 4096)
+}
+
 impl GlyphAtlas {
     /// `fill = 0x0000_0000` (fully transparent) is the right default for
     /// callers wiring this into real rendering — an unpacked-into pixel
@@ -136,6 +169,7 @@ impl GlyphAtlas {
                 atlas_rect: Rect::new(0.0, 0.0, 0.0, 0.0),
                 offset: Vec2::ZERO,
                 advance: metrics.advance_width,
+                size: Vec2::ZERO,
             };
             self.cache.insert(key, info);
             return Some(info);
@@ -175,6 +209,12 @@ impl GlyphAtlas {
             // negates that upward distance.
             offset: Vec2::new(metrics.xmin as f32, -(metrics.ymin as f32 + metrics.height as f32)),
             advance: metrics.advance_width,
+            // R50 (§3 in the master plan, fixed 7D-3): `TtfFont` always
+            // rasterizes a glyph at exactly the requested size, so its
+            // drawn size and its atlas rect's size are the same value —
+            // unlike `BitmapFont` (see that impl's own `GlyphInfo::size`
+            // comment), there's no separate "native vs requested" gap here.
+            size: Vec2::new(metrics.width as f32, metrics.height as f32),
         };
         self.cache.insert(key, info);
         Some(info)
@@ -184,6 +224,20 @@ impl GlyphAtlas {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn glyph_atlas_side_grows_with_the_largest_raster_size() {
+        let small = glyph_atlas_side_for(11.0);
+        let large = glyph_atlas_side_for(64.0); // e.g. a 16pt heading at ui_scale 4
+        assert!(large > small, "a bigger requested raster size must never produce a smaller atlas");
+        assert!(small.is_power_of_two() && large.is_power_of_two());
+    }
+
+    #[test]
+    fn glyph_atlas_side_never_shrinks_below_the_pre_7d_3_default_or_past_the_wgpu_headroom_cap() {
+        assert_eq!(glyph_atlas_side_for(0.5), 512, "clamped up to the old fixed default");
+        assert_eq!(glyph_atlas_side_for(10_000.0), 4096, "clamped down, leaving headroom under wgpu's 8192 limit");
+    }
 
     #[test]
     fn pack_places_shapes_left_to_right_on_one_shelf() {

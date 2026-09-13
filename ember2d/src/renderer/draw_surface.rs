@@ -18,9 +18,46 @@
 // genuinely needs. `Renderer` keeps every one of these as a normal
 // inherent method/field, unchanged — this trait only adds a second,
 // test-only implementor.
+//
+// 7D-3 (docs/ember2d-master-plan.md §5.4) additions: `set_scissor` and
+// `draw_nine_slice_px` moved to `f32`/`border_scale` (see each's own doc
+// comment); `draw_text_run`/`TextRun` replace `draw_text_px` as the
+// REQUIRED method (`draw_text_px` is now a default method built on top —
+// every existing call site keeps working unchanged); `draw_char_px` and
+// `display_scale` are new, needed by `UiPainter`/`UiSpace`.
 
-use super::{Color, Font, Renderer, Texture, CELL_H, CELL_W};
+use super::{draw_log::DrawOp, Color, Font, Renderer, Texture, CELL_H, CELL_W};
 use ember2d_sim::math::{Rect, Vec2};
+
+/// A display's render (DPI-integer) scale and its raw, un-rounded OS scale
+/// factor — see `Renderer.os_scale_factor`'s own doc comment for why both
+/// are kept (`UiScaleChoice::Auto` needs the real DPI reading `render_scale`
+/// already rounded away). `NullRenderer` defaults to `(1, 1.0)` and can be
+/// overridden via `with_display` for a test that needs a specific R or a
+/// specific "OS" scale factor to test `Auto` resolution against.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DisplayScale {
+    pub render_scale: u32,
+    pub os_scale_factor: f32,
+}
+
+/// One text-drawing request (7D-3, docs/ember2d-master-plan.md §5.4) — see
+/// `draw_text_run`'s own doc comment for the full contract. `raster_px` is
+/// the size to actually rasterize/measure the font at (for chrome, this is
+/// already `points * ui_scale`, i.e. physical pixels — `UiPainter` computes
+/// it, never this type); `texel_scale` is how many LOGICAL pixels one atlas
+/// texel (one unit of `raster_px`) occupies when drawn (`1.0` for every
+/// pre-7D-3 caller, `ui_scale / render_scale` for chrome text drawn through
+/// `UiPainter`); `pitch`, if set, overrides the font's own per-glyph advance
+/// with a fixed logical-pixel step (the script editor's monospace grid).
+pub struct TextRun<'a> {
+    pub text: &'a str,
+    pub origin: Vec2,
+    pub raster_px: f32,
+    pub texel_scale: f32,
+    pub pitch: Option<f32>,
+    pub color: Color,
+}
 
 pub trait DrawSurface {
     /// 7D-2 (docs/ember2d-master-plan.md §5.4): the theme-chrome twin of
@@ -36,18 +73,39 @@ pub trait DrawSurface {
     /// `chrome: TextureId` into pixels is the caller's job (`EditorState`
     /// owns its own resolved copy; see its own doc comment on why that's
     /// simpler than keeping an `AssetManager` alive just to re-resolve
-    /// one id every frame).
-    fn draw_nine_slice_px(&mut self, dest: Rect, texture: &Texture, src: Rect, border: (f32, f32, f32, f32), tint: Color);
+    /// one id every frame). `border_scale` (7D-3, docs/ember2d-master-plan.md
+    /// §5.4) — see `Renderer::draw_nine_slice`'s own doc comment; `1.0`
+    /// reproduces every pre-7D-3 caller's behavior.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_nine_slice_px(
+        &mut self,
+        dest: Rect,
+        texture: &Texture,
+        src: Rect,
+        border: (f32, f32, f32, f32),
+        border_scale: f32,
+        tint: Color,
+    );
+    /// Draw one text run (7D-3, docs/ember2d-master-plan.md §5.4 — replaces
+    /// the old `draw_text_px` as the REQUIRED method; `draw_text_px` below
+    /// is now a default built on this). Rasterizes/looks up each glyph at
+    /// `run.raster_px`, places it at `run.origin` plus that glyph's own
+    /// offset scaled by `run.texel_scale`, and advances the pen by either
+    /// `run.pitch` (if set) or the glyph's own advance times
+    /// `run.texel_scale`. Returns the total horizontal advance, in LOGICAL
+    /// pixels (matching `run.origin`'s own unit) — a caller in points
+    /// (`UiPainter::text`) converts that back down itself.
+    fn draw_text_run(&mut self, font: &mut dyn Font, run: &TextRun) -> f32;
     /// The theme-chrome twin of `draw_str` — draws `text` through an
-    /// arbitrary caller-owned `Font` (a theme's own loaded Cascadia
-    /// instance, not `Renderer::ui_font`) at a real pixel position/size,
-    /// baseline-positioned like `Renderer::draw_text_px` itself (see that
-    /// method's own doc comment). Returns the horizontal advance, matching
-    /// `Renderer::draw_text_px` — `NullRenderer`'s own impl still computes
-    /// this via `Font::measure` rather than returning a dummy `0.0`, since
-    /// title-centering math that runs headlessly (7C-5 tests) needs a real
-    /// width to center against, not just the side effect of drawing.
-    fn draw_text_px(&mut self, font: &mut dyn Font, text: &str, pos: Vec2, px: f32, color: Color) -> f32;
+    /// arbitrary caller-owned `Font` at a real pixel position/size,
+    /// baseline-positioned (see `Renderer::draw_text_run`'s own doc
+    /// comment). A default method (7D-3) built on `draw_text_run` at
+    /// `texel_scale: 1.0, pitch: None` — reproduces every pre-7D-3 call
+    /// site's exact behavior without each implementor repeating the same
+    /// wrapper.
+    fn draw_text_px(&mut self, font: &mut dyn Font, text: &str, pos: Vec2, px: f32, color: Color) -> f32 {
+        self.draw_text_run(font, &TextRun { text, origin: pos, raster_px: px, texel_scale: 1.0, pitch: None, color })
+    }
     /// The pixel-space twin of `draw_rect_filled` (docs/ember2d-master-plan.md
     /// §5.4, the `UiRect::from_cells` removal) — a solid color fill at an
     /// arbitrary pixel rect, not snapped to the character-cell grid.
@@ -72,6 +130,10 @@ pub trait DrawSurface {
         bg: Color,
         scale: f32,
     );
+    /// The `f32`-position twin of `draw_char_scaled_pixels` (7D-3,
+    /// docs/ember2d-master-plan.md §5.4) — see `Renderer::draw_char_px`'s
+    /// own doc comment for why the two coexist.
+    fn draw_char_px(&mut self, pos: Vec2, ch: char, fg: Color, bg: Color, scale: f32);
     fn draw_str(&mut self, x: usize, y: usize, s: &str, fg: Color, bg: Color);
     fn draw_rect_outline(&mut self, x: usize, y: usize, w: usize, h: usize, fg: Color, bg: Color);
     /// Same argument count as `Renderer::draw_rect_filled` (mirrored here)
@@ -88,7 +150,16 @@ pub trait DrawSurface {
         fg: Color,
         bg: Color,
     );
-    fn set_scissor(&mut self, rect: Option<(u32, u32, u32, u32)>);
+    /// `f32` logical pixels (7D-3, docs/ember2d-master-plan.md §5.4, was
+    /// `Option<(u32, u32, u32, u32)>`) — see `Renderer::set_scissor`'s own
+    /// doc comment for why.
+    fn set_scissor(&mut self, rect: Option<Rect>);
+    /// This surface's render/OS display scale (7D-3, docs/ember2d-master-plan.md
+    /// §5.4) — what `UiSpace::from_surface` reads to build a points-space
+    /// conversion. `Renderer`'s real DPI-derived value; `NullRenderer`
+    /// defaults to `(1, 1.0)`, overridable via `with_display` for a test
+    /// exercising a specific render/OS scale.
+    fn display_scale(&self) -> DisplayScale;
     /// Screen size in cells — a plain accessor since `Renderer::width`/
     /// `height` are public fields, not methods, and a trait can't expose a
     /// field. The `renderer.width()` call-site form only appears where a
@@ -102,11 +173,19 @@ pub trait DrawSurface {
 }
 
 impl DrawSurface for Renderer {
-    fn draw_nine_slice_px(&mut self, dest: Rect, texture: &Texture, src: Rect, border: (f32, f32, f32, f32), tint: Color) {
-        Renderer::draw_nine_slice(self, dest, texture, src, border, tint);
+    fn draw_nine_slice_px(
+        &mut self,
+        dest: Rect,
+        texture: &Texture,
+        src: Rect,
+        border: (f32, f32, f32, f32),
+        border_scale: f32,
+        tint: Color,
+    ) {
+        Renderer::draw_nine_slice(self, dest, texture, src, border, border_scale, tint);
     }
-    fn draw_text_px(&mut self, font: &mut dyn Font, text: &str, pos: Vec2, px: f32, color: Color) -> f32 {
-        Renderer::draw_text_px(self, font, text, pos, px, color)
+    fn draw_text_run(&mut self, font: &mut dyn Font, run: &TextRun) -> f32 {
+        Renderer::draw_text_run(self, font, run)
     }
     fn fill_rect_px(&mut self, rect: Rect, color: Color) {
         Renderer::fill_rect_px(self, rect, color);
@@ -125,6 +204,9 @@ impl DrawSurface for Renderer {
         scale: f32,
     ) {
         Renderer::draw_char_scaled_pixels(self, px, py, ch, fg, bg, scale);
+    }
+    fn draw_char_px(&mut self, pos: Vec2, ch: char, fg: Color, bg: Color, scale: f32) {
+        Renderer::draw_char_px(self, pos, ch, fg, bg, scale);
     }
     fn draw_str(&mut self, x: usize, y: usize, s: &str, fg: Color, bg: Color) {
         Renderer::draw_str(self, x, y, s, fg, bg);
@@ -145,8 +227,11 @@ impl DrawSurface for Renderer {
     ) {
         Renderer::draw_rect_filled(self, x, y, w, h, ch, fg, bg);
     }
-    fn set_scissor(&mut self, rect: Option<(u32, u32, u32, u32)>) {
+    fn set_scissor(&mut self, rect: Option<Rect>) {
         Renderer::set_scissor(self, rect);
+    }
+    fn display_scale(&self) -> DisplayScale {
+        Renderer::display_scale(self)
     }
     fn width(&self) -> usize {
         self.width
@@ -170,11 +255,20 @@ impl DrawSurface for Renderer {
 /// `pixel_height` relationship (`renderer/mod.rs`'s `compute_layout`:
 /// `pixel_* == *_in_cells * CELL_*`) rather than letting the two drift
 /// independently.
+///
+/// 7D-3 (docs/ember2d-master-plan.md §5.4): gained an opt-in draw-op log
+/// (`start_recording`/`ops`/`clear_ops`) and a settable `DisplayScale` —
+/// neither is used by any pre-7D-3 test, both default to their old
+/// behavior (`recording: false`, `display: (1, 1.0)`) so no existing
+/// caller's assertions change.
 pub struct NullRenderer {
     width: usize,
     height: usize,
     pixel_width: usize,
     pixel_height: usize,
+    display: DisplayScale,
+    recording: bool,
+    ops: Vec<DrawOp>,
 }
 
 impl NullRenderer {
@@ -184,19 +278,74 @@ impl NullRenderer {
             height: pixel_height / CELL_H,
             pixel_width,
             pixel_height,
+            display: DisplayScale { render_scale: 1, os_scale_factor: 1.0 },
+            recording: false,
+            ops: Vec::new(),
         }
+    }
+
+    /// As `new`, but with an explicit `DisplayScale` — for a test exercising
+    /// a specific render scale (R) or OS scale factor (for
+    /// `UiScaleChoice::Auto` resolution) rather than the `(1, 1.0)` default.
+    pub fn with_display(pixel_width: usize, pixel_height: usize, display: DisplayScale) -> Self {
+        NullRenderer { display, ..NullRenderer::new(pixel_width, pixel_height) }
+    }
+
+    /// Start (or resume) recording every draw call as a `DrawOp` — see
+    /// `draw_log::DrawOp`'s own header comment for why. Ops from before
+    /// this call are not retroactively captured.
+    pub fn start_recording(&mut self) {
+        self.recording = true;
+    }
+
+    pub fn ops(&self) -> &[DrawOp] {
+        &self.ops
+    }
+
+    pub fn clear_ops(&mut self) {
+        self.ops.clear();
     }
 }
 
 impl DrawSurface for NullRenderer {
-    fn draw_nine_slice_px(&mut self, _dest: Rect, _texture: &Texture, _src: Rect, _border: (f32, f32, f32, f32), _tint: Color) {}
-    fn draw_text_px(&mut self, font: &mut dyn Font, text: &str, _pos: Vec2, px: f32, _color: Color) -> f32 {
-        // No-op drawing, but a REAL measured width — headless tests that
-        // center title text against this return value (7D-2) need the
-        // same number a real render would produce, not a dummy `0.0`.
-        font.measure(text, px).0
+    fn draw_nine_slice_px(
+        &mut self,
+        dest: Rect,
+        _texture: &Texture,
+        src: Rect,
+        border: (f32, f32, f32, f32),
+        border_scale: f32,
+        _tint: Color,
+    ) {
+        if self.recording {
+            self.ops.push(DrawOp::NineSlice { dest, src, border, border_scale });
+        }
     }
-    fn fill_rect_px(&mut self, _rect: Rect, _color: Color) {}
+    fn draw_text_run(&mut self, font: &mut dyn Font, run: &TextRun) -> f32 {
+        // No-op drawing, but a REAL measured advance — headless tests that
+        // center title text against this return value (7D-2) need the same
+        // number a real render would produce, not a dummy `0.0`.
+        let (measured_w, _) = font.measure(run.text, run.raster_px);
+        let advance = match run.pitch {
+            Some(pitch) => pitch * run.text.chars().count() as f32,
+            None => measured_w * run.texel_scale,
+        };
+        if self.recording {
+            self.ops.push(DrawOp::Text {
+                text: run.text.to_string(),
+                origin: run.origin,
+                raster_px: run.raster_px,
+                texel_scale: run.texel_scale,
+                pitch: run.pitch,
+            });
+        }
+        advance
+    }
+    fn fill_rect_px(&mut self, rect: Rect, _color: Color) {
+        if self.recording {
+            self.ops.push(DrawOp::Fill(rect));
+        }
+    }
     fn draw_char(&mut self, _x: usize, _y: usize, _ch: char, _fg: Color, _bg: Color) {}
     #[allow(clippy::too_many_arguments)]
     fn draw_char_scaled_pixels(
@@ -208,6 +357,11 @@ impl DrawSurface for NullRenderer {
         _bg: Color,
         _scale: f32,
     ) {
+    }
+    fn draw_char_px(&mut self, pos: Vec2, ch: char, _fg: Color, _bg: Color, scale: f32) {
+        if self.recording {
+            self.ops.push(DrawOp::Char { pos, ch, scale });
+        }
     }
     fn draw_str(&mut self, _x: usize, _y: usize, _s: &str, _fg: Color, _bg: Color) {}
     fn draw_rect_outline(
@@ -232,7 +386,14 @@ impl DrawSurface for NullRenderer {
         _bg: Color,
     ) {
     }
-    fn set_scissor(&mut self, _rect: Option<(u32, u32, u32, u32)>) {}
+    fn set_scissor(&mut self, rect: Option<Rect>) {
+        if self.recording {
+            self.ops.push(DrawOp::Scissor(rect));
+        }
+    }
+    fn display_scale(&self) -> DisplayScale {
+        self.display
+    }
     fn width(&self) -> usize {
         self.width
     }

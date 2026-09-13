@@ -1,7 +1,7 @@
 # Ember2D — Editor Theming Reference
 
-**Written against:** `claude` branch, v0.5.7-b, `ember2d/src/theme.rs` (7D-1), `ember2d-editor/src/editor/theme_loader.rs` (7D-2/7D-4), `ember2d/examples/gen_ember_clean_theme.rs`.
-**Status:** the loading/switching mechanism and color/9-slice theming are built. The panel LAYOUT itself is still the pre-theme 8×16 character-cell grid (`UiRect::from_cells`, docs/ember2d-master-plan.md §5.4, 7D-2) — a theme changes what colors and 9-slice art draw, not where things sit on screen or how big text renders. `Theme.ui_scale`/`font_sizes`/`metrics` are read from a theme file today but not yet applied anywhere (7D-3, blocked on that same layout work — see the master plan's own note on why).
+**Written against:** `claude` branch, v0.5.7-b, `ember2d/src/theme.rs` (7D-1), `ember2d-editor/src/editor/theme_loader.rs` (7D-2/7D-4), `ember2d/examples/gen_ember_clean_theme.rs`, `ember2d/src/renderer/{ui_space,ui_painter}.rs` (7D-3, renderer-foundation checkpoint).
+**Status:** the loading/switching mechanism and color/9-slice theming are built. The panel LAYOUT itself is still the pre-theme 8×16 character-cell grid (`UiRect::from_cells`, docs/ember2d-master-plan.md §5.4, 7D-2) — a theme changes what colors and 9-slice art draw, not where things sit on screen or how big text renders. `font_sizes`/`metrics` are read from a theme file today but not yet applied to panel layout (7D-3's own remaining checkpoints). A real, user-facing UI scale is now a `Renderer`/editor-preference concept (`UiSpace`, `ember2d-editor/src/editor/prefs.rs`), not a theme property — see §6.
 
 ---
 
@@ -26,11 +26,12 @@ A theme lives at `themes/<name>/`, with two files:
       pub chrome_path: String,       // relative to the theme's own directory
       pub slices: BTreeMap<SliceRole, NineSlice>,
       pub font: FontChoice,
+      pub code_font: Option<FontChoice>,  // 7D-3 — None falls back to `font`
       pub font_sizes: FontSizes,
       pub metrics: Metrics,
-      pub ui_scale: u8,
   }
   ```
+  `ui_scale` (a `u8`) used to live here — removed at 7D-3 (docs/ember2d-master-plan.md §5.4): it's a user/display preference, not a property of a theme, and now lives in `EditorPrefs` (`ember2d-editor/src/editor/prefs.rs`) instead. `#[serde(default)]` on `code_font` and serde's own default "ignore unknown fields" behavior mean a `theme.ron` written before this step — no `code_font` key, a stray `ui_scale: N,` line — still loads unchanged.
 - The chrome atlas PNG named by `chrome_path` (by convention, `chrome.png`, sitting next to `theme.ron`).
 
 `Theme::load(&mut AssetManager, dir)` reads `<dir>/theme.ron`, resolves `chrome_path` through the given `AssetManager`, and never fails outward — a missing or unparsable `theme.ron`, or a chrome image the `AssetManager` itself can't find, both degrade to `Theme::fallback()` (loud magenta chrome, an empty palette, the built-in bitmap font) rather than stopping the editor from opening. A role missing from an otherwise-valid theme's palette is a separate, per-lookup fallback: `Theme::role_color` returns loud magenta for that one role; `Theme::slice` returns `None` (the caller draws a flat fallback fill, never fabricated 9-slice geometry).
@@ -70,11 +71,15 @@ A hand-painted pixel-art atlas is equally valid — `Theme::load` only cares tha
 
 `FontChoice` is either `Bitmap` (the engine's built-in `font8x8` glyph atlas, no file to load) or `Ttf { path }` (a TTF file `TtfFont` rasterizes). `path` is NOT joined with the theme's own directory the way `chrome_path` is — a theme's font isn't "inside" the theme directory the way its own atlas is, so the path is repo-root-relative like any other on-disk path this codebase stores (level `script`/`next_level` fields, demo audio paths). `ember-clean` uses `ember2d/assets/fonts/CascadiaMono.ttf`.
 
+`code_font: Option<FontChoice>` (7D-3, docs/ember2d-master-plan.md §5.4) is the script editor's own monospace font — `None` (every theme before this step, `ember-clean` included) falls back to `font` itself. Kept separate because a theme's body text can be proportional while the script editor's own column math needs a genuinely monospace face; `ember-clean` leaves it `None` since its body font, Cascadia MONO, already is one.
+
 `font_sizes: FontSizes { small, body, heading }` names three logical pixel sizes. Only `font_sizes.body` is read anywhere today (`draw_panel_chrome`'s title text, the one call site drawing through `DrawSurface::draw_text_px` instead of the fixed-cell `draw_str`/`draw_char`). Everything else — every panel's actual content — renders at a fixed size regardless of what a theme's `font_sizes` says, since it's still cell-grid text (see §7).
 
 ## 6. Metrics and UI scale
 
-`Metrics { padding, border, row_h, min_target }` and `ui_scale: u8` are both fully defined in `ThemeData` and round-trip through RON, but neither is consumed by any draw call yet — inert fields, loaded and available for a future step (7D-3, and the `from_cells` layout rewrite it depends on) to read. Don't infer that setting a large `ui_scale` in a hand-authored `theme.ron` today does anything visible; it doesn't yet.
+`Metrics { padding, border, row_h, min_target }` is fully defined in `ThemeData` and round-trips through RON, but isn't consumed by panel layout yet — an inert field, loaded and available for 7D-3's remaining checkpoints (the `from_cells` layout rewrite `ChromeMetrics::from_theme` builds on) to read.
+
+**UI scale is not a theme property.** `ui_scale` used to be a `ThemeData` field (removed at 7D-3, §2 above) — a display/user preference doesn't belong to a shipped theme file, since two people using the same theme on different monitors want different scales. It's now `UiScaleChoice` (`Auto` or a fixed `1..=4`) in `EditorPrefs` (`ember2d-editor/src/editor/prefs.rs`), persisted per-user, resolved against the display's real DPI reading for `Auto`. The renderer-side machinery this drives — `ember2d::renderer::UiSpace` (points<->logical<->physical conversion) and `UiPainter` (the one drawing choke point built on it) — landed in 7D-3's first checkpoint, but nothing in the editor draws through either yet; that's this step's remaining checkpoints (panels, modals, the script editor, then the live Theme-menu UI Scale picker). Don't infer that anything is scalable today — it isn't yet.
 
 ## 7. Cell-grid layout, still
 

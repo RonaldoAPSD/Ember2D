@@ -90,6 +90,22 @@ pub struct GlyphInfo {
     pub offset: Vec2,
     /// How far the pen moves horizontally after drawing this glyph.
     pub advance: f32,
+    /// R50 (§3 in the master plan, fixed 7D-3): the size to actually DRAW
+    /// this glyph at, in the same pixel units as `atlas_rect`/`offset` —
+    /// NOT necessarily the same as `atlas_rect`'s own `(w, h)`. For
+    /// `TtfFont` the two always agree (`fontdue` rasterizes each glyph at
+    /// exactly the requested size, so the atlas rect already IS the drawn
+    /// size). For `BitmapFont` they never do at a non-native request: the
+    /// atlas rect stays a fixed 8×8 native cell no matter what size was
+    /// asked for (only `advance`/`offset` scale) — before this field
+    /// existed, `draw_text_run`'s dest rect used `atlas_rect`'s size
+    /// directly, which drew every `BitmapFont` glyph at its literal native
+    /// size regardless of the requested `px`, a gap that predated 7D-3 but
+    /// went unnoticed because `draw_text_px`/`draw_text_run` had no live
+    /// `BitmapFont` caller before this step (chrome text always used a
+    /// `TtfFont` theme font, and the default bitmap UI-font path drew
+    /// through the separate, dedicated `draw_char` pipeline instead).
+    pub size: Vec2,
 }
 
 /// A source of glyph metrics and atlas placements at arbitrary pixel
@@ -134,6 +150,20 @@ pub trait Font {
     fn take_dirty(&mut self) -> bool {
         false
     }
+
+    /// Discard every cached glyph and rebuild this `Font`'s atlas at
+    /// `w`×`h` (7D-3, docs/ember2d-master-plan.md §5.4) — called when the
+    /// editor's UI scale changes, since every glyph a chrome font had
+    /// cached was rasterized at the OLD scale's physical size and is now
+    /// the wrong size for anything drawn from here on. `TtfFont` overrides
+    /// this with a fresh `GlyphAtlas` (a new texture id — the old one
+    /// simply falls out of use and is eventually evicted by the backend's
+    /// own LRU budget, R26, the same way a theme switch's old chrome
+    /// texture already does, `theme_loader::switch_theme`'s own doc
+    /// comment). `BitmapFont` needs no override: its atlas is the engine's
+    /// one shared, size-independent font8x8 texture — "resizing" it makes
+    /// no sense, so the default no-op is correct, not a placeholder.
+    fn reset_atlas(&mut self, _w: u32, _h: u32) {}
 
     /// Rasterize (or fetch from cache) one glyph at one pixel size.
     /// Returns its atlas sub-rect and layout metrics, or `None` if this

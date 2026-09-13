@@ -704,15 +704,19 @@ pub fn draw_panel_chrome(
     // a separate step). Falls back to a flat fill if the theme doesn't
     // define this role (7D-1's own "missing slice, no fabricated
     // geometry" contract — see `Theme::slice`'s own doc comment).
+    // `1.0` border_scale (7D-3, docs/ember2d-master-plan.md §5.4) — this
+    // whole function still draws in cell-locked pixels until 7D-3's own
+    // panel-layout commit converts it to UI points, so every corner here
+    // stays 1:1 (unscaled), exactly as before that parameter existed.
     match theme.slice(SliceRole::Panel) {
-        Some(slice) => renderer.draw_nine_slice_px(full_rect, chrome_tex, slice.src, slice.border, Color::White),
+        Some(slice) => renderer.draw_nine_slice_px(full_rect, chrome_tex, slice.src, slice.border, 1.0, Color::White),
         None => renderer.draw_rect_filled(x, y, w, h, ' ', Color::White, Color::DarkGrey),
     }
 
     // 2. Title bar — a second 9-slice over just the top strip, drawn AFTER
     // the frame so it wins there.
     match theme.slice(SliceRole::TitleBar) {
-        Some(slice) => renderer.draw_nine_slice_px(title_rect, chrome_tex, slice.src, slice.border, Color::White),
+        Some(slice) => renderer.draw_nine_slice_px(title_rect, chrome_tex, slice.src, slice.border, 1.0, Color::White),
         None => renderer.draw_rect_filled(x, y, w, 1, ' ', Color::White, Color::DarkBlue),
     }
     frame.push(
@@ -748,7 +752,7 @@ pub fn draw_panel_chrome(
     // edge, an "X" drawn in the same theme font as the title.
     let close_rect = Rect::new(panel.rect.right() - close_w, panel.rect.y, close_w, CELL_H);
     if let Some(slice) = theme.slice(SliceRole::Button) {
-        renderer.draw_nine_slice_px(close_rect, chrome_tex, slice.src, slice.border, Color::White);
+        renderer.draw_nine_slice_px(close_rect, chrome_tex, slice.src, slice.border, 1.0, Color::White);
     }
     let (x_w, _) = font.measure("X", title_px);
     let x_x = (close_rect.x + (close_w - x_w) / 2.0).round();
@@ -769,7 +773,7 @@ pub fn draw_panel_chrome(
     let grip_rect =
         Rect::new(panel.rect.right() - grip_size, panel.rect.bottom() - grip_size, grip_size, grip_size);
     if let Some(slice) = theme.slice(SliceRole::ResizeGrip) {
-        renderer.draw_nine_slice_px(grip_rect, chrome_tex, slice.src, slice.border, Color::White);
+        renderer.draw_nine_slice_px(grip_rect, chrome_tex, slice.src, slice.border, 1.0, Color::White);
     }
     frame.push(
         WidgetId::ResizeHandle(panel.id),

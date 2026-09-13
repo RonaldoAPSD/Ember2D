@@ -8,20 +8,37 @@
 // primitives (`draw_texture_px`, `draw_nine_slice`, `fill_rect_px`) left
 // behind in `mod.rs`.
 
-use super::{BitmapFont, Color, Font, GlyphInfo, Renderer, Texture, UiFontKind, CELL_H, CELL_W};
+use super::{BitmapFont, Color, Font, GlyphInfo, Renderer, Texture, TextRun, UiFontKind, CELL_H, CELL_W};
 use ember2d_sim::math::{Rect, Vec2};
 
 impl Renderer {
-    /// Draw `text` through `font` at `px`, baseline-positioned (Phase 7
-    /// Part 2d, docs/ember2d-phase7-plan.md): `pos` is where the FIRST
-    /// glyph's baseline-left sits, not its top-left corner — "text draws
-    /// from a baseline, not a top-left corner... mixed sizes on one line
-    /// only align correctly on a shared baseline." Built entirely out of
-    /// `draw_texture_px` plus one glyph lookup per character, so it works
-    /// for any `Font` impl without knowing which one it got. Returns the
-    /// total horizontal advance (matches `Font::measure`'s width for the
-    /// same `text`/`px`), so a caller can position what comes next on the
-    /// same baseline.
+    /// Draw one `TextRun` (7D-3, docs/ember2d-master-plan.md §5.4 — replaces
+    /// the old, single-purpose `draw_text_px` as the real implementation;
+    /// `draw_text_px` below is now a thin wrapper). `run.origin` is where
+    /// the FIRST glyph's baseline-left sits (Phase 7 Part 2d — "text draws
+    /// from a baseline, not a top-left corner"), in LOGICAL pixels. Built
+    /// entirely out of `draw_texture_px` plus one glyph lookup per
+    /// character, so it works for any `Font` impl without knowing which one
+    /// it got. Returns the total horizontal advance, in logical pixels.
+    ///
+    /// `run.raster_px` is the size actually asked of `font.glyph` — for a
+    /// legacy (`texel_scale: 1.0`) call this is the same value `pos`/the
+    /// glyph quads are drawn at, exactly like the pre-7D-3 `draw_text_px`;
+    /// for UI-points chrome text (`UiPainter::text`) it's the real PHYSICAL
+    /// pixel size (`points * ui_scale`), and `run.texel_scale`
+    /// (`ui_scale / render_scale`) converts each glyph's own raster-space
+    /// offset/size back down into the logical pixels this method actually
+    /// draws at — R50 (§3 in the master plan) is why the drawn SIZE comes
+    /// from `GlyphInfo::size`, not `atlas_rect`'s size: those agree for
+    /// `TtfFont` (which rasterizes each glyph at exactly its atlas rect) but
+    /// not for `BitmapFont`, whose atlas rect stays a fixed native 8×8 cell
+    /// regardless of the requested size — drawing `atlas_rect`'s own size
+    /// there would always render a `BitmapFont` glyph at its native size,
+    /// never the requested one. `run.pitch`, if set, overrides the font's
+    /// own per-glyph advance with a fixed logical-pixel step — the script
+    /// editor's monospace grid (`ui/script_layout.rs`), where every
+    /// character must advance by exactly the same amount for its own
+    /// column math to stay correct.
     ///
     /// Two different atlas lifetimes to handle, via `Font::atlas_texture`/
     /// `take_dirty`: `BitmapFont`'s is baked once into the GPU at startup
@@ -43,15 +60,8 @@ impl Renderer {
     /// (same shape `BitmapFont`'s `None` case already used) is a valid
     /// stand-in on every other call — the overwhelming majority of frames,
     /// once an atlas has been uploaded at least once.
-    pub fn draw_text_px(
-        &mut self,
-        font: &mut dyn Font,
-        text: &str,
-        pos: Vec2,
-        px: f32,
-        color: Color,
-    ) -> f32 {
-        let glyphs: Vec<GlyphInfo> = text.chars().filter_map(|ch| font.glyph(ch, px)).collect();
+    pub fn draw_text_run(&mut self, font: &mut dyn Font, run: &TextRun) -> f32 {
+        let glyphs: Vec<GlyphInfo> = run.text.chars().filter_map(|ch| font.glyph(ch, run.raster_px)).collect();
 
         let dirty = font.take_dirty();
         let tex_id = font.texture_id();
@@ -72,20 +82,35 @@ impl Renderer {
             Texture { id: tex_id.0, width: tex_w, height: tex_h, pixels: Vec::new() }
         };
 
-        let mut pen_x = pos.x;
+        let mut pen_x = run.origin.x;
         for g in glyphs {
-            if g.atlas_rect.w > 0.0 && g.atlas_rect.h > 0.0 {
+            if g.size.x > 0.0 && g.size.y > 0.0 {
                 let dest = Rect::new(
-                    pen_x + g.offset.x,
-                    pos.y + g.offset.y,
-                    g.atlas_rect.w,
-                    g.atlas_rect.h,
+                    pen_x + g.offset.x * run.texel_scale,
+                    run.origin.y + g.offset.y * run.texel_scale,
+                    g.size.x * run.texel_scale,
+                    g.size.y * run.texel_scale,
                 );
-                self.draw_texture_px(dest, &atlas, Some(g.atlas_rect), color);
+                self.draw_texture_px(dest, &atlas, Some(g.atlas_rect), run.color);
             }
-            pen_x += g.advance;
+            pen_x += run.pitch.unwrap_or(g.advance * run.texel_scale);
         }
-        pen_x - pos.x
+        pen_x - run.origin.x
+    }
+
+    /// Thin wrapper over `draw_text_run` at `texel_scale: 1.0, pitch: None`
+    /// (7D-3, docs/ember2d-master-plan.md §5.4) — reproduces this method's
+    /// own pre-7D-3 behavior exactly for every existing caller (`draw_str`'s
+    /// TTF branch, below).
+    pub fn draw_text_px(
+        &mut self,
+        font: &mut dyn Font,
+        text: &str,
+        pos: Vec2,
+        px: f32,
+        color: Color,
+    ) -> f32 {
+        self.draw_text_run(font, &TextRun { text, origin: pos, raster_px: px, texel_scale: 1.0, pitch: None, color })
     }
 
     /// 7B-5 (docs/ember2d-master-plan.md §5.2): the `EMBER_UI_FONT=ttf`

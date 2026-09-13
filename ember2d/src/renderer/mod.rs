@@ -7,6 +7,33 @@ mod draw_surface;
 pub mod font;
 pub mod texture;
 
+// geometry.rs (7D-3, docs/ember2d-master-plan.md §5.4): the coordinate-space
+// free functions (`ScreenMapping`, `compute_layout`, `nine_slice_quads`,
+// etc.) that used to live at the bottom of this file — see that file's own
+// header comment for why they moved. `ScreenMapping` is re-exported below
+// (`mouse.rs` and the editor's test harness construct one directly); the
+// rest stay crate-internal, reached through the plain `use` just below.
+mod geometry;
+use geometry::{
+    compute_layout, nine_slice_quads, pixel_size_to_cells, screen_cell_to_pixel, snap_rect_to_scale, uv_rect_for,
+};
+pub use geometry::ScreenMapping;
+
+// ui_space.rs/ui_painter.rs (7D-3, docs/ember2d-master-plan.md §5.4): the
+// points<->logical<->physical coordinate-space conversion and the
+// theme-agnostic drawing choke point built on top of `DrawSurface` — see
+// each file's own header comment. Public: the editor (a different crate)
+// builds a `UiSpace` every frame and draws every chrome pixel through a
+// `UiPainter`, and Phase 9-3's planned script-facing pixel HUD is meant to
+// reuse both unchanged.
+pub mod ui_painter;
+pub mod ui_space;
+
+// draw_log.rs (7D-3, docs/ember2d-master-plan.md §5.4): `NullRenderer`'s
+// opt-in draw-op recording — see that file's own header comment for why a
+// headless test needs it to verify physical-pixel snapping without a GPU.
+pub mod draw_log;
+
 #[path = "text.rs"]
 mod text;
 
@@ -17,9 +44,11 @@ use winit::window::Window;
 pub use assets::AssetManager;
 pub use backend::WgpuBackend;
 pub use color::{Color, DEFAULT_BG, DEFAULT_FG};
-pub use draw_surface::{DrawSurface, NullRenderer};
+pub use draw_surface::{DisplayScale, DrawSurface, NullRenderer, TextRun};
 pub use font::{ui_font_from_env, BitmapFont, Font, GlyphInfo, TtfFont, UiFontKind};
 pub use texture::{Texture, TextureId};
+pub use ui_painter::UiPainter;
+pub use ui_space::UiSpace;
 
 // `pub` since Phase 7 Part 1e (docs/ember2d-phase7-plan.md, E2) — the
 // editor previously re-derived this exact pixel size as duplicated local
@@ -53,39 +82,6 @@ pub(crate) const INITIAL_SCALE_GUESS: f32 = 2.0;
 /// than "whatever this floor computes" — is 7D-3 (Phase 7D), not this.
 pub(crate) const MIN_UI_SCALE: f32 = 2.0;
 
-/// Physical-pixel <-> cell-space mapping (7B-2, docs/ember2d-master-plan.md
-/// §5.2, R21) — recomputed by `Renderer` on `new`/resize/DPI change,
-/// exposed for `Engine`/`MouseState` to convert a raw physical cursor
-/// position into the cell coordinates `mouse.cell_x`/`cell_y` (and the
-/// pixel-space `mouse.pixel_x`/`pixel_y` the editor's `UiRect`/`UiFrame`
-/// hit-testing already expects) without hardcoding `CELL_W`/`CELL_H`
-/// themselves. Replaces the old single-axis, DPI-blind `scale_factor()`.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ScreenMapping {
-    /// Top-left of the letterboxed drawable area, in physical pixels. Zero
-    /// unless the window's physical size isn't an exact multiple of
-    /// `cell_px` — the remainder is split evenly on both sides rather than
-    /// stretching every cell to fill it (R21's actual bug).
-    pub origin_px: (f32, f32),
-    /// Physical pixels per cell, per axis: `(CELL_W * scale, CELL_H *
-    /// scale)`. Per-axis (not one shared scalar) because a non-square
-    /// letterboxed remainder can round differently per axis even though
-    /// `scale` itself is uniform.
-    pub cell_px: (f32, f32),
-}
-
-impl ScreenMapping {
-    /// A raw physical cursor position -> the letterbox-origin-relative,
-    /// scale-descaled logical pixel position `MouseState::pixel_x`/`pixel_y`
-    /// store (1 unit = 1 un-scaled `CELL_W`/`CELL_H` pixel, matching the
-    /// editor's own pixel-space UI convention).
-    pub fn physical_to_logical(&self, physical: (f32, f32)) -> (f32, f32) {
-        let scale_x = self.cell_px.0 / CELL_W as f32;
-        let scale_y = self.cell_px.1 / CELL_H as f32;
-        ((physical.0 - self.origin_px.0) / scale_x, (physical.1 - self.origin_px.1) / scale_y)
-    }
-}
-
 /// R29 (7B-1, docs/ember2d-master-plan.md §5.2): shows a native error
 /// dialog then exits — the two `Renderer::new` call sites that used to be
 /// bare `.expect()` panics on unsupported hardware. A panic's message goes
@@ -116,6 +112,17 @@ pub struct Renderer {
     /// `new`/resize/`ScaleFactorChanged` via `recompute_layout`. See
     /// `MIN_UI_SCALE`'s own doc comment for why the floor isn't `1.0`.
     scale: f32,
+    /// The window's raw, un-rounded `scale_factor()` (7D-3,
+    /// docs/ember2d-master-plan.md §5.4) — `scale` above is `this.round()`
+    /// floored at `MIN_UI_SCALE`, deliberately lossy so the render/cell
+    /// grid always lands on a whole physical pixel; `os_scale_factor` keeps
+    /// the real value around too, since `UiScaleChoice::Auto` (the
+    /// editor's UI-scale preference, `ember2d-editor/src/editor/prefs.rs`)
+    /// needs the display's actual DPI reading, not `scale`'s already-
+    /// rounded-and-floored one, to derive a sensible default. Read via
+    /// `display_scale()` (`DrawSurface`); kept in sync with `scale` by
+    /// `recompute_layout`.
+    os_scale_factor: f32,
     /// The current physical<->cell-space mapping — see `ScreenMapping`'s
     /// own doc comment. Kept in sync with `width`/`height`/`scale` by
     /// `recompute_layout`; never computed anywhere else.
@@ -262,7 +269,8 @@ impl Renderer {
         // mapping are all derived from the real window here, not trusted
         // from a caller — see this function's own doc comment. Floors at
         // `MIN_UI_SCALE`, not `1.0` — see that constant's own doc comment.
-        let scale = (window.scale_factor() as f32).round().max(MIN_UI_SCALE);
+        let os_scale_factor = window.scale_factor() as f32;
+        let scale = os_scale_factor.round().max(MIN_UI_SCALE);
         let (width, height, mapping) = compute_layout(size.width, size.height, scale);
         let pixel_width = width * CELL_W;
         let pixel_height = height * CELL_H;
@@ -277,6 +285,7 @@ impl Renderer {
             pixel_width,
             pixel_height,
             scale,
+            os_scale_factor,
             mapping,
             surface,
             device,
@@ -308,6 +317,14 @@ impl Renderer {
         self.mapping
     }
 
+    /// `DrawSurface::display_scale` — see that trait method's own doc
+    /// comment (7D-3, docs/ember2d-master-plan.md §5.4).
+    pub fn display_scale(&self) -> DisplayScale {
+        // `self.scale` is already a whole number (`.round().max(MIN_UI_SCALE)`
+        // at construction/`recompute_layout`) — no further rounding needed.
+        DisplayScale { render_scale: self.scale as u32, os_scale_factor: self.os_scale_factor }
+    }
+
     pub fn clear(&mut self) {
         self.backend.clear();
     }
@@ -325,7 +342,26 @@ impl Renderer {
         bg: Color,
         scale: f32,
     ) {
-        self.backend.draw_char_scaled_pixels(px, py, ch, fg, bg, scale);
+        self.backend.draw_char_scaled_pixels(px as f32, py as f32, ch, fg, bg, scale);
+    }
+
+    /// The `f32`-position twin of `draw_char_scaled_pixels` (7D-3,
+    /// docs/ember2d-master-plan.md §5.4) — `draw_char_scaled_pixels` keeps
+    /// its `i32` signature for its one existing caller (`draw_char_world`,
+    /// which already rounds to a whole logical pixel via
+    /// `screen_cell_to_pixel`), but the UI-points painter's tile-glyph
+    /// preview (`ui_painter::UiPainter::tile_glyph`) needs a real, possibly
+    /// fractional position — a chrome glyph preview drawn at a
+    /// physical-pixel-snapped points position, not a cell-quantized one.
+    pub fn draw_char_px(
+        &mut self,
+        pos: ember2d_sim::math::Vec2,
+        ch: char,
+        fg: Color,
+        bg: Color,
+        scale: f32,
+    ) {
+        self.backend.draw_char_scaled_pixels(pos.x, pos.y, ch, fg, bg, scale);
     }
 
     pub fn upload_texture(&mut self, texture: &Texture) {
@@ -339,7 +375,16 @@ impl Renderer {
         self.backend.has_texture(id)
     }
 
-    pub fn set_scissor(&mut self, rect: Option<(u32, u32, u32, u32)>) {
+    /// `rect` is in logical pixels, `f32` (7D-3, docs/ember2d-master-plan.md
+    /// §5.4 — was `Option<(u32, u32, u32, u32)>`): a panel's own pixel rect
+    /// (`UiRect`) is `f32` and not necessarily a whole logical pixel after a
+    /// drag/resize, so rounding to `u32` here — before the backend's own
+    /// physical-scale multiply — used to throw away up to a logical pixel of
+    /// precision on top of whatever the caller passed in (part of R66's
+    /// viewport-seam mismatch, §3 in the master plan). The backend still
+    /// rounds to a whole PHYSICAL pixel once (`WgpuBackend::render`), which
+    /// is the only rounding a scissor rect can ever need.
+    pub fn set_scissor(&mut self, rect: Option<ember2d_sim::math::Rect>) {
         self.backend.set_scissor(rect);
     }
 
@@ -351,7 +396,7 @@ impl Renderer {
             texture.width as f32 * scale / CELL_W as f32,
             texture.height as f32 * scale / CELL_H as f32,
         ];
-        self.backend.draw_texture(px, py, texture, size, 0.0, Color::White, None);
+        self.backend.draw_texture(px as f32, py as f32, texture, size, 0.0, Color::White, None);
     }
 
     /// Draw a glyph at a world-space position, through `camera`. A thin
@@ -401,7 +446,7 @@ impl Renderer {
                 r.h / texture.height as f32,
             ]
         });
-        self.backend.draw_texture(px, py, texture, cell_size, rotation, tint, uv_rect);
+        self.backend.draw_texture(px as f32, py as f32, texture, cell_size, rotation, tint, uv_rect);
     }
 
     /// Solid filled rectangle in pixels (Phase 7 Part 1a,
@@ -421,6 +466,20 @@ impl Renderer {
     /// pixels; `src` is an optional pixel-space sub-rect of `texture`
     /// (`None` samples the whole thing, matching `draw_texture_world`'s own
     /// `src` convention).
+    ///
+    /// `dest` is snapped to the PHYSICAL pixel grid (7D-3,
+    /// docs/ember2d-master-plan.md §5.4), not just rounded to a whole
+    /// logical pixel the way this used to (`dest.x.round()`) — a UI-points
+    /// chrome fill or 9-slice piece can land at a fractional logical
+    /// position whenever `ui_scale`/`render_scale` aren't in a whole-number
+    /// ratio (e.g. 3 points per unscaled pixel on a 2x-DPI display is 1.5
+    /// logical pixels), and rounding to the nearest LOGICAL pixel there
+    /// would still leave the actual drawn quad off the real, physical pixel
+    /// grid the GPU rasterizes to. Snapping both edges independently
+    /// (`snap_rect_to_scale`) rather than origin-then-size is what keeps
+    /// two quads sharing a logical edge (e.g. adjacent 9-slice pieces)
+    /// landing on the same physical pixel instead of drifting apart by a
+    /// pixel of rounding error and leaving a seam.
     pub fn draw_texture_px(
         &mut self,
         dest: ember2d_sim::math::Rect,
@@ -429,17 +488,10 @@ impl Renderer {
         tint: Color,
     ) {
         self.backend.upload_texture(&self.device, &self.queue, texture);
+        let dest = snap_rect_to_scale(dest, self.scale);
         let size = pixel_size_to_cells(dest.w, dest.h);
         let uv_rect = src.map(|r| uv_rect_for(texture.width, texture.height, r));
-        self.backend.draw_texture(
-            dest.x.round() as i32,
-            dest.y.round() as i32,
-            texture,
-            size,
-            0.0,
-            tint,
-            uv_rect,
-        );
+        self.backend.draw_texture(dest.x, dest.y, texture, size, 0.0, tint, uv_rect);
     }
 
     /// Nine-slice: corners drawn 1:1, edges stretched along one axis,
@@ -459,15 +511,20 @@ impl Renderer {
     /// `src: Option<Rect>`). Pass `Rect::new(0.0, 0.0, texture.width as
     /// f32, texture.height as f32)` for a texture that's dedicated to
     /// exactly one 9-slice (this call's only shape before 7D-2).
+    ///
+    /// `border_scale` (7D-3, docs/ember2d-master-plan.md §5.4) — see
+    /// `nine_slice_quads`'s own doc comment for the full contract. `1.0`
+    /// reproduces every pre-7D-3 caller's behavior exactly.
     pub fn draw_nine_slice(
         &mut self,
         dest: ember2d_sim::math::Rect,
         texture: &Texture,
         src: ember2d_sim::math::Rect,
         border: (f32, f32, f32, f32),
+        border_scale: f32,
         tint: Color,
     ) {
-        for (d, s) in nine_slice_quads(dest, src, border) {
+        for (d, s) in nine_slice_quads(dest, src, border, border_scale) {
             self.draw_texture_px(d, texture, Some(s), tint);
         }
     }
@@ -596,7 +653,8 @@ impl Renderer {
     /// (e.g. `Engine::width`/`height`) don't need to react to.
     fn recompute_layout(&mut self) -> bool {
         let size = self.window.inner_size();
-        self.scale = (self.window.scale_factor() as f32).round().max(MIN_UI_SCALE);
+        self.os_scale_factor = self.window.scale_factor() as f32;
+        self.scale = self.os_scale_factor.round().max(MIN_UI_SCALE);
         let (new_w, new_h, mapping) = compute_layout(size.width, size.height, self.scale);
         self.mapping = mapping;
         self.pixel_width = new_w * CELL_W;
@@ -643,109 +701,16 @@ impl assets::TextureEvictor for Renderer {
     }
 }
 
-/// The cell grid and `ScreenMapping` a window of `physical_w`×`physical_h`
-/// pixels produces at `scale` physical pixels per un-scaled `CELL_W`/
-/// `CELL_H` pixel (7B-2, docs/ember2d-master-plan.md §5.2, R21). Floor
-/// division (not the old ceiling division) plus letterboxing the remainder
-/// is what stops individual cells from stretching to fill whatever's left
-/// over — the actual R21 bug. `.max(20)`/`.max(6)` are the same minimum
-/// grid floor `try_handle_resize` always enforced; if the window is
-/// smaller than that minimum's own physical footprint, the drawable rect
-/// is clamped to the real physical size in `WgpuBackend::render` (same
-/// defensive clamp its scissor-rect handling already does) rather than
-/// asking wgpu for an oversized viewport. A free function, not a method,
-/// so it's testable without a live GPU-backed `Renderer` — same reasoning
-/// as `screen_cell_to_pixel` below.
-fn compute_layout(physical_w: u32, physical_h: u32, scale: f32) -> (usize, usize, ScreenMapping) {
-    let cell_px_w = CELL_W as f32 * scale;
-    let cell_px_h = CELL_H as f32 * scale;
-    let cells_w = ((physical_w as f32 / cell_px_w).floor() as usize).max(20);
-    let cells_h = ((physical_h as f32 / cell_px_h).floor() as usize).max(6);
-    let drawable_w = cells_w as f32 * cell_px_w;
-    let drawable_h = cells_h as f32 * cell_px_h;
-    let origin_x = ((physical_w as f32 - drawable_w) / 2.0).max(0.0);
-    let origin_y = ((physical_h as f32 - drawable_h) / 2.0).max(0.0);
-    (
-        cells_w,
-        cells_h,
-        ScreenMapping { origin_px: (origin_x, origin_y), cell_px: (cell_px_w, cell_px_h) },
-    )
-}
-
-/// Convert a screen-space cell position (as `Camera::world_to_screen`
-/// returns it) into the pixel-snapped convention `draw_char_scaled_pixels`
-/// and the backend's `draw_texture` expect — multiply by the cell size in
-/// pixels, then round to a whole pixel. Pulled out as a free function so the
-/// coordinate math (Step 2c) is testable without a live GPU-backed `Renderer`.
-fn screen_cell_to_pixel(screen: ember2d_sim::math::Vec2) -> (i32, i32) {
-    ((screen.x * CELL_W as f32).round() as i32, (screen.y * CELL_H as f32).round() as i32)
-}
-
-/// A pixel size converted to the "cell units" convention
-/// `SpriteInstance::size`/`WgpuBackend::draw_texture`'s own `size`
-/// parameter already use (see `Renderer::draw_texture`'s `scale`
-/// computation for the same divide) — pulled out so `fill_rect_px`/
-/// `draw_texture_px`'s coordinate math is testable without a live
-/// GPU-backed `Renderer` (Phase 7 Part 1a).
-fn pixel_size_to_cells(w: f32, h: f32) -> [f32; 2] {
-    [w / CELL_W as f32, h / CELL_H as f32]
-}
-
-/// A pixel-space sub-rect of a texture, normalized to the `[x, y, w, h]`
-/// (0..1) convention `WgpuBackend::draw_texture`'s `uv_rect` expects — the
-/// same computation `draw_texture_world` does inline, pulled out here
-/// (Phase 7 Part 1a) so it's independently testable.
-fn uv_rect_for(texture_w: u32, texture_h: u32, src: ember2d_sim::math::Rect) -> [f32; 4] {
-    [
-        src.x / texture_w as f32,
-        src.y / texture_h as f32,
-        src.w / texture_w as f32,
-        src.h / texture_h as f32,
-    ]
-}
-
-/// The nine (dest, src) rect pairs `draw_nine_slice` draws, in row-major
-/// order — index 4 is always the stretched center. `src` is the 9-slice's
-/// own region of the texture (7D-2, master plan §5.4 — an atlas sub-rect,
-/// not necessarily the whole texture); `border` is `(left, top, right,
-/// bottom)` in SOURCE pixels, relative to `src`'s own origin, not the
-/// texture's. Corners keep that exact size on both sides (source and
-/// dest), which is what makes them 1:1 rather than stretched, as long as
-/// `dest` is at least as large as the combined left+right / top+bottom
-/// borders — a smaller `dest` clamps the middle column/row to zero
-/// width/height rather than going negative.
-fn nine_slice_quads(
-    dest: ember2d_sim::math::Rect,
-    src: ember2d_sim::math::Rect,
-    border: (f32, f32, f32, f32),
-) -> Vec<(ember2d_sim::math::Rect, ember2d_sim::math::Rect)> {
-    use ember2d_sim::math::Rect;
-
-    let (bl, bt, br, bb) = border;
-    let src_x = [src.x, src.x + bl, src.x + src.w - br];
-    let src_w = [bl, (src.w - bl - br).max(0.0), br];
-    let src_y = [src.y, src.y + bt, src.y + src.h - bb];
-    let src_h = [bt, (src.h - bt - bb).max(0.0), bb];
-
-    let dst_x = [dest.x, dest.x + bl, dest.x + dest.w - br];
-    let dst_w = [bl, (dest.w - bl - br).max(0.0), br];
-    let dst_y = [dest.y, dest.y + bt, dest.y + dest.h - bb];
-    let dst_h = [bt, (dest.h - bt - bb).max(0.0), bb];
-
-    let mut quads = Vec::with_capacity(9);
-    for row in 0..3 {
-        for col in 0..3 {
-            let d = Rect::new(dst_x[col], dst_y[row], dst_w[col], dst_h[row]);
-            let s = Rect::new(src_x[col], src_y[row], src_w[col], src_h[row]);
-            quads.push((d, s));
-        }
-    }
-    quads
-}
-
 // Tests split into tests.rs (7B-2, docs/ember2d-master-plan.md §5.2) — see
 // that file's own header comment — once this file crossed the project's
-// 750-line hard limit (CLAUDE.md).
+// 750-line hard limit (CLAUDE.md). The pure coordinate-space free functions
+// this file used to define below this point (`compute_layout`,
+// `screen_cell_to_pixel`, `pixel_size_to_cells`, `uv_rect_for`,
+// `nine_slice_quads`) moved to `geometry.rs` at 7D-3
+// (docs/ember2d-master-plan.md §5.4), along with their own tests — this
+// module still reaches them via the plain `use geometry::{...}` near the
+// top of this file, and `tests` below (a child module of this one) sees
+// them the same way through `use super::*`.
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;

@@ -29,7 +29,10 @@ use ember2d_sim::math::{Rect, Vec2};
 /// removal) — no longer converts from cell coordinates itself.
 pub(super) fn draw_themed_frame(renderer: &mut dyn DrawSurface, theme: &Theme, chrome_tex: &Texture, rect: Rect) {
     match theme.slice(SliceRole::Panel) {
-        Some(slice) => renderer.draw_nine_slice_px(rect, chrome_tex, slice.src, slice.border, Color::White),
+        // `1.0` border_scale (7D-3, docs/ember2d-master-plan.md §5.4) — both
+        // themed-frame helpers here still draw in unscaled pixels until
+        // that step's own panel-layout commit converts modals to points.
+        Some(slice) => renderer.draw_nine_slice_px(rect, chrome_tex, slice.src, slice.border, 1.0, Color::White),
         None => renderer.fill_rect_px(rect, theme.role_color(PaletteRole::PanelBg)),
     }
 }
@@ -46,7 +49,7 @@ pub(super) fn draw_themed_title_strip(
 ) {
     let rect = Rect::new(x, y, w, theme.metrics.row_h);
     match theme.slice(SliceRole::TitleBar) {
-        Some(slice) => renderer.draw_nine_slice_px(rect, chrome_tex, slice.src, slice.border, Color::White),
+        Some(slice) => renderer.draw_nine_slice_px(rect, chrome_tex, slice.src, slice.border, 1.0, Color::White),
         None => renderer.fill_rect_px(rect, theme.role_color(PaletteRole::TitleBg)),
     }
 }

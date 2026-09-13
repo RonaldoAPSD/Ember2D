@@ -110,9 +110,18 @@ pub struct ThemeData {
     pub chrome_path: String,
     pub slices: BTreeMap<SliceRole, NineSlice>,
     pub font: FontChoice,
+    /// The script editor's own monospace font (7D-3, docs/ember2d-master-plan.md
+    /// §5.4) — `None` (the default; every theme file from before this step)
+    /// falls back to `font` itself (`theme_loader::load_theme_fonts`). Kept
+    /// separate from `font` because a theme's body text can be proportional
+    /// (Cascadia Code, `ember-clean`'s own choice) while the script editor's
+    /// column math (`ui/script_layout.rs`) specifically needs a MONOSPACE
+    /// face — a fixed points-per-character pitch only holds together if
+    /// every glyph really does advance the same amount.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_font: Option<FontChoice>,
     pub font_sizes: FontSizes,
     pub metrics: Metrics,
-    pub ui_scale: u8,
 }
 
 /// A fully-resolved, ready-to-draw theme (7D-1, master plan §5.4). Built
@@ -127,9 +136,13 @@ pub struct Theme {
     pub chrome: TextureId,
     pub slices: BTreeMap<SliceRole, NineSlice>,
     pub font: FontChoice,
+    /// See `ThemeData::code_font`'s own doc comment. Carried through
+    /// unresolved (still a `FontChoice`, like `font`) — resolving either
+    /// into a real `Box<dyn Font>` is `theme_loader::load_theme_fonts`'s
+    /// job, same as `chrome_path` -> `chrome: TextureId` is `Theme::load`'s.
+    pub code_font: Option<FontChoice>,
     pub font_sizes: FontSizes,
     pub metrics: Metrics,
-    pub ui_scale: u8,
 }
 
 /// Loud, unmistakable magenta — the fallback for anything a theme doesn't
@@ -160,9 +173,9 @@ impl Theme {
                     chrome: assets.load(&chrome_path),
                     slices: data.slices,
                     font: data.font,
+                    code_font: data.code_font,
                     font_sizes: data.font_sizes,
                     metrics: data.metrics,
-                    ui_scale: data.ui_scale,
                 }
             }
             None => {
@@ -184,9 +197,9 @@ impl Theme {
             chrome: assets.load("__no_theme_chrome__.png"),
             slices: BTreeMap::new(),
             font: FontChoice::Bitmap,
+            code_font: None,
             font_sizes: FontSizes { small: 8.0, body: 8.0, heading: 16.0 },
             metrics: Metrics { padding: 4.0, border: 1.0, row_h: 16.0, min_target: 16.0 },
-            ui_scale: 1,
         }
     }
 
@@ -229,9 +242,9 @@ mod tests {
             chrome_path: "chrome.png".to_string(),
             slices,
             font: FontChoice::Ttf { path: "font.ttf".to_string() },
+            code_font: Some(FontChoice::Ttf { path: "code.ttf".to_string() }),
             font_sizes: FontSizes { small: 10.0, body: 12.0, heading: 18.0 },
             metrics: Metrics { padding: 6.0, border: 2.0, row_h: 20.0, min_target: 24.0 },
-            ui_scale: 2,
         }
     }
 
@@ -246,9 +259,50 @@ mod tests {
         assert_eq!(restored.chrome_path, data.chrome_path);
         assert_eq!(restored.slices, data.slices);
         assert_eq!(restored.font, data.font);
+        assert_eq!(restored.code_font, data.code_font);
         assert_eq!(restored.font_sizes, data.font_sizes);
         assert_eq!(restored.metrics, data.metrics);
-        assert_eq!(restored.ui_scale, data.ui_scale);
+    }
+
+    /// 7D-3 (docs/ember2d-master-plan.md §5.4): `code_font` is new and
+    /// `#[serde(default)]` — a `theme.ron` written before this step (no
+    /// `code_font` key at all) must still parse, falling back to `None`.
+    #[test]
+    fn code_font_defaults_to_none_and_falls_back_to_font() {
+        let ron_text = r#"(
+            name: "sample",
+            palette: {},
+            chrome_path: "chrome.png",
+            slices: {},
+            font: Ttf(path: "font.ttf"),
+            font_sizes: (small: 10.0, body: 12.0, heading: 18.0),
+            metrics: (padding: 6.0, border: 2.0, row_h: 20.0, min_target: 24.0),
+        )"#;
+        let data: ThemeData = ron::from_str(ron_text).expect("a theme.ron with no code_font key must still parse");
+        assert_eq!(data.code_font, None);
+    }
+
+    /// R76-adjacent (7D-3, docs/ember2d-master-plan.md §5.4): `ui_scale`
+    /// moved out of the theme format entirely (it's a user/display
+    /// preference now, `ember2d-editor/src/editor/prefs.rs`, not a theme
+    /// property) — a `theme.ron` a user already has on disk from before
+    /// this step still has a `ui_scale: N,` line in it, and must keep
+    /// loading rather than erroring on an unrecognized field.
+    #[test]
+    fn a_legacy_theme_file_with_ui_scale_still_loads() {
+        let ron_text = r#"(
+            name: "sample",
+            palette: {},
+            chrome_path: "chrome.png",
+            slices: {},
+            font: Ttf(path: "font.ttf"),
+            font_sizes: (small: 10.0, body: 12.0, heading: 18.0),
+            metrics: (padding: 6.0, border: 2.0, row_h: 20.0, min_target: 24.0),
+            ui_scale: 2,
+        )"#;
+        let data: ThemeData = ron::from_str(ron_text)
+            .expect("a legacy theme.ron with a stray ui_scale field must still parse (serde ignores unknown fields by default)");
+        assert_eq!(data.name, "sample");
     }
 
     #[test]
@@ -324,9 +378,9 @@ mod tests {
             chrome: TextureId(0),
             slices: data.slices,
             font: data.font,
+            code_font: data.code_font,
             font_sizes: data.font_sizes,
             metrics: data.metrics,
-            ui_scale: data.ui_scale,
         };
         // PanelBg and Accent were defined; TitleBg was not.
         assert_eq!(theme.role_color(PaletteRole::PanelBg), Color::Rgb(20, 20, 24));
@@ -342,9 +396,9 @@ mod tests {
             chrome: TextureId(0),
             slices: data.slices,
             font: data.font,
+            code_font: data.code_font,
             font_sizes: data.font_sizes,
             metrics: data.metrics,
-            ui_scale: data.ui_scale,
         };
         assert!(theme.slice(SliceRole::Panel).is_some());
         assert!(theme.slice(SliceRole::Scrollbar).is_none());

@@ -97,6 +97,11 @@ impl Font for BitmapFont {
             // baseline (`draw_text_px`, added this same step).
             offset: Vec2::new(0.0, -effective),
             advance: effective,
+            // R50 (§3 in the master plan, fixed 7D-3): the DRAWN size is
+            // the requested, snapped-to-a-whole-multiple size — never the
+            // atlas rect's own fixed native 8x8 — see `GlyphInfo::size`'s
+            // own doc comment for why the two must be tracked separately.
+            size: Vec2::new(effective, effective),
         })
     }
 
@@ -125,6 +130,18 @@ mod tests {
         assert_eq!(g.atlas_rect.w, 8.0);
         assert_eq!(g.atlas_rect.h, 8.0);
         assert_eq!(g.advance, 8.0);
+    }
+
+    /// R50 (§3 in the master plan, fixed 7D-3): the drawn SIZE tracks the
+    /// requested (snapped) size, while `atlas_rect` stays the fixed native
+    /// 8×8 cell regardless — see `GlyphInfo::size`'s own doc comment for
+    /// why the two must be tracked separately for this font.
+    #[test]
+    fn glyph_size_is_the_effective_drawn_size_not_the_native_atlas_cell() {
+        let mut font = BitmapFont::new();
+        let g = font.glyph('A', 16.0).unwrap();
+        assert_eq!(g.size, Vec2::new(16.0, 16.0), "size scales with the request");
+        assert_eq!((g.atlas_rect.w, g.atlas_rect.h), (8.0, 8.0), "atlas_rect stays the native cell");
     }
 
     #[test]

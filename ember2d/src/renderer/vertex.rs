@@ -7,6 +7,7 @@
 // wasn't enough on its own.
 
 use bytemuck::{Pod, Zeroable};
+use ember2d_sim::math::Rect;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
@@ -63,9 +64,14 @@ pub struct Globals {
     pub projection: [[f32; 4]; 4],
 }
 
-#[derive(Clone, PartialEq, Eq)]
+// 7D-3 (docs/ember2d-master-plan.md §5.4): `scissor` moved from
+// `Option<(u32, u32, u32, u32)>` to `Option<Rect>` (f32 logical pixels,
+// matching `DrawSurface::set_scissor`'s own new signature) — `Eq` dropped
+// from the derive since `f32` doesn't implement it; `ensure_batch`'s own
+// `==` comparison only ever needed `PartialEq`.
+#[derive(Clone, PartialEq)]
 pub(super) struct Batch {
     pub(super) texture_id: u64,
     pub(super) instance_range: std::ops::Range<u32>,
-    pub(super) scissor: Option<(u32, u32, u32, u32)>,
+    pub(super) scissor: Option<Rect>,
 }

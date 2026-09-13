@@ -140,5 +140,4 @@
         row_h: 20.0,
         min_target: 22.0,
     ),
-    ui_scale: 1,
 )
