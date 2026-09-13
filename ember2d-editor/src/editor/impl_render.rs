@@ -595,6 +595,7 @@ impl EditorState {
 
             ui::draw_menu_dropdown(
                 renderer,
+                self.font.as_mut(),
                 &self.theme,
                 menu,
                 &self.available_themes,
