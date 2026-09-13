@@ -56,13 +56,6 @@ pub struct GlyphAtlas {
 /// `DEFAULT_ATLAS_SIZE`) and `4096` (`wgpu::Limits::default()`'s texture
 /// dimension ceiling is 8192 — this leaves headroom rather than pushing
 /// against it).
-///
-/// `#[allow(dead_code)]`: this commit (7D-3's renderer-foundation checkpoint)
-/// adds the function and its own tests; the real caller
-/// (`ember2d-editor/src/editor/theme_loader.rs`'s `load_theme_fonts`) lands
-/// in the step's next checkpoint — see master plan §5.4's own commit
-/// sequence for this step.
-#[allow(dead_code)]
 pub fn glyph_atlas_side_for(max_raster_px: f32) -> u32 {
     const GLYPHS_PER_SIZE: f32 = 96.0; // printable ASCII, 0x20..=0x7E plus one
     const SIZES_TO_PREWARM: f32 = 3.0; // a theme's small/body/heading

@@ -6,9 +6,15 @@
 
 mod common;
 
-use common::{click_theme_menu_item, open_menu, EditorHarness};
+use common::{
+    click_theme_menu_item, ensure_workspace_root_cwd, open_menu, select_dock_tab, EditorHarness,
+};
+use ember2d::renderer::DisplayScale;
 use ember2d::theme::SliceRole;
-use ember2d_editor::editor::ui::{theme_menu_entries, MenuEntry, MenuKind};
+use ember2d_editor::editor::panel::PanelId;
+use ember2d_editor::editor::prefs::{EditorPrefs, PrefsStore, UiScaleChoice};
+use ember2d_editor::editor::ui::{theme_menu_entries, MenuEntry, MenuKind, WidgetId};
+use ember2d_editor::editor::EditorState;
 
 // ── Regression: a test-constructed EditorState silently got Theme::fallback ─
 
@@ -23,7 +29,11 @@ fn a_fresh_editor_loads_the_real_shipped_theme_not_the_fallback() {
     // pins the fix by checking real theme content — the fallback would
     // fail every one of these.
     let h = EditorHarness::new();
-    assert_eq!(h.state.theme().name, "ember-clean", "the real shipped theme must load, not the fallback");
+    assert_eq!(
+        h.state.theme().name,
+        "ember-clean",
+        "the real shipped theme must load, not the fallback"
+    );
     assert!(
         h.state.theme().slice(SliceRole::Panel).is_some(),
         "ember-clean must resolve real 9-slice geometry, not an empty fallback theme"
@@ -57,7 +67,9 @@ fn the_theme_menu_lists_one_entry_per_available_theme() {
     assert_eq!(entries.len(), available.len());
     for name in available {
         assert!(
-            entries.iter().any(|e| matches!(e, MenuEntry::DynamicItem { label, .. } if label == name)),
+            entries
+                .iter()
+                .any(|e| matches!(e, MenuEntry::DynamicItem { label, .. } if label == name)),
             "theme menu must list {name:?}"
         );
     }
@@ -78,6 +90,117 @@ fn selecting_the_current_theme_from_its_own_menu_round_trips_without_crashing() 
     click_theme_menu_item(&mut h, "ember-clean");
 
     assert_eq!(h.state.active_menu(), None, "picking a theme must close its dropdown");
-    assert_eq!(h.state.theme().name, "ember-clean", "the theme must still resolve after the round trip");
-    assert!(h.state.theme().slice(SliceRole::Panel).is_some(), "the reloaded theme must still be the real one");
+    assert_eq!(
+        h.state.theme().name,
+        "ember-clean",
+        "the theme must still resolve after the round trip"
+    );
+    assert!(
+        h.state.theme().slice(SliceRole::Panel).is_some(),
+        "the reloaded theme must still be the real one"
+    );
+}
+
+// ── 7D-3 (docs/ember2d-master-plan.md §5.4): preferences and UI scale ──────
+
+#[test]
+fn a_fresh_editor_uses_an_in_memory_prefs_store_with_defaults() {
+    // Every `EditorState` built directly (as every test's is) stays on
+    // `PrefsStore::InMemory(EditorPrefs::default())` — only
+    // `ember2d-app/src/main.rs`'s `.with_prefs(PrefsStore::user())` ever
+    // touches the real per-user file. This can't inspect the `PrefsStore`
+    // variant directly (no `Debug`/accessor for it), but a mismatch here
+    // would mean either the default changed unexpectedly or something
+    // outside this process's control leaked in — both worth failing on.
+    let h = EditorHarness::new();
+    assert_eq!(h.state.prefs(), &EditorPrefs::default());
+}
+
+#[test]
+fn selecting_a_theme_from_its_menu_persists_it_to_prefs() {
+    let mut h = EditorHarness::new();
+    open_menu(&mut h, MenuKind::Theme);
+    click_theme_menu_item(&mut h, "ember-clean");
+    assert_eq!(
+        h.state.prefs().theme,
+        "ember-clean",
+        "picking a theme from the menu must persist it to prefs"
+    );
+}
+
+#[test]
+fn the_harness_at_render_scale_2_still_round_trips_menu_clicks() {
+    // `ui_scale` is PINNED to `render_scale` in this checkpoint
+    // (`EditorState::effective_ui_scale`'s own doc comment) — this both
+    // exercises the harness's new `with_display` construction and pins
+    // that pin's own behavior down as a regression test.
+    let mut h = EditorHarness::with_display(DisplayScale { render_scale: 2, os_scale_factor: 2.0 });
+    open_menu(&mut h, MenuKind::Theme);
+    click_theme_menu_item(&mut h, "ember-clean");
+    assert_eq!(
+        h.state.active_menu(),
+        None,
+        "picking a theme must close its dropdown even at render_scale 2"
+    );
+    assert_eq!(h.state.ui_space().render_scale(), 2);
+    assert_eq!(
+        h.state.ui_space().ui_scale(),
+        2,
+        "ui_scale is pinned to render_scale in this checkpoint"
+    );
+}
+
+#[test]
+fn r70_switching_levels_keeps_the_active_theme_fonts_and_prefs() {
+    // R70 (§3 in the master plan): `switch_to_level`'s `*self = ns` used to
+    // silently reset the active theme/font AND (once they existed)
+    // preferences back to fresh-construction defaults on every level
+    // switch. Seeds a non-default `ui_scale` via a real prefs file (only
+    // one theme ships, so switching theme itself can't be used to prove
+    // this — `ui_scale` can), then confirms it survives a level switch.
+    ensure_workspace_root_cwd(); // before EditorState::new, below — see its own doc comment
+    let dir = std::env::temp_dir()
+        .join(format!("ember2d-{}", std::process::id()))
+        .join("r70_switch_level_keeps_prefs");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+    let other_path = dir.join("other.level");
+    ember2d_editor::editor::grid::LevelGrid::new(4, 4)
+        .to_level_data()
+        .save(other_path.to_str().unwrap())
+        .expect("seed level must save");
+
+    let mut store = PrefsStore::File(dir.join("editor_prefs.ron"));
+    store
+        .save(&EditorPrefs { ui_scale: UiScaleChoice::Fixed(3), theme: "ember-clean".to_string() });
+
+    let current_path = dir.join("current.level").to_string_lossy().into_owned();
+    let state = EditorState::new(&current_path).with_prefs(store);
+    let mut h = EditorHarness::with_state(state);
+    h.state.open_project_folder(dir.to_string_lossy().into_owned());
+    assert_eq!(
+        h.state.prefs().ui_scale,
+        UiScaleChoice::Fixed(3),
+        "with_prefs must have applied the saved scale before the switch even happens"
+    );
+
+    select_dock_tab(&mut h, PanelId::FileBrowser);
+    let row_rect = h
+        .state
+        .ui_frame()
+        .rect_of(WidgetId::FileBrowserRow(0))
+        .expect("other.level's row was not drawn");
+    h.click(row_rect.x + 1.0, row_rect.y + 1.0);
+
+    assert_eq!(h.state.grid().width, 4, "the level switch must have actually happened");
+    assert_eq!(
+        h.state.prefs().ui_scale,
+        UiScaleChoice::Fixed(3),
+        "R70: switching levels must not silently reset editor preferences back to defaults"
+    );
+    assert_eq!(
+        h.state.theme().name,
+        "ember-clean",
+        "R70: the active theme must survive a level switch"
+    );
 }

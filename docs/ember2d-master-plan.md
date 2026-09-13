@@ -318,12 +318,12 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R67 | S2 | The docked script editor has two independent mouse-to-cursor click paths that disagree: the FIRST click (before the panel has focus, `handle_script_editor_click`) ignores `script_hscroll` entirely (a click in a horizontally-scrolled line lands in the wrong column) and has no lower row bound (clicking the error row still moves the cursor); the FOCUSED path's own wheel step is 2 lines vs. the first-click path's 1 | `ember2d-editor/src/editor/input/panels/file_and_script.rs:127-165` vs `input/script_editor.rs:286-618` | `[ ]` → 7D-3 (script-editor checkpoint) — one shared `ScriptLayout` (`ui/script_layout.rs`) replaces both independent recomputes |
 | R68 | S3 | The script editor's drawn layout reserves an error row and clips a `…` marker column that its OWN input handling doesn't know about: `keep_in_view`'s vertical/horizontal bounds don't account for either, so the cursor can end up scrolled to a row/column that's actually hidden behind the error bar or the `…` marker. The gutter is hardcoded to 4 columns in four separate places but `{:3} ` becomes 5 characters wide starting at line 1000, silently misaligning the gutter from the code by one column on any file that long | `ember2d-editor/src/editor/input/script_editor.rs:319-333,603-617`; `ui/script.rs:72,88,104` | `[ ]` → 7D-3 (script-editor checkpoint) — `ScriptLayout` computes the gutter width from the real line count and is the one place both draw and input read it from |
 | R69 | S3 | `EditorState::draw` returns early for script/graph mode BEFORE calling `apply_layout`, so `PanelManager`'s own `screen_size_cells`/`screen_size_px` go stale in those modes — a window resize while in fullscreen script mode or graph mode leaves the fullscreen script click area and the graph's Add-Node palette height using the PRE-resize window size until the user switches back to Paint mode and back again | `ember2d-editor/src/editor/impl_render.rs:163-185`; `input/script_editor.rs:322`; `input/graph.rs:89` | `[ ]` → 7D-3 (panel-layout checkpoint) — `apply_layout` moves before the mode early-returns; `input/graph.rs`'s own lookup switches to a stored `UiSpace::screen_cells()` captured at the last real draw instead |
-| R70 | S3 (latent) | `EditorState::switch_to_level`'s `*self = ns` rebuilds the whole state via `EditorState::load`/`new()`, which carries over only `project_folder`/`project_name`/`panels`/`current_folder` — the active theme, its resolved font, and (once they exist) editor preferences and UI scale all silently revert to `DEFAULT_THEME`/defaults on every level switch. Invisible today only because exactly one theme ships, so "reverting" to it looks like nothing happened | `ember2d-editor/src/editor/impl_state/mod.rs:32-41` | `[ ]` → 7D-3 (editor-foundation checkpoint) — `switch_to_level` carries `theme`/`theme_chrome_tex`/`font`/`code_font`/`available_themes`/`prefs`/`prefs_store`/`ui_space` over the same way it already does for the other four fields |
+| R70 | S3 (latent) | `EditorState::switch_to_level`'s `*self = ns` rebuilds the whole state via `EditorState::load`/`new()`, which carries over only `project_folder`/`project_name`/`panels`/`current_folder` — the active theme, its resolved font, and (once they exist) editor preferences and UI scale all silently revert to `DEFAULT_THEME`/defaults on every level switch. Invisible today only because exactly one theme ships, so "reverting" to it looks like nothing happened | `ember2d-editor/src/editor/impl_state/mod.rs:32-41` | `[x]` 7D-3 checkpoint 2 (editor foundation) — `switch_to_level` now swaps (not `*self = ns`) so `theme`/`theme_chrome_tex`/`available_themes`/`font`/`code_font`/`font_raster_scale`/`prefs`/`prefs_store`/`ui_space` carry over from the OLD state by ordinary move (`Box<dyn Font>` isn't `Clone`), the same way `project_folder`/`panels`/`current_folder` already did. Regression test `r70_switching_levels_keeps_the_active_theme_fonts_and_prefs` (`tests/editor_theme.rs`), confirmed to fail against the pre-fix code |
 | R71 | S3 | `compute_layout`'s letterbox origin (`renderer/mod.rs`) centered the leftover remainder without flooring it, so an ODD leftover (e.g. an 11-physical-px-wide gap) put the origin at a half physical pixel (5.5, not 5 or 6) — every quad drawn then sampled its texture half a texel off the physical grid regardless of how carefully anything on top of it snapped its own edges. No visible symptom before now (a 1px letterbox border is easy to miss) — found designing 7D-3's UI-points physical-pixel snapping, which depends on the origin itself already being exact | `ember2d/src/renderer/geometry.rs` (`compute_layout`, formerly `renderer/mod.rs`) | `[x]` 7D-3 checkpoint 1 (renderer foundation) — `.floor()` added to both origin axes. Regression test: `r71_letterbox_origin_is_always_a_whole_physical_pixel` (`renderer/geometry.rs`) |
 | R72 | S3 | The palette panel's and File Browser's mouse-wheel `max_scroll` are computed from a CELL row count, but both lists actually draw at `theme.metrics.row_h` (20px, taller than a 16px cell) — there are always more cell-rows than real rows fit on screen, so the wheel's own scroll ceiling sits past the list's real end and the last few entries can never be scrolled into view | `ember2d-editor/src/editor/input/panels/hierarchy_and_palette.rs:59,69`; `input/panels/file_and_script.rs:20-26` vs `ui/panels/dock.rs:77,510` | `[ ]` → 7D-3 (dock-content checkpoint) — a shared `visible_rows(content_rect, row_h)` helper replaces both independent cell-based computations |
 | R73 | S3 | The script editor never clips its own text to its panel bounds (a `//` line-comment tail or a long identifier can overflow into the panel to its right), and selection is only ever highlighted per-TOKEN (the syntax highlighter's own background-color decision looks at a token's first character), not per-character — a selection edge landing mid-token highlights the whole token | `ember2d-editor/src/editor/ui/script.rs` (highlighter background/clipping, `:276-371`) | `[ ]` → 7D-3 (script-editor checkpoint) — `ScriptLayout` adds a real clip rect; selection becomes an exact per-character span fill, not a per-token background choice |
 | R74 | S4 | The resize grip is drawn as an 8×8 nine-slice with a 6px border on all four sides — 6+6 = 12 exceeds the 8px total size, so the two opposing border corners overlap instead of meeting cleanly | `ember2d-editor/src/editor/panel/mod.rs:768-772` | `[ ]` → 7D-3 (panel-layout checkpoint) — the grip's size becomes `2 × theme.metrics.border` once panel chrome moves to `ChromeMetrics`, which always fits its own border exactly |
-| R75 | S4 | Every chrome text draw that packs a not-yet-cached glyph into the TTF atlas re-uploads the WHOLE atlas texture as a brand-new GPU texture (`draw_text_run`'s dirty/invalidate path) — harmless at the small, mostly-static glyph set a 1024² atlas holds today, but UI points needs a bigger atlas at high `ui_scale` (`glyph_atlas_side_for`), and a bigger atlas redrawn from scratch on every new glyph scales badly, especially right after a UI-scale change resets it | `ember2d/src/renderer/text.rs` (`draw_text_run`); `renderer/backend.rs` (`upload_texture`) | `[~]` 7D-3 (editor-foundation checkpoint) mitigates by pre-warming the printable ASCII set at a theme's three font sizes × the target `ui_scale` when fonts are (re)built, so the common case uploads once; a real dirty-rect partial upload is unscheduled |
+| R75 | S4 | Every chrome text draw that packs a not-yet-cached glyph into the TTF atlas re-uploads the WHOLE atlas texture as a brand-new GPU texture (`draw_text_run`'s dirty/invalidate path) — harmless at the small, mostly-static glyph set a 1024² atlas holds today, but UI points needs a bigger atlas at high `ui_scale` (`glyph_atlas_side_for`), and a bigger atlas redrawn from scratch on every new glyph scales badly, especially right after a UI-scale change resets it | `ember2d/src/renderer/text.rs` (`draw_text_run`); `renderer/backend.rs` (`upload_texture`) | `[~]` 7D-3 checkpoint 2 (editor foundation) mitigates by pre-warming the printable ASCII set at a theme's three font sizes × the target `ui_scale` when fonts are (re)built (`theme_loader::build_font`), so the common case uploads once; a real dirty-rect partial upload is unscheduled |
 | R76 | S4 | `scripts/check.ps1`'s file-size check counts NON-BLANK lines (`Get-Content \| Measure-Object -Line` skips blank lines), while CLAUDE.md's own limit is 750 REAL lines — `ember2d-editor/src/editor/mod.rs` is at exactly 750 by the script's count but 805 by `wc -l`; several other files (`panel/mod.rs`, `impl_state/mod.rs`, `engine.rs`, `renderer/mod.rs`) are real-line-over-750 but non-blank-under-750 too. Found auditing headroom before 7D-3's own file-size-constrained commit sequence | `scripts/check.ps1` §1 | `[ ]` unscheduled — fixing the check itself would immediately fail several existing files; needs its own step to both fix the check AND split the newly-caught files |
 | R77 | S3 | The docked/fullscreen script editor's "keep cursor in view" scroll adjustment is skipped on several code paths that move the cursor: the find bar's own search-and-jump, Ctrl+A (select all, cursor to end), and multi-line undo/redo/cut/paste — each can leave the cursor scrolled off-screen after the operation | `ember2d-editor/src/editor/input/script_editor.rs:303-306,401-448` | `[ ]` unscheduled — found alongside R67/R68 but a distinct set of code paths, not fixed by `ScriptLayout` alone (each early-return needs its own call to the shared keep-in-view step) |
 | R78 | S4 | The script editor has no PageUp/PageDown handling (the keys exist in `ember2d/src/input.rs` but nothing in the editor reads them) and no drag-to-select (only click and shift-click) | `ember2d-editor/src/editor/input/script_editor.rs` | `[ ]` unscheduled — feature gaps, not regressions |
@@ -2696,12 +2696,52 @@ deleted at the end of this step; panels size to content and theme metrics.
     theme loading, `code_font` default), all pass. `cargo clippy --workspace
     --all-targets` unchanged at 73. `scripts/check.ps1` clean. `cargo test
     -p ember2d --test replay` 3× fresh processes green.
-  - Remaining checkpoints (not yet landed): editor foundation (prefs,
-    `UiSpace` on `EditorState`, harness support, UI scale pinned to R so no
-    intermediate commit ships a half-scaled editor) · panels/bars/menus/
-    tabs/viewport seam (fixes R64/R66/R69/R74) · dock panel content (fixes
-    R64/R72) · modals (fixes R65) · script editor (fixes R67/R68/R73) ·
-    live UI-scale menu + docs.
+  - **Checkpoint 2 — editor foundation, UI scale pinned to R.** New
+    `editor/prefs.rs` (`EditorPrefs`/`PrefsStore`/`UiScaleChoice`, per-user
+    config dir — `%APPDATA%\Ember2D\editor_prefs.ron` on Windows,
+    `$XDG_CONFIG_HOME/ember2d/` else `$HOME/.config/ember2d/` elsewhere;
+    every test stays on `PrefsStore::InMemory`, the only real-file caller is
+    `ember2d-app/src/main.rs`'s three `EditorState` construction sites via
+    `.with_prefs(PrefsStore::user())`). `theme_loader.rs` rebuilt: fonts now
+    build at a real physical raster scale with the printable-ASCII range
+    pre-warmed (mitigates R75); a theme's `code_font` resolves alongside
+    `font` (falling back to a separate instance of `font`'s own choice);
+    `switch_theme` now persists to prefs; new `with_prefs`/`set_ui_scale`/
+    `effective_ui_scale` (**pinned** to `display.render_scale`, ignoring
+    `self.prefs.ui_scale` — the live menu is this step's last checkpoint)/
+    `rebuild_fonts_if_scale_changed`. `EditorState` gains `prefs`/
+    `prefs_store`/`ui_space`/`code_font`/`font_raster_scale`, captured once
+    per real draw in `impl_render.rs`'s `draw()` before any mode dispatch.
+    Fixed **R70** (`switch_to_level` silently reverting theme/font/prefs to
+    fresh-construction defaults) via a field-swap, since `Box<dyn Font>`
+    isn't `Clone`. Extractions to stay under the 750-line limit:
+    `editor/accessors.rs` (read-only accessors, out of `mod.rs`, which was
+    at the limit exactly) and `impl_state/graph_sidecars.rs`
+    (`migrate_graph_sidecars`, out of `impl_state/mod.rs` — kept separate
+    from the pre-existing `impl_state/export.rs`, a different feature,
+    "Export Standalone Game", not to be confused with it). Harness gained
+    `with_display`/`with_state_and_display` (a settable `DisplayScale` —
+    `move_mouse` stays in logical pixels regardless of render scale),
+    `resize`, `start_recording`/`draw_ops` (empty until a later checkpoint
+    actually draws through `UiPainter`). New tests (`editor_theme.rs` +
+    `prefs.rs` unit tests): prefs path resolution (Windows/XDG/HOME/none),
+    missing/unparsable-file fallback, round-trip, a save failure logging
+    without panicking, `Fixed` clamping, `Auto` resolution at 100/125/150/
+    200%, `a_fresh_editor_uses_an_in_memory_prefs_store_with_defaults`,
+    `selecting_a_theme_from_its_menu_persists_it_to_prefs`,
+    `the_harness_at_render_scale_2_still_round_trips_menu_clicks`, and
+    `r70_switching_levels_keeps_the_active_theme_fonts_and_prefs` (verified
+    to actually fail against the pre-fix code before confirming the fix).
+    `cargo test --workspace`: 360 (was 347, +13), all pass. Clippy: no new
+    warnings in any file this checkpoint touched or created (spot-checked
+    against the full workspace warning list). `scripts/check.ps1` clean.
+    `cargo test -p ember2d --test replay` 3× fresh processes green.
+    Confirmed live (screenshot) pixel-identical to before; confirmed no
+    prefs file is written on a session that never changes a preference.
+  - Remaining checkpoints (not yet landed): panels/bars/menus/tabs/viewport
+    seam (fixes R64/R66/R69/R74) · dock panel content (fixes R64/R72) ·
+    modals (fixes R65) · script editor (fixes R67/R68/R73) · live UI-scale
+    menu + docs.
 
 **Preserved from the original two-pass investigation, for context:**
 first pass (2026-09-12) thought the step was blocked on 7D-2's own deferred

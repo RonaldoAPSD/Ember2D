@@ -17,7 +17,7 @@ mod atlas;
 mod bitmap;
 mod ttf;
 
-pub use atlas::GlyphAtlas;
+pub use atlas::{glyph_atlas_side_for, GlyphAtlas};
 pub use bitmap::BitmapFont;
 pub use ttf::TtfFont;
 

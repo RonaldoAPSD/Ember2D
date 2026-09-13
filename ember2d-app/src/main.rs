@@ -9,7 +9,7 @@ use app::{run_editor_app, run_play_app};
 
 use ember2d::prelude::*;
 use ember2d::project;
-use ember2d_editor::prelude::{EditorState, StartScreen};
+use ember2d_editor::prelude::{EditorState, PrefsStore, StartScreen};
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -27,6 +27,11 @@ fn main() -> io::Result<()> {
         }
 
         if editor_mode {
+            // `.with_prefs(PrefsStore::user())` (7D-3, docs/ember2d-master-plan.md
+            // §5.4): the ONE place any real (file-backed) preferences load
+            // happens — every other `EditorState` construction (tests,
+            // `EditorHarness`) stays on the in-memory default, which is
+            // what keeps tests off the real per-user prefs file.
             let mut editor = if path.is_empty() {
                 EditorState::new("")
             } else {
@@ -37,7 +42,8 @@ fn main() -> io::Result<()> {
                         std::process::exit(1);
                     }
                 }
-            };
+            }
+            .with_prefs(PrefsStore::user());
             let project_dir = Path::new(&path).parent().unwrap_or(Path::new("."));
             // The editor has no time model of its own (D6) — only the project's
             // sprite mode applies here. `gameplay_loop` is captured separately
@@ -97,7 +103,7 @@ fn main() -> io::Result<()> {
             match engine.run()? {
                 Some(Transition::ToEditorWithResult(res)) => {
                     engine.pop_state(); // Pop start screen
-                    if let Ok(editor) = EditorState::new_from_result(res) {
+                    if let Ok(editor) = EditorState::new_from_result(res).map(|e| e.with_prefs(PrefsStore::user())) {
                         let folder =
                             editor.project_folder.clone().unwrap_or_else(|| ".".to_string());
                         let mut play_gameplay_loop = GameplayLoop::RealTime;

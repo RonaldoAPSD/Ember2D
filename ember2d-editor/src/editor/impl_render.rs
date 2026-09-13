@@ -2,7 +2,7 @@
 
 use ember2d::engine::RenderContext;
 use ember2d::renderer::color::Color;
-use ember2d::renderer::DrawSurface;
+use ember2d::renderer::{DrawSurface, UiSpace};
 
 use super::graph_ui;
 use super::panel::{draw_panel_chrome, DockSide, PanelId};
@@ -159,6 +159,20 @@ impl EditorState {
         // `ui/frame.rs`'s header comment for the one-frame lag this implies
         // and why it's harmless.
         self.ui_frame.clear();
+
+        // 7D-3 (docs/ember2d-master-plan.md §5.4): captured before ANY mode
+        // dispatch (including the early-return script/graph paths just
+        // below) — every mode needs its own `UiSpace` snapshot ready for
+        // the FOLLOWING frame's chrome hit-testing (`ui_space`'s own doc
+        // comment, same one-frame-lag contract `ui_frame` already keeps),
+        // not just Paint mode. Chrome doesn't actually draw through
+        // `UiSpace`/`UiPainter` yet (later checkpoints of this same step)
+        // — this only keeps the value itself correct and current so those
+        // checkpoints have nothing left to wire up here.
+        let display = renderer.display_scale();
+        let ui_scale = self.effective_ui_scale(display);
+        self.rebuild_fonts_if_scale_changed(ui_scale);
+        self.ui_space = UiSpace::from_surface(renderer, ui_scale);
 
         // Script editor mode
         if matches!(self.mode, EditorMode::Script) {

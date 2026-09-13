@@ -45,7 +45,7 @@ pub use assets::AssetManager;
 pub use backend::WgpuBackend;
 pub use color::{Color, DEFAULT_BG, DEFAULT_FG};
 pub use draw_surface::{DisplayScale, DrawSurface, NullRenderer, TextRun};
-pub use font::{ui_font_from_env, BitmapFont, Font, GlyphInfo, TtfFont, UiFontKind};
+pub use font::{glyph_atlas_side_for, ui_font_from_env, BitmapFont, Font, GlyphInfo, TtfFont, UiFontKind};
 pub use texture::{Texture, TextureId};
 pub use ui_painter::UiPainter;
 pub use ui_space::UiSpace;

@@ -43,8 +43,11 @@
 use ember2d::gamepad::GamepadState;
 use ember2d::input::{InputManager, Key};
 use ember2d::mouse::{MouseButton, MouseState};
-use ember2d::renderer::{NullRenderer, ScreenMapping, CELL_H, CELL_W};
-use ember2d_editor::editor::ui::{menu_entries, theme_menu_entries, MenuEntry, MenuKind, ToolbarAction, WidgetId};
+use ember2d::renderer::draw_log::DrawOp;
+use ember2d::renderer::{DisplayScale, NullRenderer, ScreenMapping, CELL_H, CELL_W};
+use ember2d_editor::editor::ui::{
+    menu_entries, theme_menu_entries, MenuEntry, MenuKind, ToolbarAction, WidgetId,
+};
 use ember2d_editor::editor::EditorState;
 use ember2d_sim::event::EventBus;
 use ember2d_sim::math::Vec2;
@@ -94,6 +97,23 @@ pub struct EditorHarness {
     persistent: BTreeMap<String, rhai::Dynamic>,
     prev_positions: HashMap<EntityId, Vec2>,
     elapsed: f32,
+    /// The `NullRenderer`'s reported render/OS display scale (7D-3, master
+    /// plan §5.4) — `(1, 1.0)` by default, matching every pre-7D-3 test's
+    /// implicit assumption that points == logical pixels. `with_display`/
+    /// `with_state_and_display` are the only constructors that set anything
+    /// else.
+    display: DisplayScale,
+    /// The window size a real `Renderer` would report — separate fields
+    /// (not the `PIXEL_W`/`PIXEL_H` consts directly) so `resize` can change
+    /// them mid-test (7D-3, master plan §5.4 — exercising `EditorState`'s
+    /// own resize-driven layout code, e.g. R69, without a real window).
+    pixel_w: usize,
+    pixel_h: usize,
+    /// Whether `render()`'s throwaway `NullRenderer` should record its own
+    /// draw calls (7D-3, master plan §5.4) — off by default (no behavior
+    /// or perf change for any pre-7D-3 test); `start_recording` turns it on.
+    recording: bool,
+    last_ops: Vec<DrawOp>,
 }
 
 impl EditorHarness {
@@ -112,6 +132,22 @@ impl EditorHarness {
     /// harness's own default — for tests that need control over
     /// `save_path`/`grid` before the first frame renders.
     pub fn with_state(state: EditorState) -> Self {
+        Self::with_state_and_display(state, DisplayScale { render_scale: 1, os_scale_factor: 1.0 })
+    }
+
+    /// As `new()`, but reporting `display` instead of the `(1, 1.0)`
+    /// default (7D-3, master plan §5.4) — for a test exercising
+    /// `EditorState::effective_ui_scale`/`UiSpace` at a specific render
+    /// scale. `display.render_scale` also drives `move_mouse`'s own
+    /// physical<->logical conversion, so callers keep passing LOGICAL
+    /// pixel positions regardless of which render scale is in effect.
+    pub fn with_display(display: DisplayScale) -> Self {
+        Self::with_state_and_display(EditorState::new("harness.level"), display)
+    }
+
+    /// The full combination of `with_state`/`with_display` — see each's own
+    /// doc comment.
+    pub fn with_state_and_display(state: EditorState, display: DisplayScale) -> Self {
         ensure_workspace_root_cwd();
         let mut h = EditorHarness {
             state,
@@ -123,14 +159,51 @@ impl EditorHarness {
             persistent: BTreeMap::new(),
             prev_positions: HashMap::new(),
             elapsed: 0.0,
+            display,
+            pixel_w: PIXEL_W,
+            pixel_h: PIXEL_H,
+            recording: false,
+            last_ops: Vec::new(),
         };
         h.render();
         h
     }
 
+    /// Changes the simulated window size and re-renders (7D-3, master plan
+    /// §5.4) — for a test exercising resize-driven layout without a real
+    /// window (e.g. R69: `PanelManager`'s own layout going stale in
+    /// script/graph mode across a resize).
+    pub fn resize(&mut self, pixel_w: usize, pixel_h: usize) {
+        self.pixel_w = pixel_w;
+        self.pixel_h = pixel_h;
+        self.render();
+    }
+
+    /// Turns on `render()`'s `NullRenderer` draw-op recording — see
+    /// `draw_ops`'s own doc comment.
+    pub fn start_recording(&mut self) {
+        self.recording = true;
+    }
+
+    /// The previous `render()` pass's recorded draw ops (7D-3, master plan
+    /// §5.4) — empty unless `start_recording` was called first, and empty
+    /// regardless until a chrome draw call actually goes through
+    /// `UiPainter` (a later checkpoint of this same step); present now so
+    /// those checkpoints' own tests have the harness support ready.
+    pub fn draw_ops(&self) -> &[DrawOp] {
+        &self.last_ops
+    }
+
     fn render(&mut self) {
-        let mut null_renderer = NullRenderer::new(PIXEL_W, PIXEL_H);
+        let mut null_renderer =
+            NullRenderer::with_display(self.pixel_w, self.pixel_h, self.display);
+        if self.recording {
+            null_renderer.start_recording();
+        }
         self.state.draw(&mut null_renderer, &self.mouse);
+        if self.recording {
+            self.last_ops = null_renderer.ops().to_vec();
+        }
     }
 
     /// `Engine::poll_events`'s clear-before-new-input half — see this
@@ -146,8 +219,8 @@ impl EditorHarness {
     /// pass to refresh `UiFrame` for the frame after this one.
     fn end_frame(&mut self) {
         self.input.finish_frame_text_capture();
-        let viewport_width = PIXEL_W / CELL_W;
-        let viewport_height = PIXEL_H / CELL_H;
+        let viewport_width = self.pixel_w / CELL_W;
+        let viewport_height = self.pixel_h / CELL_H;
         let _ = ember2d::sim::step(
             &mut self.state,
             &mut self.world,
@@ -182,13 +255,19 @@ impl EditorHarness {
 
     /// Move the mouse to logical pixel position `(px, py)` — the same
     /// space `UiRect`/`UiFrame` hit-test in (1 unit = 1 un-scaled cell
-    /// pixel). Uses an identity `ScreenMapping` (zero letterbox origin,
-    /// 1:1 physical-to-logical) since the harness has no real window to
-    /// derive one from — `(px, py)` IS the logical position callers want.
+    /// pixel), REGARDLESS of `self.display.render_scale` (7D-3, master
+    /// plan §5.4): the physical position fed to `handle_move` is scaled up
+    /// by the render scale first, through a real (not identity, unless
+    /// `render_scale == 1`) `ScreenMapping`, so it converts back down to
+    /// exactly `(px, py)` — callers never need to think in physical pixels
+    /// themselves, at any render scale the harness is constructed with.
     pub fn move_mouse(&mut self, px: f32, py: f32) {
-        let identity =
-            ScreenMapping { origin_px: (0.0, 0.0), cell_px: (CELL_W as f32, CELL_H as f32) };
-        self.mouse.handle_move(px, py, identity);
+        let r = self.display.render_scale as f32;
+        let mapping = ScreenMapping {
+            origin_px: (0.0, 0.0),
+            cell_px: (CELL_W as f32 * r, CELL_H as f32 * r),
+        };
+        self.mouse.handle_move(px * r, py * r, mapping);
     }
 
     /// A left-click at logical pixel `(px, py)`: move, press (one frame),
@@ -338,7 +417,11 @@ pub fn open_menu(h: &mut EditorHarness, kind: MenuKind) {
 
 /// With `kind`'s dropdown already open (see `open_menu`), clicks whichever
 /// entry's action matches `pred`.
-pub fn click_menu_item(h: &mut EditorHarness, kind: MenuKind, pred: impl Fn(&ToolbarAction) -> bool) {
+pub fn click_menu_item(
+    h: &mut EditorHarness,
+    kind: MenuKind,
+    pred: impl Fn(&ToolbarAction) -> bool,
+) {
     let entries = menu_entries(kind);
     let idx = entries
         .iter()

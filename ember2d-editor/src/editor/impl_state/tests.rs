@@ -2,10 +2,14 @@
 // Part 1f (docs/ember2d-phase7-plan.md) purely to keep mod.rs under
 // CLAUDE.md's 600-line hard limit; no behavioral change from being its own
 // file. `super::*` reaches `impl_state/mod.rs`'s own imports (`EditorState`,
-// `Command`, `node_graph`, etc.) exactly as it did as a nested `mod tests`.
+// `Command`, etc.) exactly as it did as a nested `mod tests`. `node_graph`
+// is imported directly below, not via `super::*` — `mod.rs` stopped
+// importing it once `migrate_graph_sidecars` (the only production user)
+// moved to its own file, `graph_sidecars.rs` (7D-3, master plan §5.4).
 
 use super::*;
 use ember2d::renderer::color::Color;
+use ember2d_sim::graph as node_graph;
 use ember2d_sim::level::TileRecord;
 
 /// Step 3d's "done when": a level round-trip where a tile carries a live

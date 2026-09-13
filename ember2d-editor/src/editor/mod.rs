@@ -2,10 +2,12 @@
 
 use std::collections::BTreeMap;
 
+mod accessors;
 pub mod commands;
 pub mod grid;
 pub mod palette;
 pub mod panel;
+pub mod prefs;
 pub mod start_screen;
 pub mod ui;
 
@@ -18,13 +20,14 @@ mod theme_loader;
 
 use commands::UndoStack;
 use ember2d::engine::{GameState, RenderContext, Transition, UpdateContext};
-use ember2d::renderer::{Font, Texture};
+use ember2d::renderer::{Font, Texture, UiSpace};
 use ember2d::theme::Theme;
 use ember2d_sim::level::TileRecord;
 use ember2d_sim::scripting::LogEntry;
 use grid::LevelGrid;
 use palette::TilePalette;
 use panel::{PanelId, PanelManager};
+use prefs::{EditorPrefs, PrefsStore};
 use theme_loader::{list_available_themes, load_editor_theme_named, DEFAULT_THEME};
 pub use ui::HierarchySelection;
 use ui::{MenuKind, ToolKind, UiFrame};
@@ -241,6 +244,45 @@ pub struct EditorState {
     /// lists (7D-4, §5.4). Not re-scanned while running, so a theme
     /// dropped into `themes/` mid-session needs a restart to appear.
     pub(super) available_themes: Vec<String>,
+    /// The script editor's own monospace font (7D-3, master plan §5.4) —
+    /// resolved from `self.theme.code_font`, or a SEPARATE freshly-built
+    /// instance of `self.theme.font` when the theme leaves `code_font`
+    /// unset (`load_theme_fonts`, `theme_loader.rs`) — kept as its own
+    /// field, not a second reference to `self.font`, since a theme's body
+    /// and code fonts can be genuinely different faces/files, and each
+    /// `Font` impl owns its own mutable rasterization cache. Unused until
+    /// this step's own script-editor checkpoint actually draws through it.
+    pub(super) code_font: Box<dyn Font>,
+    /// User preferences — UI scale choice and active theme name — loaded
+    /// once at construction via `prefs_store` and saved back to it on
+    /// change (7D-3, master plan §5.4). Defaults (`EditorPrefs::default`)
+    /// until `with_prefs` (`theme_loader.rs`) overwrites them; see that
+    /// method's own doc comment for the "only `ember2d-app` ever calls
+    /// `PrefsStore::user()`" contract that keeps tests off the real file.
+    pub(super) prefs: EditorPrefs,
+    /// Where `prefs` persists to — `PrefsStore::InMemory` by default (every
+    /// test, and `EditorState::new`/`load`/`new_from_result` before
+    /// `with_prefs` runs), `PrefsStore::File` only after `with_prefs` is
+    /// called with a real path (`ember2d-app/src/app.rs`, the only caller).
+    pub(super) prefs_store: PrefsStore,
+    /// The points<->logical<->physical conversion (7D-3, master plan §5.4)
+    /// as of the LAST real draw — captured once per frame at the top of
+    /// `handle_render` (`UiSpace::from_surface`) and read back during the
+    /// FOLLOWING frame's `handle_update` for chrome hit-testing, the same
+    /// one-frame-lag contract `ui_frame` already keeps (its own doc
+    /// comment) — a chrome click is always tested against what was ACTUALLY
+    /// drawn, not a value recomputed fresh (and potentially different, if
+    /// the window resized mid-frame) during input handling. Starts at
+    /// `UiSpace::identity` (points == logical pixels) before the first
+    /// frame ever renders, harmless since `ui_frame` is equally empty then.
+    pub(super) ui_space: UiSpace,
+    /// The `ui_scale` (physical pixels per point) `font`/`code_font` are
+    /// CURRENTLY built at (7D-3, master plan §5.4) — compared against
+    /// `effective_ui_scale`'s result once per draw
+    /// (`rebuild_fonts_if_scale_changed`, `theme_loader.rs`) so a DPI or
+    /// scale-preference change rebuilds the fonts at their new real size
+    /// instead of drawing stale-scale glyphs until the next theme switch.
+    pub(super) font_raster_scale: u32,
     pub(super) grid: LevelGrid,
     pub(super) palette: TilePalette,
     pub(super) undo: UndoStack,
@@ -443,11 +485,21 @@ const PLACEHOLDER_SCREEN_H: usize = 24;
 
 impl EditorState {
     pub fn new(save_path: &str) -> Self {
-        let (theme, theme_chrome_tex, theme_font) = load_editor_theme_named(DEFAULT_THEME);
+        // `1` (7D-3, master plan §5.4): no real window/`UiSpace` exists yet
+        // at construction (same reasoning as `PLACEHOLDER_SCREEN_W/H`
+        // below) — `rebuild_fonts_if_scale_changed` (`theme_loader.rs`)
+        // re-derives these at the real scale on the first actual draw.
+        let (theme, theme_chrome_tex, theme_font, theme_code_font) =
+            load_editor_theme_named(DEFAULT_THEME, 1);
         EditorState {
             theme,
             theme_chrome_tex,
             available_themes: list_available_themes(),
+            code_font: theme_code_font,
+            prefs: EditorPrefs::default(),
+            prefs_store: PrefsStore::InMemory(EditorPrefs::default()),
+            ui_space: UiSpace::identity((0.0, 0.0)),
+            font_raster_scale: 1,
             grid: LevelGrid::new(DEFAULT_LEVEL_W, DEFAULT_LEVEL_H),
             palette: TilePalette::default_palette(),
             undo: UndoStack::new(),
@@ -557,153 +609,8 @@ impl EditorState {
         self.refresh_project_files();
     }
 
-    // ── Read-only accessors (7C-5, master plan §5.3) ───────────────────────
-    //
-    // `EditorState`'s fields are `pub(super)` — deliberately narrow, since
-    // most of them are mutated through dozens of call sites that all rely
-    // on `EditorMode`/undo/panel invariants holding. `EditorHarness`
-    // (`ember2d-editor/tests/common/mod.rs`) is a genuinely external crate
-    // (an integration test binary), so it can only see `pub` items —
-    // these are exactly the read-only observations that step's own tests
-    // need to assert on, and no more: what mode is active, what got
-    // painted, which widget frame a click would see, and the current
-    // panel layout. None of these exist to be mutated from outside; there
-    // is no `pub fn set_mode` or similar alongside them.
-
-    pub fn mode(&self) -> &EditorMode {
-        &self.mode
-    }
-
-    pub fn ui_frame(&self) -> &UiFrame {
-        &self.ui_frame
-    }
-
-    pub fn panels(&self) -> &PanelManager {
-        &self.panels
-    }
-
-    pub fn active_menu(&self) -> Option<MenuKind> {
-        self.active_menu
-    }
-
-    // `theme()`/`available_themes()` moved to `theme_loader.rs` (7D-4,
-    // same accessor contract) purely to keep this file under 750 lines.
-
-    pub fn grid(&self) -> &LevelGrid {
-        &self.grid
-    }
-
-    pub fn focused_panel(&self) -> Option<PanelId> {
-        self.focused_panel
-    }
-
-    /// `true` when global shortcuts apply — `false` while the script
-    /// editor (fullscreen or docked-and-focused) owns the keyboard. A
-    /// plain `bool` rather than exposing `EditorFocus` itself, which is
-    /// `pub(crate)` (see its own doc comment) — this is the one bit of it
-    /// a test actually needs.
-    pub fn focus_is_canvas(&self) -> bool {
-        self.focus() == EditorFocus::Canvas
-    }
-
-    pub fn script_buffer(&self) -> &[String] {
-        &self.script_buffer
-    }
-
-    pub fn file_browser_files(&self) -> &[String] {
-        &self.file_browser_files
-    }
-
-    pub fn prompt_buffer(&self) -> &str {
-        &self.prompt_buffer
-    }
-
-    pub fn rect_anchor(&self) -> Option<(i32, i32)> {
-        self.rect_anchor
-    }
-
-    pub fn show_physics(&self) -> bool {
-        self.show_physics
-    }
-
-    pub fn palette_tile_count(&self) -> usize {
-        self.palette.tiles.len()
-    }
-
-    pub fn show_grid(&self) -> bool {
-        self.show_grid
-    }
-
-    pub fn active_layer(&self) -> u8 {
-        self.active_layer
-    }
-
-    pub fn unsaved(&self) -> bool {
-        self.unsaved
-    }
-
-    pub fn script_unsaved(&self) -> bool {
-        self.script_unsaved
-    }
-
-    /// The current script buffer's first live-compile error, if any (7C-7,
-    /// master plan §5.3, R18).
-    pub fn script_error(&self) -> Option<(usize, &str)> {
-        self.script_error.as_ref().map(|(line, msg)| (*line, msg.as_str()))
-    }
-
-    pub fn console_log(&self) -> &[LogEntry] {
-        &self.console_log
-    }
-
-    pub fn undo_len(&self) -> usize {
-        self.undo.len()
-    }
-
-    pub fn redo_len(&self) -> usize {
-        self.undo.redo_len()
-    }
-
-    /// The script buffer's own selection, normalized `(start, end)` with
-    /// `start <= end` in reading order — `None` when nothing is selected
-    /// (7C-8, master plan §5.3).
-    pub fn script_selection(&self) -> Option<((usize, usize), (usize, usize))> {
-        let anchor = self.script_selection_anchor?;
-        let cursor = self.script_cursor;
-        // Compare `(line, char)`, not `(char, line)` — line order first
-        // matches reading order; `script_cursor`/`script_selection_anchor`
-        // are stored `(char, line)` for consistency with `script_cursor`
-        // everywhere else, so the tuple itself can't be compared directly.
-        if (anchor.1, anchor.0) <= (cursor.1, cursor.0) {
-            Some((anchor, cursor))
-        } else {
-            Some((cursor, anchor))
-        }
-    }
-
-    pub fn script_clipboard(&self) -> &str {
-        &self.script_clipboard
-    }
-
-    pub fn script_hscroll(&self) -> usize {
-        self.script_hscroll
-    }
-
-    pub fn script_undo_len(&self) -> usize {
-        self.script_undo.len()
-    }
-
-    pub fn script_redo_len(&self) -> usize {
-        self.script_redo.len()
-    }
-
-    pub fn script_find_active(&self) -> bool {
-        self.script_find_active
-    }
-
-    pub fn script_find_query(&self) -> &str {
-        &self.script_find_query
-    }
+    // Read-only accessors (7C-5, master plan §5.3) moved to `accessors.rs`
+    // (7D-3, master plan §5.4) — see that file's own header comment for why.
 
     pub(super) fn load_palette(&mut self) {
         if let Some(ref folder) = self.project_folder {

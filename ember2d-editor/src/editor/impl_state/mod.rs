@@ -5,7 +5,12 @@
 // phase touched it, and 1f's undo-batching tests would have pushed it well
 // further over. The production code below is unchanged from the single-file
 // version; only the `#[cfg(test)] mod tests { ... }` block moved out to its
-// own file.
+// own file. `migrate_graph_sidecars` moved out to `graph_sidecars.rs` (7D-3,
+// docs/ember2d-master-plan.md §5.4, declared alongside `export.rs` near the
+// bottom of this file) once the R70 fix (`switch_to_level`'s theme/font/
+// prefs carry-over) left no room under the 750-line hard limit — see that
+// file's own header comment for why it's not folded into the pre-existing
+// `export.rs` (a different feature).
 
 use super::commands::Command;
 use super::panel::PanelId;
@@ -13,12 +18,8 @@ use super::ui::{bresenham, transform_offset, ToolbarAction};
 use super::EditorMode;
 use super::EditorState;
 use ember2d::engine::Transition;
-use ember2d::play::resolve_exit_path;
-use ember2d_sim::graph as node_graph;
-use ember2d_sim::level::LevelData;
 use ember2d_sim::scripting::LogEntry;
 use std::collections::VecDeque;
-use std::path::Path;
 
 impl EditorState {
     /// Actually perform a level switch, replacing this whole `EditorState`
@@ -30,14 +31,34 @@ impl EditorState {
     /// failure, `self` is simply left as it was — there's nothing else to
     /// fall back to.
     pub(super) fn switch_to_level(&mut self, path: &str) {
-        if let Ok(new_state) = EditorState::load(path) {
-            let mut ns = new_state;
+        if let Ok(mut ns) = EditorState::load(path) {
             ns.project_folder = self.project_folder.clone();
             ns.project_name = self.project_name.clone();
             ns.panels = self.panels.clone();
             ns.current_folder = self.current_folder.clone();
             ns.refresh_project_files();
-            *self = ns;
+            // R70 (7D-3, master plan §5.4): `*self = ns` used to silently
+            // reset the active theme, its resolved font/code_font, and
+            // (once they existed) editor preferences/UI scale back to
+            // `EditorState::new`'s own fresh-construction defaults on
+            // EVERY level switch — invisible only because exactly one
+            // theme has ever shipped. Swap (not `*self = ns` directly) so
+            // these fields carry over from the OLD `self` by ordinary
+            // move rather than `.clone()` — `Box<dyn Font>` isn't `Clone`
+            // — the same way `project_folder`/`panels`/`current_folder`
+            // above already carry over, just via a swap instead of a read
+            // because these particular fields have no `Clone` impl to read
+            // through.
+            std::mem::swap(self, &mut ns);
+            self.theme = ns.theme;
+            self.theme_chrome_tex = ns.theme_chrome_tex;
+            self.available_themes = ns.available_themes;
+            self.font = ns.font;
+            self.code_font = ns.code_font;
+            self.font_raster_scale = ns.font_raster_scale;
+            self.prefs = ns.prefs;
+            self.prefs_store = ns.prefs_store;
+            self.ui_space = ns.ui_space;
         }
     }
 
@@ -75,49 +96,8 @@ impl EditorState {
         // editor's own explicit "Save & Close" / delete actions.
     }
 
-    /// Level format v2 (Step 3d): for each tile carrying a live node-graph
-    /// (editor-authoring state — see `TileRecord::graph`'s doc comment),
-    /// generate its Rhai source, combine it with whatever `tile.script`
-    /// already pointed to (matching `play/spawn.rs::do_on_start`'s runtime
-    /// combine, just moved to save time), and write the result to a sidecar
-    /// `.rhai` file next to the level file. `tile.script` is repointed at the
-    /// sidecar and `tile.graph` is dropped from the serialized record.
-    ///
-    /// `data` is `self.grid.to_level_data()`'s own fresh clone, so mutating
-    /// it here never touches `self.grid` — the live editor keeps every
-    /// graph fully editable after a save.
-    fn migrate_graph_sidecars(&self, data: &mut LevelData) {
-        let level_path = Path::new(&self.save_path);
-        let dir = level_path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."));
-        let stem = level_path.file_stem().and_then(|s| s.to_str()).unwrap_or("level");
-
-        for tile in &mut data.tiles {
-            let Some(graph) = tile.graph.take() else { continue };
-
-            let mut source = node_graph::generate_graph(&graph);
-            if let Some(ref path) = tile.script {
-                let full = resolve_exit_path(path, &self.save_path);
-                if let Ok(existing) = std::fs::read_to_string(&full) {
-                    source.push('\n');
-                    source.push_str(&existing);
-                }
-            }
-
-            // Keyed by (x, y, layer) — the same tuple `LevelGrid` keys tiles
-            // by — so every graph-bearing tile in the level gets a distinct,
-            // stable sidecar name across repeated saves.
-            let filename = format!("{}_graph_{}_{}_{}.rhai", stem, tile.x, tile.y, tile.layer);
-            let sidecar_path = dir.join(&filename);
-            if let Err(e) = std::fs::write(&sidecar_path, source) {
-                eprintln!("Failed to write graph sidecar '{}': {}", sidecar_path.display(), e);
-                continue;
-            }
-            tile.script = Some(filename);
-        }
-    }
+    // `migrate_graph_sidecars` moved to `graph_sidecars.rs` (7D-3, master
+    // plan §5.4) — see that file's own header comment.
 
     pub(super) fn save_palette(&mut self) {
         if let Some(ref folder) = self.project_folder {
@@ -758,6 +738,10 @@ impl EditorState {
 // `export.rs`'s own header comment for why (Phase 7 Part 1f, this file's
 // 600-line budget).
 mod export;
+
+// `migrate_graph_sidecars` lives in its own file too (7D-3, master plan
+// §5.4) — see `graph_sidecars.rs`'s own header comment.
+mod graph_sidecars;
 
 #[cfg(test)]
 mod tests;
