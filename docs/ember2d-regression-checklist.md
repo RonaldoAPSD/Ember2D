@@ -154,6 +154,7 @@ completely separate system — checked in §8 instead.)*
 - [ ] Panels dock, undock, resize, toggle, focus
 - [ ] Panels don't swallow canvas clicks
 - [ ] Menu bar opens; context menus on file browser, tabs, hierarchy
+- [ ] `Theme > UI Scale` (7D-3, docs/ember2d-master-plan.md §5.4): `Auto`/`1x`/`2x`/`3x`/`4x` entries listed after a separator, checkmark on the active one; picking one takes effect immediately (no restart) and persists across a restart (`%APPDATA%\Ember2D\editor_prefs.ron` on Windows). Every panel, bar, dock tab, modal, and the script editor (docked and fullscreen) visibly scales; the level canvas/viewport content does not. A click on any chrome widget still lands correctly at a non-default scale, including one that diverges from the display's own DPI-derived render scale (e.g. `1x` on a 200%-scaled display) — dragging/resizing a panel, opening a dropdown, clicking a file-browser row all still work. A floating (undocked) panel stays fully on-screen after changing scale, even if it was previously positioned near an edge. Chrome text overlapping at an extreme scale on a small window (e.g. `4x` at 1280×720) is expected, not a failure — a mis-click somewhere the overlapping text visually suggests IS one
 - [ ] File browser navigates folders; creates `.level`, `.rhai`, folders
 - [ ] Native file dialog (`rfd`) opens where wired
 - [ ] Grid overlay, physics overlay, help screen toggles; Escape closes help

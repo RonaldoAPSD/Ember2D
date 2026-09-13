@@ -145,8 +145,11 @@ try {
 # file with a REAL, deliberate, already-reviewed reason to keep one live
 # reference: the level canvas/viewport (`ui/canvas.rs`) and the "viewport
 # seam" cell math that converts between screen pixels and the engine's
-# fixed tile grid (`input/canvas.rs`, `impl_state/mod.rs`), never chrome
-# sizing; `panel/mod.rs`'s own documented `cell_x/y/w/h` rounding bridge
+# fixed tile grid (`input/canvas.rs`, `impl_state/viewport.rs` - split out
+# of `impl_state/mod.rs` in 7D-3 checkpoint 7 once that file's own R70 fix
+# and this checkpoint's points<->logical conversion pushed it back over
+# CLAUDE.md's 750-line limit), never chrome sizing; `panel/mod.rs`'s own
+# documented `cell_x/y/w/h` rounding bridge
 # (the node graph and the still-cell-grid docked script editor OUTER
 # frame, per that file's own doc comment); `ui/types.rs`'s `cells()`
 # helper (only ever called by `graph_ui.rs` and `start_screen/`, both
@@ -168,7 +171,7 @@ try {
 $chromeCellAllowlist = @(
     "ui\canvas.rs",
     "input\canvas.rs",
-    "impl_state\mod.rs",
+    "impl_state\viewport.rs",
     "input\palette_editor.rs",
     "panel\mod.rs",
     "ui\types.rs",

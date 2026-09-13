@@ -5,7 +5,8 @@ use super::metrics::ChromeMetrics;
 use super::rect::UiRect;
 use super::types::*;
 use super::widgets::{draw_row_px, draw_text_row};
-use ember2d::renderer::{color::Color, DrawSurface, Font};
+use crate::editor::prefs::UiScaleChoice;
+use ember2d::renderer::{color::Color, Font, UiPainter};
 use ember2d::theme::{PaletteRole, Theme};
 use ember2d_sim::math::Rect;
 
@@ -38,16 +39,25 @@ fn menu_label_defs() -> &'static [(&'static str, MenuKind)] {
 
 /// `MenuKind::Theme`'s entries — one per `EditorState::available_themes`
 /// (7D-4, master plan §5.4), unlike every other menu's fixed
-/// `menu_entries` list. Both real call sites (`draw_menu_dropdown` below,
+/// `menu_entries` list, followed by a separator and the UI Scale picker
+/// (7D-3 checkpoint 7, master plan §5.4: Auto/1x/2x/3x/4x — lives here,
+/// not View, since View is already 13 rows and a short window at 4x would
+/// overflow it, R81). Both real call sites (`draw_menu_dropdown` below,
 /// and `handle_menu_dropdown_click`'s re-resolve-by-index in
 /// `input/panels/menu_bar.rs`) special-case `MenuKind::Theme` to call this
 /// instead of `menu_entries`, so the two stay in sync the same way
 /// `menu_entries` itself already had to for every other menu.
 pub fn theme_menu_entries(available: &[String]) -> Vec<MenuEntry> {
-    available
+    let mut entries: Vec<MenuEntry> = available
         .iter()
         .map(|name| MenuEntry::DynamicItem { label: name.clone(), action: ToolbarAction::SetTheme(name.clone()) })
-        .collect()
+        .collect();
+    entries.push(MenuEntry::Sep);
+    entries.extend(UiScaleChoice::ALL.iter().map(|&choice| MenuEntry::DynamicItem {
+        label: choice.menu_label(),
+        action: ToolbarAction::SetUiScale(choice),
+    }));
+    entries
 }
 
 pub fn menu_entries(kind: MenuKind) -> Vec<MenuEntry> {
@@ -234,6 +244,7 @@ fn menu_checkmark(action: &ToolbarAction, ms: &MenuState) -> char {
         }
         ToolbarAction::SetLayer(l) if *l == ms.active_layer => 'x',
         ToolbarAction::SetTheme(name) if *name == ms.current_theme => 'x',
+        ToolbarAction::SetUiScale(choice) if *choice == ms.current_ui_scale => 'x',
         _ => ' ',
     }
 }
@@ -264,7 +275,7 @@ fn is_action_enabled(action: &ToolbarAction, ms: &MenuState) -> bool {
 /// one of them instead) — replaces the old `mouse.cell_y == TOOLBAR_ROW`
 /// raw-cell gate (`input/panels/menu_bar.rs`).
 pub fn draw_menu_toolbar(
-    renderer: &mut dyn DrawSurface,
+    painter: &mut UiPainter,
     font: &mut dyn Font,
     theme: &Theme,
     metrics: &ChromeMetrics,
@@ -278,8 +289,8 @@ pub fn draw_menu_toolbar(
     let panel_bg = theme.role_color(PaletteRole::PanelBg);
     let text_fg = theme.role_color(PaletteRole::TextPrimary);
     let accent = theme.role_color(PaletteRole::Accent);
-    let pixel_w = renderer.pixel_width() as f32;
-    renderer.fill_rect_px(Rect::new(0.0, row_y, pixel_w, row_h), panel_bg);
+    let (pixel_w, _) = painter.space().screen_pt();
+    painter.fill(Rect::new(0.0, row_y, pixel_w, row_h), panel_bg);
     frame.push(WidgetId::MenuBar, UiRect::new(0.0, row_y, pixel_w, row_h));
     let mut draw_x = 0.0;
     for &(label, kind) in menu_label_defs() {
@@ -288,16 +299,16 @@ pub fn draw_menu_toolbar(
         // `draw_dock_tabs` comment on this same gap.
         let (fg, bg) = if open { (Color::Black, accent) } else { (text_fg, panel_bg) };
         let padded = format!(" {} ", label);
-        let label_w = font.measure(&padded, text_px).0;
+        let label_w = painter.measure(font, &padded, text_px);
         let label_rect = Rect::new(draw_x, row_y, label_w, row_h);
-        draw_row_px(renderer, frame, font, WidgetId::MenuLabel(kind), label_rect, text_px, &padded, fg, bg);
+        draw_row_px(painter, frame, font, WidgetId::MenuLabel(kind), label_rect, text_px, &padded, fg, bg);
         draw_x += label_w;
     }
     let indicator = format!("[ {} ]", mode_label);
-    let indicator_w = font.measure(&indicator, text_px).0;
-    let pad = font.measure(" ", text_px).0;
+    let indicator_w = painter.measure(font, &indicator, text_px);
+    let pad = painter.measure(font, " ", text_px);
     let indicator_x = (pixel_w - indicator_w - pad).max(0.0);
-    draw_text_row(renderer, font, &indicator, Rect::new(indicator_x, row_y, indicator_w, row_h), text_px, accent, panel_bg);
+    draw_text_row(painter, font, &indicator, Rect::new(indicator_x, row_y, indicator_w, row_h), text_px, accent, panel_bg);
 }
 
 /// `metrics.bar_h` sizes each row; the dropdown's own x position is read
@@ -310,7 +321,7 @@ pub fn draw_menu_toolbar(
 /// the old raw `mouse_col`/`mouse_row` cell-int comparison.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_menu_dropdown(
-    renderer: &mut dyn DrawSurface,
+    painter: &mut UiPainter,
     font: &mut dyn Font,
     theme: &Theme,
     metrics: &ChromeMetrics,
@@ -343,12 +354,12 @@ pub fn draw_menu_dropdown(
         .map(|e| match e {
             MenuEntry::Sep => 0.0,
             MenuEntry::Item { label, shortcut, .. } => {
-                font.measure(&format!(" {} {:<11} {} ", '>', label, shortcut), text_px).0
+                painter.measure(font, &format!(" {} {:<11} {} ", '>', label, shortcut), text_px)
             }
-            MenuEntry::DynamicItem { label, .. } => font.measure(&format!(" {} {} ", '>', label), text_px).0,
+            MenuEntry::DynamicItem { label, .. } => painter.measure(font, &format!(" {} {} ", '>', label), text_px),
         })
         .fold(0.0_f32, f32::max);
-    renderer.fill_rect_px(Rect::new(col_x, start_row_y, menu_w_px, entries.len() as f32 * row_h), panel_bg);
+    painter.fill(Rect::new(col_x, start_row_y, menu_w_px, entries.len() as f32 * row_h), panel_bg);
     for (i, entry) in entries.iter().enumerate() {
         let row_y = start_row_y + i as f32 * row_h;
         let row_rect = Rect::new(col_x, row_y, menu_w_px, row_h);
@@ -356,7 +367,7 @@ pub fn draw_menu_dropdown(
         match entry {
             MenuEntry::Sep => {
                 let line: String = "-".repeat(20);
-                draw_text_row(renderer, font, &line, row_rect, text_px, dim, panel_bg);
+                draw_text_row(painter, font, &line, row_rect, text_px, dim, panel_bg);
                 // No hit pushed — a separator was never clickable.
             }
             MenuEntry::Item { label, shortcut, action } => {
@@ -371,14 +382,14 @@ pub fn draw_menu_dropdown(
                     (text_fg, panel_bg)
                 };
                 let text = format!(" {} {:<11} {} ", check, label, shortcut);
-                draw_row_px(renderer, frame, font, WidgetId::MenuItem(menu, i), row_rect, text_px, &text, fg, bg);
+                draw_row_px(painter, frame, font, WidgetId::MenuItem(menu, i), row_rect, text_px, &text, fg, bg);
             }
             MenuEntry::DynamicItem { label, action } => {
                 let check = menu_checkmark(action, ms);
                 // No themed "text-on-accent" role — same gap as above.
                 let (fg, bg) = if hovered { (Color::Black, accent) } else { (text_fg, panel_bg) };
                 let text = format!(" {} {} ", check, label);
-                draw_row_px(renderer, frame, font, WidgetId::MenuItem(menu, i), row_rect, text_px, &text, fg, bg);
+                draw_row_px(painter, frame, font, WidgetId::MenuItem(menu, i), row_rect, text_px, &text, fg, bg);
             }
         }
     }

@@ -83,12 +83,14 @@ impl<'a> UiPainter<'a> {
 
     /// Draw `text` at `pt` points, baseline-left at `baseline_left`
     /// (points). Rasterizes at the real physical size (`UiSpace::raster_px`)
-    /// and draws each glyph at `texel_scale = pt_to_logical()` logical
-    /// pixels per atlas texel, so a `TtfFont` glyph (rasterized to fit its
-    /// own atlas rect exactly) ends up drawn at its real physical size —
-    /// crisp, not nearest-upscaled the way pre-7D-3 chrome text always was
-    /// (see this crate's `renderer/text.rs` header comment on
-    /// `draw_text_run`). Returns the advance, in points.
+    /// and draws each glyph at `texel_scale = raster_to_logical()` (`1/R`)
+    /// logical pixels per atlas texel — NOT `pt_to_logical()` (`S/R`): the
+    /// glyph's own raster is already `S` times the plain point size
+    /// (`raster_px = pt * S`), so drawing it back down at `1/R` logical
+    /// pixels per texel is what lands it at its real physical size — crisp,
+    /// not nearest-upscaled the way pre-7D-3 chrome text always was (R85,
+    /// §3 in the master plan; see this crate's `renderer/text.rs` header
+    /// comment on `draw_text_run`). Returns the advance, in points.
     pub fn text(
         &mut self,
         font: &mut dyn Font,
@@ -105,7 +107,7 @@ impl<'a> UiPainter<'a> {
             text,
             origin,
             raster_px: self.space.raster_px(pt),
-            texel_scale: self.space.pt_to_logical(),
+            texel_scale: self.space.raster_to_logical(),
             pitch: None,
             color,
         };
@@ -156,7 +158,7 @@ impl<'a> UiPainter<'a> {
             text,
             origin,
             raster_px: self.space.raster_px(pt),
-            texel_scale: self.space.pt_to_logical(),
+            texel_scale: self.space.raster_to_logical(),
             pitch: Some(pitch_pt * self.space.pt_to_logical()),
             color,
         };
@@ -242,10 +244,34 @@ mod tests {
             panic!("expected a Text op")
         };
         assert_eq!(*raster_px, 24.0, "8pt at ui_scale 3 must rasterize at 24 physical px");
-        assert_eq!(
-            *texel_scale, 3.0,
-            "at render_scale 1, one atlas texel is `ui_scale` logical px"
-        );
+        // R85 (§3 in the master plan): `texel_scale` is `1/render_scale`,
+        // NOT `ui_scale/render_scale` — the glyph's own raster is already
+        // `ui_scale` times the plain point size (`raster_px` above), so
+        // drawing it back down at `ui_scale/render_scale` logical pixels
+        // per texel double-counted `ui_scale`, rendering every glyph
+        // `ui_scale`× too large the instant anything actually consumed
+        // `texel_scale` in a live draw (checkpoint 7, not before — this
+        // test asserted the wrong value from checkpoint 1 onward and
+        // nothing caught it until then).
+        assert_eq!(*texel_scale, 1.0, "at render_scale 1, one atlas texel is exactly one logical px");
+    }
+
+    /// R85: at a render_scale that ACTUALLY differs from 1 (unlike the test
+    /// above), `texel_scale` and `pt_to_logical` are genuinely different
+    /// numbers (`1/2` vs `3/2`) — this is the case that would have failed
+    /// loudly, not just numerically, had the bug still been in place.
+    #[test]
+    fn painter_text_texel_scale_is_one_over_render_scale_not_s_over_r() {
+        let (mut surface, space) = painter_at(3, 2);
+        let mut font = BitmapFont::new();
+        {
+            let mut p = UiPainter::new(&mut surface, space);
+            p.text(&mut font, "A", Vec2::new(0.0, 0.0), 8.0, Color::White);
+        }
+        let ops = surface.ops();
+        let DrawOp::Text { texel_scale, .. } = &ops[0] else { panic!("expected a Text op") };
+        assert_eq!(*texel_scale, 0.5);
+        assert_ne!(*texel_scale, space.pt_to_logical(), "texel_scale must not be pt_to_logical (S/R)");
     }
 
     #[test]

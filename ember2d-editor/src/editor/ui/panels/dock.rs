@@ -12,7 +12,7 @@ use super::super::types::*;
 use super::super::widgets::{draw_row_px, draw_text_row};
 use crate::editor::grid::LevelGrid;
 use crate::editor::palette::TilePalette;
-use ember2d::renderer::{color::Color, DrawSurface, Font, CELL_H, CELL_W};
+use ember2d::renderer::{color::Color, Font, UiPainter, CELL_H, CELL_W};
 use ember2d::theme::{PaletteRole, Theme};
 use ember2d_sim::level::TileRecord;
 use ember2d_sim::math::{Rect, Vec2};
@@ -31,7 +31,7 @@ use std::collections::HashMap;
 /// or less.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_palette_panel(
-    renderer: &mut dyn DrawSurface,
+    painter: &mut UiPainter,
     font: &mut dyn Font,
     theme: &Theme,
     palette: &TilePalette,
@@ -55,11 +55,11 @@ pub fn draw_palette_panel(
         // assumption, no longer true once this draws through the theme's
         // real font).
         let header_rect = Rect::new(content.x, content.y, content.w, row_h);
-        let text_w = font.measure(m, text_px).0;
+        let text_w = painter.measure(font, m, text_px);
         let text_x = content.x + ((content.w - text_w) / 2.0).max(0.0);
-        renderer.fill_rect_px(header_rect, accent);
-        let baseline_y = header_rect.y + font.ascent(text_px);
-        renderer.draw_text_px(font, m, Vec2::new(text_x, baseline_y), text_px, Color::Black);
+        painter.fill(header_rect, accent);
+        let baseline_y = header_rect.y + painter.ascent(font, text_px);
+        painter.text(font, m, Vec2::new(text_x, baseline_y), text_px, Color::Black);
     }
 
     // 1. Search Bar — always the second row, whether or not a mode header
@@ -69,7 +69,7 @@ pub fn draw_palette_panel(
     let search_label =
         format!(" S: [{}]", if palette.search.is_empty() { "Search..." } else { &palette.search });
     let search_fg = if palette.search.is_empty() { dim } else { text_fg };
-    draw_text_row(renderer, font, &search_label, search_rect, text_px, search_fg, panel_bg);
+    draw_text_row(painter, font, &search_label, search_rect, text_px, search_fg, panel_bg);
     frame.push(WidgetId::PaletteSearchBar, UiRect::new(search_rect.x, search_rect.y, search_rect.w, search_rect.h));
 
     use crate::editor::palette::PaletteRow;
@@ -88,14 +88,14 @@ pub fn draw_palette_panel(
                 let is_collapsed = palette.collapsed.contains(name);
                 let icon = if is_collapsed { "[+]" } else { "[-]" };
                 let label = format!("{} {}", icon, name);
-                draw_text_row(renderer, font, &label, row_rect, text_px, accent, panel_bg);
+                draw_text_row(painter, font, &label, row_rect, text_px, accent, panel_bg);
             }
             PaletteRow::Item(idx) => {
                 let tile = &palette.tiles[*idx];
                 let is_selected = *idx == palette.selected;
                 let row_bg = if is_selected { selection } else { panel_bg };
 
-                renderer.fill_rect_px(row_rect, row_bg);
+                painter.fill(row_rect, row_bg);
 
                 // Indented glyph container [ # ] — the glyph itself stays
                 // on the engine's own bitmap-font pipeline (`draw_char`,
@@ -104,24 +104,24 @@ pub fn draw_palette_panel(
                 // "never themed" reasoning the 7C-9 decision gate applies
                 // to the viewport itself, just for one glyph instead of
                 // the whole canvas.
-                let gx = row_rect.x + font.measure("  ", text_px).0;
-                let baseline_y = row_rect.y + font.ascent(text_px);
-                renderer.draw_text_px(
+                let gx = row_rect.x + painter.measure(font, "  ", text_px);
+                let baseline_y = row_rect.y + painter.ascent(font, text_px);
+                painter.text(
                     font,
                     "[   ]",
                     Vec2::new(gx, baseline_y),
                     text_px,
                     if is_selected { accent } else { text_fg },
                 );
-                let glyph_cell_x = ((gx + font.measure("[ ", text_px).0) / CELL_W as f32).round() as usize;
+                let glyph_cell_x = ((gx + painter.measure(font, "[ ", text_px)) / CELL_W as f32).round() as usize;
                 let glyph_cell_y = (row_rect.y / CELL_H as f32).round() as usize;
-                renderer.draw_char(glyph_cell_x, glyph_cell_y, tile.glyph, tile.fg, tile.bg);
+                painter.surface().draw_char(glyph_cell_x, glyph_cell_y, tile.glyph, tile.fg, tile.bg);
 
                 // Indented name
-                let name_x = gx + font.measure("[   ] ", text_px).0;
+                let name_x = gx + painter.measure(font, "[   ] ", text_px);
                 let name_rect = Rect::new(name_x, row_rect.y, (row_rect.x + row_rect.w - name_x).max(0.0), row_h);
                 draw_text_row(
-                    renderer,
+                    painter,
                     font,
                     &tile.name,
                     name_rect,
@@ -137,8 +137,8 @@ pub fn draw_palette_panel(
                     _ => None,
                 };
                 if let Some(num) = shortcut {
-                    let num_x = row_rect.x + row_rect.w - font.measure(&num, text_px).0;
-                    renderer.draw_text_px(font, &num, Vec2::new(num_x, baseline_y), text_px, accent);
+                    let num_x = row_rect.x + row_rect.w - painter.measure(font, &num, text_px);
+                    painter.text(font, &num, Vec2::new(num_x, baseline_y), text_px, accent);
                 }
             }
         }
@@ -148,13 +148,13 @@ pub fn draw_palette_panel(
     // [+ New] and [ Edit ] buttons at the bottom row
     let btn_row_rect = Rect::new(content.x, content.y + (max_rows - 1) as f32 * row_h, content.w, row_h);
     let new_label = " [ + New ] ";
-    let new_w = font.measure(new_label, text_px).0;
+    let new_w = painter.measure(font, new_label, text_px);
     let new_rect = Rect::new(btn_row_rect.x, btn_row_rect.y, new_w, row_h);
-    draw_row_px(renderer, frame, font, WidgetId::PaletteNewBtn, new_rect, text_px, new_label, text_fg, selection);
+    draw_row_px(painter, frame, font, WidgetId::PaletteNewBtn, new_rect, text_px, new_label, text_fg, selection);
     let edit_label = " [ Edit ] ";
-    let edit_w = font.measure(edit_label, text_px).0;
+    let edit_w = painter.measure(font, edit_label, text_px);
     let edit_rect = Rect::new(btn_row_rect.x + btn_row_rect.w - edit_w, btn_row_rect.y, edit_w, row_h);
-    draw_row_px(renderer, frame, font, WidgetId::PaletteEditBtn, edit_rect, text_px, edit_label, text_fg, panel_bg);
+    draw_row_px(painter, frame, font, WidgetId::PaletteEditBtn, edit_rect, text_px, edit_label, text_fg, panel_bg);
 }
 
 /// The first panel converted off the character-cell grid entirely
@@ -172,7 +172,7 @@ pub fn draw_palette_panel(
 /// renders through `draw_str`, which ignores the theme's font entirely
 /// (see the master plan's own note on why that's not a quick fix).
 pub fn draw_stats_panel(
-    renderer: &mut dyn DrawSurface,
+    painter: &mut UiPainter,
     font: &mut dyn Font,
     theme: &Theme,
     grid: &LevelGrid,
@@ -200,14 +200,14 @@ pub fn draw_stats_panel(
         let row_rect = Rect::new(content.x, content.y + i as f32 * row_h, content.w, row_h);
         let count = counts.get(&def.tag).copied().unwrap_or(0);
         let label = format!(" {}: {:>4}", def.name, count);
-        draw_text_row(renderer, font, &label, row_rect, text_px, def.fg, panel_bg);
+        draw_text_row(painter, font, &label, row_rect, text_px, def.fg, panel_bg);
     }
     let total_row = Rect::new(content.x, content.y + (max_rows - 1) as f32 * row_h, content.w, row_h);
-    draw_text_row(renderer, font, &format!(" Total:{:>4}", total), total_row, text_px, text_fg, panel_bg);
+    draw_text_row(painter, font, &format!(" Total:{:>4}", total), total_row, text_px, text_fg, panel_bg);
 }
 
 pub fn draw_console(
-    renderer: &mut dyn DrawSurface,
+    painter: &mut UiPainter,
     font: &mut dyn Font,
     theme: &Theme,
     log: &[LogEntry],
@@ -224,12 +224,12 @@ pub fn draw_console(
     // face, so measuring any one of them gives the message column's fixed
     // pixel start — matches the old cell math's `cx + 6` exactly, just
     // derived from the real font instead of assuming 6 fixed 8px cells.
-    let message_x = content.x + font.measure("[ERR] ", text_px).0;
+    let message_x = content.x + painter.measure(font, "[ERR] ", text_px);
     // Rough character budget for `truncate_chars`, sized from the font's
     // own average advance — not pixel-exact (no scissor clips this panel
     // either way, same as before this conversion), just enough to avoid
     // drawing wildly more text than could ever fit.
-    let avg_char_w = (font.measure("MMMMMMMMMM", text_px).0 / 10.0).max(1.0);
+    let avg_char_w = (painter.measure(font, "MMMMMMMMMM", text_px) / 10.0).max(1.0);
     let max_text = ((content.w - (message_x - content.x)) / avg_char_w).floor().max(0.0) as usize;
     for (i, entry) in log.iter().skip(start).enumerate() {
         let row_rect = Rect::new(content.x, content.y + i as f32 * row_h, content.w, row_h);
@@ -243,9 +243,9 @@ pub fn draw_console(
             LogLevel::Info => ("[OK] ", Color::DarkGreen),
         };
         let text = truncate_chars(&entry.text, max_text);
-        draw_text_row(renderer, font, prefix, row_rect, text_px, pfg, panel_bg);
+        draw_text_row(painter, font, prefix, row_rect, text_px, pfg, panel_bg);
         let message_rect = Rect::new(message_x, row_rect.y, content.w - (message_x - content.x), row_h);
-        draw_text_row(renderer, font, &text, message_rect, text_px, text_fg, panel_bg);
+        draw_text_row(painter, font, &text, message_rect, text_px, text_fg, panel_bg);
     }
 }
 
@@ -267,7 +267,7 @@ pub fn draw_console(
 /// longer possible.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_inspector(
-    renderer: &mut dyn DrawSurface,
+    painter: &mut UiPainter,
     font: &mut dyn Font,
     theme: &Theme,
     tile: Option<&TileRecord>,
@@ -292,29 +292,29 @@ pub fn draw_inspector(
     // `row_h`, not `CELL_H`).
     let row_rect = |i: usize| Rect::new(content.x, content.y + i as f32 * row_h, content.w, row_h);
 
-    renderer.fill_rect_px(content, panel_bg);
-    draw_text_row(renderer, font, mode_tag, row_rect(0), text_px, Color::Black, accent);
+    painter.fill(content, panel_bg);
+    draw_text_row(painter, font, mode_tag, row_rect(0), text_px, Color::Black, accent);
 
-    let sep: String = "-".repeat((content.w / font.measure("-", text_px).0.max(1.0)) as usize);
+    let sep: String = "-".repeat((content.w / painter.measure(font, "-", text_px).max(1.0)) as usize);
 
     let Some(tile) = tile else {
         let hint = if pos.is_some() { " (empty cell)" } else { " hover a tile" };
-        draw_text_row(renderer, font, hint, row_rect(2), text_px, dim, panel_bg);
+        draw_text_row(painter, font, hint, row_rect(2), text_px, dim, panel_bg);
         return;
     };
 
     // ── Tile Edit Mode ───────────────────────────────────────────────────
     if let Some((gx, gy)) = pos {
-        draw_text_row(renderer, font, &format!(" ({},{})", gx, gy), row_rect(1), text_px, accent, panel_bg);
+        draw_text_row(painter, font, &format!(" ({},{})", gx, gy), row_rect(1), text_px, accent, panel_bg);
     }
     let glyph_str = format!("  '{}' glyph", tile.glyph);
-    draw_text_row(renderer, font, &glyph_str, row_rect(INSP_GLYPH_OFF), text_px, tile.fg, input_bg);
+    draw_text_row(painter, font, &glyph_str, row_rect(INSP_GLYPH_OFF), text_px, tile.fg, input_bg);
     frame.push(WidgetId::InspectorRow(Glyph), UiRect::new(content.x, row_rect(INSP_GLYPH_OFF).y, content.w, row_h));
 
-    draw_text_row(renderer, font, &sep, row_rect(4), text_px, dim, panel_bg);
-    draw_text_row(renderer, font, " Tag:", row_rect(INSP_TAG_OFF), text_px, dim, panel_bg);
+    draw_text_row(painter, font, &sep, row_rect(4), text_px, dim, panel_bg);
+    draw_text_row(painter, font, " Tag:", row_rect(INSP_TAG_OFF), text_px, dim, panel_bg);
     let tag_disp = if tile.tag.is_empty() { "(none)" } else { &tile.tag };
-    draw_text_row(renderer, font, &format!("  {}", tag_disp), row_rect(INSP_TAG_OFF + 1), text_px, text_fg, input_bg);
+    draw_text_row(painter, font, &format!("  {}", tag_disp), row_rect(INSP_TAG_OFF + 1), text_px, text_fg, input_bg);
     // The click target is the "Tag:" LABEL's own row (`INSP_TAG_OFF`), one
     // row above where the value actually renders (`INSP_TAG_OFF + 1`) —
     // that's exactly where the pre-migration `tag_row` hitbox already was,
@@ -322,18 +322,18 @@ pub fn draw_inspector(
     // row, since that would be a UX change this phase wasn't asked to make.
     frame.push(WidgetId::InspectorRow(Tag), UiRect::new(content.x, row_rect(INSP_TAG_OFF).y, content.w, row_h));
 
-    draw_text_row(renderer, font, &sep, row_rect(7), text_px, dim, panel_bg);
+    draw_text_row(painter, font, &sep, row_rect(7), text_px, dim, panel_bg);
     let solid_label = format!(" [{}] Solid", if tile.solid { 'x' } else { ' ' });
-    draw_text_row(renderer, font, &solid_label, row_rect(INSP_SOLID_OFF), text_px, text_fg, input_bg);
+    draw_text_row(painter, font, &solid_label, row_rect(INSP_SOLID_OFF), text_px, text_fg, input_bg);
     frame.push(WidgetId::InspectorRow(Solid), UiRect::new(content.x, row_rect(INSP_SOLID_OFF).y, content.w, row_h));
     let trig_label = format!(" [{}] Trigger", if tile.trigger { 'x' } else { ' ' });
-    draw_text_row(renderer, font, &trig_label, row_rect(INSP_TRIG_OFF), text_px, text_fg, input_bg);
+    draw_text_row(painter, font, &trig_label, row_rect(INSP_TRIG_OFF), text_px, text_fg, input_bg);
     frame.push(WidgetId::InspectorRow(Trigger), UiRect::new(content.x, row_rect(INSP_TRIG_OFF).y, content.w, row_h));
     let cam_label = format!(" [{}] Camera follow", if tile.camera_follow { 'x' } else { ' ' });
-    draw_text_row(renderer, font, &cam_label, row_rect(INSP_CAM_OFF), text_px, text_fg, input_bg);
+    draw_text_row(painter, font, &cam_label, row_rect(INSP_CAM_OFF), text_px, text_fg, input_bg);
     frame.push(WidgetId::InspectorRow(CameraFollow), UiRect::new(content.x, row_rect(INSP_CAM_OFF).y, content.w, row_h));
 
-    draw_text_row(renderer, font, &sep, row_rect(12), text_px, dim, panel_bg);
+    draw_text_row(painter, font, &sep, row_rect(12), text_px, dim, panel_bg);
     // No " Script:" label draw here — it used to share `INSP_SCRIPT_OFF`'s
     // own row with the value line right below, which unconditionally
     // overwrote it every time (found converting this function; the label
@@ -349,16 +349,16 @@ pub fn draw_inspector(
         }
         None => ("  (none)".to_string(), dim),
     };
-    draw_text_row(renderer, font, &script_disp, row_rect(INSP_SCRIPT_OFF), text_px, script_fg, input_bg);
+    draw_text_row(painter, font, &script_disp, row_rect(INSP_SCRIPT_OFF), text_px, script_fg, input_bg);
     frame.push(WidgetId::InspectorRow(Script), UiRect::new(content.x, row_rect(INSP_SCRIPT_OFF).y, content.w, row_h));
     let (exit_disp, exit_fg) = match &tile.next_level {
         Some(p) => (format!("  >{}", p), accent),
         None => ("  (no exit)".to_string(), dim),
     };
-    draw_text_row(renderer, font, &exit_disp, row_rect(INSP_EXIT_OFF), text_px, exit_fg, input_bg);
+    draw_text_row(painter, font, &exit_disp, row_rect(INSP_EXIT_OFF), text_px, exit_fg, input_bg);
     frame.push(WidgetId::InspectorRow(Exit), UiRect::new(content.x, row_rect(INSP_EXIT_OFF).y, content.w, row_h));
 
-    draw_text_row(renderer, font, &sep, row_rect(16), text_px, dim, panel_bg);
+    draw_text_row(painter, font, &sep, row_rect(16), text_px, dim, panel_bg);
     // No " Scripting:" label either — same dead-draw reasoning as
     // " Script:" above, overwritten every time by the graph button drawn
     // right after it at the same `INSP_GRAPH_BTN` row.
@@ -366,27 +366,27 @@ pub fn draw_inspector(
         if tile.graph.is_some() {
             let n = tile.graph.as_ref().map(|g| g.nodes.len()).unwrap_or(0);
             let e = tile.graph.as_ref().map(|g| g.edges.len()).unwrap_or(0);
-            draw_text_row(renderer, font, "  [Edit Graph]", row_rect(INSP_GRAPH_BTN), text_px, Color::Black, accent);
+            draw_text_row(painter, font, "  [Edit Graph]", row_rect(INSP_GRAPH_BTN), text_px, Color::Black, accent);
             if 19 < max_rows {
                 let info = format!("  {} nodes  {} edges", n, e);
-                draw_text_row(renderer, font, &info, row_rect(19), text_px, dim, panel_bg);
+                draw_text_row(painter, font, &info, row_rect(19), text_px, dim, panel_bg);
             }
         } else {
             // A distinct "create" action, not decorative chrome — stays
             // literal green rather than a theme role, same reasoning as
             // `draw_console`'s own untouched log-level colors.
-            draw_text_row(renderer, font, "  [New Graph]", row_rect(INSP_GRAPH_BTN), text_px, Color::Black, Color::DarkGreen);
+            draw_text_row(painter, font, "  [New Graph]", row_rect(INSP_GRAPH_BTN), text_px, Color::Black, Color::DarkGreen);
         }
         frame.push(WidgetId::InspectorRow(GraphBtn), UiRect::new(content.x, row_rect(INSP_GRAPH_BTN).y, content.w, row_h));
     }
     if 20 < max_rows {
-        draw_text_row(renderer, font, &sep, row_rect(20), text_px, dim, panel_bg);
+        draw_text_row(painter, font, &sep, row_rect(20), text_px, dim, panel_bg);
     }
     if INSP_LAYER_OFF < max_rows {
         // No " Layer:" label — same dead-draw reasoning as above, both
         // drawn at `INSP_LAYER_OFF`.
         let layer_disp = if tile.collider_layer.is_empty() { "(any)" } else { &tile.collider_layer };
-        draw_text_row(renderer, font, &format!("  {}", layer_disp), row_rect(INSP_LAYER_OFF), text_px, accent, input_bg);
+        draw_text_row(painter, font, &format!("  {}", layer_disp), row_rect(INSP_LAYER_OFF), text_px, accent, input_bg);
         frame.push(WidgetId::InspectorRow(Layer), UiRect::new(content.x, row_rect(INSP_LAYER_OFF).y, content.w, row_h));
     }
     if INSP_MASK_OFF < max_rows {
@@ -396,14 +396,14 @@ pub fn draw_inspector(
         } else {
             tile.collider_mask.join(",")
         };
-        draw_text_row(renderer, font, &format!("  {}", mask_str), row_rect(INSP_MASK_OFF), text_px, accent, input_bg);
+        draw_text_row(painter, font, &format!("  {}", mask_str), row_rect(INSP_MASK_OFF), text_px, accent, input_bg);
         frame.push(WidgetId::InspectorRow(Mask), UiRect::new(content.x, row_rect(INSP_MASK_OFF).y, content.w, row_h));
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 pub fn draw_hierarchy(
-    renderer: &mut dyn DrawSurface,
+    painter: &mut UiPainter,
     font: &mut dyn Font,
     theme: &Theme,
     grid: &LevelGrid,
@@ -417,10 +417,10 @@ pub fn draw_hierarchy(
     let row_h = theme.metrics.row_h;
     let text_px = theme.font_sizes.body;
     let max_rows = ((content.h / row_h).floor() as usize).max(1);
-    renderer.fill_rect_px(content, panel_bg);
+    painter.fill(content, panel_bg);
     let sep_row = Rect::new(content.x, content.y, content.w, row_h);
-    let sep = "-".repeat((content.w / font.measure("-", text_px).0.max(1.0)) as usize);
-    draw_text_row(renderer, font, &sep, sep_row, text_px, dim, panel_bg);
+    let sep = "-".repeat((content.w / painter.measure(font, "-", text_px).max(1.0)) as usize);
+    draw_text_row(painter, font, &sep, sep_row, text_px, dim, panel_bg);
     // 7C-1 (master plan §5.3): `draw_row_px` registers each row at the
     // exact point it's drawn, replacing `handle_hierarchy_click`'s own
     // independently-recomputed `hier_row` arithmetic (E5). Entity-kind
@@ -436,7 +436,7 @@ pub fn draw_hierarchy(
         let (fg, bg) = if player_sel { (Color::Black, accent) } else { (Color::Green, panel_bg) };
         let row_rect = Rect::new(content.x, content.y + row_h, content.w, row_h);
         draw_row_px(
-            renderer,
+            painter,
             frame,
             font,
             WidgetId::HierarchyRow(HierarchySelection::Player),
@@ -451,7 +451,7 @@ pub fn draw_hierarchy(
     // average advance — not pixel-exact (no scissor clips this panel
     // either way), just enough to stop an extreme name from drawing far
     // past the panel's right edge, same reasoning `draw_console` uses.
-    let avg_char_w = (font.measure("MMMMMMMMMM", text_px).0 / 10.0).max(1.0);
+    let avg_char_w = (painter.measure(font, "MMMMMMMMMM", text_px) / 10.0).max(1.0);
     let max_name_chars = ((content.w / avg_char_w) as usize).saturating_sub(3);
     for (i, (name, _, _)) in grid.extra_spawns.iter().enumerate() {
         let row_index = 2 + i;
@@ -464,7 +464,7 @@ pub fn draw_hierarchy(
         let (fg, bg) = if spawn_sel { (Color::Black, accent) } else { (Color::Yellow, panel_bg) };
         let row_rect = Rect::new(content.x, content.y + row_index as f32 * row_h, content.w, row_h);
         draw_row_px(
-            renderer,
+            painter,
             frame,
             font,
             WidgetId::HierarchyRow(HierarchySelection::Spawn(i)),
@@ -479,7 +479,7 @@ pub fn draw_hierarchy(
 
 #[allow(clippy::too_many_arguments)]
 pub fn draw_file_browser_panel(
-    renderer: &mut dyn DrawSurface,
+    painter: &mut UiPainter,
     font: &mut dyn Font,
     theme: &Theme,
     files: &[String],
@@ -497,21 +497,21 @@ pub fn draw_file_browser_panel(
     let row_h = theme.metrics.row_h;
     let text_px = theme.font_sizes.body;
 
-    renderer.fill_rect_px(content, panel_bg);
+    painter.fill(content, panel_bg);
 
     // Breadcrumbs / Current Path — no themed "text-on-accent" role exists
     // (same gap `chrome.rs`'s `draw_dock_tabs` comments on), so this
     // header stays plain black-on-accent.
     let path_label = format!(" Content > {}", current_folder.replace("./", "").replace("/", " > "));
     let header_rect = Rect::new(content.x, content.y, content.w, row_h);
-    draw_text_row(renderer, font, &path_label, header_rect, text_px, Color::Black, accent);
+    draw_text_row(painter, font, &path_label, header_rect, text_px, Color::Black, accent);
 
     let list_top = content.y + row_h;
     let max_visible = ((content.h - row_h) / row_h).floor().max(0.0) as usize;
 
     if files.is_empty() {
         let empty_rect = Rect::new(content.x, list_top, content.w, row_h);
-        draw_text_row(renderer, font, " (empty folder)", empty_rect, text_px, dim, panel_bg);
+        draw_text_row(painter, font, " (empty folder)", empty_rect, text_px, dim, panel_bg);
         return;
     }
 
@@ -521,14 +521,14 @@ pub fn draw_file_browser_panel(
     // measuring any one of them gives a stable name-column start (matches
     // the old cell math's fixed `cx + 7` exactly, derived from the real
     // font instead of assuming fixed 8px cells).
-    let name_x = content.x + font.measure("[DIR] ", text_px).0;
+    let name_x = content.x + painter.measure(font, "[DIR] ", text_px);
     for (i, raw_line) in files.iter().enumerate().skip(scroll).take(max_visible) {
         let row_index = i - scroll + 1;
         let row_rect = Rect::new(content.x, content.y + row_index as f32 * row_h, content.w, row_h);
 
         let is_selected = i == cursor;
         let bg = if is_selected { selection } else { panel_bg };
-        renderer.fill_rect_px(row_rect, bg);
+        painter.fill(row_rect, bg);
         // 7C-1 (master plan §5.3): registers this row's rect at the exact
         // point it's drawn, replacing `handle_file_browser_click`'s own
         // independently-recomputed `row_idx` arithmetic (E5). Pushed once
@@ -538,8 +538,8 @@ pub fn draw_file_browser_panel(
         frame.push(WidgetId::FileBrowserRow(i), UiRect::new(row_rect.x, row_rect.y, row_rect.w, row_rect.h));
 
         if raw_line.contains("[UP]") {
-            let baseline_y = row_rect.y + font.ascent(text_px);
-            renderer.draw_text_px(font, " .. [PARENT FOLDER] ", Vec2::new(row_rect.x, baseline_y), text_px, accent);
+            let baseline_y = row_rect.y + painter.ascent(font, text_px);
+            painter.text(font, " .. [PARENT FOLDER] ", Vec2::new(row_rect.x, baseline_y), text_px, accent);
             continue;
         }
 
@@ -558,9 +558,9 @@ pub fn draw_file_browser_panel(
 
         let name = if raw_line.len() > skip { &raw_line[skip..] } else { raw_line };
         let icon_tag = format!("[{}]", icon);
-        let baseline_y = row_rect.y + font.ascent(text_px);
-        renderer.draw_text_px(font, &icon_tag, Vec2::new(row_rect.x, baseline_y), text_px, fg);
-        renderer.draw_text_px(font, name, Vec2::new(name_x, baseline_y), text_px, text_fg);
+        let baseline_y = row_rect.y + painter.ascent(font, text_px);
+        painter.text(font, &icon_tag, Vec2::new(row_rect.x, baseline_y), text_px, fg);
+        painter.text(font, name, Vec2::new(name_x, baseline_y), text_px, text_fg);
     }
 }
 

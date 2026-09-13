@@ -76,7 +76,17 @@ impl EditorState {
         // `mouse_to_grid` exactly.
         let click = mouse.left_just_pressed();
         let metrics = ChromeMetrics::from_theme(&self.theme);
-        let viewport_rect = self.panels.viewport().content_rect(&metrics);
+        // 7D-3 checkpoint 7 (master plan §5.4): `content_rect` is
+        // points-space now — converted to LOGICAL before comparing against
+        // `mouse.pixel_x/y` (canvas math stays logical forever, 7C-9), and
+        // `bar_h` (a points-space chrome metric) converted the same way so
+        // the "allow the title bar row too" margin stays in the same units
+        // as the rect it's added to. `is_point_on_panel` compares against
+        // OTHER panels' own points-space rects, so it gets the points-space
+        // mouse position instead.
+        let viewport_rect = self.ui_space.rect_to_logical(self.panels.viewport().content_rect(&metrics).into());
+        let bar_h_logical = metrics.bar_h * self.ui_space.pt_to_logical();
+        let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
         let on_canvas = mouse.in_bounds
             && mouse.pixel_x >= viewport_rect.x
             && mouse.pixel_x < viewport_rect.x + viewport_rect.w
@@ -84,10 +94,10 @@ impl EditorState {
             // same as before this fix (the click still ultimately no-ops
             // unless it also passes `mouse_to_grid`'s own containment
             // check below).
-            && mouse.pixel_y >= viewport_rect.y - metrics.bar_h
+            && mouse.pixel_y >= viewport_rect.y - bar_h_logical
             && mouse.pixel_y < viewport_rect.y + viewport_rect.h
             // Pixel-space hit test (Phase 7 Part 1c, docs/ember2d-phase7-plan.md).
-            && !self.panels.is_point_on_panel(mouse.pixel_x, mouse.pixel_y);
+            && !self.panels.is_point_on_panel(px, py);
 
         if on_canvas {
             self.inspected_pos = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y);

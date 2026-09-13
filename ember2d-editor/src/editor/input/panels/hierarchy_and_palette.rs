@@ -22,7 +22,11 @@ impl EditorState {
     /// `handle_palette_click`'s own note about the row math it replaced.
     pub(super) fn handle_hierarchy_click(&mut self, mouse: &ember2d::mouse::MouseState) -> bool {
         if self.panels.visible(PanelId::Hierarchy) && mouse.left_just_pressed() && mouse.in_bounds {
-            if let Some(WidgetId::HierarchyRow(sel)) = self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) {
+            // 7D-3 checkpoint 7 (master plan §5.4): logical -> points, the
+            // input choke point every chrome hit-test in this file goes
+            // through.
+            let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
+            if let Some(WidgetId::HierarchyRow(sel)) = self.ui_frame.hit(px, py) {
                 match sel {
                     HierarchySelection::Player => {
                         self.hierarchy_sel = Some(sel);
@@ -56,6 +60,9 @@ impl EditorState {
     /// nothing tying it to the first) is gone.
     pub(super) fn handle_palette_click(&mut self, mouse: &ember2d::mouse::MouseState) -> bool {
         if self.panels.visible(PanelId::Palette) && mouse.in_bounds {
+            // 7D-3 checkpoint 7: logical -> points, same input choke point
+            // as `handle_hierarchy_click` above.
+            let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
             let p = self.panels.get(PanelId::Palette);
             // R72 (§3 in the master plan): was `p.content_h()` (a
             // CELL-ROUNDED row count) minus a literal `2` — an
@@ -72,7 +79,7 @@ impl EditorState {
             let max_rows = ((content.h / metrics.row_h).floor() as usize).max(1);
             let visible_rows = max_rows.saturating_sub(3);
 
-            if p.contains(mouse.pixel_x, mouse.pixel_y) {
+            if p.contains(px, py) {
                 use crate::editor::palette::PaletteRow;
                 let layout = self.palette.build_layout();
 
@@ -88,7 +95,7 @@ impl EditorState {
                 if mouse.left_just_pressed() {
                     self.ignore_drag = true;
 
-                    match self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) {
+                    match self.ui_frame.hit(px, py) {
                         Some(WidgetId::PaletteSearchBar) => {
                             self.mode = EditorMode::PaletteSearch;
                             return true;

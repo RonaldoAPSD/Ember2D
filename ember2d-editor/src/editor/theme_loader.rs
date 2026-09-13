@@ -195,29 +195,28 @@ impl EditorState {
     }
 
     /// Sets and persists a new UI-scale preference (7D-3, master plan §5.4)
-    /// — the live `Theme > UI Scale` menu entries (added once
-    /// `effective_ui_scale` below un-pins, this step's own last checkpoint)
-    /// are the intended caller. Sanitizes (`UiScaleChoice::sanitized`)
-    /// before storing, so a corrupt/hand-edited prefs file can never
-    /// persist an out-of-range `Fixed` value forward.
-    #[allow(dead_code)] // wired to a live menu entry in this step's own later checkpoint
+    /// — called live by the `Theme > UI Scale` menu entries
+    /// (`input/panels/menu_bar.rs`'s `ToolbarAction::SetUiScale` handler).
+    /// Sanitizes (`UiScaleChoice::sanitized`) before storing, so a corrupt/
+    /// hand-edited prefs file can never persist an out-of-range `Fixed`
+    /// value forward.
     pub(super) fn set_ui_scale(&mut self, choice: UiScaleChoice) {
         self.prefs.ui_scale = choice.sanitized();
         self.prefs_store.save(&self.prefs);
     }
 
     /// The UI scale actually in effect this frame, given the display's real
-    /// `DisplayScale` (7D-3, master plan §5.4). **Pinned** (checkpoint 2 of
-    /// this step): always returns `display.render_scale`, ignoring
-    /// `self.prefs.ui_scale` entirely — a deliberate mid-step gate (this
-    /// step's own commit sequence, master plan §5.4) so that no checkpoint
-    /// before the step's final "live UI scale" one ever ships a half-wired
-    /// preference the menu can't actually reach yet. That checkpoint
-    /// changes this one line to `self.prefs.ui_scale.resolve(display.os_scale_factor)`
-    /// and nothing else — every caller already reads this method, not
-    /// `self.prefs.ui_scale` directly.
+    /// `DisplayScale` (7D-3, master plan §5.4). Was **pinned** to
+    /// `display.render_scale` through checkpoints 2-6 of this step — a
+    /// deliberate mid-step gate so no checkpoint before this one (the
+    /// step's final "live UI scale" checkpoint) ever shipped a half-wired
+    /// preference the menu couldn't actually reach yet, since every draw-
+    /// and input-side caller already read this method, never
+    /// `self.prefs.ui_scale` directly, and could be migrated one file at a
+    /// time without ui_scale/render_scale ever actually diverging under
+    /// them. Now reads the real preference.
     pub(super) fn effective_ui_scale(&self, display: DisplayScale) -> u32 {
-        display.render_scale
+        self.prefs.ui_scale.resolve(display.os_scale_factor)
     }
 
     /// Rebuilds `font`/`code_font` at `ui_scale` if it differs from what

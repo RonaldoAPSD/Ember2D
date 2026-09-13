@@ -138,6 +138,13 @@ pub struct MenuState {
     /// 7D-4 (master plan §5.4): `self.theme.name` — which `View > Theme`
     /// entry (`menu_checkmark`) gets the active checkmark.
     pub current_theme: String,
+    /// 7D-3 checkpoint 7 (master plan §5.4): `self.prefs.ui_scale` — which
+    /// Theme menu Auto/1x/2x/3x/4x entry (`menu_checkmark`) gets the
+    /// active checkmark. The PREFERENCE, not `effective_ui_scale()`'s own
+    /// resolved number — `Auto` itself is what should show checked while
+    /// `Auto` is selected, regardless of which physical scale it currently
+    /// resolves to.
+    pub current_ui_scale: crate::editor::prefs::UiScaleChoice,
 }
 
 #[derive(Debug, Clone)]
@@ -180,6 +187,11 @@ pub enum ToolbarAction {
     /// one `ToolbarAction` a `MenuEntry` gets from `theme_menu_entries`
     /// rather than `menu_entries`'s fixed per-`MenuKind` lists.
     SetTheme(String),
+    /// 7D-3 checkpoint 7 (master plan §5.4): the Theme menu's own
+    /// Auto/1x/2x/3x/4x picker — `theme_menu_entries` appends these after
+    /// the theme list itself, same "runtime-built list" reasoning as
+    /// `SetTheme` above.
+    SetUiScale(crate::editor::prefs::UiScaleChoice),
 }
 
 // ── Chrome row constants ────────────────────────────────────────────────────────

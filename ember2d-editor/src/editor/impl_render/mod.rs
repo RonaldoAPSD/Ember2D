@@ -6,7 +6,7 @@
 
 use ember2d::engine::RenderContext;
 use ember2d::renderer::color::Color;
-use ember2d::renderer::{DrawSurface, UiSpace};
+use ember2d::renderer::{DrawSurface, UiPainter, UiSpace};
 
 use super::panel::{draw_panel_chrome, DockSide, PanelId};
 use super::ui::{self, HierarchySelection, MenuState, ToolKind};
@@ -65,7 +65,17 @@ impl EditorState {
         // see that type's own doc comment for why nothing here keeps a
         // stale copy across a theme switch.
         let metrics = ui::ChromeMetrics::from_theme(&self.theme);
-        self.panels.apply_layout(renderer.pixel_width() as f32, renderer.pixel_height() as f32, &metrics);
+        // 7D-3 checkpoint 7: panels are positioned in POINTS (since
+        // checkpoint 3) — `apply_layout`'s own screen size must be the
+        // POINTS-space screen (`self.ui_space.screen_pt()`), not
+        // `renderer.pixel_width()/height()`'s raw LOGICAL size. The two
+        // only ever agreed by coincidence while `ui_scale` stayed pinned
+        // to `render_scale` (every earlier checkpoint of this step); once
+        // a real preference can differ from the display's own scale, this
+        // is the one place that difference would silently misplace every
+        // panel if it read the wrong screen size.
+        let (screen_pt_w, screen_pt_h) = self.ui_space.screen_pt();
+        self.panels.apply_layout(screen_pt_w, screen_pt_h, &metrics);
 
         // Script editor mode
         if matches!(self.mode, EditorMode::Script) {
@@ -81,14 +91,25 @@ impl EditorState {
         }
 
         // `viewport` is the Viewport panel's CONTENT rect (inside its
-        // border/title bar), in exact pixels — what `Layout.canvas_x`/`y`/
-        // `w`/`h` used to mean, now read from the one place that actually
-        // knows it (7C-3, master plan §5.3, E4). Every `ui::draw_*`
-        // function below and `mouse_to_grid` (`impl_state/viewport.rs`)
-        // read this SAME value — see the Viewport scissor rect below for
-        // why that single source of truth is what fixes R66-A.
+        // border/title bar), in POINTS — what `Layout.canvas_x`/`y`/`w`/`h`
+        // used to mean, now read from the one place that actually knows it
+        // (7C-3, master plan §5.3, E4). Every `ui::draw_*` function below
+        // and `mouse_to_grid` (`impl_state/viewport.rs`) read this SAME
+        // value — see the Viewport scissor rect below for why that single
+        // source of truth is what fixes R66-A. Converted to LOGICAL pixels
+        // (`viewport_logical`) for the canvas draw calls specifically —
+        // the canvas/viewport stays on the engine's own fixed-cell,
+        // `render_scale`-only grid forever (7C-9 decision gate, §7.1),
+        // never `ui_scale`.
         let viewport = self.panels.viewport().content_rect(&metrics);
-        let (screen_w, screen_h) = (renderer.pixel_width() as f32, renderer.pixel_height() as f32);
+        let vl = self.ui_space.rect_to_logical(viewport.into());
+        let viewport_logical = ui::UiRect::new(vl.x, vl.y, vl.w, vl.h);
+        // 7D-3 checkpoint 7: modals (`draw_text_input`/`draw_confirm_modal`/
+        // `draw_palette_editor_modal`/`draw_color_picker_modal`) center
+        // themselves against the POINTS-space screen size, same reasoning
+        // as `apply_layout`'s own `screen_pt_w`/`screen_pt_h` above — they
+        // size themselves in points, so they must center in points.
+        let (screen_w, screen_h) = (screen_pt_w, screen_pt_h);
 
         renderer.draw_rect_filled(
             0,
@@ -100,8 +121,16 @@ impl EditorState {
             Color::Reset,
         );
 
+        // 7D-3 checkpoint 7 (master plan §5.4): every chrome draw call from
+        // here on goes through one `UiPainter`, built from this frame's own
+        // `self.ui_space` — the choke point that actually applies
+        // `ui_scale` (`painter.surface()` is the escape hatch back to the
+        // raw `renderer` for the viewport/canvas calls, which stay outside
+        // `UiPainter` entirely per the 7C-9 decision gate).
+        let mut painter = UiPainter::new(renderer, self.ui_space);
+
         ui::draw_menu_toolbar(
-            renderer,
+            &mut painter,
             self.font.as_mut(),
             &self.theme,
             &metrics,
@@ -155,7 +184,7 @@ impl EditorState {
         for pid in self.panels.in_draw_order() {
             let panel = self.panels.get(pid);
             draw_panel_chrome(
-                renderer,
+                &mut painter,
                 panel,
                 &mut self.ui_frame,
                 &self.theme,
@@ -186,7 +215,7 @@ impl EditorState {
                     let strip =
                         ember2d_sim::math::Rect::new(panel.rect.x, panel.rect.y, panel.rect.w, metrics.bar_h);
                     ui::draw_dock_tabs(
-                        renderer,
+                        &mut painter,
                         self.font.as_mut(),
                         &self.theme,
                         strip,
@@ -207,23 +236,29 @@ impl EditorState {
                     // (used by every canvas draw call below) by up to a
                     // cell after a sub-cell panel resize, since drag/resize
                     // never snapped to whole cells. Built from `viewport`
-                    // directly now — the exact same value the canvas
-                    // itself draws from, so scissor and content can never
-                    // clip against a different rect than what's drawn.
-                    let scissor_rect =
-                        ember2d_sim::math::Rect::new(viewport.x, viewport.y, viewport.w, viewport.h);
-                    renderer.set_scissor(Some(scissor_rect));
+                    // directly now (through `painter.clip`, which converts
+                    // the same points rect to logical the same way
+                    // `draw_panel_chrome` did) — the exact same value the
+                    // canvas itself draws from, so scissor and content can
+                    // never clip against a different rect than what's drawn.
+                    painter.clip(Some(viewport.into()));
+                    let renderer = painter.surface();
 
-                    // Render Viewport content within its panel area
-                    ui::draw_void(renderer, &self.grid, self.scroll, self.zoom, viewport);
-                    ui::draw_level_boundary(renderer, &self.grid, self.scroll, self.zoom, viewport);
+                    // Render Viewport content within its panel area — the
+                    // canvas/viewport stays on the engine's own fixed-cell
+                    // grid forever (7C-9 decision gate, §7.1), so this uses
+                    // `viewport_logical`, not the points-space `viewport`
+                    // above, and the raw `renderer` escape hatch, not
+                    // `painter`.
+                    ui::draw_void(renderer, &self.grid, self.scroll, self.zoom, viewport_logical);
+                    ui::draw_level_boundary(renderer, &self.grid, self.scroll, self.zoom, viewport_logical);
                     if self.show_grid {
                         ui::draw_grid_overlay(
                             renderer,
                             &self.grid,
                             self.scroll,
                             self.zoom,
-                            viewport,
+                            viewport_logical,
                         );
                     }
                     ui::draw_grid(
@@ -232,21 +267,21 @@ impl EditorState {
                         self.active_layer,
                         self.scroll,
                         self.zoom,
-                        viewport,
+                        viewport_logical,
                     );
                     ui::draw_spawn_marker(
                         renderer,
                         self.grid.spawn_point,
                         self.scroll,
                         self.zoom,
-                        viewport,
+                        viewport_logical,
                     );
                     ui::draw_extra_spawns(
                         renderer,
                         &self.grid.extra_spawns,
                         self.scroll,
                         self.zoom,
-                        viewport,
+                        viewport_logical,
                     );
 
                     // ── Mode overlays ─────────────────────────────────────────────
@@ -263,7 +298,7 @@ impl EditorState {
                                 self.paste_rotate,
                                 self.scroll,
                                 self.zoom,
-                                viewport,
+                                viewport_logical,
                             );
                         }
                     } else if matches!(self.mode, EditorMode::Select { .. }) {
@@ -274,7 +309,7 @@ impl EditorState {
                                 current,
                                 self.scroll,
                                 self.zoom,
-                                viewport,
+                                viewport_logical,
                             );
                         }
                     } else if let Some(anchor) = self.rect_anchor {
@@ -286,7 +321,7 @@ impl EditorState {
                             self.palette.current().glyph,
                             self.scroll,
                             self.zoom,
-                            viewport,
+                            viewport_logical,
                         );
                     } else if let Some(anchor) = self.line_anchor {
                         let current = grid_cursor.unwrap_or(anchor);
@@ -297,7 +332,7 @@ impl EditorState {
                             self.palette.current().glyph,
                             self.scroll,
                             self.zoom,
-                            viewport,
+                            viewport_logical,
                         );
                     } else {
                         ui::draw_cursor_highlight(
@@ -307,7 +342,7 @@ impl EditorState {
                             matches!(self.mode, EditorMode::Inspect),
                             self.scroll,
                             self.zoom,
-                            viewport,
+                            viewport_logical,
                         );
                     }
 
@@ -319,7 +354,7 @@ impl EditorState {
                             self.active_layer,
                             self.scroll,
                             self.zoom,
-                            viewport,
+                            viewport_logical,
                         );
                     }
 
@@ -332,17 +367,17 @@ impl EditorState {
                                 self.erase_size,
                                 self.scroll,
                                 self.zoom,
-                                viewport,
+                                viewport_logical,
                             );
                         }
                     }
 
                     // Reset Scissor
-                    renderer.set_scissor(None);
+                    painter.clip(None);
                 }
                 PanelId::Hierarchy => {
                     ui::draw_hierarchy(
-                        renderer,
+                        &mut painter,
                         self.font.as_mut(),
                         &self.theme,
                         &self.grid,
@@ -353,7 +388,7 @@ impl EditorState {
                 }
                 PanelId::Palette => {
                     ui::draw_palette_panel(
-                        renderer,
+                        &mut painter,
                         self.font.as_mut(),
                         &self.theme,
                         &self.palette,
@@ -365,7 +400,7 @@ impl EditorState {
                 }
                 PanelId::Inspector => {
                     ui::draw_inspector(
-                        renderer,
+                        &mut painter,
                         self.font.as_mut(),
                         &self.theme,
                         insp_tile,
@@ -377,7 +412,7 @@ impl EditorState {
                 }
                 PanelId::Console => {
                     ui::draw_console(
-                        renderer,
+                        &mut painter,
                         self.font.as_mut(),
                         &self.theme,
                         &self.console_log,
@@ -386,7 +421,7 @@ impl EditorState {
                 }
                 PanelId::Stats => {
                     ui::draw_stats_panel(
-                        renderer,
+                        &mut painter,
                         self.font.as_mut(),
                         &self.theme,
                         &self.grid,
@@ -398,7 +433,7 @@ impl EditorState {
                     let script_error = self.script_error().map(|(line, msg)| (line, msg.to_string()));
                     let script_selection = self.script_selection();
                     ui::draw_script_editor(
-                        renderer,
+                        &mut painter,
                         self.code_font.as_mut(),
                         &self.theme,
                         self.script_path.as_deref(),
@@ -415,7 +450,7 @@ impl EditorState {
                 }
                 PanelId::FileBrowser => {
                     ui::draw_file_browser_panel(
-                        renderer,
+                        &mut painter,
                         self.font.as_mut(),
                         &self.theme,
                         &self.file_browser_files,
@@ -433,7 +468,7 @@ impl EditorState {
         if matches!(self.mode, EditorMode::PaletteEditor | EditorMode::ColorPicker { .. }) {
             if let Some(pal) = self.palette.tiles.get(self.palette_editing_idx) {
                 ui::draw_palette_editor_modal(
-                    renderer,
+                    &mut painter,
                     self.font.as_mut(),
                     &self.theme,
                     &self.theme_chrome_tex,
@@ -449,7 +484,7 @@ impl EditorState {
         if let EditorMode::ColorPicker { is_fg } = &self.mode {
             let is_fg = *is_fg;
             ui::draw_color_picker_modal(
-                renderer,
+                &mut painter,
                 self.font.as_mut(),
                 &self.theme,
                 &self.theme_chrome_tex,
@@ -486,10 +521,11 @@ impl EditorState {
                 pasting: matches!(self.mode, EditorMode::Paste),
                 active_layer: self.active_layer,
                 current_theme: self.theme.name.clone(),
+                current_ui_scale: self.prefs.ui_scale,
             };
 
             ui::draw_menu_dropdown(
-                renderer,
+                &mut painter,
                 self.font.as_mut(),
                 &self.theme,
                 &metrics,
@@ -509,7 +545,7 @@ impl EditorState {
         };
         let title_name = self.save_message.as_deref().unwrap_or(&full_name);
         ui::draw_title_bar(
-            renderer,
+            &mut painter,
             self.font.as_mut(),
             &self.theme,
             &metrics,
@@ -541,7 +577,7 @@ impl EditorState {
         };
 
         ui::draw_status_bar(
-            renderer,
+            &mut painter,
             self.font.as_mut(),
             &self.theme,
             &metrics,
@@ -588,7 +624,7 @@ impl EditorState {
                 TextInputPurpose::PaletteBgCustom => "Custom BG Hex (e.g. #222222)",
             };
             ui::draw_text_input(
-                renderer,
+                &mut painter,
                 self.font.as_mut(),
                 &self.theme,
                 &self.theme_chrome_tex,
@@ -602,12 +638,12 @@ impl EditorState {
         // Help screen overlay.
         if self.show_help {
             let vp = self.panels.viewport();
-            ui::draw_help_overlay(renderer, self.font.as_mut(), &self.theme, vp.content_rect(&metrics).into());
+            ui::draw_help_overlay(&mut painter, self.font.as_mut(), &self.theme, vp.content_rect(&metrics).into());
         }
 
         if let EditorMode::Modal(m) = &self.mode {
             ui::draw_confirm_modal(
-                renderer,
+                &mut painter,
                 self.font.as_mut(),
                 &self.theme,
                 &self.theme_chrome_tex,
@@ -620,7 +656,7 @@ impl EditorState {
         }
 
         if let EditorMode::ContextMenu(cm) = &self.mode {
-            ui::draw_context_menu(renderer, self.font.as_mut(), &self.theme, &self.theme_chrome_tex, cm, &mut self.ui_frame);
+            ui::draw_context_menu(&mut painter, self.font.as_mut(), &self.theme, &self.theme_chrome_tex, cm, &mut self.ui_frame);
         }
     }
 }

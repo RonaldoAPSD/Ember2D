@@ -32,11 +32,20 @@ impl EditorState {
         }
 
         if mouse.left_held() && mouse.in_bounds {
+            // 7D-3 checkpoint 7 (master plan §5.4): logical -> points, the
+            // input choke point every chrome hit-test now goes through —
+            // `rect_of`'s own rects are points-space (`draw_color_picker_modal`
+            // draws through `UiPainter` now), so the mouse position being
+            // compared/subtracted against them must be too. The hue-bar/
+            // SV-map step size stays a literal `CELL_W`/`CELL_H` count
+            // either way (R65's own "literal content, not chrome"
+            // reasoning) — only the SPACE the comparison happens in changed.
+            let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
             // 1. Hue Bar interaction
             if let Some(rect) = self.ui_frame.rect_of(WidgetId::ColorPickerHueBar) {
-                if rect.contains(mouse.pixel_x, mouse.pixel_y) {
+                if rect.contains(px, py) {
                     let cells_w = (rect.w / ember2d::renderer::CELL_W as f32).round();
-                    let col = ((mouse.pixel_x - rect.x) / ember2d::renderer::CELL_W as f32).floor();
+                    let col = ((px - rect.x) / ember2d::renderer::CELL_W as f32).floor();
                     let pct = col / (cells_w - 1.0);
                     self.color_picker_hsv.0 = pct.clamp(0.0, 1.0) * 360.0;
                 }
@@ -44,18 +53,18 @@ impl EditorState {
 
             // 2. SV Map interaction
             if let Some(rect) = self.ui_frame.rect_of(WidgetId::ColorPickerSvMap) {
-                if rect.contains(mouse.pixel_x, mouse.pixel_y) {
+                if rect.contains(px, py) {
                     let cells_w = (rect.w / ember2d::renderer::CELL_W as f32).round();
                     let cells_h = (rect.h / ember2d::renderer::CELL_H as f32).round();
-                    let col = ((mouse.pixel_x - rect.x) / ember2d::renderer::CELL_W as f32).floor();
-                    let row = ((mouse.pixel_y - rect.y) / ember2d::renderer::CELL_H as f32).floor();
+                    let col = ((px - rect.x) / ember2d::renderer::CELL_W as f32).floor();
+                    let row = ((py - rect.y) / ember2d::renderer::CELL_H as f32).floor();
                     self.color_picker_hsv.1 = (col / (cells_w - 1.0)).clamp(0.0, 1.0);
                     self.color_picker_hsv.2 = 1.0 - (row / (cells_h - 1.0)).clamp(0.0, 1.0);
                 }
             }
 
             if mouse.left_just_pressed() {
-                match self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) {
+                match self.ui_frame.hit(px, py) {
                     Some(WidgetId::ColorPickerClose) => {
                         self.mode = EditorMode::PaletteEditor;
                     }
@@ -160,7 +169,10 @@ impl EditorState {
 
         // 2. Mouse Interaction
         if mouse.left_just_pressed() && mouse.in_bounds {
-            match self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) {
+            // 7D-3 checkpoint 7: logical -> points, same input choke point
+            // as `handle_color_picker_input`.
+            let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
+            match self.ui_frame.hit(px, py) {
                 Some(WidgetId::PaletteEditorClose) => {
                     self.palette_editor_focus = None;
                     self.close_palette_editor();

@@ -5,14 +5,12 @@
 // (`ui/script_layout.rs`), not the engine's fixed 8×16 cell grid — the
 // script editor scales with the editor's UI scale like every other chrome
 // surface, drawn through the theme's `code_font` (a monospace face) instead
-// of the literal bitmap glyph pipeline. Text draws through `draw_text_run`
-// directly (not the full `UiPainter`) with `pitch: Some(char_w)` — the same
-// "S pinned to R" simplification every other panel in this step uses
-// (`texel_scale: 1.0`, `raster_px` == the point size); `UiPainter` itself
-// is what a later checkpoint (live UI scale) needs once `texel_scale`
-// actually varies.
+// of the literal bitmap glyph pipeline. Routed through `UiPainter` (7D-3
+// checkpoint 7) — `UiPainter::text_mono` is exactly the fixed-per-character-
+// pitch text draw this file needs, so it no longer keeps its own local
+// wrapper around `draw_text_run`.
 //
-// R73 (§3 in the master plan) fixed here two ways: `set_scissor` clips the
+// R73 (§3 in the master plan) fixed here two ways: `clip` restricts the
 // text area to its own rect (a long line or a wide identifier can no
 // longer bleed into a neighboring panel), and selection highlighting is
 // now a single per-line background FILL over the exact `(start, end)`
@@ -21,7 +19,7 @@
 // which highlighted a whole token even when the selection boundary
 // actually landed mid-token.
 
-use ember2d::renderer::{color::Color, DrawSurface, Font, TextRun};
+use ember2d::renderer::{color::Color, Font, UiPainter};
 use ember2d::theme::{PaletteRole, Theme};
 use ember2d_sim::math::{Rect, Vec2};
 
@@ -31,24 +29,9 @@ use super::script_layout::ScriptLayout;
 /// `EditorState::script_cursor` (7C-8, master plan §5.3).
 pub type ScriptPos = (usize, usize);
 
-/// `draw_text_run` with a fixed per-character `pitch` (points) and no
-/// background of its own — every mono text draw in this file goes through
-/// this one wrapper so none of them can forget `texel_scale: 1.0`.
-fn draw_mono(
-    renderer: &mut dyn DrawSurface,
-    font: &mut dyn Font,
-    text: &str,
-    pos: Vec2,
-    px: f32,
-    pitch: f32,
-    color: Color,
-) -> f32 {
-    renderer.draw_text_run(font, &TextRun { text, origin: pos, raster_px: px, texel_scale: 1.0, pitch: Some(pitch), color })
-}
-
 #[allow(clippy::too_many_arguments)]
 pub fn draw_script_editor(
-    renderer: &mut dyn DrawSurface,
+    painter: &mut UiPainter,
     font: &mut dyn Font,
     theme: &Theme,
     path: Option<&str>,
@@ -91,31 +74,31 @@ pub fn draw_script_editor(
     let text_px = theme.font_sizes.body;
 
     let layout = ScriptLayout::compute(theme, font, content, buffer.len(), error.is_some(), find_query.is_some());
-    renderer.fill_rect_px(content, bg_col);
+    painter.fill(content, bg_col);
 
     let title = match path {
         Some(p) => format!(" EDIT: {}{}", p, if unsaved { "*" } else { "" }),
         None => " (no script open) ".to_string(),
     };
-    renderer.fill_rect_px(layout.header, accent);
-    renderer.set_scissor(Some(layout.header));
-    let header_baseline = layout.header.y + font.ascent(text_px);
-    renderer.draw_text_px(font, &title, Vec2::new(layout.header.x, header_baseline), text_px, Color::Black);
-    renderer.set_scissor(None);
+    painter.fill(layout.header, accent);
+    painter.clip(Some(layout.header));
+    let header_baseline = layout.header.y + painter.ascent(font, text_px);
+    painter.text(font, &title, Vec2::new(layout.header.x, header_baseline), text_px, Color::Black);
+    painter.clip(None);
 
     if let Some(query) = find_query {
         let find_rect = layout.find_bar.expect("find_query.is_some() implies ScriptLayout reserved a find_bar rect");
-        renderer.fill_rect_px(find_rect, accent);
+        painter.fill(find_rect, accent);
         let text = format!(" Find: {}_", query);
-        let baseline = find_rect.y + font.ascent(text_px);
-        renderer.set_scissor(Some(find_rect));
-        renderer.draw_text_px(font, &text, Vec2::new(find_rect.x, baseline), text_px, Color::Black);
-        renderer.set_scissor(None);
+        let baseline = find_rect.y + painter.ascent(font, text_px);
+        painter.clip(Some(find_rect));
+        painter.text(font, &text, Vec2::new(find_rect.x, baseline), text_px, Color::Black);
+        painter.clip(None);
     }
 
     if buffer.is_empty() && path.is_none() {
-        let baseline = layout.text.y + font.ascent(text_px);
-        renderer.draw_text_px(
+        let baseline = layout.text.y + painter.ascent(font, text_px);
+        painter.text(
             font,
             "Select a .rhai file from the Files panel to edit.",
             Vec2::new(layout.text.x, baseline),
@@ -131,19 +114,19 @@ pub fn draw_script_editor(
     // R73: clips every source line to the text area's own rect — a long
     // line or a wide identifier can no longer paint past this panel's own
     // bounds into whatever's drawn next to it.
-    renderer.set_scissor(Some(layout.text));
+    painter.clip(Some(layout.text));
 
     for (i, line) in buffer.iter().enumerate().skip(scroll).take(layout.visible_rows) {
         let row_y = layout.text.y + (i - scroll) as f32 * layout.row_h;
         let row_rect = Rect::new(layout.text.x, row_y, layout.text.w, layout.row_h);
 
         if err_line == Some(i) {
-            renderer.fill_rect_px(row_rect, danger);
+            painter.fill(row_rect, danger);
         }
 
         let num_str = format!("{:>width$} ", i + 1, width = layout.gutter_digits);
-        let num_baseline = row_y + font.ascent(text_px);
-        draw_mono(renderer, font, &num_str, Vec2::new(layout.text.x, num_baseline), text_px, layout.char_w, dim);
+        let num_baseline = row_y + painter.ascent(font, text_px);
+        painter.text_mono( font, &num_str, Vec2::new(layout.text.x, num_baseline), text_px, layout.char_w, dim);
 
         let line_char_count = line.chars().count();
         let visible_cols = layout.visible_cols();
@@ -176,12 +159,12 @@ pub fn draw_script_editor(
                     (e - s) as f32 * layout.char_w,
                     layout.row_h,
                 );
-                renderer.fill_rect_px(sel_rect, selection_bg);
+                painter.fill(sel_rect, selection_bg);
             }
         }
 
         draw_highlighted_rhai(
-            renderer,
+            painter,
             font,
             layout.line_x,
             row_y,
@@ -193,7 +176,7 @@ pub fn draw_script_editor(
         );
         if clipped {
             let marker_x = layout.line_x + highlight_cols as f32 * layout.char_w;
-            draw_mono(renderer, font, "\u{2026}", Vec2::new(marker_x, num_baseline), text_px, layout.char_w, dim);
+            painter.text_mono( font, "\u{2026}", Vec2::new(marker_x, num_baseline), text_px, layout.char_w, dim);
         }
 
         if i == cursor.1 && cursor.0 >= hscroll {
@@ -208,8 +191,8 @@ pub fn draw_script_editor(
             let cursor_x = layout.line_x + visible_col as f32 * layout.char_w;
             if cursor_x < layout.text.x + layout.text.w {
                 let char_at_cursor = line.chars().nth(cursor.0).unwrap_or(' ');
-                renderer.fill_rect_px(Rect::new(cursor_x, row_y, layout.char_w, layout.row_h), accent);
-                renderer.draw_text_px(
+                painter.fill(Rect::new(cursor_x, row_y, layout.char_w, layout.row_h), accent);
+                painter.text(
                     font,
                     &char_at_cursor.to_string(),
                     Vec2::new(cursor_x, num_baseline),
@@ -219,15 +202,15 @@ pub fn draw_script_editor(
             }
         }
     }
-    renderer.set_scissor(None);
+    painter.clip(None);
 
     if let (Some((line, msg)), Some(error_rect)) = (error, layout.error) {
         let text = format!(" ERROR Line {}: {}", line + 1, msg);
-        let baseline = error_rect.y + font.ascent(text_px);
-        renderer.fill_rect_px(error_rect, danger);
-        renderer.set_scissor(Some(error_rect));
-        renderer.draw_text_px(font, &text, Vec2::new(error_rect.x, baseline), text_px, theme.role_color(PaletteRole::TitleText));
-        renderer.set_scissor(None);
+        let baseline = error_rect.y + painter.ascent(font, text_px);
+        painter.fill(error_rect, danger);
+        painter.clip(Some(error_rect));
+        painter.text(font, &text, Vec2::new(error_rect.x, baseline), text_px, theme.role_color(PaletteRole::TitleText));
+        painter.clip(None);
     }
 }
 
@@ -305,13 +288,13 @@ fn block_comment_starts(buffer: &[String]) -> Vec<bool> {
 /// background at all — every character's background was already painted
 /// by `draw_script_editor`'s own selection-fill pass (or the row's base
 /// fill) before this runs; this only ever draws FOREGROUND glyphs now,
-/// batched into one `draw_mono` call per same-colored run (a whole
+/// batched into one `UiPainter::text_mono` call per same-colored run (a whole
 /// identifier/keyword, a whole string, a whole line comment) rather than
 /// one call per character, which both draws faster and can never
 /// misalign a run's own characters from each other.
 #[allow(clippy::too_many_arguments)]
 fn draw_highlighted_rhai(
-    renderer: &mut dyn DrawSurface,
+    painter: &mut UiPainter,
     font: &mut dyn Font,
     x: f32,
     y: f32,
@@ -327,7 +310,7 @@ fn draw_highlighted_rhai(
         "try", "catch", "private", "global",
     ];
 
-    let baseline_y = y + font.ascent(text_px);
+    let baseline_y = y + painter.ascent(font, text_px);
     let mut col = 0usize;
     let mut i = 0;
     let chars: Vec<char> = line.chars().collect();
@@ -358,7 +341,7 @@ fn draw_highlighted_rhai(
             }
             let run: String = chars[start..i].iter().collect();
             let run_cols = run.chars().count();
-            draw_mono(renderer, font, &run, at!(col), text_px, char_w, Color::Grey);
+            painter.text_mono( font, &run, at!(col), text_px, char_w, Color::Grey);
             col += run_cols;
             continue;
         }
@@ -370,7 +353,7 @@ fn draw_highlighted_rhai(
         // Comments
         if ch == '/' && i + 1 < chars.len() && chars[i + 1] == '/' {
             let rest: String = chars[i..].iter().collect();
-            draw_mono(renderer, font, &rest, at!(col), text_px, char_w, Color::Grey);
+            painter.text_mono( font, &rest, at!(col), text_px, char_w, Color::Grey);
             return;
         }
 
@@ -386,14 +369,14 @@ fn draw_highlighted_rhai(
             }
             let run: String = chars[start..i].iter().collect();
             let run_cols = run.chars().count();
-            draw_mono(renderer, font, &run, at!(col), text_px, char_w, Color::Yellow);
+            painter.text_mono( font, &run, at!(col), text_px, char_w, Color::Yellow);
             col += run_cols;
             continue;
         }
 
         // Numbers
         if ch.is_ascii_digit() {
-            draw_mono(renderer, font, &ch.to_string(), at!(col), text_px, char_w, Color::Magenta);
+            painter.text_mono( font, &ch.to_string(), at!(col), text_px, char_w, Color::Magenta);
             col += 1;
             i += 1;
             continue;
@@ -408,7 +391,7 @@ fn draw_highlighted_rhai(
             let word: String = chars[start..i].iter().collect();
             let color = if keywords.contains(&word.as_str()) { Color::Cyan } else { Color::White };
             let word_cols = word.chars().count();
-            draw_mono(renderer, font, &word, at!(col), text_px, char_w, color);
+            painter.text_mono( font, &word, at!(col), text_px, char_w, color);
             col += word_cols;
             continue;
         }
@@ -420,7 +403,7 @@ fn draw_highlighted_rhai(
             ',' | ';' | ':' | '.' => Color::Grey,
             _ => Color::White,
         };
-        draw_mono(renderer, font, &ch.to_string(), at!(col), text_px, char_w, color);
+        painter.text_mono( font, &ch.to_string(), at!(col), text_px, char_w, color);
         col += 1;
         i += 1;
     }

@@ -98,8 +98,17 @@ pub struct EditorHarness {
     prev_positions: HashMap<EntityId, Vec2>,
     elapsed: f32,
     /// The `NullRenderer`'s reported render/OS display scale (7D-3, master
-    /// plan §5.4) — `(1, 1.0)` by default, matching every pre-7D-3 test's
-    /// implicit assumption that points == logical pixels. `with_display`/
+    /// plan §5.4) — `(2, 1.0)` by default: `UiScaleChoice::Auto` (every
+    /// `EditorState`'s own default preference) resolves a 100% OS scale
+    /// factor to `ui_scale == 2` (this step's own "100%→2 = today" design
+    /// note), so `render_scale: 2` is the one default that keeps points ==
+    /// logical for every pre-checkpoint-7 test's implicit assumption, and
+    /// is the realistic default besides — `Renderer.scale` is never
+    /// actually 1 in the real app (`MIN_UI_SCALE`). Was `(1, 1.0)` through
+    /// this step's `effective_ui_scale` pin (checkpoints 2-6); un-pinning
+    /// it (this step's final checkpoint) made that combination diverge
+    /// `ui_scale` from `render_scale` for every single test that didn't
+    /// explicitly ask for a specific `DisplayScale`. `with_display`/
     /// `with_state_and_display` are the only constructors that set anything
     /// else.
     display: DisplayScale,
@@ -132,7 +141,7 @@ impl EditorHarness {
     /// harness's own default — for tests that need control over
     /// `save_path`/`grid` before the first frame renders.
     pub fn with_state(state: EditorState) -> Self {
-        Self::with_state_and_display(state, DisplayScale { render_scale: 1, os_scale_factor: 1.0 })
+        Self::with_state_and_display(state, DisplayScale { render_scale: 2, os_scale_factor: 1.0 })
     }
 
     /// As `new()`, but reporting `display` instead of the `(1, 1.0)`
@@ -424,7 +433,12 @@ pub fn open_menu(h: &mut EditorHarness, kind: MenuKind) {
         .ui_frame()
         .rect_of(WidgetId::MenuLabel(kind))
         .expect("menu label not found in the last render pass");
-    h.click(rect.x + 1.0, rect.y + 1.0);
+    // 7D-3 checkpoint 7 (master plan §5.4): `rect_of` is points-space
+    // (`UiFrame` is populated by the `UiPainter` draw side now) but
+    // `click`/`move_mouse` take LOGICAL pixels — every helper below that
+    // reads a widget's own rect back converts it the same way.
+    let k = h.state.ui_space().pt_to_logical();
+    h.click((rect.x + 1.0) * k, (rect.y + 1.0) * k);
     assert_eq!(h.state.active_menu(), Some(kind), "clicking the label did not open its dropdown");
 }
 
@@ -445,7 +459,9 @@ pub fn click_menu_item(
         .ui_frame()
         .rect_of(WidgetId::MenuItem(kind, idx))
         .expect("dropdown item not found in the last render pass");
-    h.click(rect.x + 1.0, rect.y + 1.0);
+    // 7D-3 checkpoint 7: points -> logical, same as `open_menu` above.
+    let k = h.state.ui_space().pt_to_logical();
+    h.click((rect.x + 1.0) * k, (rect.y + 1.0) * k);
 }
 
 /// `click_menu_item`'s counterpart for `MenuKind::Theme` (7D-4, master plan
@@ -463,7 +479,9 @@ pub fn click_theme_menu_item(h: &mut EditorHarness, name: &str) {
         .ui_frame()
         .rect_of(WidgetId::MenuItem(MenuKind::Theme, idx))
         .expect("theme dropdown item not found in the last render pass");
-    h.click(rect.x + 1.0, rect.y + 1.0);
+    // 7D-3 checkpoint 7: points -> logical, same as `open_menu` above.
+    let k = h.state.ui_space().pt_to_logical();
+    h.click((rect.x + 1.0) * k, (rect.y + 1.0) * k);
 }
 
 /// Brings `id` to the front of its own dock side by clicking its tab (7D
@@ -483,7 +501,9 @@ pub fn select_dock_tab(h: &mut EditorHarness, id: ember2d_editor::editor::panel:
         .ui_frame()
         .rect_of(WidgetId::Tab(id))
         .unwrap_or_else(|| panic!("{id:?}'s dock tab was not drawn in the last render pass"));
-    h.click(rect.x + 1.0, rect.y + 1.0);
+    // 7D-3 checkpoint 7: points -> logical, same as `open_menu` above.
+    let k = h.state.ui_space().pt_to_logical();
+    h.click((rect.x + 1.0) * k, (rect.y + 1.0) * k);
     h.frame();
 }
 
@@ -495,7 +515,11 @@ pub fn select_dock_tab(h: &mut EditorHarness, id: ember2d_editor::editor::panel:
 /// level's own tiles.
 pub fn canvas_center(h: &EditorHarness) -> (f32, f32) {
     let metrics = ChromeMetrics::from_theme(h.state.theme());
-    let vp = h.state.panels().viewport().content_rect(&metrics);
+    let vp_pt = h.state.panels().viewport().content_rect(&metrics);
+    // 7D-3 checkpoint 7 (master plan §5.4): `content_rect` is points-space
+    // now, but canvas positions stay LOGICAL forever (7C-9 decision gate)
+    // — converted the same way `mouse_to_grid`/`input/canvas.rs` do.
+    let vp = h.state.ui_space().rect_to_logical(vp_pt.into());
     (vp.x + vp.w / 2.0, vp.y + vp.h / 2.0)
 }
 
@@ -505,7 +529,10 @@ pub fn canvas_center(h: &EditorHarness) -> (f32, f32) {
 /// 32x20 at zoom 1.0/scroll (0,0), so a small `(gx, gy)` lands inside it.
 pub fn canvas_pixel_for_grid(h: &EditorHarness, gx: i32, gy: i32) -> (f32, f32) {
     let metrics = ChromeMetrics::from_theme(h.state.theme());
-    let vp = h.state.panels().viewport().content_rect(&metrics);
+    let vp_pt = h.state.panels().viewport().content_rect(&metrics);
+    // 7D-3 checkpoint 7: points -> logical, same as `canvas_center` above
+    // — `CELL_W`/`CELL_H` below are logical-pixel constants.
+    let vp = h.state.ui_space().rect_to_logical(vp_pt.into());
     let zoom = 1.0; // EditorState::new's default
     let local_x = (gx as f32 - 0.0 /* scroll.0 */ + 0.5) * zoom;
     let local_y = (gy as f32 - 0.0 /* scroll.1 */ + 0.5) * zoom;

@@ -101,11 +101,21 @@ impl EditorState {
     /// script editor's own title/status bars are the same height as the
     /// docked editor's title/menu/status bars, not an independent size.
     pub(super) fn render_script_mode(&mut self, renderer: &mut dyn DrawSurface, metrics: &ui::ChromeMetrics) {
+        use ember2d::renderer::UiPainter;
         use ember2d::theme::PaletteRole;
         use ember2d_sim::math::{Rect, Vec2};
 
-        let sw = renderer.pixel_width() as f32;
-        let sh = renderer.pixel_height() as f32;
+        // 7D-3 checkpoint 7 (master plan §5.4): one `UiPainter` for this
+        // fullscreen mode too — see `impl_render/mod.rs`'s own `draw()` for
+        // why every chrome draw call needs one now. `sw`/`sh` come from
+        // `painter.space().screen_pt()` (POINTS), not
+        // `renderer.pixel_width()/height()`'s raw LOGICAL size — this
+        // fullscreen chrome sizes itself in points (`metrics.bar_h`,
+        // `script_fullscreen_rect`), so it must measure the screen in
+        // points too, same reasoning `impl_render/mod.rs`'s own
+        // `screen_pt_w`/`screen_pt_h` documents.
+        let mut painter = UiPainter::new(renderer, self.ui_space);
+        let (sw, sh) = painter.space().screen_pt();
         let bar_h = metrics.bar_h;
         let text_px = self.theme.font_sizes.body;
         let accent = self.theme.role_color(PaletteRole::Accent);
@@ -122,11 +132,11 @@ impl EditorState {
             None => " SCRIPT EDITOR — (no file) ".to_string(),
         };
         let title_rect = Rect::new(0.0, 0.0, sw, bar_h);
-        renderer.fill_rect_px(title_rect, accent);
-        renderer.set_scissor(Some(title_rect));
-        let title_baseline = self.font.ascent(text_px);
-        renderer.draw_text_px(self.font.as_mut(), &title, Vec2::new(0.0, title_baseline), text_px, Color::Black);
-        renderer.set_scissor(None);
+        painter.fill(title_rect, accent);
+        painter.clip(Some(title_rect));
+        let title_baseline = painter.ascent(self.font.as_ref(), text_px);
+        painter.text(self.font.as_mut(), &title, Vec2::new(0.0, title_baseline), text_px, Color::Black);
+        painter.clip(None);
 
         // Editor area — `script_error`'s message is copied to an owned
         // `String` (not `self.script_error()`'s own borrowed `&str`) so it
@@ -135,7 +145,7 @@ impl EditorState {
         let script_error = self.script_error().map(|(line, msg)| (line, msg.to_string()));
         let script_selection = self.script_selection();
         ui::draw_script_editor(
-            renderer,
+            &mut painter,
             self.code_font.as_mut(),
             &self.theme,
             self.script_path.as_deref(),
@@ -154,10 +164,10 @@ impl EditorState {
         let status =
             format!(" Line: {:<4} Col: {:<4} ", self.script_cursor.1 + 1, self.script_cursor.0 + 1);
         let status_rect = Rect::new(0.0, sh - bar_h, sw, bar_h);
-        renderer.fill_rect_px(status_rect, panel_bg);
-        renderer.set_scissor(Some(status_rect));
-        let status_baseline = status_rect.y + self.font.ascent(text_px);
-        renderer.draw_text_px(self.font.as_mut(), &status, Vec2::new(0.0, status_baseline), text_px, text_fg);
-        renderer.set_scissor(None);
+        painter.fill(status_rect, panel_bg);
+        painter.clip(Some(status_rect));
+        let status_baseline = status_rect.y + painter.ascent(self.font.as_ref(), text_px);
+        painter.text(self.font.as_mut(), &status, Vec2::new(0.0, status_baseline), text_px, text_fg);
+        painter.clip(None);
     }
 }

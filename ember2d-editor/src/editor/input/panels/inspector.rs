@@ -40,9 +40,13 @@ impl EditorState {
             }
         };
         if self.panels.visible(PanelId::Inspector) && mouse.left_just_pressed() && mouse.in_bounds {
+            // 7D-3 checkpoint 7 (master plan §5.4): logical -> points, the
+            // input choke point every chrome hit-test in this file goes
+            // through.
+            let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
             let p = self.panels.get(PanelId::Inspector);
-            if p.contains(mouse.pixel_x, mouse.pixel_y) {
-                let hit = self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y);
+            if p.contains(px, py) {
+                let hit = self.ui_frame.hit(px, py);
                 self.ignore_drag = true;
 
                 if self.hierarchy_sel == Some(HierarchySelection::Player) {

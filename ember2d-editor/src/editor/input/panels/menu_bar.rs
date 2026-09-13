@@ -31,7 +31,10 @@ impl EditorState {
         if !mouse.left_just_pressed() {
             return false;
         }
-        match self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) {
+        // 7D-3 checkpoint 7: logical -> points, the same input choke point
+        // `handle_panel_chrome_click` uses.
+        let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
+        match self.ui_frame.hit(px, py) {
             Some(WidgetId::MenuLabel(kind)) => {
                 self.active_menu = if self.active_menu == Some(kind) { None } else { Some(kind) };
                 self.ignore_drag = true;
@@ -60,8 +63,11 @@ impl EditorState {
         if mouse.left_just_pressed() {
             // `UiFrame::hit` replaces the removed `menu_item_at` —
             // re-resolve the actual action from the same `menu_entries`
-            // list `draw_menu_dropdown` drew from, by index.
-            let action = match self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) {
+            // list `draw_menu_dropdown` drew from, by index. 7D-3
+            // checkpoint 7: logical -> points, same input choke point as
+            // `handle_menu_bar_click`.
+            let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
+            let action = match self.ui_frame.hit(px, py) {
                 Some(WidgetId::MenuItem(hit_menu, idx)) if hit_menu == menu => {
                     // `MenuKind::Theme`'s entries are runtime-known — same
                     // special case `draw_menu_dropdown` (`ui/menu.rs`)
@@ -132,6 +138,15 @@ impl EditorState {
                         // `EditorState::switch_theme`'s own doc comment
                         // (theme_loader.rs).
                         self.switch_theme(&name);
+                        return true;
+                    }
+                    ToolbarAction::SetUiScale(choice) => {
+                        // 7D-3 checkpoint 7 (master plan §5.4): persists
+                        // immediately (`set_ui_scale`, `theme_loader.rs`) —
+                        // takes effect on the very next `draw()`, which
+                        // reads `effective_ui_scale()` and rebuilds fonts
+                        // if the resolved scale actually changed.
+                        self.set_ui_scale(choice);
                         return true;
                     }
                     _ => {

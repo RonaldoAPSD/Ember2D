@@ -92,7 +92,14 @@ impl EditorState {
     /// see `Panel::contains`'s own doc comment for why.
     fn handle_panel_chrome_click(&mut self, mouse: &ember2d::mouse::MouseState) -> bool {
         if mouse.left_just_pressed() && mouse.in_bounds {
-            let (px, py) = (mouse.pixel_x, mouse.pixel_y);
+            // 7D-3 checkpoint 7 (master plan §5.4): `UiFrame`/`Panel::rect`
+            // are POINTS-space; `mouse.pixel_x/y` are LOGICAL — the INPUT
+            // choke point (`UiSpace::logical_to_pt`, its own doc comment)
+            // converts once here for every chrome hit-test below. Only
+            // needed once `ui_scale` can actually differ from
+            // `render_scale` (this step's own final checkpoint) — the two
+            // agreed numerically at every earlier checkpoint.
+            let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
             let hit = self.ui_frame.hit(px, py);
 
             // Tabs (switch active panel in dock) — matches the old
@@ -161,11 +168,14 @@ impl EditorState {
         // `PanelManager` call site this step touched.
         let metrics = super::super::ui::ChromeMetrics::from_theme(&self.theme);
         if mouse.left_held() {
+            // 7D-3 checkpoint 7: `mouse.pixel_x/y` (logical) -> points, same
+            // input choke point `handle_panel_chrome_click` uses.
+            let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
             let (sw_pt, sh_pt) = self.panels.screen_size_pt();
             if self.panels.is_dragging() {
-                self.panels.update_drag(mouse.pixel_x, mouse.pixel_y, sw_pt, sh_pt, &metrics);
+                self.panels.update_drag(px, py, sw_pt, sh_pt, &metrics);
             } else if self.panels.is_resizing() {
-                self.panels.update_resize(mouse.pixel_x, mouse.pixel_y, &metrics);
+                self.panels.update_resize(px, py, &metrics);
             }
         }
         if mouse.left_just_released() {

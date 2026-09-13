@@ -64,7 +64,10 @@ fn the_theme_menu_lists_one_entry_per_available_theme() {
     let available = h.state.available_themes();
     let entries = theme_menu_entries(available);
 
-    assert_eq!(entries.len(), available.len());
+    // 7D-3 checkpoint 7 (master plan §5.4): the theme list is followed by a
+    // separator and the UI Scale picker (`UiScaleChoice::ALL`), not just
+    // one entry per theme.
+    assert_eq!(entries.len(), available.len() + 1 + UiScaleChoice::ALL.len());
     for name in available {
         assert!(
             entries
@@ -129,24 +132,30 @@ fn selecting_a_theme_from_its_menu_persists_it_to_prefs() {
 }
 
 #[test]
-fn the_harness_at_render_scale_2_still_round_trips_menu_clicks() {
-    // `ui_scale` is PINNED to `render_scale` in this checkpoint
-    // (`EditorState::effective_ui_scale`'s own doc comment) — this both
-    // exercises the harness's new `with_display` construction and pins
-    // that pin's own behavior down as a regression test.
+fn menu_clicks_round_trip_when_ui_scale_genuinely_diverges_from_render_scale() {
+    // 7D-3 checkpoint 7 (master plan §5.4): `effective_ui_scale` is un-pinned
+    // as of this checkpoint — `UiScaleChoice::Auto.resolve(os_scale_factor)`
+    // (`os_scale_factor: 2.0` here resolves to `ui_scale == 4`) no longer
+    // has any reason to equal `render_scale` (`2` here). This was
+    // `the_harness_at_render_scale_2_still_round_trips_menu_clicks` through
+    // checkpoints 2-6, when the two were still deliberately pinned equal —
+    // renamed and re-pointed at the real S=4/R=2 divergence this checkpoint
+    // makes possible, since `open_menu`/`click_theme_menu_item` (tests/
+    // common/mod.rs) converting `rect_of`'s points-space rects to logical
+    // before clicking is exactly what this test exists to prove works.
     let mut h = EditorHarness::with_display(DisplayScale { render_scale: 2, os_scale_factor: 2.0 });
+    assert_eq!(h.state.ui_space().render_scale(), 2);
+    assert_eq!(
+        h.state.ui_space().ui_scale(),
+        4,
+        "Auto at os_scale_factor 2.0 must resolve to ui_scale 4, independent of render_scale"
+    );
     open_menu(&mut h, MenuKind::Theme);
     click_theme_menu_item(&mut h, "ember-clean");
     assert_eq!(
         h.state.active_menu(),
         None,
-        "picking a theme must close its dropdown even at render_scale 2"
-    );
-    assert_eq!(h.state.ui_space().render_scale(), 2);
-    assert_eq!(
-        h.state.ui_space().ui_scale(),
-        2,
-        "ui_scale is pinned to render_scale in this checkpoint"
+        "picking a theme must close its dropdown even with ui_scale != render_scale"
     );
 }
 
@@ -190,7 +199,12 @@ fn r70_switching_levels_keeps_the_active_theme_fonts_and_prefs() {
         .ui_frame()
         .rect_of(WidgetId::FileBrowserRow(0))
         .expect("other.level's row was not drawn");
-    h.click(row_rect.x + 1.0, row_rect.y + 1.0);
+    // 7D-3 checkpoint 7 (master plan §5.4): `rect_of` is points-space, but
+    // `click` takes LOGICAL pixels — this test deliberately runs at
+    // `ui_scale` (Fixed(3)) != `render_scale` (2, the harness default), so
+    // unlike most callers of `rect_of` this one can't skip the conversion.
+    let k = h.state.ui_space().pt_to_logical();
+    h.click((row_rect.x + 1.0) * k, (row_rect.y + 1.0) * k);
 
     assert_eq!(h.state.grid().width, 4, "the level switch must have actually happened");
     assert_eq!(

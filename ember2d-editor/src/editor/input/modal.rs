@@ -32,7 +32,10 @@ impl EditorState {
         // `draw_button`) instead of recomputing `mx`/`btn_y`/
         // `yes_x`/`no_x` independently here (E5).
         if mouse.left_just_pressed() && mouse.in_bounds {
-            match self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) {
+            // 7D-3 checkpoint 7 (master plan §5.4): logical -> points, the
+            // input choke point every chrome hit-test now goes through.
+            let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
+            match self.ui_frame.hit(px, py) {
                 Some(WidgetId::ConfirmYes) => {
                     self.confirm_modal(modal);
                     return;

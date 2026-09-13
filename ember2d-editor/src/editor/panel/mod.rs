@@ -583,7 +583,28 @@ impl PanelManager {
                         p.rect.w = (screen_w - left_w - right_w).max(0.0);
                         p.rect.h = bottom_h;
                     }
-                    DockSide::None => {}
+                    // 7D-3 checkpoint 7 (master plan §5.4): a floating
+                    // panel's own `rect.x/y` is never touched by anything
+                    // above (unlike a docked one, rebuilt from scratch every
+                    // frame) — `input/context_menu.rs`'s `FloatPanel` action
+                    // places it at a fixed points offset, and dragging
+                    // leaves it wherever the user let go. Neither ever
+                    // accounted for the window's own points BUDGET shrinking
+                    // out from under it when `ui_scale` grows (a bigger
+                    // `ui_scale` means fewer points fit in the same
+                    // window) — a panel floated at a fixed offset could end
+                    // up with its own title bar entirely off-screen, with no
+                    // way to drag it back since that title bar is what a
+                    // drag grabs in the first place. Clamped back into
+                    // `[0, screen_w] x [canvas_top, canvas_bottom]` every
+                    // frame, the same way a real OS window manager keeps a
+                    // dragged window's title bar reachable.
+                    DockSide::None => {
+                        let max_x = (screen_w - p.rect.w).max(0.0);
+                        let max_y = (canvas_bottom - p.rect.h).max(canvas_top);
+                        p.rect.x = p.rect.x.clamp(0.0, max_x);
+                        p.rect.y = p.rect.y.clamp(canvas_top, max_y);
+                    }
                 },
             }
         }

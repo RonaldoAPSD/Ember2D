@@ -30,7 +30,11 @@ impl EditorState {
         input: &ember2d::input::InputManager,
         mouse: &ember2d::mouse::MouseState,
     ) {
-        let hit = self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y);
+        // 7D-3 checkpoint 7 (master plan §5.4): logical -> points, the
+        // input choke point (`UiSpace::logical_to_pt`) every chrome
+        // hit-test now goes through.
+        let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
+        let hit = self.ui_frame.hit(px, py);
 
         if let Some(WidgetId::ContextMenuRow(idx)) = hit {
             menu.selected = idx;

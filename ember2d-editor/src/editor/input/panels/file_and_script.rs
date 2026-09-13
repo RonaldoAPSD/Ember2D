@@ -17,8 +17,12 @@ impl EditorState {
     /// the panel's content origin independently here (E5).
     pub(super) fn handle_file_browser_click(&mut self, mouse: &ember2d::mouse::MouseState) -> bool {
         if self.panels.visible(PanelId::FileBrowser) && mouse.in_bounds {
+            // 7D-3 checkpoint 7 (master plan §5.4): logical -> points, the
+            // input choke point every chrome hit-test in this file goes
+            // through — `Panel::rect`/`UiFrame` are points-space.
+            let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
             let p = self.panels.get(PanelId::FileBrowser);
-            if p.contains(mouse.pixel_x, mouse.pixel_y) {
+            if p.contains(px, py) {
                 // R72 (§3 in the master plan): was `p.content_h()` (a
                 // CELL-ROUNDED row count) minus a literal `1` — an
                 // approximation of `draw_file_browser_panel`'s own
@@ -41,9 +45,7 @@ impl EditorState {
                 }
 
                 if mouse.left_just_pressed() {
-                    if let Some(WidgetId::FileBrowserRow(row_idx)) =
-                        self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y)
-                    {
+                    if let Some(WidgetId::FileBrowserRow(row_idx)) = self.ui_frame.hit(px, py) {
                         self.ignore_drag = true;
                         self.file_browser_cursor = row_idx;
                         let raw_name = self.file_browser_files[row_idx].clone();
@@ -148,8 +150,13 @@ impl EditorState {
         mouse: &ember2d::mouse::MouseState,
     ) -> bool {
         if self.panels.visible(PanelId::ScriptEditor) && mouse.in_bounds {
+            // 7D-3 checkpoint 7: logical -> points, same input choke point
+            // as `handle_file_browser_click` above — `ScriptLayout` (built
+            // from a points-space `content_rect`) needs a points-space
+            // pixel position too.
+            let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
             let p = self.panels.get(PanelId::ScriptEditor);
-            if p.contains(mouse.pixel_x, mouse.pixel_y) {
+            if p.contains(px, py) {
                 let metrics = ChromeMetrics::from_theme(&self.theme);
                 let content = p.content_rect(&metrics);
                 let has_error = self.script_error().is_some();
@@ -172,13 +179,9 @@ impl EditorState {
 
                 if mouse.left_just_pressed() {
                     self.ignore_drag = true;
-                    if let Some((col, row)) = layout.hit(
-                        mouse.pixel_x,
-                        mouse.pixel_y,
-                        self.script_scroll,
-                        self.script_hscroll,
-                        &self.script_buffer,
-                    ) {
+                    if let Some((col, row)) =
+                        layout.hit(px, py, self.script_scroll, self.script_hscroll, &self.script_buffer)
+                    {
                         self.script_cursor = (col, row);
                     }
                     return true;

@@ -48,17 +48,30 @@ impl UiSpace {
     }
 
     /// Builds a `UiSpace` from a live `DrawSurface`'s own reported
-    /// `display_scale()` (the render scale) and `pixel_width`/`pixel_height`
-    /// (the physical screen size — divided back down to logical here, since
-    /// `screen_logical` is this type's own unit). `ui_scale` is the
-    /// caller's resolved preference (`EditorState::effective_ui_scale`) —
-    /// this function has no opinion on where that number comes from.
+    /// `display_scale()` (the render scale) and `pixel_width`/`pixel_height`.
+    /// `ui_scale` is the caller's resolved preference
+    /// (`EditorState::effective_ui_scale`) — this function has no opinion
+    /// on where that number comes from.
+    ///
+    /// R84 (7D-3 checkpoint 7, docs/ember2d-master-plan.md §5.4): despite
+    /// the name, `DrawSurface::pixel_width`/`pixel_height` are already
+    /// LOGICAL pixels throughout this codebase — `Renderer::pixel_width`
+    /// is `cells * CELL_W`, itself `floor(physical_width / (CELL_W *
+    /// scale)) * CELL_W`, i.e. physical already divided by `scale`
+    /// (`geometry::compute_layout`) — the same space `MouseState::pixel_x`/
+    /// `NullRenderer`'s own `pixel_w` constructor argument already live in.
+    /// This constructor used to divide that value by `render_scale` a
+    /// SECOND time, silently halving `screen_logical` (and, once anything
+    /// actually consumed `screen_pt()`/`rect_to_logical()` — checkpoint 7,
+    /// not before — halving every panel/modal/menu on any display where
+    /// `render_scale` isn't exactly `1`, i.e. every real display, since
+    /// `MIN_UI_SCALE` floors it at `2`). No earlier checkpoint of this step
+    /// caught it: `self.ui_space` was only ever captured and read back
+    /// as a value, never actually multiplied into a drawn pixel, until
+    /// this one.
     pub fn from_surface(surface: &dyn super::DrawSurface, ui_scale: u32) -> Self {
         let display = surface.display_scale();
-        let screen_logical = (
-            surface.pixel_width() as f32 / display.render_scale as f32,
-            surface.pixel_height() as f32 / display.render_scale as f32,
-        );
+        let screen_logical = (surface.pixel_width() as f32, surface.pixel_height() as f32);
         UiSpace::new(ui_scale, display.render_scale, screen_logical)
     }
 
@@ -79,6 +92,25 @@ impl UiSpace {
 
     pub fn render_scale(self) -> u32 {
         self.render_scale
+    }
+
+    /// Logical pixels per RASTER pixel (`1 / R`) — `UiPainter::text`/
+    /// `text_mono`'s own `texel_scale`, distinct from `pt_to_logical`
+    /// (`S / R`, points-space).
+    ///
+    /// R85 (7D-3 checkpoint 7, docs/ember2d-master-plan.md §5.4): text used
+    /// `pt_to_logical` (`S/R`) for `texel_scale` too, double-counting `S` —
+    /// a glyph is rasterized at `raster_px = pt * S` (`UiSpace::raster_px`),
+    /// i.e. its bitmap is ALREADY `S` times bigger than the plain point
+    /// size; drawing that bitmap at `S/R` logical pixels per texel (instead
+    /// of `1/R`) scaled it up by `S` a SECOND time — chrome text rendered
+    /// `S`× too large the instant anything actually consumed
+    /// `texel_scale` in a live draw (checkpoint 7, not before). A 9-slice's
+    /// `border_scale` has no equivalent bug — an atlas texel is never
+    /// pre-scaled by `S` the way a glyph's own raster is, so it genuinely
+    /// needs the full `S/R` to reach the same on-screen size.
+    pub fn raster_to_logical(self) -> f32 {
+        1.0 / self.render_scale as f32
     }
 
     /// Logical pixels per point (`S / R`) — the one ratio every other
@@ -229,6 +261,26 @@ mod tests {
         let (lx, ly) = ui.to_logical(10.0, 4.0);
         assert_eq!((lx, ly), (15.0, 6.0));
         assert_eq!(ui.logical_to_pt(lx, ly), (10.0, 4.0));
+    }
+
+    /// R84 (7D-3 checkpoint 7, docs/ember2d-master-plan.md §5.4):
+    /// `from_surface` used to divide `DrawSurface::pixel_width`/
+    /// `pixel_height` by `render_scale` a SECOND time — those are already
+    /// logical pixels throughout this codebase (`Renderer::pixel_width` is
+    /// `cells * CELL_W`, itself already `physical / scale`,
+    /// `geometry::compute_layout`), so this silently halved
+    /// `screen_logical` on any display where `render_scale != 1` (every
+    /// real display, `MIN_UI_SCALE` floors it at 2).
+    #[test]
+    fn from_surface_does_not_divide_the_already_logical_pixel_size_again() {
+        use super::super::{DisplayScale, NullRenderer};
+        let surface = NullRenderer::with_display(1280, 720, DisplayScale { render_scale: 2, os_scale_factor: 2.0 });
+        let ui = UiSpace::from_surface(&surface, 2);
+        assert_eq!(
+            ui.screen_pt(),
+            (1280.0, 720.0),
+            "screen_pt() must equal the surface's own logical pixel_width/pixel_height, not half of it"
+        );
     }
 
     #[test]

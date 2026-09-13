@@ -29,7 +29,7 @@
 
 use super::frame::{UiFrame, WidgetId};
 use super::rect::UiRect;
-use ember2d::renderer::{color::Color, DrawSurface, Font, CELL_H, CELL_W};
+use ember2d::renderer::{color::Color, DrawSurface, Font, UiPainter, CELL_H, CELL_W};
 use ember2d_sim::math::{Rect, Vec2};
 
 /// One row of pixel-positioned text: a background fill sized to `rect`,
@@ -44,8 +44,13 @@ use ember2d_sim::math::{Rect, Vec2};
 /// not a cell index waiting to be multiplied out. Returns the text's own
 /// measured advance, so a caller can position whatever comes next on the
 /// same row (mirrors `DrawSurface::draw_text_px`'s own return value).
+/// Routed through `UiPainter` (7D-3 checkpoint 7, master plan §5.4) — the
+/// one choke point that actually applies `ui_scale` once it can differ
+/// from `render_scale`; every earlier checkpoint of this step called
+/// `DrawSurface` methods directly here, which was only safe while the two
+/// were pinned equal.
 pub fn draw_text_row(
-    renderer: &mut dyn DrawSurface,
+    painter: &mut UiPainter,
     font: &mut dyn Font,
     text: &str,
     rect: Rect,
@@ -53,9 +58,9 @@ pub fn draw_text_row(
     fg: Color,
     bg: Color,
 ) -> f32 {
-    renderer.fill_rect_px(rect, bg);
-    let baseline_y = rect.y + font.ascent(px);
-    renderer.draw_text_px(font, text, Vec2::new(rect.x, baseline_y), px, fg)
+    painter.fill(rect, bg);
+    let baseline_y = rect.y + painter.ascent(font, px);
+    painter.text(font, text, Vec2::new(rect.x, baseline_y), px, fg)
 }
 
 /// Same shape as `draw_row_px`, kept as its own named function for the
@@ -64,7 +69,7 @@ pub fn draw_text_row(
 /// action) even though the bodies are identical.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_button_px(
-    renderer: &mut dyn DrawSurface,
+    painter: &mut UiPainter,
     frame: &mut UiFrame,
     font: &mut dyn Font,
     id: WidgetId,
@@ -74,7 +79,7 @@ pub fn draw_button_px(
     fg: Color,
     bg: Color,
 ) {
-    draw_text_row(renderer, font, label, rect, px, fg, bg);
+    draw_text_row(painter, font, label, rect, px, fg, bg);
     frame.push(id, UiRect::new(rect.x, rect.y, rect.w, rect.h));
 }
 
@@ -82,7 +87,7 @@ pub fn draw_button_px(
 /// duplicates `draw_row_px`'s body under its own name.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_swatch_px(
-    renderer: &mut dyn DrawSurface,
+    painter: &mut UiPainter,
     frame: &mut UiFrame,
     font: &mut dyn Font,
     id: WidgetId,
@@ -92,7 +97,7 @@ pub fn draw_swatch_px(
     fg: Color,
     bg: Color,
 ) {
-    draw_text_row(renderer, font, label, rect, px, fg, bg);
+    draw_text_row(painter, font, label, rect, px, fg, bg);
     frame.push(id, UiRect::new(rect.x, rect.y, rect.w, rect.h));
 }
 
@@ -105,7 +110,7 @@ pub fn draw_swatch_px(
 /// removal).
 #[allow(clippy::too_many_arguments)]
 pub fn draw_row_px(
-    renderer: &mut dyn DrawSurface,
+    painter: &mut UiPainter,
     frame: &mut UiFrame,
     font: &mut dyn Font,
     id: WidgetId,
@@ -115,7 +120,7 @@ pub fn draw_row_px(
     fg: Color,
     bg: Color,
 ) {
-    draw_text_row(renderer, font, label, rect, px, fg, bg);
+    draw_text_row(painter, font, label, rect, px, fg, bg);
     frame.push(id, UiRect::new(rect.x, rect.y, rect.w, rect.h));
 }
 

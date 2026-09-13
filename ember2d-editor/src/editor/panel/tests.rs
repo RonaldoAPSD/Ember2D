@@ -231,3 +231,34 @@ fn docked_panels_never_shrink_below_the_minimum_size() {
     pm.update_resize(-10000.0, 100.0, &metrics);
     assert!(pm.get(PanelId::Hierarchy).rect.w >= metrics.min_w);
 }
+
+/// 7D-3 checkpoint 7 (master plan §5.4): a floating panel's own `rect.x/y`
+/// is never rebuilt from scratch the way a docked one is — `apply_layout`'s
+/// `DockSide::None` arm used to be a no-op, so a panel placed (or dragged)
+/// somewhere that the window's own points budget later shrinks out from
+/// under (a bigger `ui_scale` means fewer points fit in the same window)
+/// stayed off-screen forever, title bar included — with no way to drag it
+/// back since a drag starts by clicking that same now-unreachable title
+/// bar.
+#[test]
+fn a_floating_panel_left_off_screen_is_clamped_back_into_view_on_the_next_layout() {
+    let metrics = test_metrics();
+    let mut pm = PanelManager::new(640.0, 384.0, &metrics);
+    pm.apply_layout(640.0, 384.0, &metrics);
+    {
+        let p = pm.get_mut(PanelId::Hierarchy);
+        p.dock = DockSide::None;
+        p.rect.x = 10_000.0;
+        p.rect.y = 10_000.0;
+    }
+    pm.apply_layout(640.0, 384.0, &metrics);
+    let p = pm.get(PanelId::Hierarchy);
+    assert!(
+        p.rect.x + p.rect.w <= 640.0 + 0.001,
+        "a floating panel's right edge must be clamped back within the window"
+    );
+    assert!(
+        p.rect.y + p.rect.h <= metrics.chrome_bottom(384.0) + 0.001,
+        "a floating panel's bottom edge must be clamped back within the window"
+    );
+}

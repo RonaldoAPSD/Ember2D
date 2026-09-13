@@ -175,7 +175,7 @@ start screen's New/Open Project browsers start from.
 | **7A** | Stabilisation sprint | `[x]` `v0.5.7a` — A.10 |
 | **7B** | Renderer foundation | `[x]` `v0.5.7b` — A.11 |
 | 7C | Editor foundation | `[ ]` — §5.3 (all 9 steps `[x]`, 7C-9's own §7.1 decision recorded; phase gate itself — §3–§10 manual pass, tag `v0.5.7c` — pending the user) |
-| 7D | Theme and restyle | `[~]` — §5.4 (7D-1/7D-2/7D-4 done; 7D-3 still open, no longer blocked the same way — see its own investigation note) |
+| 7D | Theme and restyle | `[~]` — §5.4 (7D-2/7D-3 done; 7D-1/7D-4 each landed partial — see their own "Landed as" notes; phase gate itself — §3-§9 manual pass — pending the user) |
 | 7E | Editor features | `[ ]` — §5.5 |
 | 7.5 | Scripting completeness | `[ ]` — §5.6 |
 | 8 | Tilemap, assets, animation authoring | `[ ]` — §5.7 |
@@ -332,6 +332,9 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R81 | S4 | Neither the menu dropdown nor the context menu clamps its own position to stay on-screen — reachable today only at extreme window sizes, but a high UI scale on a short window makes it easy to open a dropdown whose bottom rows render off the bottom edge | `ember2d-editor/src/editor/ui/menu.rs`; `ui/panels/chrome.rs` (context menu) | `[ ]` unscheduled |
 | R82 | S4 | `GlyphAtlas::pack`'s shelf-packing places glyphs edge-to-edge with no padding between them — latent bleeding risk if texture filtering or non-integer glyph scaling is ever introduced (today's nearest-neighbour sampling with exact-pixel glyph draws doesn't trigger it) | `ember2d/src/renderer/font/atlas.rs` (`pack`) | `[ ]` unscheduled |
 | R83 | S4 | `ContextMenu.x`/`.y` are still `usize` cell coordinates (`mouse.cell_x`/`mouse.cell_y` at the moment a right-click opens one), converted to pixels once in `draw_context_menu` (`ui/panels/chrome.rs`) — the last chrome-content site still keyed off a cell reading rather than storing the exact `mouse.pixel_x`/`pixel_y` the click itself already carries. Not a functional bug today (the conversion is exact — `CELL_W`/`CELL_H` are the same compile-time constants on both sides) — found and left as-is by 7D-3's checkpoint 6 chrome audit, which fixed every OTHER live chrome CELL_W/CELL_H dependency it found | `ember2d-editor/src/editor/ui/types.rs` (`ContextMenu`); `input/panels/context_menu_trigger.rs` (every site that constructs one); `ui/panels/chrome.rs:439-440` (`draw_context_menu`'s conversion) | `[ ]` unscheduled — convert `ContextMenu.x`/`.y` to `f32` points, sourced from `mouse.pixel_x`/`pixel_y` directly, dropping the `CELL_W`/`CELL_H` conversion entirely |
+| **Found landing 7D-3 checkpoint 7 (live UI scale), 2026-09-13** | | | | |
+| R84 | S1 | `UiSpace::from_surface` divided `DrawSurface::pixel_width()`/`pixel_height()` by `render_scale` to get `screen_logical` — but those two are already LOGICAL pixels throughout this codebase (`Renderer::pixel_width = cells * CELL_W`, itself `floor(physical_width / (CELL_W * scale)) * CELL_W`, i.e. physical already divided by `scale`; the same space `MouseState::pixel_x`/`NullRenderer`'s own constructor argument already live in), so this divided by `render_scale` a SECOND time. Silent through every earlier checkpoint of this step because `self.ui_space` was only ever captured and read back as a VALUE, never actually multiplied into a drawn pixel, until this checkpoint's own `UiPainter`/input conversion started consuming `screen_pt()`/`rect_to_logical()` for real — at that point every panel, modal, and menu rendered at HALF size on any display where `render_scale` isn't exactly `1` (i.e. every real display, `MIN_UI_SCALE` floors it at `2`), overlapping the viewport | `ember2d/src/renderer/ui_space.rs` (`UiSpace::from_surface`) | `[x]` 7D-3 checkpoint 7 — `screen_logical` now reads `pixel_width()`/`pixel_height()` directly, no second division. Found via live screenshot (everything doubled in size, overlapping, viewport black) immediately after a fully-compiling, fully-test-passing build — no automated test caught it, since none of this step's earlier checkpoints ever exercised `from_surface` through a live draw at `render_scale != 1`. Regression test: `from_surface_does_not_divide_the_already_logical_pixel_size_again` (`renderer/ui_space.rs`) |
+| R85 | S1 | `UiPainter::text`/`text_mono` used `pt_to_logical()` (`ui_scale / render_scale`, `S/R`) for `texel_scale` — but a glyph's raster bitmap is already `ui_scale` times bigger than its point size (`UiSpace::raster_px(pt) = pt * S`), so drawing that ALREADY-`S`-scaled bitmap at `S/R` logical pixels per texel scaled it up by `S` a SECOND time, rendering chrome text `S`× too large. A 9-slice's `border_scale` has no equivalent bug (an atlas texel is never pre-scaled by `S` the way a glyph raster is, so it genuinely needs the full `S/R`) — text specifically needed `1/R` instead. A pre-existing unit test (`painter_text_rasterizes_at_points_times_ui_scale`, from checkpoint 1) asserted the buggy `S/R` value as correct, so nothing caught this until a live screenshot did | `ember2d/src/renderer/ui_painter.rs` (`text`, `text_mono`) | `[x]` 7D-3 checkpoint 7 — new `UiSpace::raster_to_logical() = 1 / render_scale` method; both functions' `texel_scale` switched to it. Found via a SECOND live screenshot, right after R84's own fix corrected the layout but left every chrome text draw still severely overlapping. The pre-existing wrong test corrected (now asserts `texel_scale == 1.0` at `S == R`, not `S/R`); new regression test `painter_text_texel_scale_is_one_over_render_scale_not_s_over_r` (S=3, R=2, asserts `texel_scale == 0.5`, explicitly distinct from `pt_to_logical() == 1.5`) |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -2607,7 +2610,7 @@ deleted at the end of this step; panels size to content and theme metrics.
     screenshots you need that you are capable of doing alone") while the
     user was away from the session.
 
-#### `[~]` 7D-3 — UI points: a real, user-facing UI scale for the editor chrome
+#### `[x]` 7D-3 — UI points: a real, user-facing UI scale for the editor chrome
 
 - **Why:** the original two-pass investigation (2026-09-12/13, preserved
   below) found the naive "multiply `CELL_W`/`CELL_H` by an integer
@@ -2908,7 +2911,167 @@ deleted at the end of this step; panels size to content and theme metrics.
     when temporarily reintroduced. `cargo test -p ember2d --test replay`
     3× fresh processes green. Confirmed live (screenshot): editor
     unchanged.
-  - Remaining checkpoints (not yet landed): live UI-scale menu + docs.
+  - **Checkpoint 7 — live UI scale, at last (`PENDING_HASH`).** The whole point
+    of this step, and the first checkpoint to actually let `ui_scale` diverge
+    from `render_scale` — every earlier checkpoint deliberately kept
+    `effective_ui_scale` **pinned** to `render_scale` (checkpoint 2's own
+    note) specifically so the draw/input conversion could land one file at a
+    time with no visual regression to verify against. Draw side first:
+    `ui/widgets.rs` (`draw_text_row`/`draw_button_px`/`draw_swatch_px`/
+    `draw_row_px`), `panel/chrome.rs` (`draw_panel_chrome`), `ui/panels/
+    chrome.rs` (every function), `ui/panels/dock.rs`, `ui/panels/modals.rs`,
+    `ui/script.rs`, and `ui/menu.rs` all converted from raw `&mut dyn
+    DrawSurface` to `&mut UiPainter` (the canvas/viewport escape hatch,
+    `painter.surface()`, stays on `DrawSurface` per the 7C-9 gate); `ui/menu.rs`
+    gained the actual `Theme > UI Scale` entries (`Sep` + `UiScaleChoice::ALL`,
+    a checkmark on the active one); `ToolbarAction::SetUiScale`/
+    `MenuState::current_ui_scale` new. `impl_render/{mod,modes}.rs` construct
+    one `UiPainter` per draw and use `self.ui_space.screen_pt()` instead of
+    raw `pixel_width()`/`pixel_height()`.
+
+    A fully-compiling, fully-green build at this point still looked
+    completely broken live: **R84** (`UiSpace::from_surface` double-dividing
+    already-logical `pixel_width()`/`pixel_height()` by `render_scale`) put
+    every panel at half its real size, overlapping the viewport — caught by
+    screenshot, not by any test, since no earlier checkpoint had ever pushed
+    a real value through `from_surface` at `render_scale != 1`. Fixing it
+    exposed a second, independent bug the first screenshot's own layout
+    corruption had been masking: **R85** (`UiPainter::text`/`text_mono` using
+    `pt_to_logical` — `S/R` — for `texel_scale` instead of the new
+    `raster_to_logical` — `1/R` — double-counting `S` on top of a glyph
+    raster that's already `S` times its point size) rendered every chrome
+    text draw `S`× too large. Both fixed and reverified live before
+    continuing — see each's own §3.2 row.
+
+    Input side: every chrome hit-test call site converts `mouse.pixel_x/y`
+    (LOGICAL) to points via `self.ui_space.logical_to_pt(...)` — the "INPUT
+    choke point" `ui_space.rs`'s own header comment named back in checkpoint
+    1 — before comparing against a `UiFrame`/`Panel::rect` value (POINTS-space
+    since the draw-side conversion above). Converted: `input/panels/mod.rs`
+    (`handle_panel_chrome_click`, `update_panel_drag_and_resize`),
+    `input/panels/menu_bar.rs` (both handlers, plus the new `SetUiScale`
+    dispatch calling `set_ui_scale`), `input/context_menu.rs`,
+    `input/modal.rs`, `input/palette_editor.rs` (both handlers),
+    `input/panels/context_menu_trigger.rs`, `input/panels/file_and_script.rs`
+    (both handlers), `input/script_editor.rs`, `input/panels/
+    hierarchy_and_palette.rs` (both handlers), `input/panels/inspector.rs`,
+    and `input/mod.rs`'s own docked-script-focus click-outside check.
+    `input/graph.rs`'s `GraphPaletteRow` hit deliberately left unconverted —
+    it's drawn by the CELL-based `draw_row` helper in `graph_ui.rs` (7C-9
+    scope boundary), so `mouse.pixel_x/y` already matches the space it
+    lives in.
+
+    The level canvas (7C-9: stays logical forever, independent of
+    `ui_scale`) needed the OPPOSITE conversion at its own three points-space
+    reads: `impl_state/mod.rs`'s `mouse_to_grid`/`viewport_tiles` convert
+    `Panel::content_rect` down to LOGICAL via `rect_to_logical` (not the
+    mouse up to points) before dividing by the logical-pixel `CELL_W`/
+    `CELL_H` constants — mixing a points-space rect with a logical-pixel
+    constant would have silently scaled the cursor position by `ui_scale`.
+    `input/canvas.rs`'s `on_canvas` gate needed the same treatment for its
+    own `viewport_rect`/`bar_h` margin. `mouse_to_grid`/`center_on`/
+    `clamp_scroll` (plus their private `viewport_tiles` helper) extracted to
+    a new `impl_state/viewport.rs` — exactly the "one viewport seam module"
+    this step's own plan called for, needed once R70's swap-based fix and
+    this checkpoint's own conversion pushed `impl_state/mod.rs` back over
+    CLAUDE.md's 750-line real-line limit (777) despite `check.ps1`'s
+    non-blank-line count still passing it (R76's own gap) — `check.ps1`'s §4
+    chrome-CELL-allowlist updated to name the new file instead of
+    `impl_state/mod.rs`.
+
+    `theme_loader::effective_ui_scale` finally un-pinned:
+    `self.prefs.ui_scale.resolve(display.os_scale_factor)`, exactly the one
+    line checkpoint 2's own doc comment said this checkpoint would change.
+    Un-pinning immediately broke 26 tests that had never touched
+    `DisplayScale` themselves — the default harness display, `(1, 1.0)`
+    since before this step existed, now resolved `Auto` to `ui_scale == 2`
+    while `render_scale` stayed `1`, a real (if accidental) divergence every
+    one of those tests' own click coordinates assumed away. Fixed at the
+    root, not per-test: the harness default became `(render_scale: 2,
+    os_scale_factor: 1.0)` — realistic besides (`Renderer.scale` is never
+    actually `1` in the real app, `MIN_UI_SCALE`), and restores every
+    pre-existing test's implicit "points == logical" assumption, since
+    `Auto.resolve(1.0) == 2 == render_scale` again. Two tests still needed
+    fixing beyond that: `r70_switching_levels_keeps_the_active_theme_fonts_and_prefs`
+    deliberately seeds `Fixed(3)` against the harness's now-`render_scale: 2`
+    default (a genuine, if incidental, S≠R case) and was clicking a
+    points-space `rect_of` result directly; and
+    `the_harness_at_render_scale_2_still_round_trips_menu_clicks` asserted
+    the old PINNED behavior by name and had to be renamed and re-pointed at
+    the real un-pinned resolution (`os_scale_factor: 2.0` now resolves to
+    `ui_scale: 4`, not `2`) — both confirm the checkpoint's own conversion
+    rather than special-casing around it. `tests/common/mod.rs`'s own shared
+    helpers (`open_menu`, `click_menu_item`, `click_theme_menu_item`,
+    `select_dock_tab`, `canvas_center`, `canvas_pixel_for_grid`) all had the
+    same latent points/logical conflation — harmless at every earlier
+    checkpoint's `S == R`, real the moment any caller wants `S != R` — fixed
+    the same way as production code.
+
+    New `tests/editor_ui_scale.rs` (5 tests, the ones this step's own plan
+    named): `setting_ui_scale_via_the_theme_menu_takes_effect_on_the_next_frame_and_persists`,
+    `auto_ui_scale_resolves_from_the_displays_own_os_scale_factor` (100/150/
+    200% → 2/3/4, through a real draw, not `UiScaleChoice::resolve` in
+    isolation), `chrome_geometry_scales_with_ui_scale_at_a_fixed_render_scale`
+    (asserts the title bar's own recorded `DrawOp::Fill` height doubles
+    from `S=2` to `S=4` at a fixed `R=2` — NOT the viewport's own logical
+    width, which this test's own first draft got backwards: a bigger
+    `ui_scale` makes fixed-point-width side panels eat a BIGGER logical
+    share of a fixed physical window, so the viewport actually SHRINKS as
+    `ui_scale` grows, matching how real OS DPI scaling shrinks usable
+    screen area — the title bar's fixed-points HEIGHT has no such
+    interaction, so it was the correct thing to assert on instead),
+    `canvas_painting_is_unaffected_by_ui_scale` (7C-9's own gate, checked
+    live: the same grid cell paints at `S=1` and `S=4`), and
+    `menu_and_theme_dropdown_clicks_round_trip_when_ui_scale_is_smaller_than_render_scale`
+    (the step's own "S/R = 0.5" case, `render_scale: 4`/`Fixed(2)`).
+
+    Found and fixed one more real gap while finishing this checkpoint, not
+    logged as an R-row (a design gap this checkpoint's own live scale
+    exposed, not a pre-existing defect): `PanelManager::apply_layout`'s
+    `DockSide::None` (floating) arm was a complete no-op — a panel floated
+    at `FloatPanel`'s fixed `(80, 160)` point offset, or left wherever a
+    drag released it, was never re-clamped against `screen_pt()`, which
+    itself SHRINKS as `ui_scale` grows (fewer points fit in the same
+    window). At a high enough scale a floated panel's own title bar — the
+    one thing a drag grabs — could end up entirely off-screen with no way
+    to retrieve it. Fixed: floating panels now clamp to
+    `[0, screen_w] x [canvas_top, canvas_bottom]` every `apply_layout`, the
+    same way a real OS window manager keeps a dragged window's title bar
+    reachable. Regression test:
+    `a_floating_panel_left_off_screen_is_clamped_back_into_view_on_the_next_layout`
+    (`panel/tests.rs`).
+
+    `cargo test --workspace`: 371, all pass (some earlier checkpoints'
+    counts moved both up — 6 new tests this checkpoint — and, net, down
+    across the renamed/rewritten harness-helper tests above; every test
+    this checkpoint touches is named individually here and in §3.2, not
+    just totaled). `cargo clippy --workspace --all-targets`: 55 warnings
+    (was 44 at checkpoint 6 — the `too_many_arguments` lint firing on
+    several draw functions that gained a `painter: &mut UiPainter`
+    parameter on top of an already-long list; well under the step's own
+    73 ceiling, and not addressed here — reducing argument counts is a
+    separate, out-of-scope cleanup). `scripts/check.ps1` clean, including
+    its own §4 chrome-CELL audit against the new `impl_state/viewport.rs`.
+    `cargo test -p ember2d --test replay` 3× fresh processes green.
+    Verified live at THREE distinct points: (1) after R84/R85's fixes, a
+    screenshot at the default (pinned-equivalent) scale confirmed pixel-
+    identical rendering to every earlier checkpoint's own baseline; (2) a
+    second screenshot right after un-pinning, at `Auto`'s real resolved
+    scale on this machine, confirmed the same; (3) the live `Theme > UI
+    Scale` menu itself, driven by simulated mouse input against the real
+    running app (not the harness): opened the Theme dropdown (screenshot
+    confirmed the new UI Scale entries with `Auto` checked), selected
+    "UI Scale: 4x" (screenshot confirmed a real, visible 2× jump from the
+    machine's own Auto-resolved `2` — chrome text and panels visibly
+    larger, the title bar's two independent labels overlapping at this
+    window size, an expected consequence of choosing an extreme scale on a
+    small window, not a hit-testing defect), then clicked the Hierarchy's
+    "@ Player" row at that same real 4×/2× divergence and confirmed both
+    the row highlighted AND the Inspector updated to show the Player's own
+    fields — hit-testing genuinely correct at a real, live `ui_scale !=
+    render_scale`, not just in the headless harness. The real per-user
+    prefs file this touched (`%APPDATA%\Ember2D\editor_prefs.ron`) was
+    reset back to `Auto` afterward, not left at the test scale.
 
 **Preserved from the original two-pass investigation, for context:**
 first pass (2026-09-12) thought the step was blocked on 7D-2's own deferred

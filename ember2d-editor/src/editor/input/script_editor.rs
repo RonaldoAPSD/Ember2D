@@ -363,8 +363,11 @@ impl EditorState {
             // column) and clamps to the target line's own character count
             // (R11's same reasoning).
             if mouse.left_just_pressed() {
+                // 7D-3 checkpoint 7 (master plan §5.4): logical -> points —
+                // `layout` was built from a points-space content rect.
+                let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
                 if let Some((col, row)) =
-                    layout.hit(mouse.pixel_x, mouse.pixel_y, self.script_scroll, self.script_hscroll, &self.script_buffer)
+                    layout.hit(px, py, self.script_scroll, self.script_hscroll, &self.script_buffer)
                 {
                     // 7C-8 (master plan §5.3): Shift+click extends a
                     // selection instead of just moving the cursor — same

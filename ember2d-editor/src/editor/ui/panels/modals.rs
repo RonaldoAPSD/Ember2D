@@ -10,7 +10,7 @@
 use super::super::frame::{UiFrame, WidgetId};
 use super::super::rect::UiRect;
 use super::super::widgets::{draw_button_px, draw_swatch_px, draw_text_row, PALETTE_COLORS};
-use ember2d::renderer::{color::Color, DrawSurface, Font, Texture, CELL_H, CELL_W};
+use ember2d::renderer::{color::Color, DrawSurface, Font, Texture, UiPainter, CELL_H, CELL_W};
 use ember2d::theme::{PaletteRole, Theme};
 use ember2d_sim::math::Rect;
 
@@ -42,7 +42,7 @@ pub const SV_MAP_H: usize = 8;
 /// this step's chrome.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_palette_editor_modal(
-    renderer: &mut dyn DrawSurface,
+    painter: &mut UiPainter,
     font: &mut dyn Font,
     theme: &Theme,
     chrome_tex: &Texture,
@@ -70,18 +70,18 @@ pub fn draw_palette_editor_modal(
     let accent = theme.role_color(PaletteRole::Accent);
     let danger = theme.role_color(PaletteRole::Danger);
 
-    draw_themed_frame(renderer, theme, chrome_tex, Rect::new(mx, my, mw, mh));
-    draw_themed_title_strip(renderer, theme, chrome_tex, mx, my, mw);
+    draw_themed_frame(painter, theme, chrome_tex, Rect::new(mx, my, mw, mh));
+    draw_themed_title_strip(painter, theme, chrome_tex, mx, my, mw);
 
     // Title
     let title = format!(" EDITING: {} ", pal.name);
     let title_fg = theme.role_color(PaletteRole::TitleText);
     let cx = mx + 2.0 * CELL_W as f32;
-    let title_w = font.measure(&title, text_px).0;
-    draw_text_row(renderer, font, &title, Rect::new(cx, my, title_w, row_h), text_px, title_fg, panel_bg);
-    let close_w = font.measure("[X]", text_px).0;
+    let title_w = painter.measure(font, &title, text_px);
+    draw_text_row(painter, font, &title, Rect::new(cx, my, title_w, row_h), text_px, title_fg, panel_bg);
+    let close_w = painter.measure(font, "[X]", text_px);
     draw_button_px(
-        renderer,
+        painter,
         frame,
         font,
         WidgetId::PaletteEditorClose,
@@ -96,12 +96,12 @@ pub fn draw_palette_editor_modal(
     // `mouse.cell_y == my + N` gate, which didn't care about `x` either).
     let is_name_focused = matches!(focus, Some(PaletteField::Name));
     let name_val = if is_name_focused { format!("{}█", pal.name) } else { pal.name.clone() };
-    draw_text_row(renderer, font, "Name: ", row_rect(2), text_px, text_fg, panel_bg);
-    let name_x = cx + font.measure("Name: ", text_px).0;
+    draw_text_row(painter, font, "Name: ", row_rect(2), text_px, text_fg, panel_bg);
+    let name_x = cx + painter.measure(font, "Name: ", text_px);
     let name_field = format!("[{:<20}]", name_val);
-    let name_field_w = font.measure(&name_field, text_px).0;
+    let name_field_w = painter.measure(font, &name_field, text_px);
     draw_text_row(
-        renderer,
+        painter,
         font,
         &name_field,
         Rect::new(name_x, row_rect(2).y, name_field_w, row_h),
@@ -115,12 +115,12 @@ pub fn draw_palette_editor_modal(
     // Glyph
     let is_glyph_focused = matches!(focus, Some(PaletteField::Glyph));
     let glyph_val = if is_glyph_focused { '█' } else { pal.glyph };
-    draw_text_row(renderer, font, "Glyph:", row_rect(3), text_px, text_fg, panel_bg);
-    let glyph_x = cx + font.measure("Glyph:", text_px).0;
+    draw_text_row(painter, font, "Glyph:", row_rect(3), text_px, text_fg, panel_bg);
+    let glyph_x = cx + painter.measure(font, "Glyph:", text_px);
     let glyph_field = format!("['{}']", glyph_val);
-    let glyph_field_w = font.measure(&glyph_field, text_px).0;
+    let glyph_field_w = painter.measure(font, &glyph_field, text_px);
     draw_text_row(
-        renderer,
+        painter,
         font,
         &glyph_field,
         Rect::new(glyph_x, row_rect(3).y, glyph_field_w, row_h),
@@ -133,17 +133,17 @@ pub fn draw_palette_editor_modal(
     // The glyph preview stays on the engine's own bitmap-font pipeline —
     // same "literal in-game preview, not chrome" reasoning `dock.rs`'s
     // `draw_palette_panel` already documents for its own glyph preview.
-    let preview_cell_x = ((glyph_x + font.measure("['", text_px).0) / CELL_W as f32).round() as usize;
+    let preview_cell_x = ((glyph_x + painter.measure(font, "['", text_px)) / CELL_W as f32).round() as usize;
     let preview_cell_y = (row_rect(3).y / CELL_H as f32).round() as usize;
-    renderer.draw_char(preview_cell_x, preview_cell_y, pal.glyph, pal.fg, pal.bg);
+    painter.surface().draw_char(preview_cell_x, preview_cell_y, pal.glyph, pal.fg, pal.bg);
 
     // Toggles — two independent widgets, side by side, each sized to its
     // own measured label (was one shared text row with fixed `cx..cx+10`/
     // `cx+13..cx+25` cell ranges, R65).
     let solid_label = format!("Solid: [{}]", if pal.solid { 'x' } else { ' ' });
-    let solid_w = font.measure(&solid_label, text_px).0;
+    let solid_w = painter.measure(font, &solid_label, text_px);
     draw_button_px(
-        renderer,
+        painter,
         frame,
         font,
         WidgetId::PaletteEditorToggle { is_solid: true },
@@ -153,11 +153,11 @@ pub fn draw_palette_editor_modal(
         text_fg,
         panel_bg,
     );
-    let trigger_x = cx + solid_w + font.measure("   ", text_px).0;
+    let trigger_x = cx + solid_w + painter.measure(font, "   ", text_px);
     let trigger_label = format!("Trigger: [{}]", if pal.trigger { 'x' } else { ' ' });
-    let trigger_w = font.measure(&trigger_label, text_px).0;
+    let trigger_w = painter.measure(font, &trigger_label, text_px);
     draw_button_px(
-        renderer,
+        painter,
         frame,
         font,
         WidgetId::PaletteEditorToggle { is_solid: false },
@@ -171,12 +171,12 @@ pub fn draw_palette_editor_modal(
     // Tag
     let is_tag_focused = matches!(focus, Some(PaletteField::Tag));
     let tag_val = if is_tag_focused { format!("{}█", pal.tag) } else { pal.tag.clone() };
-    draw_text_row(renderer, font, "Tag:  ", row_rect(5), text_px, text_fg, panel_bg);
-    let tag_x = cx + font.measure("Tag:  ", text_px).0;
+    draw_text_row(painter, font, "Tag:  ", row_rect(5), text_px, text_fg, panel_bg);
+    let tag_x = cx + painter.measure(font, "Tag:  ", text_px);
     let tag_field = format!("[{:<20}]", tag_val);
-    let tag_field_w = font.measure(&tag_field, text_px).0;
+    let tag_field_w = painter.measure(font, &tag_field, text_px);
     draw_text_row(
-        renderer,
+        painter,
         font,
         &tag_field,
         Rect::new(tag_x, row_rect(5).y, tag_field_w, row_h),
@@ -195,14 +195,14 @@ pub fn draw_palette_editor_modal(
     // from — content, not chrome — so `PALETTE_COLORS` stays untouched by
     // theming, same reasoning as the console/hierarchy/file-browser
     // semantic colors (`dock.rs`).
-    draw_text_row(renderer, font, "Foreground Color:", row_rect(7), text_px, dim, panel_bg);
-    let swatch_w = font.measure("[#]", text_px).0;
+    draw_text_row(painter, font, "Foreground Color:", row_rect(7), text_px, dim, panel_bg);
+    let swatch_w = painter.measure(font, "[#]", text_px);
     for (i, &col) in PALETTE_COLORS.iter().enumerate() {
         let gx = cx + (i % 8) as f32 * swatch_w;
         let gy = row_rect(8 + i / 8).y;
         let ch = if pal.fg == col { '*' } else { '#' };
         draw_swatch_px(
-            renderer,
+            painter,
             frame,
             font,
             WidgetId::PaletteEditorSwatch { is_fg: true, index: i },
@@ -214,9 +214,9 @@ pub fn draw_palette_editor_modal(
         );
     }
     let fg_custom_label = format!("[ {} ]", custom_color_label(pal.fg));
-    let fg_custom_w = font.measure(&fg_custom_label, text_px).0;
+    let fg_custom_w = painter.measure(font, &fg_custom_label, text_px);
     draw_button_px(
-        renderer,
+        painter,
         frame,
         font,
         WidgetId::PaletteEditorCustomColor { is_fg: true },
@@ -227,13 +227,13 @@ pub fn draw_palette_editor_modal(
         input_bg,
     );
 
-    draw_text_row(renderer, font, "Background Color:", row_rect(11), text_px, dim, panel_bg);
+    draw_text_row(painter, font, "Background Color:", row_rect(11), text_px, dim, panel_bg);
     for (i, &col) in PALETTE_COLORS.iter().enumerate() {
         let gx = cx + (i % 8) as f32 * swatch_w;
         let gy = row_rect(12 + i / 8).y;
         let ch = if pal.bg == col { '*' } else { '#' };
         draw_swatch_px(
-            renderer,
+            painter,
             frame,
             font,
             WidgetId::PaletteEditorSwatch { is_fg: false, index: i },
@@ -245,9 +245,9 @@ pub fn draw_palette_editor_modal(
         );
     }
     let bg_custom_label = format!("[ {} ]", custom_color_label(pal.bg));
-    let bg_custom_w = font.measure(&bg_custom_label, text_px).0;
+    let bg_custom_w = painter.measure(font, &bg_custom_label, text_px);
     draw_button_px(
-        renderer,
+        painter,
         frame,
         font,
         WidgetId::PaletteEditorCustomColor { is_fg: false },
@@ -268,9 +268,9 @@ pub fn draw_palette_editor_modal(
     // it gets the semantic-color treatment, not decorative chrome.
     let btn_row = row_rect(MH_ROWS - 2);
     let save_label = " [ Save & Close ] ";
-    let save_w = font.measure(save_label, text_px).0;
+    let save_w = painter.measure(font, save_label, text_px);
     draw_button_px(
-        renderer,
+        painter,
         frame,
         font,
         WidgetId::PaletteEditorSaveClose,
@@ -281,10 +281,10 @@ pub fn draw_palette_editor_modal(
         accent,
     );
     let delete_label = " [ Delete ] ";
-    let delete_w = font.measure(delete_label, text_px).0;
-    let delete_x = cx + save_w + font.measure("   ", text_px).0;
+    let delete_w = painter.measure(font, delete_label, text_px);
+    let delete_x = cx + save_w + painter.measure(font, "   ", text_px);
     draw_button_px(
-        renderer,
+        painter,
         frame,
         font,
         WidgetId::PaletteEditorDelete,
@@ -318,7 +318,7 @@ fn custom_color_label(color: Color) -> String {
 /// not chrome" reasoning already applied to `PALETTE_COLORS` elsewhere.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_color_picker_modal(
-    renderer: &mut dyn DrawSurface,
+    painter: &mut UiPainter,
     font: &mut dyn Font,
     theme: &Theme,
     chrome_tex: &Texture,
@@ -341,20 +341,20 @@ pub fn draw_color_picker_modal(
     let dim = theme.role_color(PaletteRole::TextDim);
     let accent = theme.role_color(PaletteRole::Accent);
 
-    draw_themed_frame(renderer, theme, chrome_tex, Rect::new(mx, my, mw, mh));
-    draw_themed_title_strip(renderer, theme, chrome_tex, mx, my, mw);
+    draw_themed_frame(painter, theme, chrome_tex, Rect::new(mx, my, mw, mh));
+    draw_themed_title_strip(painter, theme, chrome_tex, mx, my, mw);
 
     // Title
     let title = format!(" ADVANCED COLOR: {} ", if is_fg { "FOREGROUND" } else { "BACKGROUND" });
     let title_fg = theme.role_color(PaletteRole::TitleText);
-    let title_w = font.measure(&title, text_px).0;
-    draw_text_row(renderer, font, &title, Rect::new(mx, my, title_w, row_h), text_px, title_fg, panel_bg);
+    let title_w = painter.measure(font, &title, text_px);
+    draw_text_row(painter, font, &title, Rect::new(mx, my, title_w, row_h), text_px, title_fg, panel_bg);
     // 7C-1 (master plan §5.3): registers the title-close hitbox at the
     // exact point it's drawn, replacing `input/mod.rs`'s own
     // independently-recomputed `mx+mw-4..mx+mw-1` range (E5).
-    let close_w = font.measure("[X]", text_px).0;
+    let close_w = painter.measure(font, "[X]", text_px);
     draw_button_px(
-        renderer,
+        painter,
         frame,
         font,
         WidgetId::ColorPickerClose,
@@ -374,14 +374,14 @@ pub fn draw_color_picker_modal(
     // a hue percentage, rather than a per-column push. The bar itself
     // paints literal HSV-derived RGB, same reasoning as `PALETTE_COLORS`
     // above — it's the color being picked, not decorative chrome.
-    draw_text_row(renderer, font, "Hue:", row_rect(2), text_px, dim, panel_bg);
+    draw_text_row(painter, font, "Hue:", row_rect(2), text_px, dim, panel_bg);
     let hbar_w = HUE_BAR_STEPS;
     let hbar_x_cell = ((cx + 5.0 * CELL_W as f32) / CELL_W as f32).round() as usize;
     let hbar_row_cell = (row_rect(2).y / CELL_H as f32).round() as usize;
     for i in 0..hbar_w {
         let hue = (i as f32 / hbar_w as f32) * 360.0;
         let col = Color::from_hsv(hue, 1.0, 1.0);
-        renderer.draw_char(hbar_x_cell + i, hbar_row_cell, ' ', Color::Reset, col);
+        painter.surface().draw_char(hbar_x_cell + i, hbar_row_cell, ' ', Color::Reset, col);
     }
     frame.push(
         WidgetId::ColorPickerHueBar,
@@ -393,11 +393,11 @@ pub fn draw_color_picker_modal(
         ),
     );
     let h_indicator_x = hbar_x_cell + ((h / 360.0) * (hbar_w - 1) as f32).round() as usize;
-    renderer.draw_char(h_indicator_x, hbar_row_cell.saturating_sub(1), 'v', text_fg, panel_bg);
+    painter.surface().draw_char(h_indicator_x, hbar_row_cell.saturating_sub(1), 'v', text_fg, panel_bg);
 
     // 2. SV Map (Saturation vs Value) — same continuous-area reasoning as
     // the hue bar above.
-    draw_text_row(renderer, font, "Sat/Val Map:", row_rect(4), text_px, dim, panel_bg);
+    draw_text_row(painter, font, "Sat/Val Map:", row_rect(4), text_px, dim, panel_bg);
     let map_w = SV_MAP_W;
     let map_h = SV_MAP_H;
     let map_x = hbar_x_cell;
@@ -407,7 +407,7 @@ pub fn draw_color_picker_modal(
             let sat = sx as f32 / (map_w - 1) as f32;
             let val = 1.0 - (sy as f32 / (map_h - 1) as f32);
             let col = Color::from_hsv(h, sat, val);
-            renderer.draw_char(map_x + sx, map_y + sy, ' ', Color::Reset, col);
+            painter.surface().draw_char(map_x + sx, map_y + sy, ' ', Color::Reset, col);
         }
     }
     frame.push(
@@ -422,29 +422,29 @@ pub fn draw_color_picker_modal(
     // Cursor in map
     let cur_sx = (s * (map_w - 1) as f32).round() as usize;
     let cur_sy = ((1.0 - v) * (map_h - 1) as f32).round() as usize;
-    renderer.draw_char(map_x + cur_sx, map_y + cur_sy, '+', Color::White, Color::Reset);
+    painter.surface().draw_char(map_x + cur_sx, map_y + cur_sy, '+', Color::White, Color::Reset);
 
     // 3. Current Color Preview
     let current_col = Color::from_hsv(h, s, v);
     let preview_x_cell = ((mx + 30.0 * CELL_W as f32) / CELL_W as f32).round() as usize;
-    draw_text_row(renderer, font, "Selected:", row_rect(6), text_px, dim, panel_bg);
+    draw_text_row(painter, font, "Selected:", row_rect(6), text_px, dim, panel_bg);
     let preview_row_cell = (row_rect(7).y / CELL_H as f32).round() as usize;
-    renderer.draw_rect_filled(preview_x_cell, preview_row_cell, 8, 3, ' ', Color::Reset, current_col);
+    painter.surface().draw_rect_filled(preview_x_cell, preview_row_cell, 8, 3, ' ', Color::Reset, current_col);
 
     if let Color::Rgb(r, g, b) = current_col {
         let hex = format!("#{:02X}{:02X}{:02X}", r, g, b);
         let hex_x = preview_x_cell as f32 * CELL_W as f32;
-        let hex_w = font.measure(&hex, text_px).0;
-        draw_text_row(renderer, font, &hex, Rect::new(hex_x, row_rect(11).y, hex_w, row_h), text_px, accent, panel_bg);
+        let hex_w = painter.measure(font, &hex, text_px);
+        draw_text_row(painter, font, &hex, Rect::new(hex_x, row_rect(11).y, hex_w, row_h), text_px, accent, panel_bg);
     }
 
     // Buttons. No themed "text-on-accent" role exists (same gap noted
     // throughout `chrome.rs`), so Apply stays plain black-on-accent.
     let btn_row = row_rect(14);
     let apply_label = " [ Apply ] ";
-    let apply_w = font.measure(apply_label, text_px).0;
+    let apply_w = painter.measure(font, apply_label, text_px);
     draw_button_px(
-        renderer,
+        painter,
         frame,
         font,
         WidgetId::ColorPickerApply,
@@ -455,9 +455,9 @@ pub fn draw_color_picker_modal(
         accent,
     );
     let cancel_label = " [ Cancel ] ";
-    let cancel_w = font.measure(cancel_label, text_px).0;
+    let cancel_w = painter.measure(font, cancel_label, text_px);
     draw_button_px(
-        renderer,
+        painter,
         frame,
         font,
         WidgetId::ColorPickerCancel,
@@ -486,7 +486,7 @@ pub fn draw_color_picker(renderer: &mut dyn DrawSurface, x: usize, y: usize, w: 
 /// never a click) — the one function in this file with nothing else
 /// constraining its layout, so it's free to use the theme's real
 /// `metrics.row_h` throughout, unlike the modals above it.
-pub fn draw_help_overlay(renderer: &mut dyn DrawSurface, font: &mut dyn Font, theme: &Theme, content: Rect) {
+pub fn draw_help_overlay(painter: &mut UiPainter, font: &mut dyn Font, theme: &Theme, content: Rect) {
     let bg = theme.role_color(PaletteRole::PanelBg);
     let fg = theme.role_color(PaletteRole::TextPrimary);
     let dim = theme.role_color(PaletteRole::TextDim);
@@ -494,70 +494,70 @@ pub fn draw_help_overlay(renderer: &mut dyn DrawSurface, font: &mut dyn Font, th
     let row_h = theme.metrics.row_h;
     let text_px = theme.font_sizes.body;
     let pad = CELL_W as f32;
-    renderer.fill_rect_px(content, bg);
+    painter.fill(content, bg);
 
     let title = " EMBER2D EDITOR — KEYBOARD SHORTCUTS ";
-    let title_w = font.measure(title, text_px).0;
-    draw_text_row(renderer, font, title, Rect::new(content.x + pad, content.y + row_h, title_w, row_h), text_px, accent, bg);
+    let title_w = painter.measure(font, title, text_px);
+    draw_text_row(painter, font, title, Rect::new(content.x + pad, content.y + row_h, title_w, row_h), text_px, accent, bg);
     let sep_w = content.w - 2.0 * pad;
-    let sep: String = "-".repeat((sep_w / font.measure("-", text_px).0.max(1.0)) as usize);
-    draw_text_row(renderer, font, &sep, Rect::new(content.x + pad, content.y + 2.0 * row_h, sep_w, row_h), text_px, dim, bg);
+    let sep: String = "-".repeat((sep_w / painter.measure(font, "-", text_px).max(1.0)) as usize);
+    draw_text_row(painter, font, &sep, Rect::new(content.x + pad, content.y + 2.0 * row_h, sep_w, row_h), text_px, dim, bg);
 
     let col_w = (content.w - 4.0 * pad) / 3.0;
     let c1 = content.x + pad;
     let c2 = c1 + col_w + pad;
     let c3 = c2 + col_w + pad;
     let row = |n: usize| content.y + (4 + n) as f32 * row_h;
-    let line = |col: f32, n: usize, text: &str, color: Color, renderer: &mut dyn DrawSurface, font: &mut dyn Font| {
-        draw_text_row(renderer, font, text, Rect::new(col, row(n), col_w, row_h), text_px, color, bg);
+    let line = |col: f32, n: usize, text: &str, color: Color, painter: &mut UiPainter, font: &mut dyn Font| {
+        draw_text_row(painter, font, text, Rect::new(col, row(n), col_w, row_h), text_px, color, bg);
     };
-    line(c1, 0, "TOOLS", accent, renderer, font);
-    line(c1, 1, " 1-3  Layers", fg, renderer, font);
-    line(c1, 2, " 4-0  Palette", fg, renderer, font);
-    line(c1, 3, " L    Line tool", fg, renderer, font);
-    line(c1, 4, " F    Flood fill", fg, renderer, font);
-    line(c1, 5, " E    Eraser size", fg, renderer, font);
-    line(c1, 6, " Q    Select mode", fg, renderer, font);
-    line(c1, 7, " ;/'  Solid/Trigger", fg, renderer, font);
-    line(c1, 9, "CANVAS", accent, renderer, font);
-    line(c1, 10, " Wheel     Zoom", fg, renderer, font);
-    line(c1, 11, " Ctrl+Whl  Fast Zoom", fg, renderer, font);
-    line(c1, 12, " Arrows    Scroll", fg, renderer, font);
-    line(c1, 13, " Mid-drag  Pan", fg, renderer, font);
-    line(c1, 14, " Home      Reset View", fg, renderer, font);
-    line(c1, 15, " Delete    Erase", fg, renderer, font);
-    line(c2, 0, "EDIT", accent, renderer, font);
-    line(c2, 1, " U/Ctrl+Z  Undo", fg, renderer, font);
-    line(c2, 2, " R/Ctrl+Y  Redo", fg, renderer, font);
-    line(c2, 3, " C  Copy select", fg, renderer, font);
-    line(c2, 4, " X  Cut select", fg, renderer, font);
-    line(c2, 5, " V  Paste", fg, renderer, font);
-    line(c2, 6, " I  Edit tag", fg, renderer, font);
-    line(c2, 9, "LEVEL", accent, renderer, font);
-    line(c2, 10, " N  Rename", fg, renderer, font);
-    line(c2, 11, " Z  Resize", fg, renderer, font);
-    line(c2, 12, " P  Set spawn", fg, renderer, font);
-    line(c2, 13, " Sh+P  Add spawn", fg, renderer, font);
-    line(c2, 14, " T  Attach script", fg, renderer, font);
-    line(c2, 15, " Sh+drag  Rect fill", fg, renderer, font);
-    line(c3, 0, "VIEW", accent, renderer, font);
-    line(c3, 1, " Tab  Grid", fg, renderer, font);
-    line(c3, 2, " G    Physics", fg, renderer, font);
-    line(c3, 3, " B    Palette", fg, renderer, font);
-    line(c3, 4, " H    Hierarchy", fg, renderer, font);
-    line(c3, 5, " `    Stats", fg, renderer, font);
-    line(c3, 6, " F1   Console", fg, renderer, font);
-    line(c3, 7, " F2   Inspector", fg, renderer, font);
-    line(c3, 9, "FILE", accent, renderer, font);
-    line(c3, 10, " S    Save", fg, renderer, font);
-    line(c3, 11, " Sh+S  Save As", fg, renderer, font);
-    line(c3, 12, " O    Open", fg, renderer, font);
-    line(c3, 13, " F5   Play preview", fg, renderer, font);
-    line(c3, 14, " Esc  Cancel/Close", fg, renderer, font);
-    line(c3, 15, " ?    This screen", fg, renderer, font);
+    line(c1, 0, "TOOLS", accent, painter, font);
+    line(c1, 1, " 1-3  Layers", fg, painter, font);
+    line(c1, 2, " 4-0  Palette", fg, painter, font);
+    line(c1, 3, " L    Line tool", fg, painter, font);
+    line(c1, 4, " F    Flood fill", fg, painter, font);
+    line(c1, 5, " E    Eraser size", fg, painter, font);
+    line(c1, 6, " Q    Select mode", fg, painter, font);
+    line(c1, 7, " ;/'  Solid/Trigger", fg, painter, font);
+    line(c1, 9, "CANVAS", accent, painter, font);
+    line(c1, 10, " Wheel     Zoom", fg, painter, font);
+    line(c1, 11, " Ctrl+Whl  Fast Zoom", fg, painter, font);
+    line(c1, 12, " Arrows    Scroll", fg, painter, font);
+    line(c1, 13, " Mid-drag  Pan", fg, painter, font);
+    line(c1, 14, " Home      Reset View", fg, painter, font);
+    line(c1, 15, " Delete    Erase", fg, painter, font);
+    line(c2, 0, "EDIT", accent, painter, font);
+    line(c2, 1, " U/Ctrl+Z  Undo", fg, painter, font);
+    line(c2, 2, " R/Ctrl+Y  Redo", fg, painter, font);
+    line(c2, 3, " C  Copy select", fg, painter, font);
+    line(c2, 4, " X  Cut select", fg, painter, font);
+    line(c2, 5, " V  Paste", fg, painter, font);
+    line(c2, 6, " I  Edit tag", fg, painter, font);
+    line(c2, 9, "LEVEL", accent, painter, font);
+    line(c2, 10, " N  Rename", fg, painter, font);
+    line(c2, 11, " Z  Resize", fg, painter, font);
+    line(c2, 12, " P  Set spawn", fg, painter, font);
+    line(c2, 13, " Sh+P  Add spawn", fg, painter, font);
+    line(c2, 14, " T  Attach script", fg, painter, font);
+    line(c2, 15, " Sh+drag  Rect fill", fg, painter, font);
+    line(c3, 0, "VIEW", accent, painter, font);
+    line(c3, 1, " Tab  Grid", fg, painter, font);
+    line(c3, 2, " G    Physics", fg, painter, font);
+    line(c3, 3, " B    Palette", fg, painter, font);
+    line(c3, 4, " H    Hierarchy", fg, painter, font);
+    line(c3, 5, " `    Stats", fg, painter, font);
+    line(c3, 6, " F1   Console", fg, painter, font);
+    line(c3, 7, " F2   Inspector", fg, painter, font);
+    line(c3, 9, "FILE", accent, painter, font);
+    line(c3, 10, " S    Save", fg, painter, font);
+    line(c3, 11, " Sh+S  Save As", fg, painter, font);
+    line(c3, 12, " O    Open", fg, painter, font);
+    line(c3, 13, " F5   Play preview", fg, painter, font);
+    line(c3, 14, " Esc  Cancel/Close", fg, painter, font);
+    line(c3, 15, " ?    This screen", fg, painter, font);
 
     let hint = "Press ? or Esc to close";
-    let hint_w = font.measure(hint, text_px).0;
+    let hint_w = painter.measure(font, hint, text_px);
     let hint_x = content.x + ((content.w - hint_w) / 2.0).max(0.0);
-    draw_text_row(renderer, font, hint, Rect::new(hint_x, content.y + content.h - 2.0 * row_h, hint_w, row_h), text_px, dim, bg);
+    draw_text_row(painter, font, hint, Rect::new(hint_x, content.y + content.h - 2.0 * row_h, hint_w, row_h), text_px, dim, bg);
 }

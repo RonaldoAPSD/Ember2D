@@ -46,8 +46,11 @@ impl EditorState {
         if self.focused_panel == Some(PanelId::ScriptEditor) && !matches!(self.mode, EditorMode::Script)
         {
             let p = self.panels.get(PanelId::ScriptEditor);
-            let click_outside = mouse.left_just_pressed()
-                && !(mouse.in_bounds && p.contains(mouse.pixel_x, mouse.pixel_y));
+            // 7D-3 checkpoint 7 (master plan §5.4): logical -> points —
+            // `Panel::rect` is points-space now.
+            let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
+            let click_outside =
+                mouse.left_just_pressed() && !(mouse.in_bounds && p.contains(px, py));
             if !click_outside {
                 self.handle_script_mode_input(input, mouse);
                 return;

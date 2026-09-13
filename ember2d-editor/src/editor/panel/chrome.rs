@@ -5,7 +5,7 @@
 
 use super::super::ui::{UiFrame, UiRect, WidgetId};
 use super::{ChromeMetrics, DockSide, Panel, PanelId};
-use ember2d::renderer::{color::Color, DrawSurface, Font, Texture};
+use ember2d::renderer::{color::Color, Font, Texture, UiPainter};
 use ember2d::theme::{PaletteRole, SliceRole, Theme};
 use ember2d_sim::math::{Rect, Vec2};
 
@@ -41,7 +41,7 @@ use ember2d_sim::math::{Rect, Vec2};
 /// re-derivations of the viewport rect that could disagree with each
 /// other after a sub-cell resize).
 pub fn draw_panel_chrome(
-    renderer: &mut dyn DrawSurface,
+    painter: &mut UiPainter,
     panel: &Panel,
     frame: &mut UiFrame,
     theme: &Theme,
@@ -57,10 +57,7 @@ pub fn draw_panel_chrome(
     }
 
     if panel.id == PanelId::Viewport {
-        renderer.fill_rect_px(
-            Rect::new(panel.rect.x, panel.rect.y, panel.rect.w, panel.rect.h),
-            Color::Black,
-        );
+        painter.fill(Rect::new(panel.rect.x, panel.rect.y, panel.rect.w, panel.rect.h), Color::Black);
         return;
     }
 
@@ -71,20 +68,21 @@ pub fn draw_panel_chrome(
     // (its center IS the interior fill the old flat implementation drew as
     // a separate step). Falls back to a flat fill if the theme doesn't
     // define this role (7D-1's own "missing slice, no fabricated
-    // geometry" contract — see `Theme::slice`'s own doc comment). `1.0`
-    // border_scale (7D-3) — this panel's own 9-slice corners stay 1:1
-    // (unscaled); `ui_scale` scaling is `UiPainter`'s job for chrome drawn
-    // through it, which panel chrome doesn't yet (a later checkpoint).
+    // geometry" contract — see `Theme::slice`'s own doc comment). Routed
+    // through `UiPainter::nine_slice` (7D-3 checkpoint 7) — its own
+    // `border_scale` is `ui_scale / render_scale`, not the `1.0` every
+    // earlier checkpoint of this step hardcoded while the two were pinned
+    // equal.
     match theme.slice(SliceRole::Panel) {
-        Some(slice) => renderer.draw_nine_slice_px(full_rect, chrome_tex, slice.src, slice.border, 1.0, Color::White),
-        None => renderer.fill_rect_px(full_rect, theme.role_color(PaletteRole::PanelBg)),
+        Some(slice) => painter.nine_slice(full_rect, chrome_tex, slice.src, slice.border, Color::White),
+        None => painter.fill(full_rect, theme.role_color(PaletteRole::PanelBg)),
     }
 
     // 2. Title bar — a second 9-slice over just the top strip, drawn AFTER
     // the frame so it wins there.
     match theme.slice(SliceRole::TitleBar) {
-        Some(slice) => renderer.draw_nine_slice_px(title_rect, chrome_tex, slice.src, slice.border, 1.0, Color::White),
-        None => renderer.fill_rect_px(title_rect, theme.role_color(PaletteRole::TitleBg)),
+        Some(slice) => painter.nine_slice(title_rect, chrome_tex, slice.src, slice.border, Color::White),
+        None => painter.fill(title_rect, theme.role_color(PaletteRole::TitleBg)),
     }
     frame.push(
         WidgetId::TitleBar(panel.id),
@@ -103,32 +101,20 @@ pub fn draw_panel_chrome(
     let title_px = theme.font_sizes.body;
     let close_w = metrics.close_w;
     let avail_w = (panel.rect.w - close_w).max(0.0);
-    let (measured_w, _) = font.measure(&title, title_px);
+    let measured_w = painter.measure(font, &title, title_px);
     let text_x = panel.rect.x + ((avail_w - measured_w).max(0.0) / 2.0).round();
-    let baseline_y = (panel.rect.y + font.ascent(title_px)).round();
-    renderer.draw_text_px(
-        font,
-        &title,
-        Vec2::new(text_x, baseline_y),
-        title_px,
-        theme.role_color(PaletteRole::TitleText),
-    );
+    let baseline_y = (panel.rect.y + painter.ascent(font, title_px)).round();
+    painter.text(font, &title, Vec2::new(text_x, baseline_y), title_px, theme.role_color(PaletteRole::TitleText));
 
     // 4. Close button — a small themed square at the title bar's right
     // edge, an "X" drawn in the same theme font as the title.
     let close_rect = Rect::new(panel.rect.right() - close_w, panel.rect.y, close_w, metrics.bar_h);
     if let Some(slice) = theme.slice(SliceRole::Button) {
-        renderer.draw_nine_slice_px(close_rect, chrome_tex, slice.src, slice.border, 1.0, Color::White);
+        painter.nine_slice(close_rect, chrome_tex, slice.src, slice.border, Color::White);
     }
-    let (x_w, _) = font.measure("X", title_px);
+    let x_w = painter.measure(font, "X", title_px);
     let x_x = (close_rect.x + (close_w - x_w) / 2.0).round();
-    renderer.draw_text_px(
-        font,
-        "X",
-        Vec2::new(x_x, baseline_y),
-        title_px,
-        theme.role_color(PaletteRole::TextPrimary),
-    );
+    painter.text(font, "X", Vec2::new(x_x, baseline_y), title_px, theme.role_color(PaletteRole::TextPrimary));
     frame.push(
         WidgetId::CloseBtn(panel.id),
         UiRect::new(close_rect.x, close_rect.y, close_rect.w, close_rect.h),
@@ -143,7 +129,7 @@ pub fn draw_panel_chrome(
     let grip_rect =
         Rect::new(panel.rect.right() - grip_size, panel.rect.bottom() - grip_size, grip_size, grip_size);
     if let Some(slice) = theme.slice(SliceRole::ResizeGrip) {
-        renderer.draw_nine_slice_px(grip_rect, chrome_tex, slice.src, slice.border, 1.0, Color::White);
+        painter.nine_slice(grip_rect, chrome_tex, slice.src, slice.border, Color::White);
     }
     frame.push(
         WidgetId::ResizeHandle(panel.id),

@@ -25,9 +25,14 @@ impl EditorState {
         if mouse.right_just_pressed() && mouse.in_bounds {
             let col = mouse.cell_x;
             let row = mouse.cell_y;
+            // 7D-3 checkpoint 7 (master plan §5.4): logical -> points, the
+            // input choke point every chrome hit-test in this function
+            // goes through (`col`/`row` above stay cell-based — R83, the
+            // context menu's own on-screen position, unrelated to this).
+            let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
 
             // 1. Tab Context Menu — pixel-space UiFrame hit (Phase 7 Part 1d).
-            if let Some(WidgetId::Tab(tid)) = self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) {
+            if let Some(WidgetId::Tab(tid)) = self.ui_frame.hit(px, py) {
                 self.mode = EditorMode::ContextMenu(ui::ContextMenu {
                     x: col,
                     y: row,
@@ -51,9 +56,7 @@ impl EditorState {
             // (`handle_file_browser_click`/`handle_hierarchy_click`) already
             // trust, rather than recomputing row math a second, independent
             // way (E5).
-            if let Some(WidgetId::FileBrowserRow(row_idx)) =
-                self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y)
-            {
+            if let Some(WidgetId::FileBrowserRow(row_idx)) = self.ui_frame.hit(px, py) {
                 let mut items = self.file_browser_new_items();
                 if row_idx < self.file_browser_files.len() {
                     if let Some(action) = self.file_browser_delete_action(row_idx) {
@@ -70,10 +73,10 @@ impl EditorState {
             // the old "New …" only menu — gated on the panel's real pixel
             // content rect (`content_rect`, not the cell-rounded
             // `content_y()` this step replaced) rather than a specific row.
-            if let Some(PanelId::FileBrowser) = self.panels.panel_at(mouse.pixel_x, mouse.pixel_y) {
+            if let Some(PanelId::FileBrowser) = self.panels.panel_at(px, py) {
                 let metrics = ChromeMetrics::from_theme(&self.theme);
                 let content = self.panels.get(PanelId::FileBrowser).content_rect(&metrics);
-                if mouse.pixel_y > content.y + metrics.row_h {
+                if py > content.y + metrics.row_h {
                     self.mode = EditorMode::ContextMenu(ui::ContextMenu {
                         x: col,
                         y: row,
@@ -90,7 +93,7 @@ impl EditorState {
             // theme's real `row_h` — same exact-hit fix as the file browser
             // above, reading the same `UiFrame` hit `handle_hierarchy_click`
             // already trusts.
-            if let Some(WidgetId::HierarchyRow(sel)) = self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) {
+            if let Some(WidgetId::HierarchyRow(sel)) = self.ui_frame.hit(px, py) {
                 let mut items = vec![("Focus Camera", ui::ContextMenuAction::FocusCamera(sel))];
                 if let HierarchySelection::Spawn(_) = sel {
                     items.push(("Duplicate", ui::ContextMenuAction::DuplicateEntity(sel)));

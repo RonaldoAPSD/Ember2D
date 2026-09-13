@@ -108,66 +108,9 @@ impl EditorState {
         }
     }
 
-    /// 7C-3 (master plan §5.3, E4): takes the mouse's true pixel position
-    /// now, not `mouse.cell_x`/`cell_y` — reads the Viewport panel's own
-    /// content rect (`PanelManager::viewport().content_rect()`) directly
-    /// instead of the deleted `Layout.canvas_x`/`canvas_y`/`canvas_w`/
-    /// `canvas_h`, which used to rebuild an independent cell-quantized copy
-    /// of the same rect every frame. Using the real sub-cell pixel position
-    /// (rather than pre-floored cell coordinates) also makes this agree
-    /// with `ui/canvas.rs::draw_cursor_highlight`'s identical formula at
-    /// every zoom level, not just whole-number ones — see that function's
-    /// own comment on E1 for why the two must never independently drift.
-    pub(super) fn mouse_to_grid(&self, px: f32, py: f32) -> Option<(i32, i32)> {
-        // 1. Block input if mouse is over any OTHER panel (except Viewport).
-        if let Some(pid) = self.panels.panel_at(px, py) {
-            if pid != PanelId::Viewport {
-                return None;
-            }
-        }
-
-        // 2. Localize to viewport content space (pixels).
-        let viewport = self.panels.viewport().content_rect(&super::ui::ChromeMetrics::from_theme(&self.theme));
-        if !viewport.contains(px, py) {
-            return None;
-        }
-        let local_x = (px - viewport.x) / ember2d::renderer::CELL_W as f32;
-        let local_y = (py - viewport.y) / ember2d::renderer::CELL_H as f32;
-
-        // 3. Project to grid coordinates
-        let gx = (local_x / self.zoom + self.scroll.0).floor() as i32;
-        let gy = (local_y / self.zoom + self.scroll.1).floor() as i32;
-
-        Some((gx, gy))
-    }
-
-    /// The viewport's own content area, in `CELL_W`/`CELL_H` TILES — R66-C
-    /// (§3 in the master plan): `center_on`/`clamp_scroll` below used to
-    /// read `Panel::content_w()`/`content_h()` (the CELL-ROUNDED bridge) as
-    /// a tile count directly, which silently changed meaning the moment a
-    /// panel's real pixel size stopped being a whole-cell multiple (a
-    /// theme's `row_h`/`border` rarely divide `CELL_H`/`CELL_W` evenly).
-    /// Computed from the EXACT `content_rect` instead, matching
-    /// `mouse_to_grid`'s own formula above.
-    fn viewport_tiles(&self) -> (f32, f32) {
-        let viewport = self.panels.viewport().content_rect(&super::ui::ChromeMetrics::from_theme(&self.theme));
-        (viewport.w / ember2d::renderer::CELL_W as f32, viewport.h / ember2d::renderer::CELL_H as f32)
-    }
-
-    pub(super) fn center_on(&mut self, gx: i32, gy: i32) {
-        let (canvas_w, canvas_h) = self.viewport_tiles();
-        self.target_scroll.0 = (gx as f32 - canvas_w / 2.0 / self.zoom).max(0.0);
-        self.target_scroll.1 = (gy as f32 - canvas_h / 2.0 / self.zoom).max(0.0);
-        self.clamp_scroll();
-    }
-
-    pub(super) fn clamp_scroll(&mut self) {
-        let (canvas_w, canvas_h) = self.viewport_tiles();
-        let max_x = (self.grid.width as f32 - canvas_w / self.zoom).max(0.0);
-        let max_y = (self.grid.height as f32 - canvas_h / self.zoom).max(0.0);
-        self.target_scroll.0 = self.target_scroll.0.clamp(0.0, max_x);
-        self.target_scroll.1 = self.target_scroll.1.clamp(0.0, max_y);
-    }
+    // `mouse_to_grid`/`center_on`/`clamp_scroll` (and their shared private
+    // `viewport_tiles` helper) live in `viewport.rs` now (7D-3 checkpoint 7,
+    // master plan §5.4) — see that file's own header comment.
 
     pub(super) fn apply_command(&mut self, cmd: &Command) {
         match cmd {
@@ -753,6 +696,11 @@ mod export;
 // `migrate_graph_sidecars` lives in its own file too (7D-3, master plan
 // §5.4) — see `graph_sidecars.rs`'s own header comment.
 mod graph_sidecars;
+
+// The canvas viewport seam (`mouse_to_grid`/`center_on`/`clamp_scroll`)
+// lives in its own file too (7D-3 checkpoint 7, master plan §5.4) — see
+// `viewport.rs`'s own header comment.
+mod viewport;
 
 #[cfg(test)]
 mod tests;
