@@ -58,6 +58,29 @@ pub fn draw_text_row(
     renderer.draw_text_px(font, text, Vec2::new(rect.x, baseline_y), px, fg)
 }
 
+/// The pixel-space twin of `draw_row` below — a full-row list entry
+/// (hierarchy rows, file browser rows) drawn through `draw_text_row` at a
+/// real pixel rect, with its hit rect pushed at that EXACT same rect
+/// (`UiRect::new`, not re-derived from a cell count via `from_cells`) —
+/// same "draw and push together" discipline 7C-1 established, just in
+/// pixel space (docs/ember2d-master-plan.md §5.4, the `UiRect::from_cells`
+/// removal).
+#[allow(clippy::too_many_arguments)]
+pub fn draw_row_px(
+    renderer: &mut dyn DrawSurface,
+    frame: &mut UiFrame,
+    font: &mut dyn Font,
+    id: WidgetId,
+    rect: Rect,
+    px: f32,
+    label: &str,
+    fg: Color,
+    bg: Color,
+) {
+    draw_text_row(renderer, font, label, rect, px, fg, bg);
+    frame.push(id, UiRect::new(rect.x, rect.y, rect.w, rect.h));
+}
+
 /// A single clickable line of text — every modal "button" (confirm
 /// Yes/No, the advanced color picker's Apply/Cancel/title-close) is
 /// exactly this shape: one `draw_str` call whose own rect IS the click

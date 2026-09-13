@@ -435,13 +435,11 @@ impl EditorState {
                 PanelId::Hierarchy => {
                     ui::draw_hierarchy(
                         renderer,
+                        self.font.as_mut(),
                         &self.theme,
                         &self.grid,
                         self.hierarchy_sel,
-                        pcx,
-                        pcy,
-                        pcw,
-                        pch,
+                        panel.content_rect().into(),
                         &mut self.ui_frame,
                     );
                 }
@@ -475,7 +473,13 @@ impl EditorState {
                     );
                 }
                 PanelId::Console => {
-                    ui::draw_console(renderer, &self.theme, &self.console_log, pcx, pcy, pcw, pch);
+                    ui::draw_console(
+                        renderer,
+                        self.font.as_mut(),
+                        &self.theme,
+                        &self.console_log,
+                        panel.content_rect().into(),
+                    );
                 }
                 PanelId::Stats => {
                     ui::draw_stats_panel(

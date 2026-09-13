@@ -9,7 +9,7 @@
 use super::super::frame::{InspectorField, UiFrame, WidgetId};
 use super::super::rect::UiRect;
 use super::super::types::*;
-use super::super::widgets::{draw_row, draw_text_row};
+use super::super::widgets::{draw_row_px, draw_text_row};
 use crate::editor::grid::LevelGrid;
 use crate::editor::palette::TilePalette;
 use ember2d::renderer::{color::Color, DrawSurface, Font};
@@ -202,22 +202,31 @@ pub fn draw_stats_panel(
 
 pub fn draw_console(
     renderer: &mut dyn DrawSurface,
+    font: &mut dyn Font,
     theme: &Theme,
     log: &[LogEntry],
-    cx: usize,
-    cy: usize,
-    cw: usize,
-    ch: usize,
+    content: Rect,
 ) {
     let panel_bg = theme.role_color(PaletteRole::PanelBg);
     let text_fg = theme.role_color(PaletteRole::TextPrimary);
-    let visible = ch;
+    let row_h = theme.metrics.row_h;
+    let text_px = theme.font_sizes.body;
+    let visible = ((content.h / row_h).floor() as usize).max(1);
     let start = log.len().saturating_sub(visible);
+    // All three prefixes below are the same 6 characters wide
+    // ("[ERR] "/"[WRN] "/"[OK]  ") and Cascadia Mono is a real monospace
+    // face, so measuring any one of them gives the message column's fixed
+    // pixel start — matches the old cell math's `cx + 6` exactly, just
+    // derived from the real font instead of assuming 6 fixed 8px cells.
+    let message_x = content.x + font.measure("[ERR] ", text_px).0;
+    // Rough character budget for `truncate_chars`, sized from the font's
+    // own average advance — not pixel-exact (no scissor clips this panel
+    // either way, same as before this conversion), just enough to avoid
+    // drawing wildly more text than could ever fit.
+    let avg_char_w = (font.measure("MMMMMMMMMM", text_px).0 / 10.0).max(1.0);
+    let max_text = ((content.w - (message_x - content.x)) / avg_char_w).floor().max(0.0) as usize;
     for (i, entry) in log.iter().skip(start).enumerate() {
-        let row = cy + i;
-        if row >= cy + ch {
-            break;
-        }
+        let row_rect = Rect::new(content.x, content.y + i as f32 * row_h, content.w, row_h);
         // Log-level colors are semantic status signals (error/warning/ok),
         // not decorative chrome — left as literal Red/Yellow/DarkGreen
         // rather than theme roles, same as `draw_status_bar`'s own
@@ -227,10 +236,10 @@ pub fn draw_console(
             LogLevel::Warning => ("[WRN]", Color::Yellow),
             LogLevel::Info => ("[OK] ", Color::DarkGreen),
         };
-        let max_text = cw.saturating_sub(7);
         let text = truncate_chars(&entry.text, max_text);
-        renderer.draw_str(cx, row, prefix, pfg, panel_bg);
-        renderer.draw_str(cx + 6, row, &text, text_fg, panel_bg);
+        draw_text_row(renderer, font, prefix, row_rect, text_px, pfg, panel_bg);
+        let message_rect = Rect::new(message_x, row_rect.y, content.w - (message_x - content.x), row_h);
+        draw_text_row(renderer, font, &text, message_rect, text_px, text_fg, panel_bg);
     }
 }
 
@@ -434,44 +443,76 @@ pub fn draw_inspector(
 #[allow(clippy::too_many_arguments)]
 pub fn draw_hierarchy(
     renderer: &mut dyn DrawSurface,
+    font: &mut dyn Font,
     theme: &Theme,
     grid: &LevelGrid,
     hier_sel: Option<HierarchySelection>,
-    hx: usize,
-    hy: usize,
-    hw: usize,
-    hh: usize,
+    content: Rect,
     frame: &mut UiFrame,
 ) {
     let panel_bg = theme.role_color(PaletteRole::PanelBg);
     let dim = theme.role_color(PaletteRole::TextDim);
     let accent = theme.role_color(PaletteRole::Accent);
-    renderer.draw_rect_filled(hx, hy, hw, hh, ' ', Color::White, panel_bg);
-    let sep: String = std::iter::repeat_n('-', hw).collect();
-    renderer.draw_str(hx, hy, &sep, dim, panel_bg);
-    // 7C-1 (master plan §5.3): `draw_row` registers each row at the exact
-    // point it's drawn, replacing `handle_hierarchy_click`'s own
+    let row_h = theme.metrics.row_h;
+    let text_px = theme.font_sizes.body;
+    let max_rows = ((content.h / row_h).floor() as usize).max(1);
+    renderer.fill_rect_px(content, panel_bg);
+    let sep_row = Rect::new(content.x, content.y, content.w, row_h);
+    let sep = "-".repeat((content.w / font.measure("-", text_px).0.max(1.0)) as usize);
+    draw_text_row(renderer, font, &sep, sep_row, text_px, dim, panel_bg);
+    // 7C-1 (master plan §5.3): `draw_row_px` registers each row at the
+    // exact point it's drawn, replacing `handle_hierarchy_click`'s own
     // independently-recomputed `hier_row` arithmetic (E5). Entity-kind
     // colors (player green, spawn yellow) are semantic, not chrome — left
     // literal, same reasoning as `draw_console`'s log-level colors; only
-    // the SELECTED state and background follow the theme.
-    if hh > 1 {
+    // the SELECTED state and background follow the theme. Labels no
+    // longer manually pad to the panel's full width (the old cell-based
+    // `" ".repeat(hw - 9)`) — `draw_row_px`'s own `fill_rect_px` already
+    // covers the whole row rect regardless of the label's length.
+    if max_rows > 1 {
         let player_sel = hier_sel == Some(HierarchySelection::Player);
-        let label = format!(" {} Player{}", grid.player.glyph, " ".repeat(hw.saturating_sub(9)));
+        let label = format!(" {} Player", grid.player.glyph);
         let (fg, bg) = if player_sel { (Color::Black, accent) } else { (Color::Green, panel_bg) };
-        draw_row(renderer, frame, WidgetId::HierarchyRow(HierarchySelection::Player), hx, hy + 1, hw, &label, fg, bg);
+        let row_rect = Rect::new(content.x, content.y + row_h, content.w, row_h);
+        draw_row_px(
+            renderer,
+            frame,
+            font,
+            WidgetId::HierarchyRow(HierarchySelection::Player),
+            row_rect,
+            text_px,
+            &label,
+            fg,
+            bg,
+        );
     }
+    // Rough character budget for a spawn name, sized from the font's own
+    // average advance — not pixel-exact (no scissor clips this panel
+    // either way), just enough to stop an extreme name from drawing far
+    // past the panel's right edge, same reasoning `draw_console` uses.
+    let avg_char_w = (font.measure("MMMMMMMMMM", text_px).0 / 10.0).max(1.0);
+    let max_name_chars = ((content.w / avg_char_w) as usize).saturating_sub(3);
     for (i, (name, _, _)) in grid.extra_spawns.iter().enumerate() {
-        let row = hy + 2 + i;
-        if row >= hy + hh {
+        let row_index = 2 + i;
+        if row_index >= max_rows {
             break;
         }
         let spawn_sel = hier_sel == Some(HierarchySelection::Spawn(i));
-        let max_name = hw.saturating_sub(3);
-        let short: String = name.chars().take(max_name).collect();
-        let label = format!(" ! {:<width$}", short, width = max_name);
+        let short: String = name.chars().take(max_name_chars).collect();
+        let label = format!(" ! {}", short);
         let (fg, bg) = if spawn_sel { (Color::Black, accent) } else { (Color::Yellow, panel_bg) };
-        draw_row(renderer, frame, WidgetId::HierarchyRow(HierarchySelection::Spawn(i)), hx, row, hw, &label, fg, bg);
+        let row_rect = Rect::new(content.x, content.y + row_index as f32 * row_h, content.w, row_h);
+        draw_row_px(
+            renderer,
+            frame,
+            font,
+            WidgetId::HierarchyRow(HierarchySelection::Spawn(i)),
+            row_rect,
+            text_px,
+            &label,
+            fg,
+            bg,
+        );
     }
 }
 
