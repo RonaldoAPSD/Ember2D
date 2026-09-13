@@ -3254,7 +3254,20 @@ or delete; never let this grow past a screen.
   warning message, per a direct before/after diff done at 7C-4's close).
   Only `--lib` counts have been tracked step-to-step through 7C; worth an
   explicit `--all-targets` re-baseline at the 7C gate so this doesn't keep
-  drifting unnoticed.
+  drifting unnoticed. (Tracked step-to-step all through 7D-2 instead —
+  currently 73, i.e. improved, not drifted further.)
+- `Renderer.ui_font`/`ui_font_kind`/`ui_font_px` (7B-5's `EMBER_UI_FONT`
+  debug toggle, `renderer/font/mod.rs`) is now largely redundant: every
+  editor panel draws its OWN text through the theme's font directly
+  (7D-2) rather than through this process-wide field. Nothing still
+  depends on it drawing real glyphs — `draw_str`'s bitmap branch is what
+  the viewport's own HUD/debug text still uses, so the field itself can't
+  go, but the `EMBER_UI_FONT=ttf` toggle's only remaining effect is that
+  ONE remaining `draw_str` surface, not "the whole editor" the way its
+  own doc comment still describes. Not a defect (nothing is wrong, the
+  toggle still does what it says for what's left) — worth a doc-comment
+  pass and maybe renaming away from "UI font" whenever someone's next in
+  that file, so it doesn't read as more load-bearing than it now is.
 
 ---
 
