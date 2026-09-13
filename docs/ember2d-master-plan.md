@@ -2254,7 +2254,7 @@ loud fallback (magenta) never a panic. Two shipped themes:
 - **Test:** theme RON round-trips; a missing role falls back; `NineSlice`
   quad math already tested in 7-1a.
 - **Scope:** `ember2d` (theme.rs, renderer), `themes/`.
-- **Landed as (`5699ce5`), partial — investigated up front, split the
+- **Landed as (`5699ce5`/`b19ac82`), partial — investigated up front, split the
   step's own two kinds of work before starting:** the `Theme` resource
   itself is Rust logic with zero asset dependency (structs, serde/RON,
   fallback-by-lookup); the two NAMED shipped themes are real pixel-art and
@@ -2296,29 +2296,36 @@ loud fallback (magenta) never a panic. Two shipped themes:
     one"). `AssetManager` itself needed no changes — already a
     self-contained struct with no singleton coupling, confirmed by
     investigation before adding the second instance.
-  - **NOT shipped this step, follow-up needed:** `themes/ember-pixel/`
-    and `themes/ember-clean/` — the plan's own named "two shipped themes."
-    Cascadia (the TTF `ember-clean` names) is already bundled at
-    `ember2d/assets/fonts/CascadiaMono.ttf` (confirmed by investigation,
-    no sourcing/licensing work needed for that half), but BOTH themes
-    still need a real 9-slice chrome atlas PNG — pixel art neither
-    plan text nor a coding agent can responsibly invent. `themes/` itself
-    does not exist yet. 7D-2 ("Chrome through 9-slice") cannot usefully
-    proceed without at least one real theme to draw with — either the
-    user provides/commissions real chrome art, or asks for a
-    programmatic placeholder atlas (flat colors, clear region
-    boundaries) explicitly understood as a stand-in, not the visual
-    restyle itself.
+  - **Follow-up (same day): `themes/ember-clean/` shipped for real.** A
+    design conversation with the user picked a direction — "hybrid"
+    chrome (bitmap-font viewport, unchanged; Cascadia Code panel text)
+    over an all-bitmap alternative, amber (`#e8a33d`) as the accent —
+    after comparing both live in an interactive mockup. That's a
+    concrete enough spec (locked palette, locked font, a "flat, clean,
+    modern dev console" visual direction rather than ornate pixel art)
+    that a real 9-slice chrome atlas no longer needs a human pixel
+    artist: new `ember2d/examples/gen_ember_clean_theme.rs` (same
+    reasoning as `gen_roguelike.rs` for generating rather than
+    hand-authoring — exact pixel arithmetic, and computing the PNG and
+    `theme.ron`'s `Rect` coordinates from the same constants means they
+    can't drift apart) draws a 128×96, 12-region, 32px-cell/6px-border
+    atlas covering every `SliceRole`, and writes the matching
+    `theme.ron` (palette, font, font_sizes, metrics, `ui_scale: 1`)
+    using the real `ThemeData` type directly rather than hand-typed RON.
+    `themes/ember-pixel/` (the plan's other named theme, all-bitmap) is
+    NOT built — the user didn't ask for it, and 7D-2 only needs one real
+    theme to render against; deferred, not abandoned.
   - **Verification.** `cargo build --workspace --examples` clean. `cargo
-    test --workspace`: 320 (was 315), all pass — 5 new tests in
-    `theme.rs`: RON round-trip, loading a real (if minimal) theme
-    directory resolves its chrome texture, loading a missing directory
-    falls back without panicking, a missing palette role falls back to
-    magenta, a missing slice role returns `None`. `cargo clippy
-    --workspace --lib`/`--all-targets` unchanged at 55/80. `scripts/
-    check.ps1` clean. `cargo test -p ember2d --test replay` 3× fresh
-    processes green (no `ember2d-sim` change; re-run anyway). No new
-    dependency — `ember2d` already had `serde`+`ron` (`project.ron`).
+    test --workspace`: 321 (was 315 before this step; +5 from the
+    struct/logic layer, +1 more here), all pass — new:
+    `the_shipped_ember_clean_theme_loads_with_every_slice_and_a_real_chrome_texture`
+    (`theme.rs`) loads the actual generated files through `Theme::load`
+    (not a synthetic fixture, unlike every other test in this module)
+    and asserts all 12 `SliceRole`s resolve and the chrome texture isn't
+    `AssetManager`'s 1×1 failure placeholder. `cargo clippy --workspace
+    --lib`/`--all-targets` unchanged at 55/80. `scripts/check.ps1`
+    clean. No new dependency — `ember2d` already had `serde`+`ron`
+    (`project.ron`) and `image` (texture loading).
 
 #### `[ ]` 7D-2 — Chrome through 9-slice
 
