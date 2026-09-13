@@ -2874,7 +2874,7 @@ deleted at the end of this step; panels size to content and theme metrics.
     fullscreen `scripts/enemy_boss.rhai`): syntax-highlighted, themed title/
     status bars, a click on a specific character (line 3, "header") landed
     exactly on it (status bar read "Line: 3  Col: 12", matching the click).
-  - **Checkpoint 6 — chrome audit.** New `scripts/check.ps1` §4: every
+  - **Checkpoint 6 — chrome audit (`9ca404b`).** New `scripts/check.ps1` §4: every
     `.rs` file under `ember2d-editor/src/editor` (excluding `start_screen/`,
     deliberately out of scope) fails the check if it references
     `CELL_W`/`CELL_H` in real code (comment lines exempt, matching the
