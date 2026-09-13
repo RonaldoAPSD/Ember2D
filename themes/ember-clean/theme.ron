@@ -1,0 +1,144 @@
+(
+    name: "ember-clean",
+    palette: {
+        PanelBg: Rgb(27, 30, 36),
+        PanelBorder: Rgb(52, 58, 69),
+        TitleBg: Rgb(38, 43, 51),
+        TitleText: Rgb(230, 228, 222),
+        TextPrimary: Rgb(217, 218, 224),
+        TextDim: Rgb(125, 131, 143),
+        Accent: Rgb(232, 163, 61),
+        Danger: Rgb(224, 97, 107),
+        InputBg: Rgb(20, 23, 28),
+        InputText: Rgb(217, 218, 224),
+        Selection: Rgb(138, 103, 44),
+        TabActive: Rgb(230, 228, 222),
+        TabInactive: Rgb(125, 131, 143),
+    },
+    chrome_path: "chrome.png",
+    slices: {
+        Panel: (
+            src: (
+                x: 0.0,
+                y: 0.0,
+                w: 32.0,
+                h: 32.0,
+            ),
+            border: (6.0, 6.0, 6.0, 6.0),
+        ),
+        TitleBar: (
+            src: (
+                x: 32.0,
+                y: 0.0,
+                w: 32.0,
+                h: 32.0,
+            ),
+            border: (6.0, 6.0, 6.0, 6.0),
+        ),
+        Button: (
+            src: (
+                x: 64.0,
+                y: 0.0,
+                w: 32.0,
+                h: 32.0,
+            ),
+            border: (6.0, 6.0, 6.0, 6.0),
+        ),
+        ButtonHover: (
+            src: (
+                x: 96.0,
+                y: 0.0,
+                w: 32.0,
+                h: 32.0,
+            ),
+            border: (6.0, 6.0, 6.0, 6.0),
+        ),
+        ButtonPressed: (
+            src: (
+                x: 0.0,
+                y: 32.0,
+                w: 32.0,
+                h: 32.0,
+            ),
+            border: (6.0, 6.0, 6.0, 6.0),
+        ),
+        ButtonDisabled: (
+            src: (
+                x: 32.0,
+                y: 32.0,
+                w: 32.0,
+                h: 32.0,
+            ),
+            border: (6.0, 6.0, 6.0, 6.0),
+        ),
+        Input: (
+            src: (
+                x: 64.0,
+                y: 32.0,
+                w: 32.0,
+                h: 32.0,
+            ),
+            border: (6.0, 6.0, 6.0, 6.0),
+        ),
+        TabActive: (
+            src: (
+                x: 96.0,
+                y: 32.0,
+                w: 32.0,
+                h: 32.0,
+            ),
+            border: (6.0, 6.0, 6.0, 6.0),
+        ),
+        TabInactive: (
+            src: (
+                x: 0.0,
+                y: 64.0,
+                w: 32.0,
+                h: 32.0,
+            ),
+            border: (6.0, 6.0, 6.0, 6.0),
+        ),
+        Scrollbar: (
+            src: (
+                x: 32.0,
+                y: 64.0,
+                w: 32.0,
+                h: 32.0,
+            ),
+            border: (6.0, 6.0, 6.0, 6.0),
+        ),
+        Checkbox: (
+            src: (
+                x: 64.0,
+                y: 64.0,
+                w: 32.0,
+                h: 32.0,
+            ),
+            border: (6.0, 6.0, 6.0, 6.0),
+        ),
+        ResizeGrip: (
+            src: (
+                x: 96.0,
+                y: 64.0,
+                w: 32.0,
+                h: 32.0,
+            ),
+            border: (6.0, 6.0, 6.0, 6.0),
+        ),
+    },
+    font: Ttf(
+        path: "ember2d/assets/fonts/CascadiaMono.ttf",
+    ),
+    font_sizes: (
+        small: 11.0,
+        body: 13.0,
+        heading: 16.0,
+    ),
+    metrics: (
+        padding: 6.0,
+        border: 6.0,
+        row_h: 20.0,
+        min_target: 22.0,
+    ),
+    ui_scale: 1,
+)

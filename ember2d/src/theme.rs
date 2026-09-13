@@ -274,6 +274,41 @@ mod tests {
     }
 
     #[test]
+    fn the_shipped_ember_clean_theme_loads_with_every_slice_and_a_real_chrome_texture() {
+        // `themes/ember-clean/` is checked-in, generated content
+        // (`ember2d/examples/gen_ember_clean_theme.rs`) — this is the one
+        // test that actually loads it, catching a generator/theme.ron
+        // mismatch or a corrupt PNG that every other test here (which all
+        // use synthetic fixtures) structurally can't.
+        let _ = std::env::set_current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/.."));
+        let mut assets = AssetManager::new();
+        let theme = Theme::load(&mut assets, "themes/ember-clean");
+
+        assert_eq!(theme.name, "ember-clean");
+        assert_ne!(theme.name, "fallback", "the real theme file must have been found and parsed");
+        let tex = assets.get(theme.chrome).expect("chrome texture must resolve");
+        assert_ne!((tex.width, tex.height), (1, 1), "the real chrome.png must decode, not fall back to AssetManager's 1x1 placeholder");
+
+        for role in [
+            SliceRole::Panel,
+            SliceRole::TitleBar,
+            SliceRole::Button,
+            SliceRole::ButtonHover,
+            SliceRole::ButtonPressed,
+            SliceRole::ButtonDisabled,
+            SliceRole::Input,
+            SliceRole::TabActive,
+            SliceRole::TabInactive,
+            SliceRole::Scrollbar,
+            SliceRole::Checkbox,
+            SliceRole::ResizeGrip,
+        ] {
+            assert!(theme.slice(role).is_some(), "ember-clean must define every SliceRole, missing {role:?}");
+        }
+        assert!(matches!(theme.font, FontChoice::Ttf { .. }));
+    }
+
+    #[test]
     fn loading_a_missing_theme_directory_falls_back_without_panicking() {
         let mut assets = AssetManager::new();
         let theme = Theme::load(&mut assets, "__no_such_theme_dir__");
