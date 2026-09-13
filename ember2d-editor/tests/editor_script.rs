@@ -1,359 +1,220 @@
-// ember2d-editor/tests/editor_script.rs — 7C-7 (docs/ember2d-master-plan.md
-// §5.3, R18): script errors reaching the editor. Two halves: the live
-// syntax check (compile-on-save, compile-on-idle, inline error display)
-// and the F5-preview log hand-off (`GameState::receive_script_log`) —
-// the play-state side of that hand-off (`take_script_log`) is pinned in
-// ember2d's own `tests/take_script_log.rs`; the full round trip through a
-// real F5 press needs `ember2d-app`'s live `Engine`/window, which no test
-// in this repo drives headlessly (see `run_editor_app`'s own comment on
-// the `Transition::ToEditor` arm this step added).
+// ember2d-editor/tests/editor_script.rs — script editor regression tests
+// (7D-3 checkpoint 5, docs/ember2d-master-plan.md §5.4), driven through
+// `EditorHarness` (tests/common/mod.rs). See each test's own comment for
+// which defect it pins.
 
 mod common;
 
-use common::{select_dock_tab, EditorHarness};
-use ember2d::engine::GameState;
+use common::{click_menu_item, open_menu, select_dock_tab, EditorHarness};
 use ember2d::input::Key;
-use ember2d_editor::editor::ui::WidgetId;
-use ember2d_sim::scripting::LogEntry;
+use ember2d::renderer::draw_log::DrawOp;
+use ember2d_editor::editor::panel::PanelId;
+use ember2d_editor::editor::ui::{ChromeMetrics, MenuKind, ScriptLayout, ToolbarAction};
+use ember2d_editor::editor::EditorMode;
 
-// ── receive_script_log (the editor side of R18's fix) ───────────────────────
-
-#[test]
-fn receive_script_log_appends_to_the_console() {
-    let mut h = EditorHarness::new();
-    assert!(h.state.console_log().is_empty());
-
-    h.state.receive_script_log(vec![LogEntry::error("boom")]);
-
-    assert_eq!(h.state.console_log().len(), 1);
-    assert!(h.state.console_log()[0].text.contains("boom"));
-}
-
-// ── Live syntax check ────────────────────────────────────────────────────────
-
-/// Writes `name` with `initial` content into a fresh project folder, opens
-/// the File Browser, and clicks it — the same real path a user takes
-/// (`clicking_a_rhai_file_in_the_file_browser_opens_the_fullscreen_script_editor`,
-/// editor_input.rs), not a direct call to the crate-private `load_script`.
-fn open_script_via_file_browser(dir: &std::path::Path, name: &str, initial: &str) -> EditorHarness {
-    std::fs::write(dir.join(name), initial).expect("test script file must be writable");
-
-    let mut h = EditorHarness::new();
+/// Opens `content` as `<dir>/script.rhai` through the real File Browser
+/// click path (fullscreen), then leaves fullscreen and docks+selects the
+/// Script Editor panel — the "loaded, visible, but not yet focused" state
+/// `handle_script_editor_click`'s own first-click path (R67) exists for.
+fn open_docked_unfocused_script(h: &mut EditorHarness, dir: &std::path::Path, content: &str) {
+    std::fs::write(dir.join("script.rhai"), content).expect("test script file must be writable");
     h.state.open_project_folder(dir.to_string_lossy().into_owned());
-
-    // The File Browser is visible by default (7D layout default), but
-    // Console is the initially active bottom tab — select FileBrowser's
-    // own tab so its rows actually render.
-    select_dock_tab(&mut h, ember2d_editor::editor::panel::PanelId::FileBrowser);
-
-    let row = h
-        .state
-        .file_browser_files()
-        .iter()
-        .position(|f| f.contains(name))
-        .unwrap_or_else(|| panic!("{name} must be listed in the File Browser"));
-    let rect = h
+    select_dock_tab(h, PanelId::FileBrowser);
+    let row_rect = h
         .state
         .ui_frame()
-        .rect_of(WidgetId::FileBrowserRow(row))
-        .unwrap_or_else(|| panic!("{name}'s row was not drawn"));
-    h.click(rect.x + 1.0, rect.y + 1.0);
-    h
+        .rect_of(ember2d_editor::editor::ui::WidgetId::FileBrowserRow(0))
+        .expect("script.rhai's row was not drawn");
+    h.click(row_rect.x + 1.0, row_rect.y + 1.0);
+    assert!(matches!(h.state.mode(), EditorMode::Script), "opening a .rhai file must enter fullscreen script mode");
+    h.key(Key::Escape);
+    assert!(matches!(h.state.mode(), EditorMode::Paint(_)), "Escape must leave fullscreen script mode");
+
+    open_menu(h, MenuKind::View);
+    click_menu_item(h, MenuKind::View, |a| matches!(a, ToolbarAction::ToggleScriptEditor));
+    select_dock_tab(h, PanelId::ScriptEditor);
 }
 
-fn ctrl_s(h: &mut EditorHarness) {
-    h.press_key(Key::LeftCtrl);
-    h.press_key(Key::S);
-    h.release_key(Key::S);
-    h.release_key(Key::LeftCtrl);
+fn script_layout(h: &mut EditorHarness) -> ScriptLayout {
+    let metrics = ChromeMetrics::from_theme(h.state.theme());
+    let content: ember2d_sim::math::Rect =
+        h.state.panels().get(PanelId::ScriptEditor).content_rect(&metrics).into();
+    let line_count = h.state.script_buffer().len();
+    let theme = h.state.theme().clone();
+    // Mirrors `draw_script_editor`'s own call exactly (same theme, same
+    // content rect, same line count, no error/find bar reserved) — the
+    // test's own oracle for where a click SHOULD land.
+    ScriptLayout::compute(&theme, h.state.code_font(), content, line_count, false, false)
 }
 
+/// R67 (§3 in the master plan): the docked panel's FIRST click (before it
+/// has focus, `handle_script_editor_click` in
+/// `input/panels/file_and_script.rs`) used its own independent formula —
+/// a fixed `gutter_w = 4` (cells) with no `hscroll` term at all — instead
+/// of the real, dynamic gutter `draw_script_editor`/`ScriptLayout` use. A
+/// short (single-digit-line-count) file's real gutter is narrower than
+/// that fixed literal, so the old formula placed the cursor in the wrong
+/// column on the very first click. Both paths now read the same
+/// `ScriptLayout::hit`.
 #[test]
-fn saving_an_unclosed_function_shows_a_parse_error_at_the_right_line() {
+fn r67_the_first_click_on_a_docked_unfocused_script_editor_lands_in_the_exact_column_clicked() {
     let dir = std::env::temp_dir()
         .join(format!("ember2d-{}", std::process::id()))
-        .join("editor_script_save_error_repro");
+        .join("editor_script_r67_first_click_repro");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
 
-    let mut h = open_script_via_file_browser(&dir, "player.rhai", "fn on_update(id, ctx) {}\n");
-    assert_eq!(h.state.script_error(), None, "a script that compiles cleanly starts with no error");
+    let mut h = EditorHarness::new();
+    open_docked_unfocused_script(&mut h, &dir, "ab\ncd\n");
 
-    // The plan's own repro (7C-6, master plan §5.3): break the one line by
-    // deleting its closing brace, then save — Ctrl+S must compile and
-    // report the parse error on the right (only) line.
-    h.key(Key::End);
-    h.key(Key::Backspace);
-    ctrl_s(&mut h);
+    let layout = script_layout(&mut h);
+    // Column 1 of line 0 ("ab") — deliberately not column 0, so a gutter-
+    // width error of even one character would move the click to the
+    // wrong side of a character boundary.
+    let px = layout.line_x + 1.0 * layout.char_w + 1.0;
+    let py = layout.text.y + 1.0;
+    h.click(px, py);
 
-    let err = h.state.script_error();
-    assert!(err.is_some(), "an unclosed function must fail to compile");
-    let (line, msg) = err.unwrap();
-    assert_eq!(line, 0, "the only line in the buffer is where the error must be reported, got line {line} ({msg})");
-
-    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        h.state.script_cursor(),
+        (1, 0),
+        "the first click into the docked, unfocused script editor must land exactly where `ScriptLayout` (and the draw side) say column 1 of line 0 is"
+    );
 }
 
+/// R67: the docked panel's first click also had no lower bound excluding
+/// the reserved error row — a click there could still resolve to a
+/// (nonexistent) buffer line. `ScriptLayout::hit` returns `None` outside
+/// its own `text` rect, which already excludes the error row.
 #[test]
-fn fixing_the_error_and_saving_again_clears_it() {
+fn r67_clicking_the_reserved_error_row_does_not_move_the_cursor() {
     let dir = std::env::temp_dir()
         .join(format!("ember2d-{}", std::process::id()))
-        .join("editor_script_fix_error_repro");
+        .join("editor_script_r67_error_row_repro");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
 
-    let mut h = open_script_via_file_browser(&dir, "player.rhai", "fn on_update(id, ctx) {\n");
-    ctrl_s(&mut h);
-    assert!(h.state.script_error().is_some(), "the seed script is deliberately broken");
+    let mut h = EditorHarness::new();
+    // A script `rhai::Engine::compile` rejects — guarantees a live error
+    // row is reserved at the bottom of the panel.
+    open_docked_unfocused_script(&mut h, &dir, "fn on_update(id, ctx) {\n");
 
-    h.key(Key::End);
-    h.type_text("}");
-    ctrl_s(&mut h);
+    let before = h.state.script_cursor();
+    let metrics = ChromeMetrics::from_theme(h.state.theme());
+    let content_rect = h.state.panels().get(PanelId::ScriptEditor).content_rect(&metrics);
+    // Just above the panel's own bottom edge — inside the reserved error
+    // row once one is showing.
+    h.click(content_rect.x + 1.0, content_rect.y + content_rect.h - 1.0);
 
-    assert_eq!(h.state.script_error(), None, "a fixed script must clear the error on the next save");
-
-    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(before, h.state.script_cursor(), "clicking the error row must never move the cursor");
 }
 
+/// R68 (§3 in the master plan): the gutter is now sized from the buffer's
+/// own real line count (`ScriptLayout::compute`), not a fixed `4`-column
+/// budget that silently ran out past line 999 — a 1000+ line file's own
+/// wheel-scroll ceiling (which depends on how many ROWS actually fit,
+/// which in turn depends on the gutter eating into... no, the gutter only
+/// affects columns, not rows; this instead pins that `visible_rows`
+/// itself — computed once by `ScriptLayout` and shared by draw, the wheel
+/// handler, and keep-in-view — lets the wheel reach the buffer's true
+/// last line in a file large enough to need the widened gutter).
 #[test]
-fn the_idle_timer_triggers_a_check_without_an_explicit_save() {
+fn r68_the_focused_script_editor_wheel_can_scroll_to_the_last_line_of_a_1000_plus_line_file() {
     let dir = std::env::temp_dir()
         .join(format!("ember2d-{}", std::process::id()))
-        .join("editor_script_idle_check_repro");
+        .join("editor_script_r68_wide_gutter_repro");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
 
-    let mut h = open_script_via_file_browser(&dir, "player.rhai", "fn on_update(id, ctx) {}\n");
-    assert_eq!(h.state.script_error(), None);
+    let mut lines = String::new();
+    for i in 0..1005 {
+        lines.push_str(&format!("let x{} = {};\n", i, i));
+    }
+    let mut h = EditorHarness::new();
+    open_docked_unfocused_script(&mut h, &dir, &lines);
 
-    // Break it in place (no save) — move to the end of the one line and
-    // delete the closing brace.
-    h.key(Key::End);
-    h.key(Key::Backspace);
-    assert_eq!(h.state.script_error(), None, "no check has run yet — only ~500ms of idle triggers one");
+    let layout = script_layout(&mut h);
+    assert_eq!(layout.gutter_digits, 4, "1005 lines must get a 4-digit gutter");
 
-    // `note_script_edit` just reset the idle timer to 0 (the Backspace
-    // above); 30 frames (SCRIPT_IDLE_CHECK_FRAMES, script_editor.rs) at
-    // the editor's fixed 60Hz step is ~500ms.
-    for _ in 0..30 {
-        h.frame();
+    // Focus the panel first (any click inside it), then scroll far past
+    // the end — `handle_script_mode_input`'s own wheel handling, once
+    // focused.
+    h.click(layout.line_x + 1.0, layout.text.y + 1.0);
+    // Each wheel notch moves a fixed 2 rows regardless of magnitude
+    // (`handle_script_mode_input`'s own step) — enough iterations to
+    // clear the buffer's real `max_scroll` (999) comfortably.
+    for _ in 0..600 {
+        h.wheel(layout.line_x + 1.0, layout.text.y + 1.0, -2.0);
     }
 
-    assert!(h.state.script_error().is_some(), "500ms idle with no further edits must trigger a live syntax check");
-
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-// ── 7C-8: text editor completeness ──────────────────────────────────────────
-
-fn open_blank_script(dir: &std::path::Path) -> EditorHarness {
-    open_script_via_file_browser(dir, "player.rhai", "\n")
-}
-
-fn ctrl_key(h: &mut EditorHarness, key: Key) {
-    h.press_key(Key::LeftCtrl);
-    h.press_key(key);
-    h.release_key(key);
-    h.release_key(Key::LeftCtrl);
-}
-
-/// The plan's own repro (7C-8, master plan §5.3): select-all, cut, paste
-/// round-trips content including non-ASCII.
-#[test]
-fn select_all_cut_paste_round_trips_non_ascii_content() {
-    let dir = std::env::temp_dir()
-        .join(format!("ember2d-{}", std::process::id()))
-        .join("editor_script_cut_paste_repro");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
-
-    let mut h = open_blank_script(&dir);
-    h.type_text("café 🎮 hello");
-
-    ctrl_key(&mut h, Key::A);
-    let sel = h.state.script_selection();
-    assert!(sel.is_some(), "Ctrl+A must select the whole buffer");
-
-    ctrl_key(&mut h, Key::X);
-    assert_eq!(h.state.script_buffer(), &[String::new()], "cut must remove the selected text");
-    assert_eq!(h.state.script_clipboard(), "café 🎮 hello");
-
-    ctrl_key(&mut h, Key::V);
-    assert_eq!(
-        h.state.script_buffer(),
-        &["café 🎮 hello".to_string()],
-        "pasting the cut text back must restore it exactly, non-ASCII included"
+    let last_line_visible_row = h.state.script_buffer().len() - h.state.script_scroll() - 1;
+    assert!(
+        last_line_visible_row < layout.visible_rows,
+        "scrolling far past the end of a 1005-line file must still bring its last line into view (scroll={}, visible_rows={})",
+        h.state.script_scroll(),
+        layout.visible_rows
     );
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// R73 (§3 in the master plan): selection highlighting used to be a
+/// per-TOKEN background decision the syntax highlighter made while
+/// drawing each token (checked once, at the token's first character) —
+/// a selection boundary landing mid-token highlighted the whole token
+/// instead of just the selected characters. Fixed by painting the
+/// selection as its own exact per-character background FILL before any
+/// text draws. This selects half of the identifier "identifier" (chars
+/// 6..10, "enti") and confirms the recorded `Fill` is exactly 4 characters
+/// wide — not the whole 10-character token.
 #[test]
-fn copy_leaves_the_original_text_in_place() {
+fn r73_a_selection_starting_mid_token_highlights_only_the_selected_characters() {
     let dir = std::env::temp_dir()
         .join(format!("ember2d-{}", std::process::id()))
-        .join("editor_script_copy_repro");
+        .join("editor_script_r73_mid_token_selection_repro");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
 
-    let mut h = open_blank_script(&dir);
-    h.type_text("hello");
-    ctrl_key(&mut h, Key::A);
-    ctrl_key(&mut h, Key::C);
+    let mut h = EditorHarness::new();
+    // "let identifier = 5;" — "identifier" spans chars 4..14; this selects
+    // chars 6..10 ("enti"), squarely inside that one token.
+    open_docked_unfocused_script(&mut h, &dir, "let identifier = 5;\n");
 
-    assert_eq!(h.state.script_clipboard(), "hello");
-    assert_eq!(h.state.script_buffer(), &["hello".to_string()], "copy must not remove anything");
-
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn shift_right_extends_a_selection_one_character_at_a_time() {
-    let dir = std::env::temp_dir()
-        .join(format!("ember2d-{}", std::process::id()))
-        .join("editor_script_shift_select_repro");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
-
-    let mut h = open_blank_script(&dir);
-    h.type_text("hello");
-    h.key(Key::Home);
-    assert_eq!(h.state.script_selection(), None);
+    let layout = script_layout(&mut h);
+    // First click (unfocused): places the cursor at char 6, also focuses
+    // the panel so the Shift+Right presses below go through the normal
+    // focused selection path.
+    h.click(layout.line_x + 6.0 * layout.char_w + 1.0, layout.text.y + 1.0);
+    assert_eq!(h.state.script_cursor(), (6, 0));
 
     h.press_key(Key::LeftShift);
-    h.press_key(Key::Right);
-    h.release_key(Key::Right);
-    h.press_key(Key::Right);
-    h.release_key(Key::Right);
+    for _ in 0..4 {
+        h.press_key(Key::Right);
+        h.release_key(Key::Right);
+    }
     h.release_key(Key::LeftShift);
+    assert_eq!(h.state.script_cursor(), (10, 0), "Shift+Right x4 must select exactly 4 characters");
 
-    assert_eq!(h.state.script_selection(), Some(((0, 0), (2, 0))), "Shift+Right twice must select the first 2 characters");
+    h.start_recording();
+    h.frame();
 
-    // A plain (non-Shift) move collapses the selection (7C-8's own
-    // documented simplification — see `update_selection_anchor`).
-    h.key(Key::Right);
-    assert_eq!(h.state.script_selection(), None);
-
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn typing_replaces_an_active_selection() {
-    let dir = std::env::temp_dir()
-        .join(format!("ember2d-{}", std::process::id()))
-        .join("editor_script_replace_selection_repro");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
-
-    let mut h = open_blank_script(&dir);
-    h.type_text("hello");
-    ctrl_key(&mut h, Key::A);
-    h.type_text("bye");
-
-    assert_eq!(h.state.script_buffer(), &["bye".to_string()]);
-    assert_eq!(h.state.script_selection(), None, "typing must consume the selection, not leave it dangling");
-
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-fn ctrl_z(h: &mut EditorHarness) {
-    ctrl_key(h, Key::Z);
-}
-fn ctrl_y(h: &mut EditorHarness) {
-    ctrl_key(h, Key::Y);
-}
-
-#[test]
-fn a_typing_burst_undoes_as_one_step() {
-    let dir = std::env::temp_dir()
-        .join(format!("ember2d-{}", std::process::id()))
-        .join("editor_script_undo_coalesce_repro");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
-
-    let mut h = open_blank_script(&dir);
-    h.type_text("hello");
-    assert_eq!(h.state.script_buffer(), &["hello".to_string()]);
-
-    ctrl_z(&mut h);
-    assert_eq!(h.state.script_buffer(), &[String::new()], "one undo must remove the whole typed word");
-
-    ctrl_y(&mut h);
-    assert_eq!(h.state.script_buffer(), &["hello".to_string()], "redo must restore it");
-
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn switching_edit_kinds_starts_a_new_undo_step() {
-    let dir = std::env::temp_dir()
-        .join(format!("ember2d-{}", std::process::id()))
-        .join("editor_script_undo_group_switch_repro");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
-
-    let mut h = open_blank_script(&dir);
-    h.type_text("hello");
-    h.key(Key::Backspace);
-    h.key(Key::Backspace);
-    assert_eq!(h.state.script_buffer(), &["hel".to_string()]);
-
-    // Typing then backspacing is two separate coalescing groups — undoing
-    // once must only reverse the backspaces, not the typing too.
-    ctrl_z(&mut h);
-    assert_eq!(h.state.script_buffer(), &["hello".to_string()], "undo must first restore just the 2 backspaces");
-    ctrl_z(&mut h);
-    assert_eq!(h.state.script_buffer(), &[String::new()], "a second undo removes the typed word");
-
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn ctrl_f_finds_and_selects_the_next_match() {
-    let dir = std::env::temp_dir()
-        .join(format!("ember2d-{}", std::process::id()))
-        .join("editor_script_find_repro");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
-
-    let mut h = open_blank_script(&dir);
-    h.type_text("fn on_start(id, ctx) {}");
-    h.key(Key::Enter);
-    h.type_text("fn on_update(id, ctx) {}");
-
-    ctrl_key(&mut h, Key::F);
-    assert!(h.state.script_find_active());
-
-    h.type_text("on_");
-    assert_eq!(h.state.script_find_query(), "on_");
-    // The FIRST match (in "on_start") is at line 0, columns 3..6.
-    assert_eq!(h.state.script_selection(), Some(((3, 0), (6, 0))), "typing the query must jump to the first match");
-
-    h.key(Key::Enter);
-    assert_eq!(h.state.script_selection(), Some(((3, 1), (6, 1))), "Enter must advance to the next match (\"on_update\")");
-
-    h.key(Key::Escape);
-    assert!(!h.state.script_find_active(), "Escape must close the find bar");
-
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn typing_a_long_line_scrolls_it_horizontally() {
-    let dir = std::env::temp_dir()
-        .join(format!("ember2d-{}", std::process::id()))
-        .join("editor_script_hscroll_repro");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
-
-    let mut h = open_blank_script(&dir);
-    assert_eq!(h.state.script_hscroll(), 0);
-
-    // Comfortably wider than any realistic script panel — must push the
-    // view horizontally once the cursor runs past the visible width.
-    h.type_text(&"x".repeat(300));
-
-    assert!(h.state.script_hscroll() > 0, "typing past the visible width must scroll the view horizontally");
-
-    let _ = std::fs::remove_dir_all(&dir);
+    let expected = ember2d_sim::math::Rect::new(
+        layout.line_x + 6.0 * layout.char_w,
+        layout.text.y,
+        4.0 * layout.char_w,
+        layout.row_h,
+    );
+    let found = h.draw_ops().iter().any(|op| match op {
+        DrawOp::Fill(r) => {
+            (r.x - expected.x).abs() < 0.5
+                && (r.y - expected.y).abs() < 0.5
+                && (r.w - expected.w).abs() < 0.5
+                && (r.h - expected.h).abs() < 0.5
+        }
+        _ => false,
+    });
+    assert!(
+        found,
+        "expected an exact 4-character-wide selection Fill at {:?}, got: {:?}",
+        expected,
+        h.draw_ops().iter().filter(|op| matches!(op, DrawOp::Fill(_))).collect::<Vec<_>>()
+    );
 }

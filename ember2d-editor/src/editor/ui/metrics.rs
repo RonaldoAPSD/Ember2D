@@ -22,6 +22,7 @@
 // theme's own row height.
 
 use ember2d::theme::Theme;
+use ember2d_sim::math::Rect;
 
 pub struct ChromeMetrics {
     /// Title bar, menu bar, status bar, and dock-tab-strip height.
@@ -86,5 +87,15 @@ impl ChromeMetrics {
     /// status bar (`screen_h - bar_h`, was `screen_h - CELL_H`).
     pub fn chrome_bottom(&self, screen_h: f32) -> f32 {
         screen_h - self.bar_h
+    }
+
+    /// The fullscreen script editor's own content area — one `bar_h`-tall
+    /// title bar reserved above it, one status bar below (`impl_render.rs`'s
+    /// `render_script_mode`). Shared with `input/script_editor.rs`'s own
+    /// fullscreen click/scroll handling (7D-3 checkpoint 5, §3 R67) so the
+    /// two can never independently recompute — and disagree on — where the
+    /// text area actually starts and ends.
+    pub fn script_fullscreen_rect(&self, screen_w: f32, screen_h: f32) -> Rect {
+        Rect::new(0.0, self.bar_h, screen_w, (screen_h - 2.0 * self.bar_h).max(0.0))
     }
 }

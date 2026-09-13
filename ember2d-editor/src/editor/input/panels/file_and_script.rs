@@ -7,6 +7,7 @@
 
 use super::super::super::panel::PanelId;
 use super::super::super::ui::ChromeMetrics;
+use super::super::super::ui::ScriptLayout;
 use super::super::super::ui::WidgetId;
 use super::super::super::EditorState;
 
@@ -134,6 +135,14 @@ impl EditorState {
         false
     }
 
+    /// R67 (§3 in the master plan): reads the exact same `ScriptLayout`
+    /// (`ui/script_layout.rs`) the docked-focused path
+    /// (`input/script_editor.rs`'s `handle_script_mode_input`) and
+    /// `draw_script_editor` both use — was its own independent formula
+    /// with a fixed `gutter_w = 4` and no `hscroll` term at all, so a
+    /// click on a horizontally-scrolled line landed in the wrong column
+    /// here specifically (the FIRST click, before the panel has focus),
+    /// and the wheel stepped by 1 row instead of the focused path's 2.
     pub(super) fn handle_script_editor_click(
         &mut self,
         mouse: &ember2d::mouse::MouseState,
@@ -141,31 +150,36 @@ impl EditorState {
         if self.panels.visible(PanelId::ScriptEditor) && mouse.in_bounds {
             let p = self.panels.get(PanelId::ScriptEditor);
             if p.contains(mouse.pixel_x, mouse.pixel_y) {
-                let cy = p.content_y();
-                let ch = p.content_h();
+                let metrics = ChromeMetrics::from_theme(&self.theme);
+                let content = p.content_rect(&metrics);
+                let has_error = self.script_error().is_some();
+                let layout = ScriptLayout::compute(
+                    &self.theme,
+                    self.code_font.as_mut(),
+                    content.into(),
+                    self.script_buffer.len(),
+                    has_error,
+                    false,
+                );
 
-                // Mouse wheel scroll
+                // Mouse wheel scroll — same 2-row step as the focused path.
                 if mouse.wheel_y != 0.0 {
-                    let delta = -(mouse.wheel_y as i32);
-                    let max_scroll = self.script_buffer.len().saturating_sub(ch.saturating_sub(1));
+                    let delta = if mouse.wheel_y > 0.0 { -2i32 } else { 2i32 };
+                    let max_scroll = self.script_buffer.len().saturating_sub(layout.visible_rows);
                     self.script_scroll =
                         (self.script_scroll as i32 + delta).clamp(0, max_scroll as i32) as usize;
                 }
 
-                if mouse.left_just_pressed() && mouse.cell_y > cy {
+                if mouse.left_just_pressed() {
                     self.ignore_drag = true;
-                    let row_idx = self.script_scroll + (mouse.cell_y - (cy + 1));
-                    if row_idx < self.script_buffer.len() {
-                        self.script_cursor.1 = row_idx;
-                        let gutter_w = 4;
-                        let col = mouse.cell_x as i32 - p.content_x() as i32 - gutter_w;
-                        // R11 (7A-2, docs/ember2d-master-plan.md): clamp
-                        // against the CHARACTER count, not the byte length
-                        // — see script_editor.rs's `char_byte_offset` doc
-                        // comment for why a byte-length bound produces an
-                        // out-of-range char index on any multi-byte line.
-                        self.script_cursor.0 =
-                            (col.max(0) as usize).min(self.script_buffer[row_idx].chars().count());
+                    if let Some((col, row)) = layout.hit(
+                        mouse.pixel_x,
+                        mouse.pixel_y,
+                        self.script_scroll,
+                        self.script_hscroll,
+                        &self.script_buffer,
+                    ) {
+                        self.script_cursor = (col, row);
                     }
                     return true;
                 }

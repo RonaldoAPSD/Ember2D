@@ -1,139 +1,20 @@
-// editor/impl_render.rs — Rendering logic for EditorState.
+// editor/impl_render/mod.rs — Rendering logic for EditorState. Full-screen
+// mode rendering (graph/fullscreen-script) split into `modes.rs` (7D-3
+// checkpoint 5, docs/ember2d-master-plan.md §5.4) purely to keep this file
+// under CLAUDE.md's 750-line hard limit — no behavioral change from the
+// split.
 
 use ember2d::engine::RenderContext;
 use ember2d::renderer::color::Color;
 use ember2d::renderer::{DrawSurface, UiSpace};
 
-use super::graph_ui;
 use super::panel::{draw_panel_chrome, DockSide, PanelId};
 use super::ui::{self, HierarchySelection, MenuState, ToolKind};
 use super::EditorMode;
 use super::EditorState;
 use super::TextInputPurpose;
 
-// ── Graph editor rendering ────────────────────────────────────────────────────
-
-impl EditorState {
-    pub(super) fn render_graph_mode(
-        &mut self,
-        renderer: &mut dyn DrawSurface,
-        mouse: &ember2d::mouse::MouseState,
-        gx: i32,
-        gy: i32,
-    ) {
-        let sw = renderer.width();
-        let sh = renderer.height();
-
-        // Resolve graph reference
-        let graph = match self.grid.get(gx, gy, self.active_layer).and_then(|t| t.graph.as_ref()) {
-            Some(g) => g.clone(),
-            None => {
-                renderer.draw_str(0, 0, "No graph", Color::Red, Color::Black);
-                return;
-            }
-        };
-
-        graph_ui::draw_graph(
-            renderer,
-            self.font.as_mut(),
-            &self.theme,
-            &graph,
-            self.graph_selected_node,
-            self.graph_connecting,
-            mouse.cell_x,
-            mouse.cell_y,
-            self.graph_view_ox,
-            self.graph_view_oy,
-            sw,
-            sh,
-        );
-
-        // Title bar (row 0)
-        let tag =
-            self.grid.get(gx, gy, self.active_layer).map(|t| t.tag.clone()).unwrap_or_default();
-        let title = format!(
-            " GRAPH — {} ({},{})   Esc=back  F=layout  RClick=add  Del=remove",
-            if tag.is_empty() { "(tile)" } else { &tag },
-            gx,
-            gy
-        );
-        let title: String = format!("{:<width$}", title, width = sw).chars().take(sw).collect();
-        renderer.draw_str(0, 0, &title, Color::White, Color::DarkBlue);
-
-        // Status bar (row 1 — help / connection hint)
-        let status = if self.graph_editing_param.is_some() {
-            let buf = self.graph_editing_param.as_ref().map(|(_, b)| b.as_str()).unwrap_or("");
-            format!(" Editing param: {}█", buf)
-        } else if self.graph_connecting.is_some() {
-            " Drawing wire — click an input port to connect, Esc to cancel".into()
-        } else {
-            " LClick=select/drag  RClick=add node  Click port>wire  F=auto-layout".into()
-        };
-        let status: String = format!("{:<width$}", status, width = sw).chars().take(sw).collect();
-        renderer.draw_str(0, 1, &status, Color::Black, Color::DarkGrey);
-
-        // Palette overlay
-        if let Some((px, py)) = self.graph_palette_open {
-            graph_ui::draw_palette(
-                renderer,
-                &self.theme,
-                self.graph_palette_scroll,
-                self.graph_palette_cursor,
-                px,
-                py,
-                sw,
-                sh,
-                &mut self.ui_frame,
-            );
-        }
-
-        // Inline param edit overlay (show buffer in status bar — already done above)
-    }
-}
-
-impl EditorState {
-    pub(super) fn render_script_mode(&mut self, renderer: &mut dyn DrawSurface) {
-        let sw = renderer.width();
-        let sh = renderer.height();
-
-        // Title bar
-        let title = match &self.script_path {
-            Some(p) => format!(
-                " SCRIPT EDITOR — {}{}   Esc=back  Ctrl+S=save",
-                p,
-                if self.script_unsaved { "*" } else { "" }
-            ),
-            None => " SCRIPT EDITOR — (no file) ".to_string(),
-        };
-        let title: String = format!("{:<width$}", title, width = sw).chars().take(sw).collect();
-        renderer.draw_str(0, 0, &title, Color::Black, Color::Cyan);
-
-        // Editor area
-        ui::draw_script_editor(
-            renderer,
-            &self.theme,
-            self.script_path.as_deref(),
-            &self.script_buffer,
-            self.script_cursor,
-            self.script_scroll,
-            self.script_hscroll,
-            self.script_unsaved,
-            0,
-            1,
-            sw,
-            sh - 2,
-            self.script_error(),
-            self.script_selection(),
-            self.script_find_active.then_some(self.script_find_query.as_str()),
-        );
-
-        // Status bar
-        let status =
-            format!(" Line: {:<4} Col: {:<4} ", self.script_cursor.1 + 1, self.script_cursor.0 + 1);
-        let status: String = format!("{:<width$}", status, width = sw).chars().take(sw).collect();
-        renderer.draw_str(0, sh - 1, &status, Color::White, Color::DarkBlue);
-    }
-}
+mod modes;
 
 // ── Main render ───────────────────────────────────────────────────────────────
 
@@ -188,7 +69,7 @@ impl EditorState {
 
         // Script editor mode
         if matches!(self.mode, EditorMode::Script) {
-            self.render_script_mode(renderer);
+            self.render_script_mode(renderer, &metrics);
             return;
         }
 
@@ -273,14 +154,6 @@ impl EditorState {
         // ── All panels (back-to-front by z-order) ────────────────────────────
         for pid in self.panels.in_draw_order() {
             let panel = self.panels.get(pid);
-            // Only the ScriptEditor case (below) still needs the cell
-            // bridge — every other panel content function takes
-            // `panel.content_rect(&metrics)` directly now (7D-3, master
-            // plan §5.4).
-            let pcy = panel.content_y();
-            let pcx = panel.content_x();
-            let pch = panel.content_h();
-            let pcw = panel.content_w();
             draw_panel_chrome(
                 renderer,
                 panel,
@@ -522,8 +395,11 @@ impl EditorState {
                     );
                 }
                 PanelId::ScriptEditor => {
+                    let script_error = self.script_error().map(|(line, msg)| (line, msg.to_string()));
+                    let script_selection = self.script_selection();
                     ui::draw_script_editor(
                         renderer,
+                        self.code_font.as_mut(),
                         &self.theme,
                         self.script_path.as_deref(),
                         &self.script_buffer,
@@ -531,12 +407,9 @@ impl EditorState {
                         self.script_scroll,
                         self.script_hscroll,
                         self.script_unsaved,
-                        pcx,
-                        pcy,
-                        pcw,
-                        pch,
-                        self.script_error(),
-                        self.script_selection(),
+                        panel.content_rect(&metrics).into(),
+                        script_error.as_ref().map(|(line, msg)| (*line, msg.as_str())),
+                        script_selection,
                         self.script_find_active.then_some(self.script_find_query.as_str()),
                     );
                 }

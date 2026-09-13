@@ -76,6 +76,15 @@ impl EditorState {
         &self.script_buffer
     }
 
+    /// `(char_idx, line_idx)` — see `ui::ScriptPos`'s own doc comment.
+    pub fn script_cursor(&self) -> (usize, usize) {
+        self.script_cursor
+    }
+
+    pub fn script_scroll(&self) -> usize {
+        self.script_scroll
+    }
+
     pub fn file_browser_files(&self) -> &[String] {
         &self.file_browser_files
     }

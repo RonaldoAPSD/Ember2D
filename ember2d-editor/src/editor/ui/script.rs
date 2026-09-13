@@ -1,15 +1,55 @@
 // editor/ui/script.rs — Script editor rendering and Rhai syntax highlighting.
+//
+// Converted to POINTS (7D-3 checkpoint 5, docs/ember2d-master-plan.md §5.4):
+// every rect this draws is now real pixels from `ScriptLayout::compute`
+// (`ui/script_layout.rs`), not the engine's fixed 8×16 cell grid — the
+// script editor scales with the editor's UI scale like every other chrome
+// surface, drawn through the theme's `code_font` (a monospace face) instead
+// of the literal bitmap glyph pipeline. Text draws through `draw_text_run`
+// directly (not the full `UiPainter`) with `pitch: Some(char_w)` — the same
+// "S pinned to R" simplification every other panel in this step uses
+// (`texel_scale: 1.0`, `raster_px` == the point size); `UiPainter` itself
+// is what a later checkpoint (live UI scale) needs once `texel_scale`
+// actually varies.
+//
+// R73 (§3 in the master plan) fixed here two ways: `set_scissor` clips the
+// text area to its own rect (a long line or a wide identifier can no
+// longer bleed into a neighboring panel), and selection highlighting is
+// now a single per-line background FILL over the exact `(start, end)`
+// character span BEFORE any text draws — not a per-TOKEN color decision
+// the highlighter used to make while drawing each token's own background,
+// which highlighted a whole token even when the selection boundary
+// actually landed mid-token.
 
-use ember2d::renderer::{color::Color, DrawSurface};
+use ember2d::renderer::{color::Color, DrawSurface, Font, TextRun};
 use ember2d::theme::{PaletteRole, Theme};
+use ember2d_sim::math::{Rect, Vec2};
+
+use super::script_layout::ScriptLayout;
 
 /// A script buffer position, `(char_idx, line_idx)` — same shape as
 /// `EditorState::script_cursor` (7C-8, master plan §5.3).
 pub type ScriptPos = (usize, usize);
 
+/// `draw_text_run` with a fixed per-character `pitch` (points) and no
+/// background of its own — every mono text draw in this file goes through
+/// this one wrapper so none of them can forget `texel_scale: 1.0`.
+fn draw_mono(
+    renderer: &mut dyn DrawSurface,
+    font: &mut dyn Font,
+    text: &str,
+    pos: Vec2,
+    px: f32,
+    pitch: f32,
+    color: Color,
+) -> f32 {
+    renderer.draw_text_run(font, &TextRun { text, origin: pos, raster_px: px, texel_scale: 1.0, pitch: Some(pitch), color })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn draw_script_editor(
     renderer: &mut dyn DrawSurface,
+    font: &mut dyn Font,
     theme: &Theme,
     path: Option<&str>,
     buffer: &[String],
@@ -19,10 +59,7 @@ pub fn draw_script_editor(
     // horizontal twin of `scroll` above.
     hscroll: usize,
     unsaved: bool,
-    cx: usize,
-    cy: usize,
-    cw: usize,
-    ch: usize,
+    content: Rect,
     // 7C-7 (master plan §5.3, R18): `(0-based line, message)` from the
     // last `check_script_syntax` — shown both as a highlighted background
     // on the erroring line and a reserved message row at the bottom of
@@ -51,33 +88,39 @@ pub fn draw_script_editor(
     let danger = theme.role_color(PaletteRole::Danger);
     let dim = theme.role_color(PaletteRole::TextDim);
     let selection_bg = theme.role_color(PaletteRole::Selection);
-    renderer.draw_rect_filled(cx, cy, cw, ch, ' ', Color::White, bg_col);
+    let text_px = theme.font_sizes.body;
+
+    let layout = ScriptLayout::compute(theme, font, content, buffer.len(), error.is_some(), find_query.is_some());
+    renderer.fill_rect_px(content, bg_col);
 
     let title = match path {
         Some(p) => format!(" EDIT: {}{}", p, if unsaved { "*" } else { "" }),
         None => " (no script open) ".to_string(),
     };
-    let header = format!(" {:<width$}", title, width = cw.saturating_sub(1));
-    renderer.draw_str(cx, cy, &header, Color::Black, accent);
+    renderer.fill_rect_px(layout.header, accent);
+    renderer.set_scissor(Some(layout.header));
+    let header_baseline = layout.header.y + font.ascent(text_px);
+    renderer.draw_text_px(font, &title, Vec2::new(layout.header.x, header_baseline), text_px, Color::Black);
+    renderer.set_scissor(None);
 
-    let find_rows = usize::from(find_query.is_some());
-    let text_start = cy + 1 + find_rows;
     if let Some(query) = find_query {
+        let find_rect = layout.find_bar.expect("find_query.is_some() implies ScriptLayout reserved a find_bar rect");
+        renderer.fill_rect_px(find_rect, accent);
         let text = format!(" Find: {}_", query);
-        let text: String = format!("{:<width$}", text, width = cw).chars().take(cw).collect();
-        renderer.draw_str(cx, cy + 1, &text, Color::Black, accent);
+        let baseline = find_rect.y + font.ascent(text_px);
+        renderer.set_scissor(Some(find_rect));
+        renderer.draw_text_px(font, &text, Vec2::new(find_rect.x, baseline), text_px, Color::Black);
+        renderer.set_scissor(None);
     }
-    // Reserve the bottom row for the error message when there is one —
-    // matches the header's own "consume one row" shape above.
-    let max_visible = ch.saturating_sub(find_rows + if error.is_some() { 2 } else { 1 });
 
     if buffer.is_empty() && path.is_none() {
-        renderer.draw_str(
-            cx + 1,
-            text_start,
+        let baseline = layout.text.y + font.ascent(text_px);
+        renderer.draw_text_px(
+            font,
             "Select a .rhai file from the Files panel to edit.",
+            Vec2::new(layout.text.x, baseline),
+            text_px,
             dim,
-            bg_col,
         );
         return;
     }
@@ -85,58 +128,72 @@ pub fn draw_script_editor(
     let comment_starts = block_comment_starts(buffer);
     let err_line = error.map(|(line, _)| line);
 
-    let gutter_w = 4;
-    let max_line_w = cw.saturating_sub(gutter_w);
-    let line_x = cx + gutter_w;
-    for (i, line) in buffer.iter().enumerate().skip(scroll).take(max_visible) {
-        let row = text_start + (i - scroll);
-        if row >= cy + ch {
-            break;
+    // R73: clips every source line to the text area's own rect — a long
+    // line or a wide identifier can no longer paint past this panel's own
+    // bounds into whatever's drawn next to it.
+    renderer.set_scissor(Some(layout.text));
+
+    for (i, line) in buffer.iter().enumerate().skip(scroll).take(layout.visible_rows) {
+        let row_y = layout.text.y + (i - scroll) as f32 * layout.row_h;
+        let row_rect = Rect::new(layout.text.x, row_y, layout.text.w, layout.row_h);
+
+        if err_line == Some(i) {
+            renderer.fill_rect_px(row_rect, danger);
         }
 
-        let line_bg = if err_line == Some(i) {
-            renderer.draw_rect_filled(cx, row, cw, 1, ' ', Color::White, danger);
-            danger
-        } else {
-            bg_col
-        };
-
-        let num_str = format!("{:3} ", i + 1);
-        renderer.draw_str(cx, row, &num_str, dim, line_bg);
+        let num_str = format!("{:>width$} ", i + 1, width = layout.gutter_digits);
+        let num_baseline = row_y + font.ascent(text_px);
+        draw_mono(renderer, font, &num_str, Vec2::new(layout.text.x, num_baseline), text_px, layout.char_w, dim);
 
         let line_char_count = line.chars().count();
+        let visible_cols = layout.visible_cols();
         // 7C-8 (master plan §5.3): a trailing `…` when the line has more
         // content than fits after `hscroll` — shrinks the highlighter's
         // own visible width by one column to leave room for it, rather
         // than the marker overwriting whatever character was there.
-        let clipped = line_char_count > hscroll + max_line_w;
-        let highlight_w = if clipped { max_line_w.saturating_sub(1) } else { max_line_w };
+        let clipped = line_char_count > hscroll + visible_cols;
+        let highlight_cols = if clipped { visible_cols.saturating_sub(1) } else { visible_cols };
         // The horizontally-scrolled-off prefix is dropped BEFORE
         // highlighting, not skipped character-by-character inside it —
         // `draw_highlighted_rhai`'s comment/string parsing state simply
         // restarts at column `hscroll`, the same "good enough, not a real
         // parser" simplification `block_comment_starts` already makes
         // across line boundaries, just applied across the hscroll cut
-        // instead. `sel_range` is adjusted to match: it's computed in
-        // absolute line-column terms, but `draw_highlighted_rhai` now
-        // only ever sees the visible (post-hscroll) substring.
+        // instead.
         let visible_line: String = line.chars().skip(hscroll).collect();
-        let sel_range = line_selection_range(selection, i)
-            .map(|(s, e)| (s.saturating_sub(hscroll), e.saturating_sub(hscroll)));
+
+        // R73: selection is now an exact per-character background FILL,
+        // not a per-token color decision the highlighter used to make
+        // while drawing each token — a selection edge landing mid-token no
+        // longer highlights the whole token.
+        if let Some((s, e)) = line_selection_range(selection, i) {
+            let s = s.saturating_sub(hscroll).min(highlight_cols);
+            let e = e.saturating_sub(hscroll).min(highlight_cols);
+            if e > s {
+                let sel_rect = Rect::new(
+                    layout.line_x + s as f32 * layout.char_w,
+                    row_y,
+                    (e - s) as f32 * layout.char_w,
+                    layout.row_h,
+                );
+                renderer.fill_rect_px(sel_rect, selection_bg);
+            }
+        }
 
         draw_highlighted_rhai(
             renderer,
-            line_x,
-            row,
+            font,
+            layout.line_x,
+            row_y,
+            text_px,
+            layout.char_w,
             &visible_line,
-            highlight_w,
-            line_bg,
+            highlight_cols,
             comment_starts[i],
-            sel_range,
-            selection_bg,
         );
         if clipped {
-            renderer.draw_char(line_x + highlight_w, row, '\u{2026}', dim, line_bg);
+            let marker_x = layout.line_x + highlight_cols as f32 * layout.char_w;
+            draw_mono(renderer, font, "\u{2026}", Vec2::new(marker_x, num_baseline), text_px, layout.char_w, dim);
         }
 
         if i == cursor.1 && cursor.0 >= hscroll {
@@ -148,19 +205,29 @@ pub fn draw_script_editor(
             // then draw as a space instead of the real character at the
             // cursor.
             let visible_col = (cursor.0 - hscroll).min(line_char_count.saturating_sub(hscroll));
-            let cursor_x = line_x + visible_col;
-            if cursor_x < cx + cw {
+            let cursor_x = layout.line_x + visible_col as f32 * layout.char_w;
+            if cursor_x < layout.text.x + layout.text.w {
                 let char_at_cursor = line.chars().nth(cursor.0).unwrap_or(' ');
-                renderer.draw_char(cursor_x, row, char_at_cursor, Color::Black, accent);
+                renderer.fill_rect_px(Rect::new(cursor_x, row_y, layout.char_w, layout.row_h), accent);
+                renderer.draw_text_px(
+                    font,
+                    &char_at_cursor.to_string(),
+                    Vec2::new(cursor_x, num_baseline),
+                    text_px,
+                    Color::Black,
+                );
             }
         }
     }
+    renderer.set_scissor(None);
 
-    if let Some((line, msg)) = error {
-        let row = cy + ch - 1;
+    if let (Some((line, msg)), Some(error_rect)) = (error, layout.error) {
         let text = format!(" ERROR Line {}: {}", line + 1, msg);
-        let text: String = format!("{:<width$}", text, width = cw).chars().take(cw).collect();
-        renderer.draw_str(cx, row, &text, theme.role_color(PaletteRole::TitleText), danger);
+        let baseline = error_rect.y + font.ascent(text_px);
+        renderer.fill_rect_px(error_rect, danger);
+        renderer.set_scissor(Some(error_rect));
+        renderer.draw_text_px(font, &text, Vec2::new(error_rect.x, baseline), text_px, theme.role_color(PaletteRole::TitleText));
+        renderer.set_scissor(None);
     }
 }
 
@@ -185,8 +252,8 @@ fn line_selection_range(
 /// (7C-7, master plan §5.3): `draw_highlighted_rhai` only ever sees one
 /// line at a time — and, with the buffer scrolled, not even from the top
 /// — so this scans the WHOLE buffer once per render to carry that state
-/// across lines. Skips string contents (so a `/*` inside one doesn't
-/// start a real comment) the same naive way `draw_highlighted_rhai`'s own
+/// across lines. Skips string contents so a `/*` inside one doesn't start
+/// a real comment, the same naive way `draw_highlighted_rhai`'s own
 /// pre-existing string case already does: no backslash-escape awareness,
 /// so a string containing an escaped quote (`"say \"hi\""`) ends the
 /// "string" early at that inner `"`. Good enough for a syntax
@@ -228,39 +295,31 @@ fn block_comment_starts(buffer: &[String]) -> Vec<bool> {
     starts
 }
 
-/// The background to draw a token starting at char index `i` with — the
-/// selection color if `i` falls inside `sel_range`, `default` otherwise
-/// (7C-8, master plan §5.3). Applied per TOKEN (using its first
-/// character's index), not per character within multi-char tokens
-/// (identifiers, strings, line comments) — a selection boundary that
-/// lands mid-token highlights the whole token rather than splitting it,
-/// the same kind of approximation `block_comment_starts` already accepts
-/// at line boundaries.
-fn sel_bg(i: usize, sel_range: Option<(usize, usize)>, default: Color, selection_bg: Color) -> Color {
-    match sel_range {
-        Some((s, e)) if i >= s && i < e => selection_bg,
-        _ => default,
-    }
-}
-
 /// The Rhai token colors below (keyword Cyan, string Yellow, number
 /// Magenta, ...) stay literal, un-themed — 7D-2 (master plan §5.4): this
 /// is Rhai syntax highlighting, a semantic signal about the CONTENT being
 /// edited, not decorative editor chrome, same reasoning `dock.rs` applies
-/// to console log levels and file-browser icon kinds. Only the background
-/// underneath a token (`bg`/`selection_bg`, passed in from the theme by
-/// `draw_script_editor`) is themed.
+/// to console log levels and file-browser icon kinds.
+///
+/// R73: no longer takes a selection range or draws a per-character
+/// background at all — every character's background was already painted
+/// by `draw_script_editor`'s own selection-fill pass (or the row's base
+/// fill) before this runs; this only ever draws FOREGROUND glyphs now,
+/// batched into one `draw_mono` call per same-colored run (a whole
+/// identifier/keyword, a whole string, a whole line comment) rather than
+/// one call per character, which both draws faster and can never
+/// misalign a run's own characters from each other.
 #[allow(clippy::too_many_arguments)]
 fn draw_highlighted_rhai(
     renderer: &mut dyn DrawSurface,
-    x: usize,
-    y: usize,
+    font: &mut dyn Font,
+    x: f32,
+    y: f32,
+    text_px: f32,
+    char_w: f32,
     line: &str,
-    max_w: usize,
-    bg: Color,
+    max_cols: usize,
     starts_in_block_comment: bool,
-    sel_range: Option<(usize, usize)>,
-    selection_bg: Color,
 ) {
     let keywords = [
         "let", "const", "fn", "if", "else", "while", "loop", "for", "in", "return", "break",
@@ -268,28 +327,39 @@ fn draw_highlighted_rhai(
         "try", "catch", "private", "global",
     ];
 
-    let mut col = x;
+    let baseline_y = y + font.ascent(text_px);
+    let mut col = 0usize;
     let mut i = 0;
     let chars: Vec<char> = line.chars().collect();
     let mut in_block_comment = starts_in_block_comment;
 
-    while i < chars.len() && (col - x) < max_w {
+    macro_rules! at {
+        ($col:expr) => {
+            Vec2::new(x + $col as f32 * char_w, baseline_y)
+        };
+    }
+
+    while i < chars.len() && col < max_cols {
         let ch = chars[i];
-        let bg = sel_bg(i, sel_range, bg, selection_bg);
 
         // Block comments (may span lines — `starts_in_block_comment`
         // above carries the state in; `block_comment_starts` carries it
         // out to whatever line comes next).
         if in_block_comment {
-            renderer.draw_char(col, y, ch, Color::Grey, bg);
-            col += 1;
-            i += 1;
-            if ch == '*' && chars.get(i) == Some(&'/') {
-                renderer.draw_char(col, y, chars[i], Color::Grey, bg);
-                col += 1;
+            let start = i;
+            while i < chars.len() && !(chars[i] == '*' && chars.get(i + 1) == Some(&'/')) {
                 i += 1;
-                in_block_comment = false;
             }
+            if i < chars.len() {
+                i += 2; // the closing `*/`
+                in_block_comment = false;
+            } else {
+                i = chars.len(); // still open at the end of this line
+            }
+            let run: String = chars[start..i].iter().collect();
+            let run_cols = run.chars().count();
+            draw_mono(renderer, font, &run, at!(col), text_px, char_w, Color::Grey);
+            col += run_cols;
             continue;
         }
         if ch == '/' && i + 1 < chars.len() && chars[i + 1] == '*' {
@@ -299,38 +369,31 @@ fn draw_highlighted_rhai(
 
         // Comments
         if ch == '/' && i + 1 < chars.len() && chars[i + 1] == '/' {
-            // R11 (7A-2, docs/ember2d-master-plan.md): `i` is an index into
-            // `chars` (a `Vec<char>`), not a byte offset — slicing the
-            // original `line: &str` with it (`&line[i..]`) panicked the
-            // moment any multi-byte character appeared before the `//`.
-            // Building the rest-of-line `String` from `chars` instead is
-            // always char-safe, at the (negligible, once-per-comment)
-            // allocation cost.
             let rest: String = chars[i..].iter().collect();
-            renderer.draw_str(col, y, &rest, Color::Grey, bg);
+            draw_mono(renderer, font, &rest, at!(col), text_px, char_w, Color::Grey);
             return;
         }
 
         // Strings
         if ch == '"' {
-            renderer.draw_char(col, y, ch, Color::Yellow, bg);
-            col += 1;
+            let start = i;
             i += 1;
-            while i < chars.len() && (col - x) < max_w {
-                let s_ch = chars[i];
-                renderer.draw_char(col, y, s_ch, Color::Yellow, bg);
-                col += 1;
+            while i < chars.len() && chars[i] != '"' {
                 i += 1;
-                if s_ch == '"' {
-                    break;
-                }
             }
+            if i < chars.len() {
+                i += 1; // the closing quote
+            }
+            let run: String = chars[start..i].iter().collect();
+            let run_cols = run.chars().count();
+            draw_mono(renderer, font, &run, at!(col), text_px, char_w, Color::Yellow);
+            col += run_cols;
             continue;
         }
 
         // Numbers
         if ch.is_ascii_digit() {
-            renderer.draw_char(col, y, ch, Color::Magenta, bg);
+            draw_mono(renderer, font, &ch.to_string(), at!(col), text_px, char_w, Color::Magenta);
             col += 1;
             i += 1;
             continue;
@@ -342,19 +405,11 @@ fn draw_highlighted_rhai(
             while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
                 i += 1;
             }
-            // R11: same char-index-into-byte-slice bug as the comment case
-            // above — `start`/`i` index `chars`, not `line`'s bytes. Safe
-            // here in practice too (identifiers are ASCII-only by the
-            // `is_ascii_alphanumeric`/`is_ascii_alphabetic` checks above,
-            // so `line[start..i]` would happen to land on char boundaries
-            // whenever it didn't panic outright on an earlier multi-byte
-            // character elsewhere in the line) — built from `chars` anyway
-            // for the same reason as the comment case: don't rely on a
-            // downstream character class to keep an upstream slice safe.
             let word: String = chars[start..i].iter().collect();
             let color = if keywords.contains(&word.as_str()) { Color::Cyan } else { Color::White };
-            renderer.draw_str(col, y, &word, color, bg);
-            col += word.chars().count();
+            let word_cols = word.chars().count();
+            draw_mono(renderer, font, &word, at!(col), text_px, char_w, color);
+            col += word_cols;
             continue;
         }
 
@@ -365,7 +420,7 @@ fn draw_highlighted_rhai(
             ',' | ';' | ':' | '.' => Color::Grey,
             _ => Color::White,
         };
-        renderer.draw_char(col, y, ch, color, bg);
+        draw_mono(renderer, font, &ch.to_string(), at!(col), text_px, char_w, color);
         col += 1;
         i += 1;
     }

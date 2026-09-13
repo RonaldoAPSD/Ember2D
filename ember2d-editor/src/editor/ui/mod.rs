@@ -7,6 +7,7 @@ mod metrics;
 mod panels;
 mod rect;
 mod script;
+mod script_layout;
 mod types;
 mod widgets;
 
@@ -17,5 +18,6 @@ pub use metrics::*;
 pub use panels::*;
 pub use rect::*;
 pub use script::*;
+pub use script_layout::*;
 pub use types::*;
 pub use widgets::*;

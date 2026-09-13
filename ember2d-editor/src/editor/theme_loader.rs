@@ -255,6 +255,17 @@ impl EditorState {
         &self.available_themes
     }
 
+    /// The active `code_font` — `&mut`, unlike every other accessor here,
+    /// since `ScriptLayout::compute`/`Font::measure` need mutable access
+    /// to rasterize/cache a glyph the first time it's measured. A test
+    /// building its own oracle `ScriptLayout` (the script editor's own
+    /// regression tests, `tests/editor_script.rs`) is the only real caller
+    /// — production code always reaches `self.code_font` directly, being
+    /// `pub(super)` within this same crate.
+    pub fn code_font(&mut self) -> &mut dyn Font {
+        self.code_font.as_mut()
+    }
+
     /// This state's own persisted preferences (7D-3, master plan §5.4) —
     /// what a test asserts changed after `switch_theme`/`set_ui_scale`.
     pub fn prefs(&self) -> &EditorPrefs {

@@ -316,68 +316,61 @@ impl EditorState {
             self.check_script_syntax();
         }
 
-        let p = self.panels.get(PanelId::ScriptEditor);
-
-        // 1. Resolve exact text area bounds dynamically. R69 (§3 in the
-        // master plan): reads `self.ui_space` (captured at the last real
-        // draw) instead of the removed `PanelManager::screen_size_cells`,
-        // which used to go stale across a resize while in fullscreen
-        // script mode. The script editor's own points conversion (a later
-        // checkpoint of this same step) replaces this cell-grid geometry
-        // entirely; this keeps it correct in the meantime.
-        let (sw, sh) = self.ui_space.screen_cells();
-
-        let (cx, cy, cw, ch) = if fullscreen {
-            (0usize, 1usize, sw, sh.saturating_sub(2))
+        // R67/R68 (§3 in the master plan): the same `ScriptLayout` (and the
+        // same `metrics`/content-rect inputs `draw_script_editor` used to
+        // draw the previous frame) both the docked-focused path here and
+        // the first-click path (`input/panels/file_and_script.rs`'s
+        // `handle_script_editor_click`) now compute their hit-test from —
+        // no more independent `gutter_w = 4` literal, no more a hscroll-
+        // blind column formula, no more a wheel step that disagreed
+        // between the two paths.
+        let metrics = super::super::ui::ChromeMetrics::from_theme(&self.theme);
+        let (sw, sh) = self.ui_space.screen_pt();
+        let content: ember2d_sim::math::Rect = if fullscreen {
+            metrics.script_fullscreen_rect(sw, sh)
         } else {
-            (p.content_x(), p.content_y(), p.content_w(), p.content_h())
+            self.panels.get(PanelId::ScriptEditor).content_rect(&metrics).into()
         };
-
-        // Header row inside the panel is cy, text starts at cy + 1
-        let text_y = cy + 1;
-        let text_h = ch.saturating_sub(1);
-        let gutter_w = 4;
+        let has_error = self.script_error().is_some();
+        let layout = super::super::ui::ScriptLayout::compute(
+            &self.theme,
+            self.code_font.as_mut(),
+            content,
+            self.script_buffer.len(),
+            has_error,
+            false,
+        );
 
         let ctrl = input.is_held(Key::LeftCtrl) || input.is_held(Key::RightCtrl);
         let shift = input.is_held(Key::LeftShift) || input.is_held(Key::RightShift);
 
         // ── Mouse Interaction (Click & Scroll) ────────────────────────────────
         if mouse.in_bounds {
-            // 1. Mouse Wheel Scroll
+            // 1. Mouse Wheel Scroll — a 2-row step, matching the first-click
+            // path's own step now that both read the same `ScriptLayout`
+            // (R67: the two used to disagree, 2 rows here vs 1 there).
             if mouse.wheel_y != 0.0 {
                 let delta = if mouse.wheel_y > 0.0 { -2i32 } else { 2i32 };
-                let max_scroll = self.script_buffer.len().saturating_sub(text_h);
+                let max_scroll = self.script_buffer.len().saturating_sub(layout.visible_rows);
                 self.script_scroll =
                     (self.script_scroll as i32 + delta).clamp(0, max_scroll as i32) as usize;
                 return;
             }
 
-            // 2. Click to place cursor
-            if mouse.left_just_pressed()
-                && mouse.cell_x >= cx
-                && mouse.cell_x < cx + cw
-                && mouse.cell_y >= text_y
-                && mouse.cell_y < text_y + text_h
-            {
-                let row_in_view = mouse.cell_y - text_y;
-                let target_row = self.script_scroll + row_in_view;
-
-                if target_row < self.script_buffer.len() {
+            // 2. Click to place cursor — `ScriptLayout::hit` accounts for
+            // `hscroll` itself (R67: the old formula here never did, so a
+            // click on a horizontally-scrolled line landed in the wrong
+            // column) and clamps to the target line's own character count
+            // (R11's same reasoning).
+            if mouse.left_just_pressed() {
+                if let Some((col, row)) =
+                    layout.hit(mouse.pixel_x, mouse.pixel_y, self.script_scroll, self.script_hscroll, &self.script_buffer)
+                {
                     // 7C-8 (master plan §5.3): Shift+click extends a
                     // selection instead of just moving the cursor — same
                     // anchor mechanism as Shift+arrows.
                     self.update_selection_anchor(shift);
-                    self.script_cursor.1 = target_row;
-                    let line_start_x = cx + gutter_w;
-                    let col = mouse.cell_x as i32 - line_start_x as i32 + self.script_hscroll as i32;
-                    // R11: clamp against the CHARACTER count, not the
-                    // byte length — a line with any multi-byte character
-                    // has fewer chars than bytes, so `.len()` here let
-                    // the cursor land past the last real character,
-                    // producing an out-of-range char index for every
-                    // mutation site below.
-                    self.script_cursor.0 =
-                        (col.max(0) as usize).min(self.script_buffer[target_row].chars().count());
+                    self.script_cursor = (col, row);
                     return;
                 }
             }
@@ -607,18 +600,23 @@ impl EditorState {
         }
 
         // ── Scroll Auto-tracking ──────────────────────────────────────────────
+        // R68: reads the SAME `layout` (visible rows/cols) the click and
+        // wheel handling above already used — was a fixed `gutter_w = 4`
+        // baked directly into `visible_w`'s own formula, independent of
+        // the real (line-count-dependent) gutter width `draw_script_editor`
+        // actually draws.
         if self.script_cursor != old_cursor {
             if self.script_cursor.1 < self.script_scroll {
                 self.script_scroll = self.script_cursor.1;
-            } else if self.script_cursor.1 >= self.script_scroll + text_h {
-                self.script_scroll = self.script_cursor.1 - text_h + 1;
+            } else if self.script_cursor.1 >= self.script_scroll + layout.visible_rows {
+                self.script_scroll = self.script_cursor.1 - layout.visible_rows + 1;
             }
             // 7C-8 (master plan §5.3): horizontal twin of the above.
-            let visible_w = cw.saturating_sub(gutter_w);
+            let visible_cols = layout.visible_cols();
             if self.script_cursor.0 < self.script_hscroll {
                 self.script_hscroll = self.script_cursor.0;
-            } else if self.script_cursor.0 >= self.script_hscroll + visible_w {
-                self.script_hscroll = self.script_cursor.0 - visible_w + 1;
+            } else if self.script_cursor.0 >= self.script_hscroll + visible_cols {
+                self.script_hscroll = self.script_cursor.0 - visible_cols + 1;
             }
         }
     }

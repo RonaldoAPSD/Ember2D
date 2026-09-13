@@ -305,6 +305,7 @@ fn redo_stack_clears_after_a_new_edit() {
 #[test]
 fn script_editor_click_past_a_multibyte_character_then_typing_does_not_panic() {
     use crate::editor::panel::PanelId;
+    use crate::editor::ui::{ChromeMetrics, ScriptLayout};
 
     let mut editor = EditorState::new("unused.level");
     editor.script_path = Some("test.rhai".to_string());
@@ -316,11 +317,16 @@ fn script_editor_click_past_a_multibyte_character_then_typing_does_not_panic() {
     let mut mouse = ember2d::mouse::MouseState::new();
 
     // Click past both characters — before R11's fix this clamped against
-    // the line's BYTE length (3), not its character count (2).
-    let p = editor.panels.get(PanelId::ScriptEditor);
-    let gutter_w = 4;
-    mouse.cell_x = p.content_x() + gutter_w + 5;
-    mouse.cell_y = p.content_y() + 1;
+    // the line's BYTE length (3), not its character count (2). Layout
+    // coordinates now, not raw cells (7D-3, master plan §5.4, checkpoint
+    // 5) — the SAME `ScriptLayout` `handle_script_mode_input` itself
+    // computes from the panel's real content rect.
+    let metrics = ChromeMetrics::from_theme(&editor.theme);
+    let content: ember2d_sim::math::Rect =
+        editor.panels.get(PanelId::ScriptEditor).content_rect(&metrics).into();
+    let layout = ScriptLayout::compute(&editor.theme, editor.code_font.as_mut(), content, 1, false, false);
+    mouse.pixel_x = layout.line_x + 5.0 * layout.char_w;
+    mouse.pixel_y = layout.text.y + 1.0;
     mouse.in_bounds = true;
     mouse.handle_pressed(ember2d::mouse::MouseButton::Left);
     mouse.consume_step();
