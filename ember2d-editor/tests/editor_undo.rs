@@ -7,7 +7,7 @@
 
 mod common;
 
-use common::{canvas_pixel_for_grid, click_menu_item, open_menu, EditorHarness};
+use common::{canvas_pixel_for_grid, click_menu_item, open_menu, select_dock_tab, EditorHarness};
 use ember2d::input::Key;
 use ember2d_editor::editor::ui::{MenuKind, ToolbarAction, ToolKind, WidgetId};
 use ember2d_editor::editor::EditorMode;
@@ -303,9 +303,10 @@ fn setup_delete_file_harness(label: &str) -> (EditorHarness, std::path::PathBuf)
 
     let mut h = EditorHarness::new();
     h.state.open_project_folder(dir.to_string_lossy().into_owned());
-    open_menu(&mut h, MenuKind::View);
-    click_menu_item(&mut h, MenuKind::View, |a| matches!(a, ToolbarAction::ToggleFileBrowser));
-    h.frame();
+    // The File Browser is visible by default (7D layout default), but
+    // Console is the initially active bottom tab — select FileBrowser's
+    // own tab so its rows actually render.
+    select_dock_tab(&mut h, ember2d_editor::editor::panel::PanelId::FileBrowser);
     (h, victim)
 }
 
@@ -349,9 +350,10 @@ fn switching_levels_with_nothing_unsaved_does_not_confirm() {
     h.state.open_project_folder(dir.to_string_lossy().into_owned());
     assert!(!h.state.unsaved(), "a freshly opened level starts unmodified");
 
-    open_menu(&mut h, MenuKind::View);
-    click_menu_item(&mut h, MenuKind::View, |a| matches!(a, ToolbarAction::ToggleFileBrowser));
-    h.frame();
+    // The File Browser is visible by default (7D layout default), but
+    // Console is the initially active bottom tab — select FileBrowser's
+    // own tab so its rows actually render.
+    select_dock_tab(&mut h, ember2d_editor::editor::panel::PanelId::FileBrowser);
 
     let row_rect = h
         .state
@@ -388,9 +390,10 @@ fn switching_levels_with_unsaved_edits_confirms_first() {
     h.click(cx, cy); // paint something so there's a real unsaved edit
     assert!(h.state.unsaved());
 
-    open_menu(&mut h, MenuKind::View);
-    click_menu_item(&mut h, MenuKind::View, |a| matches!(a, ToolbarAction::ToggleFileBrowser));
-    h.frame();
+    // The File Browser is visible by default (7D layout default), but
+    // Console is the initially active bottom tab — select FileBrowser's
+    // own tab so its rows actually render.
+    select_dock_tab(&mut h, ember2d_editor::editor::panel::PanelId::FileBrowser);
 
     let row_rect = h
         .state
@@ -426,9 +429,10 @@ fn switching_levels_with_only_an_unsaved_script_edit_still_confirms_first() {
     let mut h = EditorHarness::with_state(ember2d_editor::editor::EditorState::new(&current_path));
     h.state.open_project_folder(dir.to_string_lossy().into_owned());
 
-    open_menu(&mut h, MenuKind::View);
-    click_menu_item(&mut h, MenuKind::View, |a| matches!(a, ToolbarAction::ToggleFileBrowser));
-    h.frame();
+    // The File Browser is visible by default (7D layout default), but
+    // Console is the initially active bottom tab — select FileBrowser's
+    // own tab so its rows actually render.
+    select_dock_tab(&mut h, ember2d_editor::editor::panel::PanelId::FileBrowser);
 
     let script_row = h
         .state

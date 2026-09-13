@@ -29,7 +29,7 @@ fn every_panel_pm_new_constructs_matches_intended_cell_geometry_via_from_cells()
         (PanelId::Palette, pal_x, canvas_y, PAL_W, canvas_h as usize),
         (PanelId::Console, 0, con_y, screen_w, CON_H),
         (PanelId::Stats, pal_x, canvas_y, PAL_W, canvas_h as usize),
-        (PanelId::FileBrowser, 0, canvas_y, BROW_W, canvas_h as usize),
+        (PanelId::FileBrowser, 0, con_y, screen_w, CON_H),
         (PanelId::ScriptEditor, 0, con_y, screen_w, EDIT_H),
     ];
 
@@ -61,63 +61,70 @@ fn apply_layout_fills_the_viewport_gap_for_every_docked_panel_combination() {
 
     let mut pm = PanelManager::new(80, 24);
 
-    // (a) Default construction: only Hierarchy (Left) and Inspector
-    // (Right) are visible+docked; Console is Bottom-docked but hidden.
+    // (a) Default construction (7D layout default): Hierarchy left,
+    // Inspector right, Console AND FileBrowser both Bottom-docked and
+    // VISIBLE out of the box (tabbed together, Console the initially
+    // active tab) — Files moved off Left, where it used to be the
+    // alternate to Hierarchy. The viewport's height is already reduced
+    // by the bottom dock from the very first layout pass.
     pm.apply_layout(screen_w as usize, screen_h as usize);
     let hier_w = HIER_W as f32 * CELL_W;
     let insp_w = INSP_W as f32 * CELL_W;
-    assert_eq!(
-        pm.get(PanelId::Viewport).rect,
-        UiRect::new(hier_w, canvas_top, screen_w - hier_w - insp_w, canvas_bottom - canvas_top,),
-        "default: viewport must fill the gap between the docked Hierarchy and Inspector"
-    );
-
-    // (b) Hide Hierarchy with no other Left-docked panel visible: the left
-    // gap closes to zero and the viewport expands to fill it.
-    pm.hide(PanelId::Hierarchy);
-    pm.apply_layout(screen_w as usize, screen_h as usize);
-    assert_eq!(
-        pm.get(PanelId::Viewport).rect,
-        UiRect::new(0.0, canvas_top, screen_w - insp_w, canvas_bottom - canvas_top,),
-        "hiding the only Left-docked panel must give its space back to the viewport"
-    );
-
-    // (c) Show FileBrowser (also Left-docked) while Hierarchy stays
-    // hidden: `validate_active_panels` must promote it to active_left, and
-    // the viewport must shrink back by FileBrowser's (different) width —
-    // this doubles as the "validate_active_panels recovers" property,
-    // exercised through the layout path a real render frame takes.
-    pm.show(PanelId::FileBrowser);
-    pm.apply_layout(screen_w as usize, screen_h as usize);
-    let brow_w = BROW_W as f32 * CELL_W;
-    assert_eq!(pm.active_left, Some(PanelId::FileBrowser));
-    assert_eq!(
-        pm.get(PanelId::Viewport).rect,
-        UiRect::new(brow_w, canvas_top, screen_w - brow_w - insp_w, canvas_bottom - canvas_top,),
-        "the newly active Left-docked panel's width must be what the viewport gives up"
-    );
-
-    // (d) Show Console (Bottom-docked): the viewport's height shrinks by
-    // Console's height, independent of the Left/Right gap already tested.
-    pm.show(PanelId::Console);
-    pm.apply_layout(screen_w as usize, screen_h as usize);
     let con_h = CON_H as f32 * CELL_H;
     assert_eq!(pm.active_bottom, Some(PanelId::Console));
     assert_eq!(
         pm.get(PanelId::Viewport).rect,
         UiRect::new(
-            brow_w,
+            hier_w,
             canvas_top,
-            screen_w - brow_w - insp_w,
+            screen_w - hier_w - insp_w,
             canvas_bottom - canvas_top - con_h,
         ),
-        "a docked Bottom panel must shrink the viewport's height, not its x/width"
+        "default: viewport must fill the gap between Hierarchy/Inspector, minus the bottom dock"
+    );
+
+    // (b) Hide Hierarchy with no other Left-docked panel visible: the left
+    // gap closes to zero and the viewport expands to fill it; the bottom
+    // dock is untouched.
+    pm.hide(PanelId::Hierarchy);
+    pm.apply_layout(screen_w as usize, screen_h as usize);
+    assert_eq!(
+        pm.get(PanelId::Viewport).rect,
+        UiRect::new(0.0, canvas_top, screen_w - insp_w, canvas_bottom - canvas_top - con_h,),
+        "hiding the only Left-docked panel must give its space back to the viewport"
+    );
+
+    // (c) Hide Console while FileBrowser (also Bottom-docked, same
+    // height) stays visible: `apply_layout`'s own `validate_active_panels`
+    // call must recover `active_bottom` to FileBrowser rather than
+    // clearing it — since the two share a height, the viewport's rect is
+    // unchanged from (b).
+    pm.hide(PanelId::Console);
+    pm.apply_layout(screen_w as usize, screen_h as usize);
+    assert_eq!(
+        pm.active_bottom,
+        Some(PanelId::FileBrowser),
+        "hiding the active Bottom tab must recover to the other visible Bottom-docked panel"
+    );
+    assert_eq!(
+        pm.get(PanelId::Viewport).rect,
+        UiRect::new(0.0, canvas_top, screen_w - insp_w, canvas_bottom - canvas_top - con_h,),
+        "recovering to an equal-height alternate must not itself resize the viewport"
+    );
+
+    // (d) Hide FileBrowser too: nothing left on Bottom, so its height
+    // reservation disappears entirely.
+    pm.hide(PanelId::FileBrowser);
+    pm.apply_layout(screen_w as usize, screen_h as usize);
+    assert_eq!(pm.active_bottom, None);
+    assert_eq!(
+        pm.get(PanelId::Viewport).rect,
+        UiRect::new(0.0, canvas_top, screen_w - insp_w, canvas_bottom - canvas_top,),
+        "hiding every Bottom-docked panel must give the bottom dock's space back to the viewport"
     );
 
     // (e) Hide everything: the viewport must reclaim the entire canvas.
-    pm.hide(PanelId::FileBrowser);
     pm.hide(PanelId::Inspector);
-    pm.hide(PanelId::Console);
     pm.apply_layout(screen_w as usize, screen_h as usize);
     assert_eq!(
         pm.get(PanelId::Viewport).rect,
@@ -140,17 +147,41 @@ fn validate_active_panels_recovers_to_another_visible_docked_panel_or_clears_to_
         "no visible Left-docked panel remains, so active_left must clear to None"
     );
 
-    // Make another Left-docked panel visible directly (`Panel.visible` is
-    // a plain field — bypassing `show()`'s own `active_left = Some(id)`
-    // side effect) so this isolates `validate_active_panels`'s OWN
-    // recovery rule: a side with a visible docked panel but no active
-    // marker promotes the first one it finds.
+    // Bottom (Console/FileBrowser, 7D layout default) is where this repo
+    // actually has two panels sharing a dock side, both visible from
+    // construction — this half of the test exercises Bottom instead of
+    // Left. Hiding just the active one (Console) must recover to the
+    // other visible Bottom panel (FileBrowser), not clear to None —
+    // that's the same "recovers to an alternate" property
+    // `apply_layout_fills_the_viewport_gap_...`'s own scenario (c)
+    // already pins through the render-frame path; hiding BOTH is what
+    // actually reaches "nothing active."
+    pm.hide(PanelId::Console);
+    pm.validate_active_panels();
+    assert_eq!(
+        pm.active_bottom,
+        Some(PanelId::FileBrowser),
+        "hiding the active Bottom tab while another Bottom panel is still visible must recover to it"
+    );
+
+    pm.hide(PanelId::FileBrowser);
+    pm.validate_active_panels();
+    assert_eq!(
+        pm.active_bottom, None,
+        "no visible Bottom-docked panel remains, so active_bottom must clear to None"
+    );
+
+    // Make FileBrowser visible directly (`Panel.visible` is a plain field
+    // — bypassing `show()`'s own `active_bottom = Some(id)` side effect)
+    // so this isolates `validate_active_panels`'s OWN recovery rule: a
+    // side with a visible docked panel but no active marker promotes the
+    // first one it finds.
     pm.get_mut(PanelId::FileBrowser).visible = true;
     assert_eq!(
-        pm.active_left, None,
+        pm.active_bottom, None,
         "making a panel visible directly must not itself set the active marker"
     );
     pm.validate_active_panels();
-    assert_eq!(pm.active_left, Some(PanelId::FileBrowser),
-        "validate_active_panels must promote the first visible Left-docked panel when none is active");
+    assert_eq!(pm.active_bottom, Some(PanelId::FileBrowser),
+        "validate_active_panels must promote the first visible Bottom-docked panel when none is active");
 }

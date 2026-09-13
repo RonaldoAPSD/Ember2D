@@ -6,7 +6,7 @@
 
 mod common;
 
-use common::{canvas_center, canvas_pixel_for_grid, click_menu_item, open_menu, EditorHarness};
+use common::{canvas_center, canvas_pixel_for_grid, click_menu_item, open_menu, select_dock_tab, EditorHarness};
 use ember2d::input::Key;
 use ember2d_editor::editor::ui::{MenuKind, ToolbarAction, ToolKind, WidgetId};
 use ember2d_editor::editor::{EditorMode, TextInputPurpose};
@@ -347,14 +347,13 @@ fn clicking_a_rhai_file_in_the_file_browser_opens_the_fullscreen_script_editor()
     let mut h = EditorHarness::new();
     h.state.open_project_folder(dir.to_string_lossy().into_owned());
 
-    open_menu(&mut h, MenuKind::View);
-    click_menu_item(&mut h, MenuKind::View, |a| matches!(a, ToolbarAction::ToggleFileBrowser));
+    // The File Browser is visible by default (7D layout default: tabbed
+    // with Console at the bottom) — no toggle needed, but Console is the
+    // initially active bottom tab, so FileBrowser's own tab must still be
+    // selected before its rows render (see `select_dock_tab`'s own doc
+    // comment). Only one file exists at the project root, so it's row 0.
     assert!(h.state.panels().visible(ember2d_editor::editor::panel::PanelId::FileBrowser));
-
-    // One idle frame so the panel's own row for `player.rhai` gets drawn
-    // (and its `UiFrame` hit registered) before we try to click it. Only
-    // one file exists at the project root, so it's row 0.
-    h.frame();
+    select_dock_tab(&mut h, ember2d_editor::editor::panel::PanelId::FileBrowser);
     let row_rect = h
         .state
         .ui_frame()

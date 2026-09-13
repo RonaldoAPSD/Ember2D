@@ -10,10 +10,10 @@
 
 mod common;
 
-use common::{click_menu_item, open_menu, EditorHarness};
+use common::{select_dock_tab, EditorHarness};
 use ember2d::engine::GameState;
 use ember2d::input::Key;
-use ember2d_editor::editor::ui::{MenuKind, ToolbarAction, WidgetId};
+use ember2d_editor::editor::ui::WidgetId;
 use ember2d_sim::scripting::LogEntry;
 
 // ── receive_script_log (the editor side of R18's fix) ───────────────────────
@@ -41,9 +41,10 @@ fn open_script_via_file_browser(dir: &std::path::Path, name: &str, initial: &str
     let mut h = EditorHarness::new();
     h.state.open_project_folder(dir.to_string_lossy().into_owned());
 
-    open_menu(&mut h, MenuKind::View);
-    click_menu_item(&mut h, MenuKind::View, |a| matches!(a, ToolbarAction::ToggleFileBrowser));
-    h.frame();
+    // The File Browser is visible by default (7D layout default), but
+    // Console is the initially active bottom tab — select FileBrowser's
+    // own tab so its rows actually render.
+    select_dock_tab(&mut h, ember2d_editor::editor::panel::PanelId::FileBrowser);
 
     let row = h
         .state

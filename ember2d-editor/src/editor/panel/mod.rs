@@ -165,7 +165,6 @@ pub struct PanelManager {
 }
 
 pub const HIER_W: usize = 14;
-pub const BROW_W: usize = 20;
 pub const INSP_W: usize = 30;
 pub const PAL_W: usize = 24;
 pub const CON_H: usize = 9;
@@ -203,7 +202,7 @@ impl PanelManager {
             Panel::new(PanelId::Palette, "Palette", pal_x, canvas_y, PAL_W, canvas_h as usize),
             Panel::new(PanelId::Console, "Console", 0, con_y, screen_w, CON_H),
             Panel::new(PanelId::Stats, "Stats", pal_x, canvas_y, PAL_W, canvas_h as usize),
-            Panel::new(PanelId::FileBrowser, "Files", 0, canvas_y, BROW_W, canvas_h as usize),
+            Panel::new(PanelId::FileBrowser, "Files", 0, con_y, screen_w, CON_H),
             Panel::new(PanelId::ScriptEditor, "Script Editor", 0, con_y, screen_w, EDIT_H),
         ];
 
@@ -218,10 +217,16 @@ impl PanelManager {
 
         panels[3].visible = false; // Palette (floating, hidden by default)
 
-        panels[4].dock = DockSide::Bottom; // Console (hidden by default)
+        // 7D layout default: Unity-style — Hierarchy left, Inspector
+        // right, Console and Files tabbed together at the bottom, both
+        // visible out of the box (was: both hidden, and Files docked
+        // Left where it would have fought with Hierarchy for the same
+        // side). Console stays the initially active bottom tab.
+        panels[4].dock = DockSide::Bottom;
+        panels[4].visible = true; // Console
 
-        panels[6].dock = DockSide::Left;
-        panels[6].visible = false; // FileBrowser
+        panels[6].dock = DockSide::Bottom;
+        panels[6].visible = true; // FileBrowser
 
         panels[7].dock = DockSide::Bottom;
         panels[7].visible = false; // ScriptEditor

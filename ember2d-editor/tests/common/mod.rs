@@ -331,6 +331,27 @@ pub fn click_menu_item(h: &mut EditorHarness, kind: MenuKind, pred: impl Fn(&Too
     h.click(rect.x + 1.0, rect.y + 1.0);
 }
 
+/// Brings `id` to the front of its own dock side by clicking its tab (7D
+/// layout default: Console and FileBrowser share the Bottom dock) — a
+/// panel that's merely `visible` but not the active tab on its side is
+/// excluded from `PanelManager::in_draw_order` entirely (see that
+/// method's own filter), so its rows/content never draw, and neither does
+/// its own `WidgetId::Tab` entry unless a render pass has already run
+/// with at least one panel on that side active. Call this instead of the
+/// old "toggle the panel via the View menu" pattern whenever a test needs
+/// a specific BOTTOM/LEFT/RIGHT-docked panel's own content to actually
+/// render, not just be nominally visible.
+pub fn select_dock_tab(h: &mut EditorHarness, id: ember2d_editor::editor::panel::PanelId) {
+    h.frame();
+    let rect = h
+        .state
+        .ui_frame()
+        .rect_of(WidgetId::Tab(id))
+        .unwrap_or_else(|| panic!("{id:?}'s dock tab was not drawn in the last render pass"));
+    h.click(rect.x + 1.0, rect.y + 1.0);
+    h.frame();
+}
+
 /// The center of the viewport's own content area — a real on-canvas pixel
 /// position, read from the current layout rather than guessed. Not
 /// necessarily a valid grid cell for a small level at zoom 1 (the
