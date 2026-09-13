@@ -2675,7 +2675,7 @@ deleted at the end of this step; panels size to content and theme metrics.
 - **Landed as a sequence of checkpoint commits** (7D-2's own precedent —
   reported between checkpoints, `git diff --stat` checked against this
   Scope at each one):
-  - **Checkpoint 1 — renderer foundation.** `ui_space.rs`/`ui_painter.rs`/
+  - **Checkpoint 1 — renderer foundation (`45341bc`).** `ui_space.rs`/`ui_painter.rs`/
     `draw_log.rs` (new); `geometry.rs` extracted from `renderer/mod.rs`
     (`compute_layout` — now floors the letterbox origin, R71 —
     `nine_slice_quads` — now takes `border_scale` — and the other pure
