@@ -2738,7 +2738,7 @@ deleted at the end of this step; panels size to content and theme metrics.
     `cargo test -p ember2d --test replay` 3× fresh processes green.
     Confirmed live (screenshot) pixel-identical to before; confirmed no
     prefs file is written on a session that never changes a preference.
-  - **Checkpoint 3 — panels, bars, menus, viewport seam, and dock content.**
+  - **Checkpoint 3 — panels, bars, menus, viewport seam, and dock content (`2ce8335`).**
     New `editor/ui/metrics.rs` (`ChromeMetrics::from_theme`: `bar_h`/`row_h`
     from `theme.metrics.row_h`, `grip = 2 × border` — R74). `panel/mod.rs`
     rewritten in points (`Panel::rect` is now the one source of truth;
