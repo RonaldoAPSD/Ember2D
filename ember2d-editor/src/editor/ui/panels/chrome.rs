@@ -12,12 +12,69 @@ use super::super::rect::UiRect;
 use super::super::types::*;
 use super::super::widgets::{draw_button, draw_row};
 use crate::editor::palette::TilePalette;
-use ember2d::renderer::{color::Color, DrawSurface, Font};
+use ember2d::renderer::{color::Color, DrawSurface, Font, Texture, CELL_H, CELL_W};
+use ember2d::theme::{PaletteRole, SliceRole, Theme};
 use ember2d_sim::level::TileRecord;
+use ember2d_sim::math::Rect;
 
+/// A themed box's frame — one `SliceRole::Panel` 9-slice for the whole
+/// `(x, y, w, h)` cell rect, falling back to a flat `PanelBg` fill when
+/// the theme doesn't define that role (7D-1's own "no fabricated
+/// geometry" contract) — shared by every BOX-shaped modal below
+/// (`draw_text_input`/`draw_confirm_modal`/`draw_context_menu`) so none
+/// of them reimplements `draw_panel_chrome`'s own fallback logic
+/// (`panel/mod.rs`) a third time.
+fn draw_themed_frame(
+    renderer: &mut dyn DrawSurface,
+    theme: &Theme,
+    chrome_tex: &Texture,
+    x: usize,
+    y: usize,
+    w: usize,
+    h: usize,
+) {
+    let rect = Rect::new(
+        x as f32 * CELL_W as f32,
+        y as f32 * CELL_H as f32,
+        w as f32 * CELL_W as f32,
+        h as f32 * CELL_H as f32,
+    );
+    match theme.slice(SliceRole::Panel) {
+        Some(slice) => renderer.draw_nine_slice_px(rect, chrome_tex, slice.src, slice.border, Color::White),
+        None => renderer.draw_rect_filled(x, y, w, h, ' ', Color::White, theme.role_color(PaletteRole::PanelBg)),
+    }
+}
+
+/// The title-bar strip on top of a `draw_themed_frame` box — one cell
+/// tall, `SliceRole::TitleBar`, same fallback contract as the frame above.
+fn draw_themed_title_strip(
+    renderer: &mut dyn DrawSurface,
+    theme: &Theme,
+    chrome_tex: &Texture,
+    x: usize,
+    y: usize,
+    w: usize,
+) {
+    let rect =
+        Rect::new(x as f32 * CELL_W as f32, y as f32 * CELL_H as f32, w as f32 * CELL_W as f32, CELL_H as f32);
+    match theme.slice(SliceRole::TitleBar) {
+        Some(slice) => renderer.draw_nine_slice_px(rect, chrome_tex, slice.src, slice.border, Color::White),
+        None => renderer.draw_rect_filled(x, y, w, 1, ' ', Color::White, theme.role_color(PaletteRole::TitleBg)),
+    }
+}
+
+/// The title bar, status bar, and dock tab strip stay flat, theme-colored
+/// fills rather than 9-slice (7D-2, master plan §5.4) — each is one cell
+/// tall, and this theme's own 6px border (`themes/ember-clean/chrome.png`)
+/// would consume most of that height as border with almost no visible
+/// center, looking disproportionate. 9-slice is reserved for genuinely
+/// box-shaped chrome below (`draw_text_input`/`draw_confirm_modal`/
+/// `draw_context_menu`), where a border reads as a border rather than
+/// swallowing the whole element.
 pub fn draw_title_bar(
     renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
+    theme: &Theme,
     level_name: &str,
     unsaved: bool,
     undo_count: usize,
@@ -25,8 +82,11 @@ pub fn draw_title_bar(
     scroll: (f32, f32),
     level_size: (usize, usize),
 ) {
-    renderer.draw_rect_filled(0, 0, renderer.width(), 1, ' ', Color::White, Color::DarkBlue);
-    renderer.draw_str(1, 0, "EMBER2D EDITOR", Color::White, Color::DarkBlue);
+    let bg = theme.role_color(PaletteRole::TitleBg);
+    let fg = theme.role_color(PaletteRole::TitleText);
+    let accent = theme.role_color(PaletteRole::Accent);
+    renderer.draw_rect_filled(0, 0, renderer.width(), 1, ' ', Color::White, bg);
+    renderer.draw_str(1, 0, "EMBER2D EDITOR", fg, bg);
 
     let saved_marker = if unsaved { "*" } else { " " };
     let scroll_str = if scroll.0.abs() > 0.001 || scroll.1.abs() > 0.001 {
@@ -39,11 +99,13 @@ pub fn draw_title_bar(
         saved_marker, level_name, level_size.0, level_size.1, scroll_str, undo_count, redo_count
     );
     let col = renderer.width().saturating_sub(cells(font, &info) + 1);
-    renderer.draw_str(col, 0, &info, Color::Yellow, Color::DarkBlue);
+    renderer.draw_str(col, 0, &info, accent, bg);
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_status_bar(
     renderer: &mut dyn DrawSurface,
+    theme: &Theme,
     mouse: &ember2d::mouse::MouseState,
     _palette: &TilePalette,
     grid_overlay: bool,
@@ -57,12 +119,15 @@ pub fn draw_status_bar(
     canvas_y: usize,
     zoom: f32,
 ) {
+    let bg = theme.role_color(PaletteRole::PanelBg);
+    let fg = theme.role_color(PaletteRole::TextPrimary);
+    let accent = theme.role_color(PaletteRole::Accent);
     let status_row = renderer.height() - 1;
-    renderer.draw_rect_filled(0, status_row, renderer.width(), 1, ' ', Color::White, Color::DarkGrey);
+    renderer.draw_rect_filled(0, status_row, renderer.width(), 1, ' ', Color::White, bg);
     let cx = mouse.cell_x.saturating_sub(canvas_x) as f32 / zoom + scroll.0;
     let cy = mouse.cell_y.saturating_sub(canvas_y) as f32 / zoom + scroll.1;
     let pos_str = format!(" ({:3.1},{:3.1})", cx, cy);
-    renderer.draw_str(0, status_row, &pos_str, Color::Cyan, Color::DarkGrey);
+    renderer.draw_str(0, status_row, &pos_str, accent, bg);
 
     let lyr_name = match active_layer {
         0 => "Background",
@@ -71,28 +136,22 @@ pub fn draw_status_bar(
         _ => "Unknown",
     };
     let lyr_str = format!("[LAYER: {}]", lyr_name);
-    renderer.draw_str(10, status_row, &lyr_str, Color::White, Color::DarkGrey);
+    renderer.draw_str(10, status_row, &lyr_str, fg, bg);
 
     if !mode_hint.is_empty() {
-        renderer.draw_str(
-            30,
-            status_row,
-            &format!("| {}", mode_hint),
-            Color::White,
-            Color::DarkGrey,
-        );
+        renderer.draw_str(30, status_row, &format!("| {}", mode_hint), fg, bg);
     } else if let Some(tile) = tile_under {
         let script_mark = if tile.script.is_some() { "[S]" } else { "   " };
         let props = format!(
             "| [{}] s:{} t:{} {} T=script",
             tile.tag, tile.solid as u8, tile.trigger as u8, script_mark
         );
-        renderer.draw_str(30, status_row, &props, Color::Yellow, Color::DarkGrey);
+        renderer.draw_str(30, status_row, &props, accent, bg);
     } else {
         let grid_hint = if grid_overlay { "Tab:off" } else { "Tab:grd" };
         let erase_hint = format!("E:{}px", erase_size);
         let hints = format!("| {} S:save U:undo R:redo {}", erase_hint, grid_hint);
-        renderer.draw_str(30, status_row, &hints, Color::White, Color::DarkGrey);
+        renderer.draw_str(30, status_row, &hints, fg, bg);
     }
 }
 
@@ -107,9 +166,11 @@ pub fn draw_status_bar(
 /// fixing a real quirk the old independent hit-test had, where a
 /// single-panel dock's title row still claimed an invisible "tab" hitbox
 /// over its first `title.len()+2` cells even though no tab was ever drawn.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_dock_tabs(
     renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
+    theme: &Theme,
     x: usize,
     y: usize,
     w: usize,
@@ -121,14 +182,22 @@ pub fn draw_dock_tabs(
         return;
     }
 
+    let panel_bg = theme.role_color(PaletteRole::PanelBg);
     // Background for the tab bar
-    renderer.draw_rect_filled(x, y, w, 1, ' ', Color::White, Color::Black);
+    renderer.draw_rect_filled(x, y, w, 1, ' ', Color::White, panel_bg);
 
     let mut cursor_x = x;
     for (id, title) in panels {
         let is_active = Some(*id) == active;
-        let fg = if is_active { Color::White } else { Color::Grey };
-        let bg = if is_active { Color::DarkBlue } else { Color::DarkGrey };
+        // No themed "text-on-accent" role exists (7D-1's `PaletteRole` has
+        // no such variant) — plain black reads fine on the bright amber
+        // active-tab fill, matching how the close button/other
+        // bright-background chrome elsewhere already handles this gap.
+        let (fg, bg) = if is_active {
+            (Color::Black, theme.role_color(PaletteRole::Accent))
+        } else {
+            (theme.role_color(PaletteRole::TabInactive), panel_bg)
+        };
 
         let label = format!(" {} ", title);
         let label_w = cells(font, &label);
@@ -142,9 +211,12 @@ pub fn draw_dock_tabs(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_text_input(
     renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
+    theme: &Theme,
+    chrome_tex: &Texture,
     prompt: &str,
     buffer: &str,
     screen_w: usize,
@@ -154,35 +226,21 @@ pub fn draw_text_input(
     let mh = 7usize;
     let mx = (screen_w.saturating_sub(mw)) / 2;
     let my = (screen_h.saturating_sub(mh)) / 2;
+    let panel_fg = theme.role_color(PaletteRole::TextPrimary);
+    let panel_bg = theme.role_color(PaletteRole::PanelBg);
+    let dim = theme.role_color(PaletteRole::TextDim);
 
-    // 1. Fill background and Draw Borders
-    renderer.draw_rect_filled(mx, my, mw, mh, ' ', Color::White, Color::DarkGrey);
-
-    // Top Title Bar
-    renderer.draw_rect_filled(mx, my, mw, 1, ' ', Color::White, Color::DarkBlue);
+    draw_themed_frame(renderer, theme, chrome_tex, mx, my, mw, mh);
+    draw_themed_title_strip(renderer, theme, chrome_tex, mx, my, mw);
     let title = format!(" {} ", prompt.to_uppercase());
     // Bounded by this modal's own fixed cell width, not by `title`'s own
     // measured length — no `measure`/`glyph` call needed here (Phase 7
     // Part 2c, docs/ember2d-phase7-plan.md: only WIDTH-FROM-STRING sites
     // are in scope, and a fixed budget like `mw` isn't one).
     let clipped: String = title.chars().take(mw.saturating_sub(2)).collect();
-    renderer.draw_str(mx + 1, my, &clipped, Color::White, Color::DarkBlue);
+    renderer.draw_str(mx + 1, my, &clipped, theme.role_color(PaletteRole::TitleText), panel_bg);
 
-    // Blended Side/Bottom borders
-    let bfg = Color::Grey;
-    let bbg = Color::DarkGrey;
-    for row in (my + 1)..(my + mh - 1) {
-        renderer.draw_char(mx, row, '|', bfg, bbg);
-        renderer.draw_char(mx + mw - 1, row, '|', bfg, bbg);
-    }
-    let bot_line: String = std::iter::repeat_n('-', mw).collect();
-    renderer.draw_str(mx, my + mh - 1, &bot_line, bfg, bbg);
-    renderer.draw_char(mx, my, '+', Color::White, Color::DarkBlue);
-    renderer.draw_char(mx + mw - 1, my, '+', Color::White, Color::DarkBlue);
-    renderer.draw_char(mx, my + mh - 1, '+', bfg, bbg);
-    renderer.draw_char(mx + mw - 1, my + mh - 1, '+', bfg, bbg);
-
-    // 2. Input Field
+    // Input field
     let input_y = my + 2;
     let label = format!("> {}█", buffer);
     let max_buf = mw.saturating_sub(6);
@@ -213,17 +271,19 @@ pub fn draw_text_input(
         label
     };
     let input_x = mx + (mw.saturating_sub(cells(font, &clipped_buf))) / 2;
-    renderer.draw_str(input_x, input_y, &clipped_buf, Color::Black, Color::Cyan);
+    renderer.draw_str(input_x, input_y, &clipped_buf, panel_fg, theme.role_color(PaletteRole::InputBg));
 
-    // 3. Helper Text
+    // Helper text
     let hint = "[Enter] Confirm   [Esc] Cancel";
     let hint_x = mx + (mw.saturating_sub(cells(font, hint))) / 2;
-    renderer.draw_str(hint_x, my + mh - 3, hint, Color::DarkGrey, Color::DarkGrey);
+    renderer.draw_str(hint_x, my + mh - 3, hint, dim, panel_bg);
 }
 
 pub fn draw_confirm_modal(
     renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
+    theme: &Theme,
+    chrome_tex: &Texture,
     title: &str,
     message: &str,
     screen_w: usize,
@@ -234,33 +294,44 @@ pub fn draw_confirm_modal(
     let mh = 8usize;
     let mx = (screen_w.saturating_sub(mw)) / 2;
     let my = (screen_h.saturating_sub(mh)) / 2;
+    let panel_bg = theme.role_color(PaletteRole::PanelBg);
 
-    renderer.draw_rect_filled(mx, my, mw, mh, ' ', Color::White, Color::DarkGrey);
-    renderer.draw_rect_filled(mx, my, mw, 1, ' ', Color::White, Color::DarkBlue);
+    draw_themed_frame(renderer, theme, chrome_tex, mx, my, mw, mh);
+    draw_themed_title_strip(renderer, theme, chrome_tex, mx, my, mw);
     renderer.draw_str(
         mx + 1,
         my,
         &format!(" {} ", title.to_uppercase()),
-        Color::White,
-        Color::DarkBlue,
+        theme.role_color(PaletteRole::TitleText),
+        panel_bg,
     );
 
     // Message
     let msg_x = mx + (mw.saturating_sub(cells(font, message))) / 2;
-    renderer.draw_str(msg_x, my + 2, message, Color::White, Color::DarkGrey);
+    renderer.draw_str(msg_x, my + 2, message, theme.role_color(PaletteRole::TextPrimary), panel_bg);
 
     // Buttons — 7C-1 (master plan §5.3): `draw_button` registers each
     // rect at the exact point it's drawn, replacing `input/modal.rs`'s
-    // own independently-recomputed `yes_x`/`no_x`/`btn_y` (E5).
+    // own independently-recomputed `yes_x`/`no_x`/`btn_y` (E5). No
+    // themed "text-on-accent" role exists (same gap `draw_dock_tabs`
+    // documents above), so YES stays plain black-on-accent.
     let btn_y = my + 5;
     let yes_x = mx + 8;
     let no_x = mx + mw - 15;
+    let accent = theme.role_color(PaletteRole::Accent);
+    let dim = theme.role_color(PaletteRole::TextDim);
 
-    draw_button(renderer, frame, WidgetId::ConfirmYes, yes_x, btn_y, 9, " [ YES ] ", Color::Black, Color::Cyan);
-    draw_button(renderer, frame, WidgetId::ConfirmNo, no_x, btn_y, 9, " [ NO ]  ", Color::White, Color::Black);
+    draw_button(renderer, frame, WidgetId::ConfirmYes, yes_x, btn_y, 9, " [ YES ] ", Color::Black, accent);
+    draw_button(renderer, frame, WidgetId::ConfirmNo, no_x, btn_y, 9, " [ NO ]  ", dim, panel_bg);
 }
 
-pub fn draw_context_menu(renderer: &mut dyn DrawSurface, menu: &ContextMenu, frame: &mut UiFrame) {
+pub fn draw_context_menu(
+    renderer: &mut dyn DrawSurface,
+    theme: &Theme,
+    chrome_tex: &Texture,
+    menu: &ContextMenu,
+    frame: &mut UiFrame,
+) {
     let mw = 20usize;
     let mh = menu.items.len() + 2;
     let mx = menu.x;
@@ -270,29 +341,17 @@ pub fn draw_context_menu(renderer: &mut dyn DrawSurface, menu: &ContextMenu, fra
     let mx = if mx + mw > renderer.width() { renderer.width().saturating_sub(mw) } else { mx };
     let my = if my + mh > renderer.height() { renderer.height().saturating_sub(mh) } else { my };
 
-    // Fill background
-    renderer.draw_rect_filled(mx, my, mw, mh, ' ', Color::White, Color::DarkGrey);
-
-    // Borders
-    let bfg = Color::Grey;
-    let bbg = Color::DarkGrey;
-    for row in my..(my + mh) {
-        renderer.draw_char(mx, row, '│', bfg, bbg);
-        renderer.draw_char(mx + mw - 1, row, '│', bfg, bbg);
-    }
-    let top_line: String = std::iter::repeat_n('─', mw).collect();
-    renderer.draw_str(mx, my, &top_line, bfg, bbg);
-    renderer.draw_str(mx, my + mh - 1, &top_line, bfg, bbg);
-    renderer.draw_char(mx, my, '┌', bfg, bbg);
-    renderer.draw_char(mx + mw - 1, my, '┐', bfg, bbg);
-    renderer.draw_char(mx, my + mh - 1, '└', bfg, bbg);
-    renderer.draw_char(mx + mw - 1, my + mh - 1, '┘', bfg, bbg);
+    draw_themed_frame(renderer, theme, chrome_tex, mx, my, mw, mh);
+    let panel_bg = theme.role_color(PaletteRole::PanelBg);
+    let text_fg = theme.role_color(PaletteRole::TextPrimary);
+    let accent = theme.role_color(PaletteRole::Accent);
 
     for (i, (label, _)) in menu.items.iter().enumerate() {
         let row = my + 1 + i;
         let is_selected = i == menu.selected;
-        let fg = if is_selected { Color::Black } else { Color::White };
-        let bg = if is_selected { Color::Cyan } else { Color::DarkGrey };
+        // No themed "text-on-accent" role — see `draw_dock_tabs`'s own
+        // comment on this same gap.
+        let (fg, bg) = if is_selected { (Color::Black, accent) } else { (text_fg, panel_bg) };
 
         let mut text = format!(" {:<width$} ", label, width = mw - 2);
         if text.len() > mw {

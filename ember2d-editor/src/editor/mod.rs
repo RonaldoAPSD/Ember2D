@@ -236,11 +236,6 @@ pub struct EditorState {
     /// pixel data — see `load_editor_theme`'s own doc comment for why
     /// this is a plain owned `Texture`, not a kept-alive `AssetManager`.
     pub(super) theme_chrome_tex: Texture,
-    /// The theme's own font, loaded once to match `self.theme.font` — a
-    /// `BitmapFont` needs no file and never fails; a `Ttf` choice whose
-    /// file can't be read/parsed falls back to `BitmapFont` too (loud
-    /// visually — wrong font is obvious — never a panic).
-    pub(super) theme_font: Box<dyn Font>,
     pub(super) grid: LevelGrid,
     pub(super) palette: TilePalette,
     pub(super) undo: UndoStack,
@@ -379,14 +374,17 @@ pub struct EditorState {
     /// comment. Rebuilt every `handle_render` call; read by the FOLLOWING
     /// frame's `handle_update`/`handle_panel_input`.
     pub(super) ui_frame: UiFrame,
-    /// The editor's active text-metrics source (Phase 7 Part 2c,
-    /// docs/ember2d-phase7-plan.md) — a `BitmapFont` today, always; every
-    /// `ui::draw_*`/`graph_ui::*` call that used to compute a position
-    /// from a string's raw `.len()` now goes through `Font::measure`/
-    /// `glyph` on this instead, so a future theme (Part 3) can swap it for
-    /// a `TtfFont` without those call sites changing again. `Box<dyn Font>`
-    /// rather than a concrete `BitmapFont` for exactly that swap.
-    pub(super) font: Box<dyn ember2d::renderer::Font>,
+    /// The editor's active text-metrics AND (as of 7D-2, master plan
+    /// §5.4) drawing source — every `ui::draw_*`/`graph_ui::*` call that
+    /// used to compute a position from a string's raw `.len()` goes
+    /// through `Font::measure`/`glyph` on this (Phase 7 Part 2c), and a
+    /// growing set of chrome call sites now draw through it directly via
+    /// `draw_text_px` too. This IS the theme's own loaded font
+    /// (`load_editor_theme`, `theme_loader.rs`) — exactly the swap this
+    /// field's original Part 2c doc comment predicted ("so a future
+    /// theme can swap it for a `TtfFont` without call sites changing
+    /// again"): one field, not a second `theme_font` alongside it.
+    pub(super) font: Box<dyn Font>,
     pub(super) focused_panel: Option<PanelId>,
     pub(super) show_physics: bool,
     pub(super) show_help: bool,
@@ -443,7 +441,6 @@ impl EditorState {
         EditorState {
             theme,
             theme_chrome_tex,
-            theme_font,
             grid: LevelGrid::new(DEFAULT_LEVEL_W, DEFAULT_LEVEL_H),
             palette: TilePalette::default_palette(),
             undo: UndoStack::new(),
@@ -504,7 +501,7 @@ impl EditorState {
             scroll_repeat: 0,
             panels: PanelManager::new(PLACEHOLDER_SCREEN_W, PLACEHOLDER_SCREEN_H),
             ui_frame: UiFrame::new(),
-            font: Box::new(ember2d::renderer::BitmapFont::new()),
+            font: theme_font,
             focused_panel: None,
             show_physics: false,
             show_help: false,

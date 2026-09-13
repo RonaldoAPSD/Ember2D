@@ -4,6 +4,7 @@ use super::frame::{UiFrame, WidgetId};
 use super::rect::UiRect;
 use super::types::*;
 use ember2d::renderer::{color::Color, DrawSurface, Font};
+use ember2d::theme::{PaletteRole, Theme};
 
 pub const MENU_W: usize = 22;
 
@@ -226,16 +227,21 @@ fn is_action_enabled(action: &ToolbarAction, ms: &MenuState) -> bool {
 pub fn draw_menu_toolbar(
     renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
+    theme: &Theme,
     active_menu: Option<MenuKind>,
     mode_label: &str,
     frame: &mut UiFrame,
 ) {
     let row = TOOLBAR_ROW;
-    renderer.draw_rect_filled(0, row, renderer.width(), 1, ' ', Color::White, Color::DarkGrey);
+    let panel_bg = theme.role_color(PaletteRole::PanelBg);
+    let text_fg = theme.role_color(PaletteRole::TextPrimary);
+    let accent = theme.role_color(PaletteRole::Accent);
+    renderer.draw_rect_filled(0, row, renderer.width(), 1, ' ', Color::White, panel_bg);
     for &(col, label, kind) in menu_label_defs() {
         let open = active_menu == Some(kind);
-        let (fg, bg) =
-            if open { (Color::Black, Color::Cyan) } else { (Color::White, Color::DarkGrey) };
+        // No themed "text-on-accent" role — see `chrome.rs`'s
+        // `draw_dock_tabs` comment on this same gap.
+        let (fg, bg) = if open { (Color::Black, accent) } else { (text_fg, panel_bg) };
         let padded = format!(" {} ", label);
         let draw_col = col.saturating_sub(1);
         renderer.draw_str(draw_col, row, &padded, fg, bg);
@@ -246,11 +252,12 @@ pub fn draw_menu_toolbar(
     }
     let indicator = format!("[ {} ]", mode_label);
     let col = renderer.width().saturating_sub(cells(font, &indicator) + 1);
-    renderer.draw_str(col, row, &indicator, Color::Cyan, Color::DarkGrey);
+    renderer.draw_str(col, row, &indicator, accent, panel_bg);
 }
 
 pub fn draw_menu_dropdown(
     renderer: &mut dyn DrawSurface,
+    theme: &Theme,
     menu: MenuKind,
     mouse_col: usize,
     mouse_row: usize,
@@ -260,21 +267,17 @@ pub fn draw_menu_dropdown(
     let start_col = menu_label_col(menu);
     let start_row = TOOLBAR_ROW + 1;
     let entries = menu_entries(menu);
-    renderer.draw_rect_filled(
-        start_col,
-        start_row,
-        MENU_W,
-        entries.len(),
-        ' ',
-        Color::White,
-        Color::Black,
-    );
+    let panel_bg = theme.role_color(PaletteRole::PanelBg);
+    let text_fg = theme.role_color(PaletteRole::TextPrimary);
+    let dim = theme.role_color(PaletteRole::TextDim);
+    let accent = theme.role_color(PaletteRole::Accent);
+    renderer.draw_rect_filled(start_col, start_row, MENU_W, entries.len(), ' ', Color::White, panel_bg);
     for (i, entry) in entries.iter().enumerate() {
         let row = start_row + i;
         match entry {
             MenuEntry::Sep => {
                 let line: String = std::iter::repeat_n('-', MENU_W).collect();
-                renderer.draw_str(start_col, row, &line, Color::DarkGrey, Color::Black);
+                renderer.draw_str(start_col, row, &line, dim, panel_bg);
                 // No hit pushed — a separator was never clickable (the old
                 // `menu_item_at` returned `None` for a `Sep` row too).
             }
@@ -283,12 +286,13 @@ pub fn draw_menu_dropdown(
                     mouse_row == row && mouse_col >= start_col && mouse_col < start_col + MENU_W;
                 let enabled = is_action_enabled(action, ms);
                 let check = menu_checkmark(action, ms);
+                // No themed "text-on-accent" role — same gap as above.
                 let (fg, bg) = if !enabled {
-                    (Color::DarkGrey, if hovered { Color::DarkBlue } else { Color::Black })
+                    (dim, panel_bg)
                 } else if hovered {
-                    (Color::Black, Color::Cyan)
+                    (Color::Black, accent)
                 } else {
-                    (Color::White, Color::Black)
+                    (text_fg, panel_bg)
                 };
                 let text = format!(" {} {:<11} {} ", check, label, shortcut);
                 renderer.draw_str(start_col, row, &text, fg, bg);

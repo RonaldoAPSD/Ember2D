@@ -196,6 +196,7 @@ impl EditorState {
         ui::draw_menu_toolbar(
             renderer,
             self.font.as_mut(),
+            &self.theme,
             self.active_menu,
             self.mode.toolbar_label(),
             &mut self.ui_frame,
@@ -255,7 +256,7 @@ impl EditorState {
                 &mut self.ui_frame,
                 &self.theme,
                 &self.theme_chrome_tex,
-                self.theme_font.as_mut(),
+                self.font.as_mut(),
             );
 
             // Draw tabs if docked
@@ -275,6 +276,7 @@ impl EditorState {
                     ui::draw_dock_tabs(
                         renderer,
                         self.font.as_mut(),
+                        &self.theme,
                         panel.cell_x().max(0) as usize,
                         panel.cell_y().max(0) as usize,
                         panel.cell_w(),
@@ -561,6 +563,7 @@ impl EditorState {
 
             ui::draw_menu_dropdown(
                 renderer,
+                &self.theme,
                 menu,
                 mouse.cell_x,
                 mouse.cell_y,
@@ -578,6 +581,7 @@ impl EditorState {
         ui::draw_title_bar(
             renderer,
             self.font.as_mut(),
+            &self.theme,
             title_name,
             self.unsaved,
             self.undo.len(),
@@ -607,6 +611,7 @@ impl EditorState {
 
         ui::draw_status_bar(
             renderer,
+            &self.theme,
             mouse,
             &self.palette,
             self.show_grid,
@@ -649,6 +654,8 @@ impl EditorState {
             ui::draw_text_input(
                 renderer,
                 self.font.as_mut(),
+                &self.theme,
+                &self.theme_chrome_tex,
                 prompt,
                 &self.prompt_buffer,
                 screen_w,
@@ -673,6 +680,8 @@ impl EditorState {
             ui::draw_confirm_modal(
                 renderer,
                 self.font.as_mut(),
+                &self.theme,
+                &self.theme_chrome_tex,
                 &m.title,
                 &m.message,
                 screen_w,
@@ -682,7 +691,7 @@ impl EditorState {
         }
 
         if let EditorMode::ContextMenu(cm) = &self.mode {
-            ui::draw_context_menu(renderer, cm, &mut self.ui_frame);
+            ui::draw_context_menu(renderer, &self.theme, &self.theme_chrome_tex, cm, &mut self.ui_frame);
         }
     }
 }
