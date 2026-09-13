@@ -55,6 +55,20 @@ pub(crate) enum EditorFocus {
     ScriptPanel,
 }
 
+/// Which kind of edit the script buffer's undo stack last checkpointed
+/// (7C-8, master plan §5.3) — consecutive edits of the SAME group coalesce
+/// into one undo step (so typing a whole word doesn't cost a Ctrl+Z per
+/// character), but switching group (including moving the cursor without
+/// editing) always starts a fresh one. `Enter`/cut/paste/undo/redo always
+/// force `None` afterward rather than being a group of their own, so they
+/// never coalesce with whatever comes next either.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ScriptEditGroup {
+    None,
+    Insert,
+    Delete,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModalPurpose {
     /// Only shown when `self.unsaved` — see `handle_file_browser_click`'s
@@ -283,6 +297,53 @@ pub struct EditorState {
     /// `SCRIPT_IDLE_CHECK_FRAMES`, so a live syntax check runs ~500ms after
     /// the user stops typing rather than on every character.
     pub(super) script_idle_timer: u32,
+    /// The OTHER end of an in-progress selection, `(char_idx, line_idx)` —
+    /// same shape as `script_cursor`, which is always the moving end
+    /// (7C-8, master plan §5.3). `None` means no selection. Order relative
+    /// to `script_cursor` is never assumed; `script_selection_range`
+    /// normalizes it.
+    pub(super) script_selection_anchor: Option<(usize, usize)>,
+    /// Columns scrolled off the left of the script editor's text area
+    /// (7C-8, master plan §5.3) — the horizontal twin of `script_scroll`,
+    /// auto-tracked the same way so the cursor always stays visible.
+    pub(super) script_hscroll: usize,
+    /// The script editor's OWN clipboard (7C-8, master plan §5.3) —
+    /// deliberately separate from `self.clipboard` (the level grid's tile
+    /// clipboard, a completely different shape) and deliberately the real
+    /// source of truth for paste, not `arboard`'s live OS clipboard: a
+    /// paste always reads this field, so a cut/copy → paste round trip
+    /// inside the editor never depends on a display/clipboard server
+    /// existing (headless CI, most notably) even though cut/copy also
+    /// best-effort mirrors this text out to the OS clipboard via
+    /// `arboard` for pasting into (not from) another application.
+    pub(super) script_clipboard: String,
+    /// Undo/redo stacks for the script text buffer (7C-8, master plan
+    /// §5.3) — each entry is a full `(buffer, cursor)` snapshot taken
+    /// BEFORE the edit it precedes, not a diff: scripts are small text
+    /// files, so the simplicity of "restore the whole thing" comfortably
+    /// outweighs the memory cost a diff-based stack would save. Entirely
+    /// separate from `commands::UndoStack` (the level grid's own undo,
+    /// 7C-6) — that one's `Command` variants are grid-edit-shaped
+    /// (`PlaceTile`, `UpdateExtraSpawns`, ...) and have nothing to do with
+    /// text. `redo` is cleared by any new checkpoint (`checkpoint_script_edit`),
+    /// matching how the grid's own undo/redo already behaves.
+    pub(super) script_undo: Vec<(Vec<String>, (usize, usize))>,
+    pub(super) script_redo: Vec<(Vec<String>, (usize, usize))>,
+    /// Which group the LAST script-buffer checkpoint belonged to (7C-8,
+    /// master plan §5.3) — see `ScriptEditGroup`'s own doc comment.
+    pub(super) script_undo_group: ScriptEditGroup,
+    /// Ctrl+F opens a one-line find bar in place of the topmost text row
+    /// (7C-8, master plan §5.3) — `true` while it's showing and consuming
+    /// typed input instead of the script buffer.
+    pub(super) script_find_active: bool,
+    pub(super) script_find_query: String,
+    /// Where the cursor was when Ctrl+F opened (7C-8, master plan §5.3) —
+    /// live-as-you-type search always re-searches from here (not from
+    /// wherever the previous keystroke's match landed), so growing or
+    /// shrinking the query re-searches consistently instead of drifting.
+    /// Enter (`script_find_next`) searches from the current match's end
+    /// instead, advancing through the buffer.
+    pub(super) script_find_origin: (usize, usize),
     pub project_folder: Option<String>,
     pub project_name: Option<String>,
     pub(super) console_log: Vec<LogEntry>,
@@ -399,6 +460,15 @@ impl EditorState {
             script_unsaved: false,
             script_error: None,
             script_idle_timer: 0,
+            script_selection_anchor: None,
+            script_hscroll: 0,
+            script_clipboard: String::new(),
+            script_undo: Vec::new(),
+            script_redo: Vec::new(),
+            script_undo_group: ScriptEditGroup::None,
+            script_find_active: false,
+            script_find_query: String::new(),
+            script_find_origin: (0, 0),
             project_folder: None,
             project_name: None,
             console_log: Vec::new(),
@@ -561,6 +631,47 @@ impl EditorState {
 
     pub fn redo_len(&self) -> usize {
         self.undo.redo_len()
+    }
+
+    /// The script buffer's own selection, normalized `(start, end)` with
+    /// `start <= end` in reading order — `None` when nothing is selected
+    /// (7C-8, master plan §5.3).
+    pub fn script_selection(&self) -> Option<((usize, usize), (usize, usize))> {
+        let anchor = self.script_selection_anchor?;
+        let cursor = self.script_cursor;
+        // Compare `(line, char)`, not `(char, line)` — line order first
+        // matches reading order; `script_cursor`/`script_selection_anchor`
+        // are stored `(char, line)` for consistency with `script_cursor`
+        // everywhere else, so the tuple itself can't be compared directly.
+        if (anchor.1, anchor.0) <= (cursor.1, cursor.0) {
+            Some((anchor, cursor))
+        } else {
+            Some((cursor, anchor))
+        }
+    }
+
+    pub fn script_clipboard(&self) -> &str {
+        &self.script_clipboard
+    }
+
+    pub fn script_hscroll(&self) -> usize {
+        self.script_hscroll
+    }
+
+    pub fn script_undo_len(&self) -> usize {
+        self.script_undo.len()
+    }
+
+    pub fn script_redo_len(&self) -> usize {
+        self.script_redo.len()
+    }
+
+    pub fn script_find_active(&self) -> bool {
+        self.script_find_active
+    }
+
+    pub fn script_find_query(&self) -> &str {
+        &self.script_find_query
     }
 
     pub(super) fn load_palette(&mut self) {

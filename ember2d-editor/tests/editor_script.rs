@@ -142,3 +142,217 @@ fn the_idle_timer_triggers_a_check_without_an_explicit_save() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ── 7C-8: text editor completeness ──────────────────────────────────────────
+
+fn open_blank_script(dir: &std::path::Path) -> EditorHarness {
+    open_script_via_file_browser(dir, "player.rhai", "\n")
+}
+
+fn ctrl_key(h: &mut EditorHarness, key: Key) {
+    h.press_key(Key::LeftCtrl);
+    h.press_key(key);
+    h.release_key(key);
+    h.release_key(Key::LeftCtrl);
+}
+
+/// The plan's own repro (7C-8, master plan §5.3): select-all, cut, paste
+/// round-trips content including non-ASCII.
+#[test]
+fn select_all_cut_paste_round_trips_non_ascii_content() {
+    let dir = std::env::temp_dir()
+        .join(format!("ember2d-{}", std::process::id()))
+        .join("editor_script_cut_paste_repro");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+
+    let mut h = open_blank_script(&dir);
+    h.type_text("café 🎮 hello");
+
+    ctrl_key(&mut h, Key::A);
+    let sel = h.state.script_selection();
+    assert!(sel.is_some(), "Ctrl+A must select the whole buffer");
+
+    ctrl_key(&mut h, Key::X);
+    assert_eq!(h.state.script_buffer(), &[String::new()], "cut must remove the selected text");
+    assert_eq!(h.state.script_clipboard(), "café 🎮 hello");
+
+    ctrl_key(&mut h, Key::V);
+    assert_eq!(
+        h.state.script_buffer(),
+        &["café 🎮 hello".to_string()],
+        "pasting the cut text back must restore it exactly, non-ASCII included"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn copy_leaves_the_original_text_in_place() {
+    let dir = std::env::temp_dir()
+        .join(format!("ember2d-{}", std::process::id()))
+        .join("editor_script_copy_repro");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+
+    let mut h = open_blank_script(&dir);
+    h.type_text("hello");
+    ctrl_key(&mut h, Key::A);
+    ctrl_key(&mut h, Key::C);
+
+    assert_eq!(h.state.script_clipboard(), "hello");
+    assert_eq!(h.state.script_buffer(), &["hello".to_string()], "copy must not remove anything");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn shift_right_extends_a_selection_one_character_at_a_time() {
+    let dir = std::env::temp_dir()
+        .join(format!("ember2d-{}", std::process::id()))
+        .join("editor_script_shift_select_repro");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+
+    let mut h = open_blank_script(&dir);
+    h.type_text("hello");
+    h.key(Key::Home);
+    assert_eq!(h.state.script_selection(), None);
+
+    h.press_key(Key::LeftShift);
+    h.press_key(Key::Right);
+    h.release_key(Key::Right);
+    h.press_key(Key::Right);
+    h.release_key(Key::Right);
+    h.release_key(Key::LeftShift);
+
+    assert_eq!(h.state.script_selection(), Some(((0, 0), (2, 0))), "Shift+Right twice must select the first 2 characters");
+
+    // A plain (non-Shift) move collapses the selection (7C-8's own
+    // documented simplification — see `update_selection_anchor`).
+    h.key(Key::Right);
+    assert_eq!(h.state.script_selection(), None);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn typing_replaces_an_active_selection() {
+    let dir = std::env::temp_dir()
+        .join(format!("ember2d-{}", std::process::id()))
+        .join("editor_script_replace_selection_repro");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+
+    let mut h = open_blank_script(&dir);
+    h.type_text("hello");
+    ctrl_key(&mut h, Key::A);
+    h.type_text("bye");
+
+    assert_eq!(h.state.script_buffer(), &["bye".to_string()]);
+    assert_eq!(h.state.script_selection(), None, "typing must consume the selection, not leave it dangling");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn ctrl_z(h: &mut EditorHarness) {
+    ctrl_key(h, Key::Z);
+}
+fn ctrl_y(h: &mut EditorHarness) {
+    ctrl_key(h, Key::Y);
+}
+
+#[test]
+fn a_typing_burst_undoes_as_one_step() {
+    let dir = std::env::temp_dir()
+        .join(format!("ember2d-{}", std::process::id()))
+        .join("editor_script_undo_coalesce_repro");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+
+    let mut h = open_blank_script(&dir);
+    h.type_text("hello");
+    assert_eq!(h.state.script_buffer(), &["hello".to_string()]);
+
+    ctrl_z(&mut h);
+    assert_eq!(h.state.script_buffer(), &[String::new()], "one undo must remove the whole typed word");
+
+    ctrl_y(&mut h);
+    assert_eq!(h.state.script_buffer(), &["hello".to_string()], "redo must restore it");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn switching_edit_kinds_starts_a_new_undo_step() {
+    let dir = std::env::temp_dir()
+        .join(format!("ember2d-{}", std::process::id()))
+        .join("editor_script_undo_group_switch_repro");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+
+    let mut h = open_blank_script(&dir);
+    h.type_text("hello");
+    h.key(Key::Backspace);
+    h.key(Key::Backspace);
+    assert_eq!(h.state.script_buffer(), &["hel".to_string()]);
+
+    // Typing then backspacing is two separate coalescing groups — undoing
+    // once must only reverse the backspaces, not the typing too.
+    ctrl_z(&mut h);
+    assert_eq!(h.state.script_buffer(), &["hello".to_string()], "undo must first restore just the 2 backspaces");
+    ctrl_z(&mut h);
+    assert_eq!(h.state.script_buffer(), &[String::new()], "a second undo removes the typed word");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn ctrl_f_finds_and_selects_the_next_match() {
+    let dir = std::env::temp_dir()
+        .join(format!("ember2d-{}", std::process::id()))
+        .join("editor_script_find_repro");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+
+    let mut h = open_blank_script(&dir);
+    h.type_text("fn on_start(id, ctx) {}");
+    h.key(Key::Enter);
+    h.type_text("fn on_update(id, ctx) {}");
+
+    ctrl_key(&mut h, Key::F);
+    assert!(h.state.script_find_active());
+
+    h.type_text("on_");
+    assert_eq!(h.state.script_find_query(), "on_");
+    // The FIRST match (in "on_start") is at line 0, columns 3..6.
+    assert_eq!(h.state.script_selection(), Some(((3, 0), (6, 0))), "typing the query must jump to the first match");
+
+    h.key(Key::Enter);
+    assert_eq!(h.state.script_selection(), Some(((3, 1), (6, 1))), "Enter must advance to the next match (\"on_update\")");
+
+    h.key(Key::Escape);
+    assert!(!h.state.script_find_active(), "Escape must close the find bar");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn typing_a_long_line_scrolls_it_horizontally() {
+    let dir = std::env::temp_dir()
+        .join(format!("ember2d-{}", std::process::id()))
+        .join("editor_script_hscroll_repro");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+
+    let mut h = open_blank_script(&dir);
+    assert_eq!(h.state.script_hscroll(), 0);
+
+    // Comfortably wider than any realistic script panel — must push the
+    // view horizontally once the cursor runs past the visible width.
+    h.type_text(&"x".repeat(300));
+
+    assert!(h.state.script_hscroll() > 0, "typing past the visible width must scroll the view horizontally");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

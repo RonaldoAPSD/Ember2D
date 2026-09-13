@@ -2,13 +2,20 @@
 
 use ember2d::renderer::{color::Color, DrawSurface};
 
+/// A script buffer position, `(char_idx, line_idx)` — same shape as
+/// `EditorState::script_cursor` (7C-8, master plan §5.3).
+pub type ScriptPos = (usize, usize);
+
 #[allow(clippy::too_many_arguments)]
 pub fn draw_script_editor(
     renderer: &mut dyn DrawSurface,
     path: Option<&str>,
     buffer: &[String],
-    cursor: (usize, usize),
+    cursor: ScriptPos,
     scroll: usize,
+    // 7C-8 (master plan §5.3): columns scrolled off the left — the
+    // horizontal twin of `scroll` above.
+    hscroll: usize,
     unsaved: bool,
     cx: usize,
     cy: usize,
@@ -21,6 +28,14 @@ pub fn draw_script_editor(
     // callers) get identical error display without either needing its own
     // copy of this logic.
     error: Option<(usize, &str)>,
+    // 7C-8 (master plan §5.3): the active selection, normalized so
+    // `start <= end` in reading order — `EditorState::script_selection`'s
+    // own doc comment explains the normalization.
+    selection: Option<(ScriptPos, ScriptPos)>,
+    // 7C-8 (master plan §5.3): `Some(query)` while the Ctrl+F find bar is
+    // open — consumes the row right after the header, the same way
+    // `error` consumes one at the bottom.
+    find_query: Option<&str>,
 ) {
     let bg_col = Color::Black;
     renderer.draw_rect_filled(cx, cy, cw, ch, ' ', Color::White, bg_col);
@@ -32,10 +47,16 @@ pub fn draw_script_editor(
     let header = format!(" {:<width$}", title, width = cw.saturating_sub(1));
     renderer.draw_str(cx, cy, &header, Color::Black, Color::Cyan);
 
-    let text_start = cy + 1;
+    let find_rows = usize::from(find_query.is_some());
+    let text_start = cy + 1 + find_rows;
+    if let Some(query) = find_query {
+        let text = format!(" Find: {}_", query);
+        let text: String = format!("{:<width$}", text, width = cw).chars().take(cw).collect();
+        renderer.draw_str(cx, cy + 1, &text, Color::Black, Color::Yellow);
+    }
     // Reserve the bottom row for the error message when there is one —
     // matches the header's own "consume one row" shape above.
-    let max_visible = ch.saturating_sub(if error.is_some() { 2 } else { 1 });
+    let max_visible = ch.saturating_sub(find_rows + if error.is_some() { 2 } else { 1 });
 
     if buffer.is_empty() && path.is_none() {
         renderer.draw_str(
@@ -52,6 +73,8 @@ pub fn draw_script_editor(
     let err_line = error.map(|(line, _)| line);
 
     let gutter_w = 4;
+    let max_line_w = cw.saturating_sub(gutter_w);
+    let line_x = cx + gutter_w;
     for (i, line) in buffer.iter().enumerate().skip(scroll).take(max_visible) {
         let row = text_start + (i - scroll);
         if row >= cy + ch {
@@ -68,11 +91,41 @@ pub fn draw_script_editor(
         let num_str = format!("{:3} ", i + 1);
         renderer.draw_str(cx, row, &num_str, Color::DarkGrey, line_bg);
 
-        let line_x = cx + gutter_w;
-        let max_line_w = cw.saturating_sub(gutter_w);
-        draw_highlighted_rhai(renderer, line_x, row, line, max_line_w, line_bg, comment_starts[i]);
+        let line_char_count = line.chars().count();
+        // 7C-8 (master plan §5.3): a trailing `…` when the line has more
+        // content than fits after `hscroll` — shrinks the highlighter's
+        // own visible width by one column to leave room for it, rather
+        // than the marker overwriting whatever character was there.
+        let clipped = line_char_count > hscroll + max_line_w;
+        let highlight_w = if clipped { max_line_w.saturating_sub(1) } else { max_line_w };
+        // The horizontally-scrolled-off prefix is dropped BEFORE
+        // highlighting, not skipped character-by-character inside it —
+        // `draw_highlighted_rhai`'s comment/string parsing state simply
+        // restarts at column `hscroll`, the same "good enough, not a real
+        // parser" simplification `block_comment_starts` already makes
+        // across line boundaries, just applied across the hscroll cut
+        // instead. `sel_range` is adjusted to match: it's computed in
+        // absolute line-column terms, but `draw_highlighted_rhai` now
+        // only ever sees the visible (post-hscroll) substring.
+        let visible_line: String = line.chars().skip(hscroll).collect();
+        let sel_range = line_selection_range(selection, i)
+            .map(|(s, e)| (s.saturating_sub(hscroll), e.saturating_sub(hscroll)));
 
-        if i == cursor.1 {
+        draw_highlighted_rhai(
+            renderer,
+            line_x,
+            row,
+            &visible_line,
+            highlight_w,
+            line_bg,
+            comment_starts[i],
+            sel_range,
+        );
+        if clipped {
+            renderer.draw_char(line_x + highlight_w, row, '\u{2026}', Color::DarkGrey, line_bg);
+        }
+
+        if i == cursor.1 && cursor.0 >= hscroll {
             // R11 (7A-2, docs/ember2d-master-plan.md): `cursor.0` is a
             // character index (script_editor.rs's own `char_byte_offset`
             // doc comment) — clamping it against `line.len()` (bytes) let
@@ -80,7 +133,8 @@ pub fn draw_script_editor(
             // multi-byte line, which `chars().nth(cursor.0)` below would
             // then draw as a space instead of the real character at the
             // cursor.
-            let cursor_x = line_x + (cursor.0).min(line.chars().count());
+            let visible_col = (cursor.0 - hscroll).min(line_char_count.saturating_sub(hscroll));
+            let cursor_x = line_x + visible_col;
             if cursor_x < cx + cw {
                 let char_at_cursor = line.chars().nth(cursor.0).unwrap_or(' ');
                 renderer.draw_char(cursor_x, row, char_at_cursor, Color::Black, Color::Cyan);
@@ -94,6 +148,23 @@ pub fn draw_script_editor(
         let text: String = format!("{:<width$}", text, width = cw).chars().take(cw).collect();
         renderer.draw_str(cx, row, &text, Color::White, Color::DarkRed);
     }
+}
+
+/// This line's own `(start_char, end_char)` slice of a buffer-wide
+/// selection, if any of it falls on line `line_idx` (7C-8, master plan
+/// §5.3) — the full line's width when the selection spans past both
+/// edges, clamped to just the selected columns on the first/last line.
+fn line_selection_range(
+    selection: Option<(ScriptPos, ScriptPos)>,
+    line_idx: usize,
+) -> Option<(usize, usize)> {
+    let ((sc, sl), (ec, el)) = selection?;
+    if line_idx < sl || line_idx > el {
+        return None;
+    }
+    let start = if line_idx == sl { sc } else { 0 };
+    let end = if line_idx == el { ec } else { usize::MAX };
+    Some((start, end))
 }
 
 /// Which lines of the buffer START already inside a `/* */` block comment
@@ -143,6 +214,22 @@ fn block_comment_starts(buffer: &[String]) -> Vec<bool> {
     starts
 }
 
+/// The background to draw a token starting at char index `i` with — the
+/// selection color if `i` falls inside `sel_range`, `default` otherwise
+/// (7C-8, master plan §5.3). Applied per TOKEN (using its first
+/// character's index), not per character within multi-char tokens
+/// (identifiers, strings, line comments) — a selection boundary that
+/// lands mid-token highlights the whole token rather than splitting it,
+/// the same kind of approximation `block_comment_starts` already accepts
+/// at line boundaries.
+fn sel_bg(i: usize, sel_range: Option<(usize, usize)>, default: Color) -> Color {
+    match sel_range {
+        Some((s, e)) if i >= s && i < e => Color::DarkBlue,
+        _ => default,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn draw_highlighted_rhai(
     renderer: &mut dyn DrawSurface,
     x: usize,
@@ -151,6 +238,7 @@ fn draw_highlighted_rhai(
     max_w: usize,
     bg: Color,
     starts_in_block_comment: bool,
+    sel_range: Option<(usize, usize)>,
 ) {
     let keywords = [
         "let", "const", "fn", "if", "else", "while", "loop", "for", "in", "return", "break",
@@ -165,6 +253,7 @@ fn draw_highlighted_rhai(
 
     while i < chars.len() && (col - x) < max_w {
         let ch = chars[i];
+        let bg = sel_bg(i, sel_range, bg);
 
         // Block comments (may span lines — `starts_in_block_comment`
         // above carries the state in; `block_comment_starts` carries it

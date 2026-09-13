@@ -113,12 +113,15 @@ impl EditorState {
             &self.script_buffer,
             self.script_cursor,
             self.script_scroll,
+            self.script_hscroll,
             self.script_unsaved,
             0,
             1,
             sw,
             sh - 2,
             self.script_error(),
+            self.script_selection(),
+            self.script_find_active.then_some(self.script_find_query.as_str()),
         );
 
         // Status bar
@@ -469,12 +472,15 @@ impl EditorState {
                         &self.script_buffer,
                         self.script_cursor,
                         self.script_scroll,
+                        self.script_hscroll,
                         self.script_unsaved,
                         pcx,
                         pcy,
                         pcw,
                         pch,
                         self.script_error(),
+                        self.script_selection(),
+                        self.script_find_active.then_some(self.script_find_query.as_str()),
                     );
                 }
                 PanelId::FileBrowser => {

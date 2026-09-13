@@ -35,3 +35,13 @@ rfd = "0.17.2"
 # examples/gen_roguelike.rs's own header comment on why a generator must
 # NOT do this, but an interactively-created level should).
 rand = { version = "0.8", features = ["small_rng"] }
+
+# arboard: best-effort OS clipboard sync for the script editor's cut/copy
+# (7C-8, master plan §5.3) — `EditorState::script_clipboard` (a plain
+# `String`) is the real source of truth a paste reads from, precisely so
+# nothing here depends on a live display/clipboard server existing; CI
+# runs both target OSes headless. `Clipboard::new()` can fail with no
+# display (Linux/X11) even though the crate itself builds fine everywhere
+# — every call site treats that as "no OS clipboard available" and moves
+# on rather than erroring the edit.
+arboard = "3"

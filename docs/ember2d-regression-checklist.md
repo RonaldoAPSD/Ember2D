@@ -86,6 +86,10 @@ place to notice if it doesn't.
 
 ## 5. Editor — clipboard and undo
 
+*(The level GRID's own clipboard/undo — `EditorState::clipboard`/`undo`,
+tile-shaped. The script editor's text clipboard/undo, added 7C-8, is a
+completely separate system — checked in §8 instead.)*
+
 - [ ] Copy-select, cut-select, paste
 - [ ] Paste flip-X, flip-Y, rotate CW/CCW
 - [ ] Undo/redo single edits
@@ -124,6 +128,26 @@ place to notice if it doesn't.
 - [ ] Save; unsaved indicator clears
 - [ ] Create a new script from the file browser
 - [ ] Edited script takes effect on next play
+- [ ] Saving a script with a syntax error highlights the erroring line and
+      shows the message; fixing it and saving again clears both (7C-7)
+- [ ] Leaving the script unsaved and idle for ~1s also triggers the same
+      check, with no explicit save (7C-7)
+- [ ] A runtime script error during F5 preview appears in the editor
+      console after returning (7C-7, R18)
+- [ ] Shift+arrows and Shift+click select text; Ctrl+A selects all; a
+      plain arrow move afterward collapses the selection (7C-8)
+- [ ] Cut/copy/paste round-trips text, including non-ASCII, within the
+      editor; cut/copy also lands on the OS clipboard for pasting into
+      another application (7C-8)
+- [ ] Typing while a selection is active replaces it
+- [ ] Ctrl+Z/Ctrl+Y undo/redo script edits; a burst of typing (or of
+      Backspace) undoes as one step, not one per character (7C-8)
+- [ ] Ctrl+F opens a find bar; typing searches live and jumps to the
+      first match; Enter advances to the next (wrapping); Escape closes it
+      (7C-8)
+- [ ] A line longer than the panel width scrolls horizontally as the
+      cursor moves past the edge, with a `…` marker where it's clipped
+      (7C-8)
 
 ## 9. Editor — panels, menus, files
 

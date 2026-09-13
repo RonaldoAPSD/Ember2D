@@ -509,6 +509,19 @@ impl EditorState {
                 // fresh below rather than assumed clean, since the file on
                 // disk could itself be broken.
                 self.script_idle_timer = 0;
+                // 7C-8 (master plan §5.3): a different file's selection,
+                // scroll position, undo history, and find state are all
+                // meaningless here. `script_clipboard` deliberately does
+                // NOT reset — copying in one script and pasting into
+                // another is normal editor behavior.
+                self.script_selection_anchor = None;
+                self.script_hscroll = 0;
+                self.script_undo.clear();
+                self.script_redo.clear();
+                self.script_undo_group = super::ScriptEditGroup::None;
+                self.script_find_active = false;
+                self.script_find_query.clear();
+                self.script_find_origin = (0, 0);
                 self.mode = EditorMode::Script;
                 self.focused_panel = Some(PanelId::ScriptEditor);
                 self.check_script_syntax();
