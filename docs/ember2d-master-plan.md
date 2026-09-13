@@ -263,7 +263,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R16 | S3 | Wall-clock `elapsed` reaches scripts via `get_elapsed` | `engine.rs:286, 316`; `api.rs:146` | `[x]` 7A-5 — `Simulation::step_count`, incremented once per `step` call; `PlayState` builds `StepInput::elapsed`/`late_step`'s `elapsed` from it instead of `UpdateContext::elapsed` |
 | R17 | S3 | Filesystem I/O inside `ember2d-sim` (`Path::exists`, `LevelData::load` in `late_step`) | `simulation.rs:66, 432`; `spawn.rs:46, 71, 79` | `[ ]` → 7.5-9 |
 | R41 | S4 | `eprintln!` inside `ember2d-sim` (`World::get_global_position`'s parent-cycle warning) — found writing `scripts/check.ps1` (7A-6); not one of R16/R17's already-tracked locations | `world.rs:142` | `[ ]` → 7.5-9 (same step as R17; both are "no ambient I/O in the sim" cleanup) |
-| R18 | S2 | `receive_log` has zero callers; play-mode script errors never reach the editor console | `impl_state/mod.rs:527` | `[ ]` → 7C-7 |
+| R18 | S2 | `receive_log` has zero callers; play-mode script errors never reach the editor console | `impl_state/mod.rs:527` | `[x]` 7C-7 (`35887a6`) — see 7C-7's own "Landed as" note for the full fix (the type-erased state stack was the real obstacle, not just a missing call) |
 | R19 | S2 | File › Start Screen orphans an `EditorState` on the state stack | `ember2d-app/src/app.rs:85`; `main.rs:63-67` | `[x]` 7A-2 — both `Transition::ToStart` arms in app.rs pop before returning; `Engine::push_state` debug-asserts depth ≤ 3 |
 | R20 | S2 | `TilePalette::current()` indexes `[0]`; empty or out-of-range `selected` from a loaded palette panics | `palette.rs:284`; `text.rs:53, 84`; `input/mod.rs:75, 111` | `[x]` 7A-2 — invariant enforced at `TilePalette::load` (reject empty tiles, clamp `selected`); `current()` itself unchanged, see 7A-2's "Landed as" note |
 | **Renderer / engine** | | | | |
@@ -1931,7 +1931,7 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
     changed). `git diff --stat`: 16 files changed, all under
     `ember2d-editor/`, matching this step's own Scope exactly.
 
-#### `[ ]` 7C-7 — Script errors reach the editor
+#### `[x]` 7C-7 — Script errors reach the editor
 
 - **Why:** R18. `receive_log` has no callers; there is no compile step in
   the script editor.
@@ -1946,6 +1946,113 @@ egui decision gate (§7.1) is evaluated — at the **end** of 7C, with data.
 - **Done when:** a runtime error in F5 preview appears in the editor
   console after returning.
 - **Scope:** `ember2d-editor`, `ember2d-app`.
+- **Landed as (`35887a6`):** investigated up front and reported back
+  before implementing — the plan text named the wrong function
+  (`run_play_app` doesn't touch F5 at all; `run_editor_app` does) and
+  missed the real obstacle underneath both: `Engine`'s state stack is
+  `Vec<Box<dyn GameState>>`, which has no downcasting, so `app.rs` could
+  never have reached a popped `PlayState`'s concrete `take_log()` or a
+  resumed `EditorState`'s concrete `receive_log()` no matter which
+  function it called from. Fixing that meant a small, explicitly-flagged
+  expansion of this step's own Scope into `ember2d` itself (asked and
+  confirmed before writing any code, since it touches a public trait) —
+  everything that actually shipped, by area:
+  - **Crossing the type-erasure boundary.** Two new default (no-op)
+    `GameState` trait methods, `take_script_log`/`receive_script_log`
+    (`ember2d/src/engine.rs`) — additive only, every existing implementor
+    keeps compiling unchanged. `PlayState` overrides `take_script_log` by
+    calling its own pre-existing `take_log`; `EditorState` overrides
+    `receive_script_log` by calling its own pre-existing `receive_log` —
+    both of R18's named methods were already correct and already
+    existed, just unreachable across the stack. New `Engine::top_state_mut`
+    accessor (mirrors `pop_state`'s own shape) so a caller can reach the
+    *new* top of the stack without holding the concrete value.
+  - **The actual drain, in `run_editor_app`'s `Transition::ToEditor` arm**
+    (`ember2d-app/src/app.rs`): every state above the base `EditorState`
+    (a `PlayState`, or a `PauseMenuState` on top of one if the player
+    quit from the pause menu) gets `take_script_log()`'d as it's popped;
+    the combined log is handed to whatever's left via
+    `top_state_mut().receive_script_log(...)`. `PauseMenuState`'s default
+    no-op override means popping it costs nothing extra — the real
+    `PlayState` underneath still gets drained in the same loop.
+  - **Live syntax check.** New `EditorState::check_script_syntax`
+    (`impl_state/mod.rs`) compiles the current `script_buffer` with a
+    disposable `rhai::Engine::new()` — deliberately NOT
+    `ember2d-sim::ScriptEngine::compile_str` as the plan named: that one
+    caches an AST by key, so re-checking an edited-but-unsaved script at
+    the same path would keep returning the FIRST compile's cached result
+    forever; it also only ever produces a pre-formatted `LogEntry`
+    string, discarding `rhai::ParseError`'s real `Position` (line/column)
+    that inline highlighting needs. Called from `save_script` (compile on
+    save) and `load_script` (a freshly opened file starts genuinely
+    unchecked, not assumed clean). New `script_error: Option<(usize,
+    String)>` and `script_idle_timer: u32` fields on `EditorState`.
+  - **Idle-triggered check.** New `note_script_edit` helper
+    (`input/script_editor.rs`) replaces all 7 of the file's own
+    `self.script_unsaved = true` sites — the one place that also resets
+    `script_idle_timer` to 0, so a check fires ~500ms after the LATEST
+    keystroke in a typing burst, not the first. `handle_script_mode_input`
+    increments the timer once per frame (it runs once per frame for both
+    the docked-focused and fullscreen script editor, covering both with
+    one counter) and checks with `==` against `SCRIPT_IDLE_CHECK_FRAMES`
+    (30, i.e. ~500ms at the editor's fixed 60Hz step) rather than `>=`,
+    so it fires exactly once per idle stretch without a separate
+    "already checked" flag.
+  - **Inline error display.** `draw_script_editor`
+    (`editor/ui/script.rs`) gained an `error: Option<(usize, &str)>`
+    parameter, used by both its callers (the docked panel and the
+    fullscreen editor — one code path, so neither needed its own copy):
+    the erroring line's whole row gets a `Color::DarkRed` background
+    (gutter and highlighted text both), and the panel's own bottom row is
+    reserved for the message (mirroring how the header already reserves
+    the top row) rather than only being shown in the fullscreen mode's
+    separate Line/Col status bar, which stays as it was.
+  - **Rhai keyword list** extended with `switch do until throw try catch
+    private global`, per the plan.
+  - **`/* */` block comments.** New `block_comment_starts` scans the
+    whole buffer once per render to know which lines START already
+    inside an unterminated block comment from a previous line (with the
+    buffer scrolled, `draw_highlighted_rhai` never sees line 0 to derive
+    that itself) — `draw_highlighted_rhai` takes the resulting per-line
+    flag and both enters and exits block-comment coloring within a line
+    using the same code path. Deliberately naive like the file's
+    pre-existing string handling already was: skips string contents
+    (so a `/*` inside one doesn't start a real comment) but without
+    backslash-escape awareness, same limitation `draw_highlighted_rhai`'s
+    string case already had.
+  - **Verification.** `cargo build --workspace --examples` clean. `cargo
+    test --workspace`: 305 (was 296), all pass — new tests:
+    `take_script_log_drains_and_clears_the_log` (`ember2d/tests/
+    take_script_log.rs`, the `PlayState` half of the log hand-off);
+    `receive_script_log_appends_to_the_console`,
+    `saving_an_unclosed_function_shows_a_parse_error_at_the_right_line`,
+    `fixing_the_error_and_saving_again_clears_it`,
+    `the_idle_timer_triggers_a_check_without_an_explicit_save`
+    (`ember2d-editor/tests/editor_script.rs`, the `EditorState` half plus
+    the live-check behavior, driven through the real File Browser click
+    and Ctrl+S paths, not direct field access); 4 unit tests for
+    `block_comment_starts` (`ui/script.rs`, one of which caught a
+    documentation mistake in this very commit — an early doc comment
+    claimed the string-skip was "deliberately naive" in the OPPOSITE
+    direction, that a `/*` inside a string would wrongly start a comment;
+    the test written to pin that claim failed against the actual code,
+    which already skips strings correctly, so the doc comment was wrong,
+    not the implementation — fixed to describe the real, narrower
+    limitation). `cargo clippy --workspace --lib`: 55 (was 56) — a real
+    decrease, not a discrepancy: `draw_script_editor` grew to 11
+    parameters and needed `#[allow(clippy::too_many_arguments)]`, which
+    also silences the pre-existing 10-parameter warning that function
+    already had before this step (already over the default threshold,
+    just never annotated). `--all-targets` unchanged at 80.
+    `scripts/check.ps1` clean. `cargo test -p ember2d --test replay` 3×
+    fresh processes green (this step touches `ember2d`'s engine/play
+    code, not `ember2d-sim`, so the strict determinism boundary, §4.2,
+    doesn't apply, but the gate was re-run anyway given the state-stack
+    change). No test drives a real F5 press through a live `Engine`/
+    window — the `run_editor_app` wiring itself (as opposed to the two
+    trait methods it calls) is verified by code inspection and the two
+    halves' own unit tests, consistent with how this repo treats
+    anything needing a real winit event loop.
 
 #### `[ ]` 7C-8 — Text editor completeness
 
