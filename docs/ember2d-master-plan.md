@@ -310,6 +310,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R60 | S2 | Clicking a level in the File Browser while there were unsaved changes did not confirm before switching, discarding them — found live by the user testing 7C-6's own new confirm-before-switch behavior. Root cause: the File Browser click handler's confirm check was `if self.unsaved` alone (grid dirtiness only); `switch_to_level`'s `*self = ns` replaces the *entire* `EditorState`, so an open script buffer edited but not saved (`self.script_unsaved`, tracked independently since script edits don't touch the level grid at all) was silently dropped with no confirmation whenever the grid itself happened to be clean — the exact "there ARE unsaved changes and it doesn't confirm" the user reported, just from the script side rather than the grid side 7C-6's own tests already covered | `ember2d-editor/src/editor/input/panels/file_and_script.rs` (the `.level` click arm's confirm condition) | `[x]` 7C-6 follow-up (`55605a4`) — condition widened to `if self.unsaved \|\| self.script_unsaved`. New `EditorState::script_unsaved()` accessor added (`unsaved()` already existed) to make this testable. Regression test: `switching_levels_with_only_an_unsaved_script_edit_still_confirms_first` (`editor_undo.rs`) — opens a `.rhai` file, types into it, leaves fullscreen via Escape (script buffer stays dirty, grid stays clean), then confirms clicking a different level now shows the modal. `cargo test --workspace`: 296 (was 295), all pass; `cargo clippy --workspace --lib`/`--all-targets` unchanged at 56/80; `scripts/check.ps1` clean |
 | R61 | S4 | R58's `demos/` move (7C-5 follow-up) regenerated every shipped LEVEL's own `script`/`next_level` fields via `gen_roguelike`/`gen_shooter`, but never touched the hand-written SCRIPT FILES' own text — 8 `demos/{roguelike,shooter}/scripts/*.rhai` files still referenced the pre-move path: 5 real `ctx.play_sound`/`play_music` calls and 2 real `ctx.load_level` calls used a literal `"roguelike/..."`/`"shooter/..."` string (silently failing at runtime — `[audio] play_sound '...': The system cannot find the path specified`, or a "restart" key loading nothing), plus every file's own header comment still named the old path. `every_script_and_next_level_path_a_level_references_exists_on_disk` (`roguelike_level_integrity.rs`) never catches this class of bug — it only ever resolves paths stored in level DATA, never a literal inside a script's own source text. Found live during the 7C-9 phase gate's own required demo smoke-launch (§0.5 item 6) — `cargo run -- demos/roguelike/floor2.level` printed the audio load error to stderr within the first second | `demos/roguelike/scripts/{enemy_boss,enemy_rat,pickup,player,stairs,victory}.rhai`, `demos/shooter/scripts/{director,player}.rhai` | `[x]` 7C-9 gate (`ab1d404`) — every stale path (`play_sound`/`play_music`/`load_level` calls and header comments) repointed at its `demos/`-prefixed real location. New regression test `every_audio_path_a_demo_script_references_exists_on_disk` (`ember2d/tests/demo_script_audio_paths.rs`) text-scans every shipped script's `play_sound`/`play_sound_at`/`play_music` calls and asserts the referenced file exists — generalizes to catch this class of drift for ANY future path change, not just this one; verified to actually fail against the pre-fix path before confirming the fix (temporarily reverted one file, watched the test fail with the exact stale path in its message, restored it). `load_level` calls aren't covered by an equivalent scan (no test asserts on a script's *behavior* when its own load target is missing) — caught only by this same manual smoke-launch that found the audio bug; a `load_level`-scanning test would need a similar text-scan and wasn't added at this gate, since the smoke-launch itself was already run and passed |
 | R62 | S4 | User-directed hygiene, not a found defect: the user asked for a Unity-style default panel layout (Hierarchy left, Inspector right, Console and File Browser tabbed together at the bottom, both visible out of the box) as part of a 7D visual-direction discussion — Hierarchy/Inspector already defaulted this way, but File Browser defaulted to a Left dock (which would have fought Hierarchy for the same side) and started hidden, and Console also started hidden | `ember2d-editor/src/editor/panel/mod.rs` (`PanelManager::new`) | `[x]` (`6e2a97c`) — File Browser's dock moved to `DockSide::Bottom` (matching Console's), both now default `visible: true` (Console stays the initially active bottom tab); the now-dead `BROW_W` Left-dock-sizing constant removed. Two existing `panel::tests` had to change their own SCENARIO, not just their expected numbers — one used FileBrowser as the "alternate Left-docked panel" case for `validate_active_panels` recovery (no longer possible; rewritten to exercise the Bottom side, where the repo now actually has two panels sharing a dock), the other assumed Console/FileBrowser started hidden. Also found while updating six `EditorHarness`-driven tests that used the View-menu "toggle File Browser" action to make it visible before clicking a row in it: toggling now HIDES it (it starts visible), and — the real finding — `PanelManager::in_draw_order` excludes a docked panel that's `visible` but not its side's active tab, so FileBrowser being visible by default isn't sufficient on its own for its rows to render; its own tab must be selected first. New shared test helper `select_dock_tab` (`tests/common/mod.rs`) replaces the toggle pattern everywhere it appeared. `cargo test --workspace`: 320 (unchanged — this was a default + several existing tests' own setup, not new coverage), all pass; `cargo clippy --workspace --lib`/`--all-targets` unchanged at 55/80; `scripts/check.ps1` clean |
+| R63 | S1 | `Renderer::draw_nine_slice`/`nine_slice_quads` (Phase 7 Part 1a) hardcoded every source sub-rect to start at `(0, 0)` and span the WHOLE passed texture (`texture.width`/`.height` as the entire 9-slice region) — correct for a texture dedicated to exactly one 9-slice (this function's only real caller before 7D-2), silently wrong the instant a caller's texture was a shared ATLAS with the 9-slice living at some other sub-rect (exactly `NineSlice::src`'s own 7D-1 design: one `themes/ember-clean/chrome.png` packing all 12 `SliceRole`s). Every `draw_nine_slice_px` call in 7D-2's new `draw_panel_chrome` silently sampled from the atlas's `(0,0)` origin regardless of which slice it asked for, rendering as a tiled mosaic of several unrelated slice colors crammed into whatever small destination rect was being drawn (a close button, a resize grip) — visually a checkerboard of amber-bordered squares scattered across the screen. Undetectable by the pre-existing `nine_slice_quads` unit tests (all three used a texture dedicated to one slice, `src.x`/`src.y` always incidentally `0`) or by any other automated test (nothing renders real pixels and inspects them) — found only by actually launching the editor and looking at a screenshot, per CLAUDE.md's own "use the feature" rule for UI changes | `ember2d/src/renderer/mod.rs` (`draw_nine_slice`, `nine_slice_quads`) | `[x]` 7D-2 (`4dc90ed`) — both functions gained a `src: Rect` parameter (the 9-slice's own sub-rect within the texture, defaulting to `Rect::new(0,0,tex_w,tex_h)` to reproduce the old whole-texture behavior exactly) threaded through to `DrawSurface::draw_nine_slice_px` and its one real caller. Regression test `nine_slice_quads_offsets_every_src_rect_by_a_non_zero_atlas_origin` (`renderer/tests.rs`) pins a non-zero atlas origin explicitly, the exact case the three pre-existing tests never covered; those three updated to pass an explicit `src` (all `(0,0,w,h)`, preserving their original assertions unchanged) |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -2327,7 +2328,7 @@ loud fallback (magenta) never a panic. Two shipped themes:
     clean. No new dependency — `ember2d` already had `serde`+`ron`
     (`project.ron`) and `image` (texture loading).
 
-#### `[ ]` 7D-2 — Chrome through 9-slice
+#### `[~]` 7D-2 — Chrome through 9-slice
 
 `draw_panel_chrome` → one `draw_nine_slice` for the frame, one for the
 title bar, `measure`-centred title, one slice for the close button. Buttons,
@@ -2338,6 +2339,85 @@ deleted at the end of this step; panels size to content and theme metrics.
 - **Done when:** the editor no longer looks cell-quantised; `from_cells` is
   gone; the pixel theme at 2× and the clean theme both render crisply
   (7B-2 makes this possible).
+- **Landed as (`4dc90ed`), first slice only — investigated up front,
+  scoped down with the user given this step's real size (~24 draw
+  functions, 35 `from_cells` call sites across 11 files) matches exactly
+  the "chrome work causes burnout" shape §7.1 warns about by name.**
+  `draw_panel_chrome` alone now draws through the theme; every panel's
+  own CONTENT (inspector rows, console text, hierarchy tree, file
+  browser rows, dock tabs) is unchanged, still the old flat cell-grid
+  drawing — a deliberate, explicit scope cut, not an oversight, agreed
+  with the user before writing any code.
+  - **`draw_panel_chrome`** (`ember2d-editor/src/editor/panel/mod.rs`)
+    rewritten: one `SliceRole::Panel` 9-slice for the whole frame (its
+    stretched center replaces the old separate "fill interior" step —
+    one draw call doing what used to take two), one `SliceRole::TitleBar`
+    9-slice over the top strip, a measure-centered title in the theme's
+    own font (`Font::measure`/`Font::ascent`, baseline-positioned exactly
+    like `Renderer::draw_text_px` already does), a `SliceRole::Button`
+    close button, a `SliceRole::ResizeGrip` resize handle. The viewport
+    is excluded entirely — flat black, no chrome, per the 7C-9 decision
+    gate (§7.1). Every missing-role case falls back to the OLD flat fill
+    (7D-1's own "no fabricated geometry" contract, `Theme::slice`).
+    Hit-rect coordinates for `WidgetId::TitleBar`/`CloseBtn`/
+    `ResizeHandle` changed slightly (the close button is now a themed
+    2-cell square at the title bar's right edge, not the old 3-char
+    `[X]`) — no existing test exercised those specific rects, confirmed
+    by grep before changing them, so nothing broke.
+  - **`EditorState` gains `theme: Theme`, `theme_chrome_tex: Texture`,
+    `theme_font: Box<dyn Font>`** (`editor/theme_loader.rs`, split out of
+    `mod.rs` to stay under the 750-line limit), loaded EAGERLY and
+    unconditionally in `EditorState::new` — not lazily on first render as
+    originally planned, once investigation showed `AssetManager::new()`
+    needs no live GPU/window at all (only the eventual texture *upload*
+    does, inside `Renderer::draw_texture_px` itself). The resolved
+    `Texture` is cloned out and the loading `AssetManager` is dropped
+    immediately, so `EditorHarness` (headless tests) gets the exact same
+    real theme the live app does — no separate test-only code path, and
+    (deliberately) no use of `Renderer.ui_assets` (7D-1) for this narrow
+    slice at all; that field stays reserved for 7D-4's runtime
+    theme-switching, which does need a persistent, evictable
+    `AssetManager` the way this one-shot load doesn't.
+  - **`DrawSurface` (the 7C-5 headless-testing trait) gains
+    `draw_nine_slice_px`/`draw_text_px`**, mirroring
+    `Renderer::draw_nine_slice`/`draw_text_px` exactly (`NullRenderer`'s
+    own `draw_text_px` still calls `Font::measure` for a real width, not
+    a dummy `0.0`, since headless title-centering math needs it) — this
+    is what let `draw_panel_chrome` stay callable from both the real
+    renderer and `EditorHarness` without a second copy of itself.
+  - **Found and fixed live: R63, a real bug in `Renderer::draw_nine_slice`
+    itself** (pre-dating this step — Phase 7 Part 1a). See R63's own row
+    (§3.2) for the full account: it assumed a nine-slice texture is
+    ALWAYS the whole texture, which broke the instant a shared atlas
+    packed multiple named regions into one texture (exactly `NineSlice`'s
+    own 7D-1 design) — caught by actually launching the editor and
+    looking at it (a checkerboard of wrong-region tiles below the
+    viewport), not by any automated test, since the pre-existing
+    `nine_slice_quads` unit tests only ever exercised a texture dedicated
+    to one slice.
+  - **NOT done this step (explicitly deferred, not forgotten):**
+    buttons/inputs/tabs/scrollbars/checkboxes for panel CONTENT (not just
+    the frame), `draw_dock_tabs` (still hardcoded `Color::DarkBlue`/
+    `Color::Grey`), all ~23 other `ui::draw_*` functions, and
+    `UiRect::from_cells`'s eventual deletion (still load-bearing for
+    every panel's own content this step didn't touch). The visual result
+    is intentionally subtle at this stage — a themed frame/title bar
+    around still-old-style content — confirmed by actually running the
+    editor and screenshotting it (before/after the R63 fix), not just
+    asserted from test output.
+  - **Verification.** `cargo build --workspace --examples` clean. `cargo
+    test --workspace`: 322 (was 321), all pass — new:
+    `nine_slice_quads_offsets_every_src_rect_by_a_non_zero_atlas_origin`
+    (`renderer/tests.rs`, R63's own regression test). `cargo clippy
+    --workspace --lib`/`--all-targets` unchanged at 55/80 (one new
+    `clippy::single_match` surfaced mid-step from a `match ... { Some =>
+    ..., None => {} }` and was fixed immediately, not counted against
+    baseline). `scripts/check.ps1` clean. `cargo test -p ember2d --test
+    replay` 3× fresh processes green. Manually verified by launching the
+    real editor (`cargo run -- --editor demos/roguelike/floor1.level`)
+    and screenshotting it, per CLAUDE.md's own "use the feature" rule for
+    UI changes — this is what caught R63 in the first place, since no
+    automated test renders real pixels.
 
 #### `[ ]` 7D-3 — Integer UI scale, separate from canvas zoom
 
