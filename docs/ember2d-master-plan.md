@@ -175,7 +175,7 @@ start screen's New/Open Project browsers start from.
 | **7A** | Stabilisation sprint | `[x]` `v0.5.7a` — A.10 |
 | **7B** | Renderer foundation | `[x]` `v0.5.7b` — A.11 |
 | 7C | Editor foundation | `[ ]` — §5.3 (all 9 steps `[x]`, 7C-9's own §7.1 decision recorded; phase gate itself — §3–§10 manual pass, tag `v0.5.7c` — pending the user) |
-| 7D | Theme and restyle | `[ ]` — §5.4 |
+| 7D | Theme and restyle | `[~]` — §5.4 (7D-1's `Theme` resource/logic done; two shipped themes' real chrome art still needed) |
 | 7E | Editor features | `[ ]` — §5.5 |
 | 7.5 | Scripting completeness | `[ ]` — §5.6 |
 | 8 | Tilemap, assets, animation authoring | `[ ]` — §5.7 |
@@ -2213,7 +2213,7 @@ below; manual regression pass and the tag itself are pending the user.)*
 
 ---
 
-### 5.4 `[ ]` Phase 7D — Theme and restyle
+### 5.4 `[~]` Phase 7D — Theme and restyle
 
 *(Phase 7 plan Parts 3–4, with the unspecified types now specified. If §7.1
 resolves to egui, this phase becomes "write the pixel egui style and port
@@ -2222,7 +2222,7 @@ panels" and 7D-1/7D-2 are replaced by an `egui::Style` plus a bitmap-font
 
 **Checklist sections at gate:** §3–§9 (full editor pass).
 
-#### `[ ]` 7D-1 — `Theme` resource, fully typed
+#### `[~]` 7D-1 — `Theme` resource, fully typed
 
 ```rust
 pub struct Theme {
@@ -2253,6 +2253,71 @@ loud fallback (magenta) never a panic. Two shipped themes:
 - **Test:** theme RON round-trips; a missing role falls back; `NineSlice`
   quad math already tested in 7-1a.
 - **Scope:** `ember2d` (theme.rs, renderer), `themes/`.
+- **Landed as (`5699ce5`), partial — investigated up front, split the
+  step's own two kinds of work before starting:** the `Theme` resource
+  itself is Rust logic with zero asset dependency (structs, serde/RON,
+  fallback-by-lookup); the two NAMED shipped themes are real pixel-art and
+  font-pairing decisions a coding agent producing them unprompted would be
+  guessing at, not implementing a spec — flagged here rather than shipped
+  as low-effort placeholder art passed off as the real restyle.
+  - **What shipped:** `ember2d/src/theme.rs` — `Theme`/`ThemeData`/
+    `PaletteRole`/`SliceRole`/`NineSlice`/`FontChoice`/`FontSizes`/
+    `Metrics`, matching the plan's own sketch exactly (`PaletteRole`'s
+    `...` and `SliceRole` copied verbatim). `NineSlice` is a thin,
+    serializable pairing of the `src`/`border` values
+    `Renderer::draw_nine_slice`/`nine_slice_quads` (`renderer/mod.rs:445`)
+    already take — confirmed by investigation that "7-1a" (no step by
+    that exact name exists; the plan's own dangling reference means
+    `docs/archive/ember2d-phase7-plan.md`'s pre-renumbering "Part 1a")
+    already has 3 passing quad-math unit tests (`renderer/tests.rs`), so
+    this step adds no new drawing primitive, only a named data shape
+    around an existing one. `ThemeData` is a separate on-disk-shaped type
+    from `Theme` (a `chrome_path: String` instead of a resolved
+    `chrome: TextureId`) — a hand-rolled `#[serde(skip)]` default for a
+    `TextureId` would alias a real texture id with no meaningful "empty"
+    value to skip to, so the honest fix is two types and an explicit
+    resolve step in `Theme::load`, not a derive workaround.
+  - **`Theme::load`/`Theme::fallback`** never panic: a missing/unparsable
+    `theme.ron` falls back to `Theme::fallback` (magenta chrome via
+    `AssetManager`'s own existing placeholder-on-missing-path behavior,
+    empty palette/slices, the built-in bitmap font) rather than stopping
+    the editor from opening; `Theme::role_color`/`Theme::slice` implement
+    the PER-ROLE fallback separately (a role missing from an otherwise-fine
+    theme is not the same failure as the whole theme being missing) —
+    `role_color` returns loud magenta, `slice` returns `None` rather than
+    fabricating placeholder geometry, since drawing something in place of
+    a missing slice is 7D-2's job (`draw_panel_chrome`), not this step's.
+  - **`Renderer` gains `ui_assets: AssetManager`**, deliberately separate
+    from the game's own (which lives on `Engine`/`RenderContext`, cleared
+    on every project switch — confirmed by investigation this is a real,
+    if minor, architectural asymmetry the plan's own wording already
+    implied by saying "`Renderer` gains" one, not "reuses the existing
+    one"). `AssetManager` itself needed no changes — already a
+    self-contained struct with no singleton coupling, confirmed by
+    investigation before adding the second instance.
+  - **NOT shipped this step, follow-up needed:** `themes/ember-pixel/`
+    and `themes/ember-clean/` — the plan's own named "two shipped themes."
+    Cascadia (the TTF `ember-clean` names) is already bundled at
+    `ember2d/assets/fonts/CascadiaMono.ttf` (confirmed by investigation,
+    no sourcing/licensing work needed for that half), but BOTH themes
+    still need a real 9-slice chrome atlas PNG — pixel art neither
+    plan text nor a coding agent can responsibly invent. `themes/` itself
+    does not exist yet. 7D-2 ("Chrome through 9-slice") cannot usefully
+    proceed without at least one real theme to draw with — either the
+    user provides/commissions real chrome art, or asks for a
+    programmatic placeholder atlas (flat colors, clear region
+    boundaries) explicitly understood as a stand-in, not the visual
+    restyle itself.
+  - **Verification.** `cargo build --workspace --examples` clean. `cargo
+    test --workspace`: 320 (was 315), all pass — 5 new tests in
+    `theme.rs`: RON round-trip, loading a real (if minimal) theme
+    directory resolves its chrome texture, loading a missing directory
+    falls back without panicking, a missing palette role falls back to
+    magenta, a missing slice role returns `None`. `cargo clippy
+    --workspace --lib`/`--all-targets` unchanged at 55/80. `scripts/
+    check.ps1` clean. `cargo test -p ember2d --test replay` 3× fresh
+    processes green (no `ember2d-sim` change; re-run anyway). No new
+    dependency — `ember2d` already had `serde`+`ron` (`project.ron`).
 
 #### `[ ]` 7D-2 — Chrome through 9-slice
 
