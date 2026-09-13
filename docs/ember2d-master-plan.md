@@ -2911,7 +2911,7 @@ deleted at the end of this step; panels size to content and theme metrics.
     when temporarily reintroduced. `cargo test -p ember2d --test replay`
     3× fresh processes green. Confirmed live (screenshot): editor
     unchanged.
-  - **Checkpoint 7 — live UI scale, at last (`PENDING_HASH`).** The whole point
+  - **Checkpoint 7 — live UI scale, at last (`ab6ef64`).** The whole point
     of this step, and the first checkpoint to actually let `ui_scale` diverge
     from `render_scale` — every earlier checkpoint deliberately kept
     `effective_ui_scale` **pinned** to `render_scale` (checkpoint 2's own
