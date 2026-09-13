@@ -175,7 +175,7 @@ start screen's New/Open Project browsers start from.
 | **7A** | Stabilisation sprint | `[x]` `v0.5.7a` — A.10 |
 | **7B** | Renderer foundation | `[x]` `v0.5.7b` — A.11 |
 | 7C | Editor foundation | `[ ]` — §5.3 (all 9 steps `[x]`, 7C-9's own §7.1 decision recorded; phase gate itself — §3–§10 manual pass, tag `v0.5.7c` — pending the user) |
-| 7D | Theme and restyle | `[~]` — §5.4 (7D-1/7D-4 done; 7D-2's `from_cells` deletion and 7D-3, which depends on it, still open) |
+| 7D | Theme and restyle | `[~]` — §5.4 (7D-1/7D-2/7D-4 done; 7D-3 still open, no longer blocked the same way — see its own investigation note) |
 | 7E | Editor features | `[ ]` — §5.5 |
 | 7.5 | Scripting completeness | `[ ]` — §5.6 |
 | 8 | Tilemap, assets, animation authoring | `[ ]` — §5.7 |
@@ -2328,7 +2328,7 @@ loud fallback (magenta) never a panic. Two shipped themes:
     clean. No new dependency — `ember2d` already had `serde`+`ron`
     (`project.ron`) and `image` (texture loading).
 
-#### `[~]` 7D-2 — Chrome through 9-slice
+#### `[x]` 7D-2 — Chrome through 9-slice
 
 `draw_panel_chrome` → one `draw_nine_slice` for the frame, one for the
 title bar, `measure`-centred title, one slice for the close button. Buttons,
@@ -2443,22 +2443,114 @@ deleted at the end of this step; panels size to content and theme metrics.
     viewport), not by any automated test, since the pre-existing
     `nine_slice_quads` unit tests only ever exercised a texture dedicated
     to one slice.
-  - **STILL NOT done — this is why 7D-2 stays `[~]`, not `[x]`:**
-    `UiRect::from_cells`'s deletion (35 call sites across 11 files) and
-    the pixel-space layout conversion that implies. Every panel now draws
-    through the theme's COLORS and, for box-shaped overlays, real 9-slice
-    geometry, but the underlying LAYOUT is still the old cell-quantised
-    grid everywhere — panels, rows, and text all still position in whole
-    character cells via `from_cells`/`draw_str`/`draw_char`, not the
-    free pixel positions this step's own "Done when" bar calls for
-    ("the editor no longer looks cell-quantised"). Deliberately not
-    attempted in the same push as the color pass: the plan's own existing
-    comment on `from_cells` calls its removal "purely a coordinate-system
-    change with zero visual difference" — real reward is low and the risk
-    is real (35 call sites is exactly the shape of defect E5, hit-rects
-    silently drifting from what's drawn), so it stays a separate,
-    dedicated step rather than bundled in under time pressure at the end
-    of an unattended run.
+  - **Follow-up (2026-09-13): the from_cells/pixel-layout conversion
+    itself, done — `UiRect::from_cells` deleted.** Originally deferred
+    (see the plan's own prior note here, preserved in git history) as a
+    separate, dedicated step given the risk profile — 35 call sites is
+    exactly defect E5's shape, hit-rects silently drifting from what's
+    drawn. Investigated properly before starting rather than reopening
+    the earlier "low reward, real risk" framing on faith: that framing
+    was right for a blind mechanical rename, but wrong once the real
+    finding surfaced — the theme's own font (Cascadia Mono) was rendering
+    NOWHERE but `draw_panel_chrome`'s title bar. Every other piece of
+    chrome text drew through `draw_str`/`draw_char`, which reads
+    `Renderer.ui_font` (the unrelated `EMBER_UI_FONT` debug env var from
+    7B-5, defaulting to the bitmap font), never the theme. A shortcut of
+    just pointing `ui_font` at the theme's font was investigated and
+    rejected: 7B-5's own "Landed as" note already found that exact
+    mismatch (measuring stays cell-quantized while drawn glyphs don't)
+    causes visible text overflow, which is why that toggle only ever
+    shipped as a debug flag. There was no way to get the theme's real
+    font rendering well without doing the real per-panel conversion.
+    - **Converted, panel by panel, each its own commit** (`ccc6296`
+      through `60aa776`): `dock.rs` (all six panel-content functions —
+      Stats first, as the simplest proof-of-pattern slice with no
+      hit-rects, then Console, Hierarchy, File Browser, Palette,
+      Inspector), `chrome.rs` (title bar, status bar, dock tabs, all
+      three chrome modals), `modals.rs` (palette editor, color picker,
+      help overlay), `menu.rs` (toolbar and dropdown). Each panel now
+      draws through `DrawSurface::draw_text_px`/`fill_rect_px` (two new
+      trait methods this step added) at the theme's real
+      `font_sizes.body`, with rows sized to `theme.metrics.row_h` —
+      `ui/widgets.rs` gained pixel-space twins of the existing
+      `draw_button`/`draw_row`/`draw_swatch` helpers
+      (`draw_button_px`/`draw_row_px`/`draw_swatch_px`, plus a new shared
+      `draw_text_row`) so hit-rects keep being pushed at the exact point
+      drawn, the same discipline 7C-1 established, just in pixel space.
+    - **Real, load-bearing exception, not an oversight: some chrome bars
+      stay `CELL_H`/`CELL_W`-locked, not `theme.metrics.row_h`, even
+      though they now draw through the real font.** Found live via
+      screenshot, twice, before landing: the title bar (the menu bar
+      drawn right below it still assumes exactly one `CELL_H` row above
+      it), the status bar (`PanelManager` reserves exactly one `CELL_H`
+      row at the screen bottom when sizing every panel), `draw_dock_tabs`'
+      own strip (sits where `draw_panel_chrome`'s still-`CELL_H` title bar
+      does), `menu.rs` in full (`draw_menu_dropdown`'s own hover check
+      compares `mouse_col`/`mouse_row` as raw cell ints), and
+      `draw_palette_editor_modal` (its own `input/mod.rs` handler
+      hit-tests most rows by comparing `mouse.cell_y` against fixed cell
+      offsets, a pre-existing independent recompute never migrated to
+      `UiFrame` for this one modal). Each is documented inline at its own
+      site with which OTHER code it stays synchronized with. One genuine
+      bug shipped and self-caught before commit: the title bar's own
+      baseline math passed its row HEIGHT where its row's top Y was
+      needed, landing "EMBER2D EDITOR" a full row low, visibly merged
+      into the menu bar underneath — caught by the same screenshot
+      discipline, fixed same commit.
+    - **`UiRect::from_cells` itself deleted** (`60aa776`), along with its
+      own two dedicated unit tests, once its last ~7 real call sites
+      (`Panel::new`'s initial sizing, the cell-based
+      `draw_button`/`draw_row`/`draw_swatch`/`draw_menu_item` widget
+      helpers, `StartScreen`'s template cards and browsers, the color
+      picker's hue bar/SV map, one `canvas.rs` test fixture) converted to
+      constructing the same pixel rect directly instead of through a
+      named helper.
+    - **What did NOT convert, deliberately, confirmed by investigation
+      rather than left unexamined:** `ui/script.rs` and `graph_ui.rs`
+      never called `from_cells` in the first place (grep-confirmed) —
+      both are genuinely cell-grid systems, not unmigrated chrome. The
+      script editor's cursor/click/selection math
+      (`input/panels/file_and_script.rs`) walks `mouse.cell_x`/`cell_y`
+      against `Panel::content_x`/`content_y` assuming one character per
+      cell; the node graph's `node_at`/`port_at` hit-testing
+      (`graph_ui.rs`) compares raw cell columns/rows against
+      cell-measured node bounds. Converting either to real proportional
+      text would desync click-to-position the same way the palette
+      editor modal's own cell-locked rows had to stay locked — a correct,
+      deliberate design choice for a code/graph editor (monospace text
+      IS the expected feel), not a gap. `Panel::cell_x`/`cell_y`/
+      `cell_w`/`cell_h`/`content_x`/`content_y`/`content_w`/`content_h`
+      (`panel/mod.rs`) accordingly stay — not a bridge waiting to be
+      deleted, but the permanent API those genuinely cell-grid subsystems
+      (plus the canvas/viewport, cell-based forever per 7C-9) depend on;
+      that file's own header comment now says so directly.
+      `start_screen/` itself was never brought under the theme system at
+      all (it predates 7D-1 and runs before a project — and therefore a
+      loaded theme — exists) — still its own hardcoded bitmap-font look,
+      unchanged, out of scope for 7D.
+    - **Verification, every checkpoint from `ccc6296` through `60aa776`.**
+      `cargo build --workspace --examples` clean at each. `cargo test
+      --workspace`: 322 → 327 (5 new: 4 in a new `tests/editor_theme.rs`-
+      adjacent... — see individual commits) → 325 (net −2 once
+      `from_cells`'s own two unit tests were deleted with it), 0 failures
+      at every checkpoint EXCEPT two caught and fixed same-session before
+      moving on (`clicking_outside_the_focused_docked_script_panel_
+      returns_focus_to_the_canvas`,
+      `r14_pressing_a_shortcut_key_while_the_docked_script_panel_is_
+      focused_does_not_fire_it` — both from the dock-tab-strip height
+      mismatch above, fixed by locking that strip to `CELL_H`). `cargo
+      clippy --workspace --all-targets` tracked at every checkpoint,
+      74 → 73, never above the pre-conversion baseline (new
+      `#[allow(too_many_arguments)]` on functions whose new `&Theme`/
+      `font` params crossed the 7-arg threshold kept pace with the drop
+      from deleted dead-label draw calls found along the way in
+      `draw_inspector`). `scripts/check.ps1` clean at every checkpoint.
+      `cargo test -p ember2d --test replay` 3× fresh processes green at
+      every checkpoint. Manually verified live at every checkpoint by
+      launching the real editor and screenshotting the specific panel
+      just converted, per CLAUDE.md's "use the feature" rule — this is
+      what caught both the title-bar baseline bug and the dock-tab/
+      menu-bar row-height overlaps before they were ever committed.
   - **Verification, first slice (`4dc90ed`).** `cargo build --workspace
     --examples` clean. `cargo test --workspace`: 322 (was 321), all
     pass — new: `nine_slice_quads_offsets_every_src_rect_by_a_non_zero_
@@ -2500,17 +2592,39 @@ deleted at the end of this step; panels size to content and theme metrics.
 independent. Nearest-neighbour for bitmap/9-slice; TTF rasterises at the
 scaled size. Runtime switch via View › UI Scale.
 
-- **Investigated, not started (2026-09-12):** genuinely blocked on 7D-2's
-  own deferred `UiRect::from_cells` removal, not merely unstarted.
-  Pixel-space drawing (`draw_text_px`/`draw_nine_slice_px`, the only calls
-  a `ui_scale` multiplier could actually apply to) exists in exactly one
-  place — `draw_panel_chrome`'s own frame/title bar. Every panel's actual
-  CONTENT (all of `dock.rs`, `chrome.rs`'s modals, `menu.rs`, `script.rs`,
-  `graph_ui.rs`) still draws through the fixed 8×16 cell grid, which has
-  no scale knob. Doing 7D-3 today could only mean scaling the outer panel
-  frame while its content stays pinned — inconsistent, not a real setting.
-  Given the choice between that and 7D-4 (theme switching, confirmed
-  independent of the cell-grid layout), the user picked 7D-4 first.
+- **Investigated twice, not started. First pass (2026-09-12):** thought
+  genuinely blocked on 7D-2's own deferred `UiRect::from_cells` removal —
+  pixel-space drawing existed in exactly one place (`draw_panel_chrome`'s
+  frame/title bar), so scaling would have meant the outer panel frame
+  growing while its content stayed pinned. Given the choice between that
+  and 7D-4 (theme switching, confirmed independent of the cell grid), the
+  user picked 7D-4 first.
+- **Second pass (2026-09-13), after 7D-2's `from_cells` removal actually
+  landed:** the original blocker is gone — every panel now draws through
+  `theme.font_sizes.body`/`theme.metrics.row_h` in real pixel space, both
+  genuinely multipliable. But a NEW, narrower constraint replaces it: 7D-2
+  itself found that several chrome bars must stay locked to the engine's
+  fixed `CELL_W`/`CELL_H` (8×16px) rather than `theme.metrics.row_h` —
+  the title bar, status bar, menu bar/dropdown, dock tabs, and the palette
+  editor modal — each because something else (the menu bar's own
+  position, `PanelManager`'s panel sizing, or a not-yet-`UiFrame`-migrated
+  input handler) is still built on that exact constant. `CELL_W`/`CELL_H`
+  themselves can never scale with `ui_scale` — they're the VIEWPORT's own
+  grid unit too, fixed forever per the 7C-9 decision gate. A `ui_scale`
+  today would therefore scale most panel content and text convincingly,
+  but leave that specific handful of bars a fixed size — a real, if
+  smaller, version of the same "some chrome scales, some doesn't"
+  inconsistency that blocked the first attempt. Doing this step properly
+  now most likely means picking ONE of: (a) ship it anyway with those
+  bars visibly not scaling, clearly documented as a known limitation; (b)
+  migrate the remaining cell-coupled input handlers
+  (`draw_menu_dropdown`'s hover check, the palette editor modal's own
+  click math) to `UiFrame`-based hit-testing first, freeing those rows to
+  scale too; (c) scale `CELL_W`/`CELL_H` themselves for chrome-only
+  contexts while keeping a separate, fixed unit for the viewport — a
+  bigger architectural split than either (a) or (b). Not decided; ask
+  before picking one, since (b)/(c) are real scope beyond "add a
+  multiplier."
 
 #### `[~]` 7D-4 — Theme switching and `docs/ember2d-theming.md`
 
