@@ -6,6 +6,7 @@
 // section follows.
 
 use super::super::super::panel::PanelId;
+use super::super::super::ui::ChromeMetrics;
 use super::super::super::ui::WidgetId;
 use super::super::super::EditorState;
 
@@ -17,13 +18,22 @@ impl EditorState {
         if self.panels.visible(PanelId::FileBrowser) && mouse.in_bounds {
             let p = self.panels.get(PanelId::FileBrowser);
             if p.contains(mouse.pixel_x, mouse.pixel_y) {
-                let ch = p.content_h();
+                // R72 (§3 in the master plan): was `p.content_h()` (a
+                // CELL-ROUNDED row count) minus a literal `1` — an
+                // approximation of `draw_file_browser_panel`'s own
+                // `max_visible` (`ui/panels/dock.rs`) that only agreed with
+                // it by coincidence at the old fixed 16px `CELL_H`. Recomputed
+                // here with that exact same formula, from the same pixel
+                // `content_rect`, so the wheel can always reach the last file.
+                let metrics = ChromeMetrics::from_theme(&self.theme);
+                let content = p.content_rect(&metrics);
+                let max_visible =
+                    ((content.h - metrics.row_h) / metrics.row_h).floor().max(0.0) as usize;
 
                 // Mouse wheel scroll
                 if mouse.wheel_y != 0.0 {
                     let delta = -(mouse.wheel_y as i32);
-                    let max_scroll =
-                        self.file_browser_files.len().saturating_sub(ch.saturating_sub(1));
+                    let max_scroll = self.file_browser_files.len().saturating_sub(max_visible);
                     self.file_browser_scroll = (self.file_browser_scroll as i32 + delta)
                         .clamp(0, max_scroll as i32)
                         as usize;

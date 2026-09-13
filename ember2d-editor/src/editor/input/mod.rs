@@ -242,7 +242,16 @@ impl EditorState {
 
         let mw = 36usize;
         let mh = 18usize;
-        let (screen_w, screen_h) = self.panels.screen_size_cells();
+        // `self.ui_space.screen_cells()` (7D-3, docs/ember2d-master-plan.md
+        // §5.4) replaces the removed `PanelManager::screen_size_cells` with
+        // the identical numeric value (both ultimately divide the same
+        // logical screen size by `CELL_W`/`CELL_H`) — this modal's own
+        // R65 fix (drawing centers in real px while this input handler
+        // centers in cells, landing clicks on the wrong field when the
+        // cell-count remainder is odd) is a separate, later checkpoint of
+        // this same step; this is only the type-signature update needed to
+        // keep building in the meantime.
+        let (screen_w, screen_h) = self.ui_space.screen_cells();
         let mx = (screen_w.saturating_sub(mw)) / 2;
         let my = (screen_h.saturating_sub(mh)) / 2;
         let cx = mx + 2;

@@ -6,7 +6,7 @@
 // follows.
 
 use super::super::super::ui::WidgetId;
-use super::super::super::ui::{self, MenuKind, ToolbarAction, TOOLBAR_ROW};
+use super::super::super::ui::{self, MenuKind, ToolbarAction};
 use super::super::super::EditorMode;
 use super::super::super::EditorState;
 use super::super::super::TextInputPurpose;
@@ -14,26 +14,36 @@ use super::super::super::{Modal, ModalPurpose};
 use ember2d::input::Key;
 
 impl EditorState {
-    /// Clicking a top menu-bar label (row `TOOLBAR_ROW`) opens or closes
-    /// its dropdown. `true` if the click was on that row at all — even a
-    /// click that hits no label still consumes the frame (matching the
-    /// original's unconditional `return;` inside this row check).
+    /// Clicking a top menu-bar label opens or closes its dropdown; clicking
+    /// anywhere else on the bar's own strip still consumes the frame
+    /// (matching the original's unconditional `return;` inside its row
+    /// check). `WidgetId::MenuBar`/`MenuLabel` (7D-3, docs/ember2d-master-plan.md
+    /// §5.4) replace the old `mouse.cell_y == TOOLBAR_ROW` raw-cell gate —
+    /// the toolbar's real row height comes from the active theme now, not
+    /// a fixed cell, so there's no cell-row constant left to compare
+    /// against; `UiFrame::hit`'s own reverse search already tells us
+    /// whether the click landed on the bar at all.
     ///
     /// Phase 7 Part 1d (docs/ember2d-phase7-plan.md): `UiFrame::hit`
     /// replaces the removed `menu_label_at` — see `ui/menu.rs`'s own
     /// note on the padding-cell fix this includes.
     pub(super) fn handle_menu_bar_click(&mut self, mouse: &ember2d::mouse::MouseState) -> bool {
-        if mouse.left_just_pressed() && mouse.cell_y == TOOLBAR_ROW {
-            if let Some(WidgetId::MenuLabel(kind)) = self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y)
-            {
-                self.active_menu = if self.active_menu == Some(kind) { None } else { Some(kind) };
-            } else {
-                self.active_menu = None;
-            }
-            self.ignore_drag = true;
-            return true;
+        if !mouse.left_just_pressed() {
+            return false;
         }
-        false
+        match self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) {
+            Some(WidgetId::MenuLabel(kind)) => {
+                self.active_menu = if self.active_menu == Some(kind) { None } else { Some(kind) };
+                self.ignore_drag = true;
+                true
+            }
+            Some(WidgetId::MenuBar) => {
+                self.active_menu = None;
+                self.ignore_drag = true;
+                true
+            }
+            _ => false,
+        }
     }
 
     /// While a dropdown is open: clicking an item runs its action (or

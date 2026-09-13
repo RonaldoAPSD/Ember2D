@@ -318,8 +318,14 @@ impl EditorState {
 
         let p = self.panels.get(PanelId::ScriptEditor);
 
-        // 1. Resolve exact text area bounds dynamically
-        let (sw, sh) = self.panels.screen_size_cells();
+        // 1. Resolve exact text area bounds dynamically. R69 (§3 in the
+        // master plan): reads `self.ui_space` (captured at the last real
+        // draw) instead of the removed `PanelManager::screen_size_cells`,
+        // which used to go stale across a resize while in fullscreen
+        // script mode. The script editor's own points conversion (a later
+        // checkpoint of this same step) replaces this cell-grid geometry
+        // entirely; this keeps it correct in the meantime.
+        let (sw, sh) = self.ui_space.screen_cells();
 
         let (cx, cy, cw, ch) = if fullscreen {
             (0usize, 1usize, sw, sh.saturating_sub(2))

@@ -96,6 +96,14 @@ impl EditorState {
         self.palette.tiles.len()
     }
 
+    /// Row count of the built (headers + visible items) Palette layout —
+    /// what `draw_palette_panel`/`handle_palette_click` both scroll against
+    /// (`WidgetId::PaletteRow(idx)` indexes into this same layout), distinct
+    /// from `palette_tile_count`'s raw tile count.
+    pub fn palette_layout_len(&self) -> usize {
+        self.palette.build_layout().len()
+    }
+
     pub fn show_grid(&self) -> bool {
         self.show_grid
     }

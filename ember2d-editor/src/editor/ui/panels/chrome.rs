@@ -8,6 +8,7 @@
 // `../panels/mod.rs` for the split's overall shape (`chrome`/`dock`/`modals`).
 
 use super::super::frame::{UiFrame, WidgetId};
+use super::super::metrics::ChromeMetrics;
 use super::super::types::*;
 use super::super::widgets::{draw_button_px, draw_row_px, draw_text_row};
 use crate::editor::palette::TilePalette;
@@ -66,6 +67,7 @@ pub fn draw_title_bar(
     renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
     theme: &Theme,
+    metrics: &ChromeMetrics,
     level_name: &str,
     unsaved: bool,
     undo_count: usize,
@@ -76,13 +78,12 @@ pub fn draw_title_bar(
     let bg = theme.role_color(PaletteRole::TitleBg);
     let fg = theme.role_color(PaletteRole::TitleText);
     let accent = theme.role_color(PaletteRole::Accent);
-    // `CELL_H`, not `theme.metrics.row_h` — the menu bar drawn right below
-    // this (`draw_menu_toolbar`, `ui/menu.rs`, not yet converted off the
-    // cell grid) starts at exactly `TOOLBAR_ROW * CELL_H`; a taller title
-    // bar here would silently overlap it. Text still renders through the
-    // theme's real font at `font_sizes.body`; only the row's own height
-    // stays cell-locked until the rest of the vertical layout converts.
-    let row_h = CELL_H as f32;
+    // `metrics.bar_h` (7D-3, docs/ember2d-master-plan.md §5.4 — was a
+    // hardcoded `CELL_H`) — the menu bar drawn right below this
+    // (`draw_menu_toolbar`, `ui/menu.rs`) now starts at exactly
+    // `metrics.bar_h` too, so the two stay in sync through the same
+    // `ChromeMetrics` value rather than a shared magic constant.
+    let row_h = metrics.bar_h;
     let text_px = theme.font_sizes.body;
     let pixel_w = renderer.pixel_width() as f32;
     let pad = font.measure(" ", text_px).0;
@@ -118,6 +119,7 @@ pub fn draw_status_bar(
     renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
     theme: &Theme,
+    metrics: &ChromeMetrics,
     mouse: &ember2d::mouse::MouseState,
     _palette: &TilePalette,
     grid_overlay: bool,
@@ -127,26 +129,34 @@ pub fn draw_status_bar(
     scroll: (f32, f32),
     active_layer: u8,
     erase_size: usize,
-    canvas_x: usize,
-    canvas_y: usize,
+    canvas_origin_px: (f32, f32),
     zoom: f32,
 ) {
     let bg = theme.role_color(PaletteRole::PanelBg);
     let fg = theme.role_color(PaletteRole::TextPrimary);
     let accent = theme.role_color(PaletteRole::Accent);
-    // `CELL_H`, not `theme.metrics.row_h` — `PanelManager::new` (panel/mod.rs)
-    // reserves exactly one `CELL_H`-tall row at the bottom of the screen
-    // for this bar when sizing every panel's own height; a taller bar
-    // here would silently overlap the last row of panel content.
-    let row_h = CELL_H as f32;
+    // `metrics.bar_h` (7D-3, docs/ember2d-master-plan.md §5.4 — was a
+    // hardcoded `CELL_H`) — `PanelManager::apply_layout` reserves exactly
+    // one `metrics.bar_h`-tall row at the bottom of the screen for this
+    // bar, through the same `ChromeMetrics` value, so the two can't drift.
+    let row_h = metrics.bar_h;
     let text_px = theme.font_sizes.body;
     let pixel_w = renderer.pixel_width() as f32;
     let status_y = renderer.pixel_height() as f32 - row_h;
     renderer.fill_rect_px(Rect::new(0.0, status_y, pixel_w, row_h), bg);
     let baseline_y = row_h_baseline(status_y, font, text_px);
 
-    let cx = mouse.cell_x.saturating_sub(canvas_x) as f32 / zoom + scroll.0;
-    let cy = mouse.cell_y.saturating_sub(canvas_y) as f32 / zoom + scroll.1;
+    // R66-D (§3 in the master plan): was `mouse.cell_x/cell_y` (viewport
+    // cells) minus a CELL-ROUNDED `canvas_x`/`canvas_y` (the viewport
+    // panel's own `content_x()`/`content_y()` bridge, which rounds to the
+    // nearest engine cell — no longer exact once the viewport's real pixel
+    // origin isn't a whole-cell multiple, e.g. after the chrome bars above
+    // it grew to `metrics.bar_h`). Recomputed here from the EXACT pixel
+    // origin instead, matching `mouse_to_grid`'s own formula
+    // (`impl_state/viewport.rs`) exactly, so the readout can never disagree
+    // with where a click would actually land.
+    let cx = (mouse.pixel_x - canvas_origin_px.0) / CELL_W as f32 / zoom + scroll.0;
+    let cy = (mouse.pixel_y - canvas_origin_px.1) / CELL_H as f32 / zoom + scroll.1;
     let pos_str = format!(" ({:3.1},{:3.1})", cx, cy);
     renderer.draw_text_px(font, &pos_str, Vec2::new(0.0, baseline_y), text_px, accent);
 
@@ -157,13 +167,14 @@ pub fn draw_status_bar(
         _ => "Unknown",
     };
     let lyr_str = format!("[LAYER: {}]", lyr_name);
-    // Fixed pixel columns (10/30 "cells" worth of the old 8px grid) —
-    // kept as literal pixel anchors rather than re-measured from content,
-    // preserving this bar's original horizontal rhythm now that the text
-    // drawn at them is real, proportionally-advancing Cascadia rather
-    // than fixed-width bitmap glyphs.
-    let col10 = 10.0 * CELL_W as f32;
-    let col30 = 30.0 * CELL_W as f32;
+    // Measured from `pos_str`'s own real width rather than a fixed pixel
+    // literal (was `10.0 * CELL_W` — a fixed-width-bitmap-glyph column
+    // that a real, proportionally-advancing Cascadia `font` (7D-3) can run
+    // past, overlapping this label). A small gap keeps the old rhythm at
+    // the common case while never colliding when the readout is wide.
+    let gap = metrics.padding;
+    let col10 = font.measure(&pos_str, text_px).0 + gap;
+    let col30 = col10 + font.measure(&lyr_str, text_px).0 + gap;
     renderer.draw_text_px(font, &lyr_str, Vec2::new(col10, baseline_y), text_px, fg);
 
     if !mode_hint.is_empty() {

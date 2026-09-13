@@ -242,7 +242,7 @@ fn editing_a_palette_item_in_the_modal_editor_undoes_as_one_session() {
     h.click(edit_btn_rect.x + 1.0, edit_btn_rect.y + 1.0);
     assert!(matches!(h.state.mode(), EditorMode::PaletteEditor));
 
-    let (sw, sh) = h.state.panels().screen_size_cells();
+    let (sw, sh) = h.state.ui_space().screen_cells();
     let (mw, mh) = (36usize, 18usize);
     let mx = (sw.saturating_sub(mw)) / 2;
     let my = (sh.saturating_sub(mh)) / 2;

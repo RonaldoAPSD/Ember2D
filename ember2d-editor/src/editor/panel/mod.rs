@@ -1,36 +1,41 @@
 // editor/panel.rs — Floating + dockable panel system for the level editor.
 //
 // Panels can be dragged freely, docked to a screen edge, or resized.
-// Docking: drag a panel within DOCK_THRESHOLD_X/Y pixels of an edge to snap
-// it (Phase 7 Part 1c, docs/ember2d-phase7-plan.md — was cells before this).
-// Undocking: dragging a docked panel's title bar floats it again.
+// Docking: drag a panel within `metrics.dock_threshold_x/y` points of a
+// screen edge to snap it. Undocking: dragging a docked panel's title bar
+// floats it again.
 // Resize: the [~] handle in each panel's bottom-right corner; for docked panels
 //   the inner edge is the resize target (right edge for Left-docked, etc.).
 //
 // PIXEL MIGRATION (Phase 7 Part 1c): `Panel` used to store its geometry as
 // `x/y: i32`, `w/h: usize` character-cell coordinates. It now stores a
-// single `rect: UiRect` in pixels (`ui::rect`, Part 1b) — every panel's
-// pixel rect is still a whole-cell multiple today (nothing here yet
-// produces a sub-cell position), so this is purely a coordinate-system
-// change with zero visual difference, exactly Part 1's stated goal.
+// single `rect: UiRect` in pixels (`ui::rect`, Part 1b).
+//
+// POINTS MIGRATION (7D-3, docs/ember2d-master-plan.md §5.4): every panel's
+// own outer chrome (position, size, title bar/close button/resize grip) now
+// sizes itself from the active theme's `ChromeMetrics` (`ui/metrics.rs`),
+// not the engine's fixed `CELL_W`/`CELL_H` glyph cell — a theme with a
+// taller `row_h` gets a taller title/status/menu bar and a bigger close
+// button/resize grip to match. `PanelManager` itself stores no `Theme`
+// reference; every method that needs sizing takes a freshly-built
+// `&ChromeMetrics` from the caller (`impl_render.rs` rebuilds one from
+// `self.theme` every frame), so a theme switch takes effect on the very
+// next layout pass with no separate "PanelManager doesn't know the theme
+// changed" bookkeeping.
 //
 // `cell_x`/`cell_y`/`cell_w`/`cell_h`/`content_x`/`content_y`/`content_w`/
-// `content_h` (below) were originally documented as a temporary bridge
-// back to cell-based DRAWING code, expected to disappear once 7D-2's
-// chrome rewrite finished. Investigated at the end of that rewrite
-// (docs/ember2d-master-plan.md §5.4): every panel's own CHROME now draws
-// in real pixel space, but these four `content_*` methods are still the
-// one real API a whole separate set of GENUINELY cell-grid subsystems
-// depends on — the script editor's per-character cursor/selection math,
-// file-browser and hierarchy row clicks, the node graph's cell-addressed
-// `node_at`/`port_at` hit-testing, and the canvas/viewport's own grid
-// math (which stays cell-based forever per the 7C-9 decision gate, §7.1,
-// the same reasoning extended here). None of those are "chrome that
-// hasn't migrated yet" — they're cell-grid BY DESIGN, the same way the
-// viewport itself is, so this bridge stays. What DID fully go away is
-// `UiRect::from_cells` itself: every real caller converted to pixel-space
-// construction directly, and the function (with its own unit tests) was
-// deleted once the last one converted.
+// `content_h` (below) are the bridge to the genuinely cell-grid subsystems
+// that stay on the engine's fixed `CELL_W`/`CELL_H` forever regardless of
+// this step (the node graph's cell-addressed hit-testing, the canvas/
+// viewport itself — 7C-9 decision gate, §7.1). The docked script editor
+// panel is this bridge's last real consumer as of this step (7D-3, §5.4) —
+// its own commit replaces `content_x()`/`content_y()` there with a real
+// points-space `ScriptLayout`, at which point this bridge exists only for
+// callers with genuinely no pixel-space alternative. Since a panel's
+// position is no longer necessarily a whole-cell multiple (a theme's
+// `row_h` rarely divides `CELL_H` evenly), `cell_x`/`cell_y` now ROUND to
+// the nearest cell rather than reading an always-exact value the way they
+// did pre-7D-3 — see each's own doc comment.
 //
 // HIT-TESTING (Phase 7 Part 1d, docs/ember2d-phase7-plan.md): panel chrome
 // and tabs no longer have their own `on_title_bar`/`on_close_btn`/
@@ -46,10 +51,10 @@
 // this class of bug to begin with.
 
 pub use super::ui::{DockSide, PanelId};
-use super::ui::{UiFrame, UiRect, WidgetId};
-use ember2d::renderer::{color::Color, DrawSurface, Font, Texture};
-use ember2d::theme::{PaletteRole, SliceRole, Theme};
-use ember2d_sim::math::{Rect, Vec2};
+use super::ui::{ChromeMetrics, UiRect};
+
+mod chrome;
+pub use chrome::draw_panel_chrome;
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
 
@@ -62,31 +67,19 @@ pub struct Panel {
     pub z: usize,
     pub dock: DockSide,
     drag_offset: Option<(f32, f32)>,
-    resize_anchor: Option<(f32, f32, f32, f32)>, // (mx, my, orig_w, orig_h), all pixels
+    resize_anchor: Option<(f32, f32, f32, f32)>, // (mx, my, orig_w, orig_h), all points
 }
 
-/// Width/height of one character cell in pixels — same re-export of
-/// `ember2d::renderer::CELL_W`/`CELL_H` as `editor/ui/rect.rs`'s `UiRect`
-/// uses (Phase 7 Part 1e, docs/ember2d-phase7-plan.md, E2); this file used
-/// to duplicate the two literals independently.
-const CELL_W: f32 = ember2d::renderer::CELL_W as f32;
-const CELL_H: f32 = ember2d::renderer::CELL_H as f32;
-
-/// Pixel equivalents of the old `10`/`4`-CELL minimum panel size.
-const MIN_W: f32 = 10.0 * CELL_W;
-const MIN_H: f32 = 4.0 * CELL_H;
-
 impl Panel {
-    fn new(id: PanelId, title: &'static str, cx: i32, cy: i32, cw: usize, ch: usize) -> Self {
+    /// `x`/`y`/`w`/`h` are points directly (7D-3, docs/ember2d-master-plan.md
+    /// §5.4 — was cell coordinates multiplied out by `CELL_W`/`CELL_H`
+    /// here; every caller now computes real point positions itself, using
+    /// `ChromeMetrics`).
+    fn new(id: PanelId, title: &'static str, x: f32, y: f32, w: f32, h: f32) -> Self {
         Panel {
             id,
             title,
-            // Every panel still starts life on the cell grid — its own
-            // pixel rect is just that cell geometry multiplied out
-            // (`UiRect::from_cells`'s own removed body, inlined here at
-            // its one remaining production call site,
-            // docs/ember2d-master-plan.md §5.4).
-            rect: UiRect::new(cx as f32 * CELL_W, cy as f32 * CELL_H, cw as f32 * CELL_W, ch as f32 * CELL_H),
+            rect: UiRect::new(x, y, w, h),
             visible: false,
             z: 0,
             dock: DockSide::None,
@@ -95,21 +88,28 @@ impl Panel {
         }
     }
 
-    /// This panel's own position/size in whole CELLS — the bridge back to
-    /// the cell-based drawing/hit-testing code named in this file's header
-    /// comment. Exact (not just rounded-and-hoped) because `self.rect`'s
-    /// pixel values are always whole-cell multiples as of Part 1c.
+    /// This panel's own position/size in whole ENGINE CELLS (`CELL_W`/
+    /// `CELL_H`) — the bridge back to the cell-based drawing/hit-testing
+    /// code named in this file's header comment. Since panel positions are
+    /// no longer necessarily whole-cell multiples (a theme's `row_h` rarely
+    /// divides `CELL_H` evenly), this ROUNDS to the nearest cell — exact
+    /// only incidentally now, not by construction the way it was pre-7D-3.
+    /// Nothing that still calls this needs sub-cell precision (the node
+    /// graph and, until its own points conversion lands, the docked script
+    /// editor's OUTER frame position, not per-character content) — see
+    /// `content_rect()` for the pixel-exact form real chrome content
+    /// should use instead.
     pub fn cell_x(&self) -> i32 {
-        (self.rect.x / CELL_W).round() as i32
+        (self.rect.x / ember2d::renderer::CELL_W as f32).round() as i32
     }
     pub fn cell_y(&self) -> i32 {
-        (self.rect.y / CELL_H).round() as i32
+        (self.rect.y / ember2d::renderer::CELL_H as f32).round() as i32
     }
     pub fn cell_w(&self) -> usize {
-        (self.rect.w / CELL_W).round() as usize
+        (self.rect.w / ember2d::renderer::CELL_W as f32).round() as usize
     }
     pub fn cell_h(&self) -> usize {
-        (self.rect.h / CELL_H).round() as usize
+        (self.rect.h / ember2d::renderer::CELL_H as f32).round() as usize
     }
 
     /// Leftmost content column (accounts for left border).
@@ -132,22 +132,23 @@ impl Panel {
         self.cell_h().saturating_sub(2)
     }
 
-    /// This panel's content area (inside its border/title bar), in pixels —
-    /// the pixel-native counterpart to `content_x`/`content_y`/`content_w`/
-    /// `content_h` above (7C-3, master plan §5.3, E4). Exact, not a
-    /// cell-rounded re-derivation: unlike those four (which exist for
-    /// callers still working in cells), this reads `self.rect` directly, so
-    /// it can never disagree with what `draw_panel_chrome` actually drew —
-    /// the whole point of deleting `Layout`, which used to rebuild an
-    /// independent cell-based copy of exactly this every frame. Can't use
-    /// `UiRect::inset` (a single symmetric margin) since the border is one
-    /// `CELL_W` on the sides but one `CELL_H` on top/bottom.
-    pub fn content_rect(&self) -> UiRect {
+    /// This panel's content area (inside its border/title bar), in points —
+    /// the points-native counterpart to `content_x`/`content_y`/`content_w`/
+    /// `content_h` above (7C-3, master plan §5.3, E4; point-ized 7D-3, §5.4).
+    /// Exact, not a cell-rounded re-derivation: unlike those four (which
+    /// exist for callers still working in cells), this reads `self.rect`
+    /// directly, so it can never disagree with what `draw_panel_chrome`
+    /// actually drew. `inset` is `metrics.border` on the sides,
+    /// `metrics.bar_h` on top (the title bar) and bottom (kept symmetric
+    /// with the top for a simple, even frame — the old cell-based version's
+    /// "one `CELL_H` top/bottom" was itself just a border choice, not a
+    /// constraint this type enforces).
+    pub fn content_rect(&self, metrics: &ChromeMetrics) -> UiRect {
         UiRect::new(
-            self.rect.x + CELL_W,
-            self.rect.y + CELL_H,
-            (self.rect.w - 2.0 * CELL_W).max(0.0),
-            (self.rect.h - 2.0 * CELL_H).max(0.0),
+            self.rect.x + metrics.border,
+            self.rect.y + metrics.bar_h,
+            (self.rect.w - 2.0 * metrics.border).max(0.0),
+            (self.rect.h - 2.0 * metrics.bar_h).max(0.0),
         )
     }
 
@@ -172,58 +173,43 @@ pub struct PanelManager {
     next_z: usize,
     dragging: Option<PanelId>,
     resizing: Option<PanelId>,
-    /// The window's own pixel size, as last given to `apply_layout` — 7C-3
+    /// The window's own point size, as last given to `apply_layout` — 7C-3
     /// (master plan §5.3, E4) gives this a home here instead of the deleted
     /// `Layout::screen_w`/`screen_h`, since `PanelManager` already receives
     /// it every frame to reposition docked panels; storing it makes this
     /// the one place both panel geometry AND overall screen size live,
     /// rather than two independently-updated copies of the same number.
-    screen_size_px: (f32, f32),
+    screen_size_pt: (f32, f32),
     pub active_left: Option<PanelId>,
     pub active_right: Option<PanelId>,
     pub active_bottom: Option<PanelId>,
 }
 
-pub const HIER_W: usize = 14;
-pub const INSP_W: usize = 30;
-pub const PAL_W: usize = 24;
-pub const CON_H: usize = 9;
-pub const EDIT_H: usize = 12;
-
-/// How close (in pixels) a dragged panel's edge must land to a screen edge
-/// to dock. Two constants, not one, because the original cell-based
-/// version applied "3 cells" identically to horizontal cell-columns (8px
-/// each) and vertical cell-rows (16px each) despite them being physically
-/// different sizes — kept per-axis here so docking distance is bit-for-bit
-/// unchanged, not just "3 of some new unified unit."
-const DOCK_THRESHOLD_X: f32 = 3.0 * CELL_W; // 24px
-const DOCK_THRESHOLD_Y: f32 = 3.0 * CELL_H; // 48px
-
 impl PanelManager {
-    pub fn new(screen_w: usize, screen_h: usize) -> Self {
-        let canvas_y = 2i32;
-        let canvas_h = screen_h.saturating_sub(3).max(4) as i32;
+    /// `screen_w`/`screen_h` are points (7D-3, docs/ember2d-master-plan.md
+    /// §5.4 — was cell counts, multiplied out internally by `CELL_W`/
+    /// `CELL_H`; every caller now passes the real point size directly).
+    pub fn new(screen_w: f32, screen_h: f32, metrics: &ChromeMetrics) -> Self {
+        let canvas_y = metrics.chrome_top();
+        // Same floor the old cell-based version enforced (`.max(4)` cells,
+        // which — at the engine's fixed `CELL_H` — is exactly `metrics.min_h`
+        // (both `64.0`) by construction, not a coincidence this rewrite
+        // introduced.
+        let canvas_h = (screen_h - metrics.chrome_top() - metrics.bar_h).max(metrics.min_h);
 
-        let insp_x = (screen_w as i32 - INSP_W as i32).max(0);
-        let pal_x = (insp_x - PAL_W as i32 - 2).max(0);
-        let con_y = screen_h as i32 - CON_H as i32 - 1;
+        let insp_x = (screen_w - metrics.insp_w).max(0.0);
+        let pal_x = (insp_x - metrics.pal_w - metrics.padding * 2.0).max(0.0);
+        let con_y = screen_h - metrics.con_h - metrics.bar_h;
 
         let mut panels = vec![
-            Panel::new(PanelId::Viewport, "Viewport", 0, canvas_y, screen_w, canvas_h as usize),
-            Panel::new(PanelId::Hierarchy, "Hierarchy", 0, canvas_y, HIER_W, canvas_h as usize),
-            Panel::new(
-                PanelId::Inspector,
-                "Inspector",
-                insp_x,
-                canvas_y,
-                INSP_W,
-                canvas_h as usize,
-            ),
-            Panel::new(PanelId::Palette, "Palette", pal_x, canvas_y, PAL_W, canvas_h as usize),
-            Panel::new(PanelId::Console, "Console", 0, con_y, screen_w, CON_H),
-            Panel::new(PanelId::Stats, "Stats", pal_x, canvas_y, PAL_W, canvas_h as usize),
-            Panel::new(PanelId::FileBrowser, "Files", 0, con_y, screen_w, CON_H),
-            Panel::new(PanelId::ScriptEditor, "Script Editor", 0, con_y, screen_w, EDIT_H),
+            Panel::new(PanelId::Viewport, "Viewport", 0.0, canvas_y, screen_w, canvas_h),
+            Panel::new(PanelId::Hierarchy, "Hierarchy", 0.0, canvas_y, metrics.hier_w, canvas_h),
+            Panel::new(PanelId::Inspector, "Inspector", insp_x, canvas_y, metrics.insp_w, canvas_h),
+            Panel::new(PanelId::Palette, "Palette", pal_x, canvas_y, metrics.pal_w, canvas_h),
+            Panel::new(PanelId::Console, "Console", 0.0, con_y, screen_w, metrics.con_h),
+            Panel::new(PanelId::Stats, "Stats", pal_x, canvas_y, metrics.pal_w, canvas_h),
+            Panel::new(PanelId::FileBrowser, "Files", 0.0, con_y, screen_w, metrics.con_h),
+            Panel::new(PanelId::ScriptEditor, "Script Editor", 0.0, con_y, screen_w, metrics.edit_h),
         ];
 
         panels[0].visible = true; // Viewport
@@ -262,7 +248,7 @@ impl PanelManager {
             next_z: 20,
             dragging: None,
             resizing: None,
-            screen_size_px: (screen_w as f32 * CELL_W, screen_h as f32 * CELL_H),
+            screen_size_pt: (screen_w, screen_h),
             active_left: Some(PanelId::Hierarchy),
             active_right: Some(PanelId::Inspector),
             active_bottom: Some(PanelId::Console),
@@ -289,17 +275,10 @@ impl PanelManager {
         self.get(PanelId::Viewport)
     }
 
-    /// The window's own pixel size, as of the last `apply_layout` call —
-    /// see `screen_size_px`'s own doc comment for why this lives here now.
-    pub fn screen_size_px(&self) -> (f32, f32) {
-        self.screen_size_px
-    }
-
-    /// `screen_size_px`, in whole cells — for the callers that still center
-    /// modals or clamp scroll in cell-space rather than pixels.
-    pub fn screen_size_cells(&self) -> (usize, usize) {
-        let (w, h) = self.screen_size_px;
-        ((w / CELL_W).round() as usize, (h / CELL_H).round() as usize)
+    /// The window's own point size, as of the last `apply_layout` call —
+    /// see `screen_size_pt`'s own doc comment for why this lives here now.
+    pub fn screen_size_pt(&self) -> (f32, f32) {
+        self.screen_size_pt
     }
 
     pub fn get_mut(&mut self, id: PanelId) -> &mut Panel {
@@ -423,14 +402,13 @@ impl PanelManager {
     // ── Drag ──────────────────────────────────────────────────────────────────
 
     /// Begin dragging. Undocks the panel so it floats freely. `mouse_x`/
-    /// `mouse_y` are pixels (Phase 7 Part 1c — cells before this).
-    pub fn start_drag(&mut self, id: PanelId, mouse_x: f32, mouse_y: f32) {
+    /// `mouse_y` are points.
+    pub fn start_drag(&mut self, id: PanelId, mouse_x: f32, mouse_y: f32, metrics: &ChromeMetrics) {
         let i = self.idx(id);
         if self.panels[i].dock != DockSide::None {
-            // Restore to a sensible floating size when undocking — pixel
-            // equivalents of the old 40×20-cell clamp.
-            let w = self.panels[i].rect.w.min(40.0 * CELL_W).max(MIN_W);
-            let h = self.panels[i].rect.h.min(20.0 * CELL_H).max(MIN_H);
+            // Restore to a sensible floating size when undocking.
+            let w = self.panels[i].rect.w.min(metrics.undock_max_w).max(metrics.min_w);
+            let h = self.panels[i].rect.h.min(metrics.undock_max_h).max(metrics.min_h);
             self.panels[i].rect.w = w;
             self.panels[i].rect.h = h;
         }
@@ -441,20 +419,20 @@ impl PanelManager {
         self.bring_to_front(id);
     }
 
-    /// `mouse_x`/`mouse_y`/`screen_w`/`screen_h` are all pixels (Part 1c).
-    pub fn update_drag(&mut self, mouse_x: f32, mouse_y: f32, screen_w: f32, screen_h: f32) {
+    /// `mouse_x`/`mouse_y`/`screen_w`/`screen_h` are all points.
+    pub fn update_drag(&mut self, mouse_x: f32, mouse_y: f32, screen_w: f32, screen_h: f32, metrics: &ChromeMetrics) {
         let Some(id) = self.dragging else { return };
         let i = self.idx(id);
         let Some((ox, oy)) = self.panels[i].drag_offset else { return };
         let new_x = (mouse_x - ox).max(0.0).min(screen_w - self.panels[i].rect.w);
-        let new_y = (mouse_y - oy).max(2.0 * CELL_H).min(screen_h - 2.0 * CELL_H);
+        let new_y = (mouse_y - oy).max(metrics.chrome_top()).min(screen_h - metrics.chrome_top());
         self.panels[i].rect.x = new_x;
         self.panels[i].rect.y = new_y;
     }
 
-    /// End drag and snap to an edge if within `DOCK_THRESHOLD_X`/`_Y`.
-    /// `screen_w`/`screen_h` are pixels (Part 1c).
-    pub fn end_drag(&mut self, screen_w: f32, screen_h: f32) {
+    /// End drag and snap to an edge if within `metrics.dock_threshold_x/y`.
+    /// `screen_w`/`screen_h` are points.
+    pub fn end_drag(&mut self, screen_w: f32, screen_h: f32, metrics: &ChromeMetrics) {
         let Some(id) = self.dragging.take() else { return };
         let i = self.idx(id);
         self.panels[i].drag_offset = None;
@@ -465,11 +443,11 @@ impl PanelManager {
         let pw = p.rect.w;
         let ph = p.rect.h;
 
-        let new_dock = if x <= DOCK_THRESHOLD_X {
+        let new_dock = if x <= metrics.dock_threshold_x {
             DockSide::Left
-        } else if x + pw >= screen_w - DOCK_THRESHOLD_X {
+        } else if x + pw >= screen_w - metrics.dock_threshold_x {
             DockSide::Right
-        } else if y + ph >= screen_h - DOCK_THRESHOLD_Y - CELL_H {
+        } else if y + ph >= screen_h - metrics.dock_threshold_y - metrics.bar_h {
             DockSide::Bottom
         } else {
             DockSide::None
@@ -491,7 +469,7 @@ impl PanelManager {
         self.bring_to_front(id);
     }
 
-    pub fn update_resize(&mut self, mx: f32, my: f32) {
+    pub fn update_resize(&mut self, mx: f32, my: f32, metrics: &ChromeMetrics) {
         let Some(id) = self.resizing else { return };
         let i = self.idx(id);
         let Some((ax, ay, ow, oh)) = self.panels[i].resize_anchor else { return };
@@ -499,32 +477,32 @@ impl PanelManager {
         let dy = my - ay;
         match self.panels[i].dock {
             DockSide::Left => {
-                self.panels[i].rect.w = (ow + dx).max(MIN_W);
+                self.panels[i].rect.w = (ow + dx).max(metrics.min_w);
             }
             DockSide::Right => {
                 // Right edge fixed: grow left → x decreases, w increases
-                let new_w = (ow - dx).max(MIN_W);
+                let new_w = (ow - dx).max(metrics.min_w);
                 let orig_right = self.panels[i].rect.x + ow;
                 self.panels[i].rect.w = new_w;
                 self.panels[i].rect.x = orig_right - new_w;
             }
             DockSide::Bottom => {
                 // Bottom edge fixed: grow up → y decreases, h increases
-                // Constrain: cannot resize above the canvas top (2 cells).
-                let mut new_h = (oh - dy).max(MIN_H);
+                // Constrain: cannot resize above the canvas top.
+                let mut new_h = (oh - dy).max(metrics.min_h);
                 let orig_bottom = self.panels[i].rect.y + oh;
                 let potential_y = orig_bottom - new_h;
-                if potential_y < 2.0 * CELL_H {
-                    new_h = orig_bottom - 2.0 * CELL_H;
+                if potential_y < metrics.chrome_top() {
+                    new_h = orig_bottom - metrics.chrome_top();
                 }
                 self.panels[i].rect.h = new_h;
                 self.panels[i].rect.y = orig_bottom - new_h;
             }
             DockSide::None => {
-                self.panels[i].rect.w = (ow + dx).max(MIN_W);
+                self.panels[i].rect.w = (ow + dx).max(metrics.min_w);
                 // For floating panels, the anchor is top-left, so resizing
                 // doesn't move Y.
-                self.panels[i].rect.h = (oh + dy).max(MIN_H);
+                self.panels[i].rect.h = (oh + dy).max(metrics.min_h);
             }
         }
     }
@@ -544,19 +522,16 @@ impl PanelManager {
 
     /// Reposition docked panels to fill their edge. Call every render frame
     /// before drawing so positions are always current. `screen_w`/
-    /// `screen_h` are pixels (Part 1c — cells before this; callers now
-    /// pass `Renderer::pixel_width`/`pixel_height`, not `width`/`height`).
-    pub fn apply_layout(&mut self, screen_w: usize, screen_h: usize) {
-        let screen_w = screen_w as f32;
-        let screen_h = screen_h as f32;
-        self.screen_size_px = (screen_w, screen_h);
+    /// `screen_h` are points.
+    pub fn apply_layout(&mut self, screen_w: f32, screen_h: f32, metrics: &ChromeMetrics) {
+        self.screen_size_pt = (screen_w, screen_h);
 
-        // Status bar takes the last cell row; toolbar + title take the
-        // first two cell rows; canvas starts below them. Still expressed
-        // via CELL_H here (Part 1c) — this chrome-row layout stays
-        // cell-native until Part 4's restyle.
-        let canvas_top = 2.0 * CELL_H;
-        let canvas_bottom = (screen_h - CELL_H).max(0.0); // row above status bar
+        // Status bar takes the last row; toolbar + title take the first
+        // two rows; canvas starts below them — all sized from the active
+        // theme's own `bar_h` now (7D-3, docs/ember2d-master-plan.md §5.4),
+        // not the engine's fixed `CELL_H`.
+        let canvas_top = metrics.chrome_top();
+        let canvas_bottom = metrics.chrome_bottom(screen_h).max(0.0);
         let full_h = (canvas_bottom - canvas_top).max(0.0);
 
         // Ensure active panel markers are valid
@@ -650,135 +625,6 @@ impl PanelManager {
         }
     }
 
-}
-
-// ── draw_panel_chrome ─────────────────────────────────────────────────────────
-
-/// Draw a panel's frame, title bar, close button, and resize handle through
-/// the editor's theme (7D-2, master plan §5.4 — this was the first
-/// function converted; every panel's own CONTENT — inspector rows,
-/// console text, dock tabs, modals, the script editor, the node graph —
-/// is themed too now, each in its own file under `ui/`). Registers each
-/// interactive element's hit rect in `frame` at the exact point it's
-/// drawn (Phase 7 Part 1d) — see `ui/frame.rs`'s header comment for why
-/// this one function doing both is what closes defect E5; that
-/// discipline is unchanged by which pixels actually land.
-///
-/// `theme`/`chrome_tex`/`font` come from `EditorState::theme`/
-/// `theme_chrome_tex`/`font` (see `load_editor_theme`'s own doc comment,
-/// editor/mod.rs — `font` IS the theme's own loaded font, not a separate
-/// field) — resolved once, passed in rather than looked up here, so this
-/// function stays free of any asset/GPU dependency itself (same reasoning
-/// `DrawSurface::draw_nine_slice_px` documents for taking an
-/// already-resolved `&Texture`).
-///
-/// The viewport is excluded entirely (still a flat black fill, no chrome)
-/// — it stays on the engine's own renderer regardless of theme (7C-9
-/// decision gate, §7.1); it's the one panel this function never themes.
-pub fn draw_panel_chrome(
-    renderer: &mut dyn DrawSurface,
-    panel: &Panel,
-    frame: &mut UiFrame,
-    theme: &Theme,
-    chrome_tex: &Texture,
-    font: &mut dyn Font,
-) {
-    let x = panel.cell_x().max(0) as usize;
-    let y = panel.cell_y().max(0) as usize;
-    let w = panel.cell_w();
-    let h = panel.cell_h();
-    if w < 2 || h < 2 {
-        return;
-    }
-
-    if panel.id == PanelId::Viewport {
-        renderer.draw_rect_filled(x, y, w, h, ' ', Color::White, Color::Black);
-        return;
-    }
-
-    let full_rect = Rect::new(panel.rect.x, panel.rect.y, panel.rect.w, panel.rect.h);
-    let title_rect = Rect::new(panel.rect.x, panel.rect.y, panel.rect.w, CELL_H);
-
-    // 1. Frame — one 9-slice covering the WHOLE panel, corners/edges/center
-    // (its center IS the interior fill the old flat implementation drew as
-    // a separate step). Falls back to a flat fill if the theme doesn't
-    // define this role (7D-1's own "missing slice, no fabricated
-    // geometry" contract — see `Theme::slice`'s own doc comment).
-    // `1.0` border_scale (7D-3, docs/ember2d-master-plan.md §5.4) — this
-    // whole function still draws in cell-locked pixels until 7D-3's own
-    // panel-layout commit converts it to UI points, so every corner here
-    // stays 1:1 (unscaled), exactly as before that parameter existed.
-    match theme.slice(SliceRole::Panel) {
-        Some(slice) => renderer.draw_nine_slice_px(full_rect, chrome_tex, slice.src, slice.border, 1.0, Color::White),
-        None => renderer.draw_rect_filled(x, y, w, h, ' ', Color::White, Color::DarkGrey),
-    }
-
-    // 2. Title bar — a second 9-slice over just the top strip, drawn AFTER
-    // the frame so it wins there.
-    match theme.slice(SliceRole::TitleBar) {
-        Some(slice) => renderer.draw_nine_slice_px(title_rect, chrome_tex, slice.src, slice.border, 1.0, Color::White),
-        None => renderer.draw_rect_filled(x, y, w, 1, ' ', Color::White, Color::DarkBlue),
-    }
-    frame.push(
-        WidgetId::TitleBar(panel.id),
-        UiRect::new(panel.rect.x, panel.rect.y, panel.rect.w, CELL_H),
-    );
-
-    // 3. Title text — measure-centered in the title bar, minus the close
-    // button's own reserved width on the right (plan: "measure-centred
-    // title... one slice for the close button").
-    let dock_indicator = match panel.dock {
-        DockSide::Left => "< ",
-        DockSide::Right => "> ",
-        DockSide::Bottom => "v ",
-        DockSide::None => "",
-    };
-    let title = format!("{}{}", dock_indicator, panel.title);
-    let title_px = theme.font_sizes.body;
-    let close_w = CELL_W * 2.0;
-    let avail_w = (panel.rect.w - close_w).max(0.0);
-    let (measured_w, _) = font.measure(&title, title_px);
-    let text_x = panel.rect.x + ((avail_w - measured_w).max(0.0) / 2.0).round();
-    let baseline_y = (panel.rect.y + font.ascent(title_px)).round();
-    renderer.draw_text_px(
-        font,
-        &title,
-        Vec2::new(text_x, baseline_y),
-        title_px,
-        theme.role_color(PaletteRole::TitleText),
-    );
-
-    // 4. Close button — a small themed square at the title bar's right
-    // edge, an "X" drawn in the same theme font as the title.
-    let close_rect = Rect::new(panel.rect.right() - close_w, panel.rect.y, close_w, CELL_H);
-    if let Some(slice) = theme.slice(SliceRole::Button) {
-        renderer.draw_nine_slice_px(close_rect, chrome_tex, slice.src, slice.border, 1.0, Color::White);
-    }
-    let (x_w, _) = font.measure("X", title_px);
-    let x_x = (close_rect.x + (close_w - x_w) / 2.0).round();
-    renderer.draw_text_px(
-        font,
-        "X",
-        Vec2::new(x_x, baseline_y),
-        title_px,
-        theme.role_color(PaletteRole::TextPrimary),
-    );
-    frame.push(
-        WidgetId::CloseBtn(panel.id),
-        UiRect::new(close_rect.x, close_rect.y, close_rect.w, close_rect.h),
-    );
-
-    // 5. Resize handle — a themed square at the bottom-right corner.
-    let grip_size = CELL_W.min(CELL_H);
-    let grip_rect =
-        Rect::new(panel.rect.right() - grip_size, panel.rect.bottom() - grip_size, grip_size, grip_size);
-    if let Some(slice) = theme.slice(SliceRole::ResizeGrip) {
-        renderer.draw_nine_slice_px(grip_rect, chrome_tex, slice.src, slice.border, 1.0, Color::White);
-    }
-    frame.push(
-        WidgetId::ResizeHandle(panel.id),
-        UiRect::new(panel.rect.right() - CELL_W, panel.rect.bottom() - CELL_H, CELL_W, CELL_H),
-    );
 }
 
 // tests.rs: split out in Part 1f to stay under the 600-line limit.

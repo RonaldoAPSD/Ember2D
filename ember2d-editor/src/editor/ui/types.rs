@@ -184,12 +184,12 @@ pub enum ToolbarAction {
 
 // ── Chrome row constants ────────────────────────────────────────────────────────
 
-/// The top menu bar's own cell row — always `1` (row 0 is reserved, unused
-/// today). Used to be `Layout::toolbar_row`, a field on a struct that
-/// otherwise did nothing but rebuild the Viewport panel's own rect every
-/// frame (7C-3, master plan §5.3, E4: `Layout` is deleted — its one field
-/// that wasn't a duplicate of `PanelManager` state becomes this constant).
-pub const TOOLBAR_ROW: usize = 1;
+// `TOOLBAR_ROW` (the menu bar's own fixed cell row) removed (7D-3,
+// docs/ember2d-master-plan.md §5.4) — the toolbar's real row position is
+// `theme.metrics.row_h`-based now (`ui/menu.rs::draw_menu_toolbar`), and
+// its click gate reads `WidgetId::MenuBar`/`MenuLabel` from `UiFrame`
+// instead of comparing against a cell-row constant
+// (`input/panels/menu_bar.rs`).
 
 pub const HIER_W: usize = 14;
 

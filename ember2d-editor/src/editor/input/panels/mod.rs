@@ -138,7 +138,8 @@ impl EditorState {
                     // frame — "docks/undocks like any panel" describes the
                     // input mechanics here, not the layout result, which
                     // deliberately still stays master-fill.
-                    self.panels.start_drag(pid, px, py);
+                    let metrics = super::super::ui::ChromeMetrics::from_theme(&self.theme);
+                    self.panels.start_drag(pid, px, py, &metrics);
                     self.ignore_drag = true;
                     return true;
                 }
@@ -153,22 +154,23 @@ impl EditorState {
     /// `if mouse.left_held()`/`if mouse.left_just_released()` blocks that
     /// never themselves `return`.
     fn update_panel_drag_and_resize(&mut self, mouse: &ember2d::mouse::MouseState) {
+        // Points-space screen bounds (7D-3, docs/ember2d-master-plan.md
+        // §5.4 — was `screen_size_px`) — read straight from `PanelManager`
+        // (7C-3, master plan §5.3, E4), which already has them; `metrics`
+        // is rebuilt fresh from the current theme, matching every other
+        // `PanelManager` call site this step touched.
+        let metrics = super::super::ui::ChromeMetrics::from_theme(&self.theme);
         if mouse.left_held() {
-            // Pixel-space screen bounds (Phase 7 Part 1c) — read straight
-            // from `PanelManager` (7C-3, master plan §5.3, E4), which
-            // already has them in pixels; the deleted `Layout` only ever
-            // stored the cell-count screen size, so this used to reconvert
-            // cells back to pixels here instead.
-            let (sw_px, sh_px) = self.panels.screen_size_px();
+            let (sw_pt, sh_pt) = self.panels.screen_size_pt();
             if self.panels.is_dragging() {
-                self.panels.update_drag(mouse.pixel_x, mouse.pixel_y, sw_px, sh_px);
+                self.panels.update_drag(mouse.pixel_x, mouse.pixel_y, sw_pt, sh_pt, &metrics);
             } else if self.panels.is_resizing() {
-                self.panels.update_resize(mouse.pixel_x, mouse.pixel_y);
+                self.panels.update_resize(mouse.pixel_x, mouse.pixel_y, &metrics);
             }
         }
         if mouse.left_just_released() {
-            let (sw_px, sh_px) = self.panels.screen_size_px();
-            self.panels.end_drag(sw_px, sh_px);
+            let (sw_pt, sh_pt) = self.panels.screen_size_pt();
+            self.panels.end_drag(sw_pt, sh_pt, &metrics);
             self.panels.end_resize();
         }
     }

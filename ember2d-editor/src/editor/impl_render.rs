@@ -174,6 +174,18 @@ impl EditorState {
         self.rebuild_fonts_if_scale_changed(ui_scale);
         self.ui_space = UiSpace::from_surface(renderer, ui_scale);
 
+        // R69 (§3 in the master plan): `apply_layout` now runs BEFORE the
+        // script/graph mode early-returns below, not after — those modes
+        // used to leave `PanelManager`'s own screen size stale (a resize
+        // while in fullscreen script/graph mode didn't take effect until
+        // the user returned to Paint mode and back), since this call used
+        // to sit after both `return`s. `metrics` (7D-3, §5.4) is a
+        // `ChromeMetrics` built fresh from the CURRENT theme every frame —
+        // see that type's own doc comment for why nothing here keeps a
+        // stale copy across a theme switch.
+        let metrics = ui::ChromeMetrics::from_theme(&self.theme);
+        self.panels.apply_layout(renderer.pixel_width() as f32, renderer.pixel_height() as f32, &metrics);
+
         // Script editor mode
         if matches!(self.mode, EditorMode::Script) {
             self.render_script_mode(renderer);
@@ -187,17 +199,14 @@ impl EditorState {
             return;
         }
 
-        // Reposition docked panels — every `ui::draw_*` function below and
-        // `mouse_to_grid` (impl_state.rs) read the Viewport panel's own
-        // rect directly now (7C-3, master plan §5.3, E4). `apply_layout`
-        // works in pixels (Phase 7 Part 1c, docs/ember2d-phase7-plan.md) —
-        // `pixel_width`/`pixel_height`, not the cell-count `width`/`height`
-        // some calls below still use for whole-screen (not viewport)
-        // sizing. `viewport` is the panel's CONTENT rect (inside its
-        // border/title bar) — what `Layout.canvas_x`/`y`/`w`/`h` used to
-        // mean, now read from the one place that actually knows it.
-        self.panels.apply_layout(renderer.pixel_width(), renderer.pixel_height());
-        let viewport = self.panels.viewport().content_rect();
+        // `viewport` is the Viewport panel's CONTENT rect (inside its
+        // border/title bar), in exact pixels — what `Layout.canvas_x`/`y`/
+        // `w`/`h` used to mean, now read from the one place that actually
+        // knows it (7C-3, master plan §5.3, E4). Every `ui::draw_*`
+        // function below and `mouse_to_grid` (`impl_state/viewport.rs`)
+        // read this SAME value — see the Viewport scissor rect below for
+        // why that single source of truth is what fixes R66-A.
+        let viewport = self.panels.viewport().content_rect(&metrics);
         let (screen_w, screen_h) = (renderer.pixel_width() as f32, renderer.pixel_height() as f32);
 
         renderer.draw_rect_filled(
@@ -214,6 +223,7 @@ impl EditorState {
             renderer,
             self.font.as_mut(),
             &self.theme,
+            &metrics,
             self.active_menu,
             self.mode.toolbar_label(),
             &mut self.ui_frame,
@@ -263,6 +273,10 @@ impl EditorState {
         // ── All panels (back-to-front by z-order) ────────────────────────────
         for pid in self.panels.in_draw_order() {
             let panel = self.panels.get(pid);
+            // Only the ScriptEditor case (below) still needs the cell
+            // bridge — every other panel content function takes
+            // `panel.content_rect(&metrics)` directly now (7D-3, master
+            // plan §5.4).
             let pcy = panel.content_y();
             let pcx = panel.content_x();
             let pch = panel.content_h();
@@ -274,6 +288,7 @@ impl EditorState {
                 &self.theme,
                 &self.theme_chrome_tex,
                 self.font.as_mut(),
+                &metrics,
             );
 
             // Draw tabs if docked
@@ -290,21 +305,13 @@ impl EditorState {
                         DockSide::Bottom => self.panels.active_bottom,
                         DockSide::None => None,
                     };
-                    // `CELL_H`, not `theme.metrics.row_h` — this strip sits
+                    // `metrics.bar_h` (7D-3, docs/ember2d-master-plan.md
+                    // §5.4 — was a hardcoded `CELL_H`) — this strip sits
                     // exactly where `draw_panel_chrome`'s own title-bar row
-                    // does (`panel/mod.rs`, still `CELL_H`-tall; that
-                    // function's own pixel-layout conversion is 7D-2's
-                    // first slice, separate from this one), and
-                    // `Panel::content_y()`'s "one row below the top" still
-                    // assumes that same height. A taller strip here would
-                    // silently overlap the panel's own content by the
-                    // difference.
-                    let strip = ember2d_sim::math::Rect::new(
-                        panel.rect.x,
-                        panel.rect.y,
-                        panel.rect.w,
-                        ember2d::renderer::CELL_H as f32,
-                    );
+                    // does (`panel/chrome.rs`), through the same
+                    // `ChromeMetrics` value, so the two can't drift.
+                    let strip =
+                        ember2d_sim::math::Rect::new(panel.rect.x, panel.rect.y, panel.rect.w, metrics.bar_h);
                     ui::draw_dock_tabs(
                         renderer,
                         self.font.as_mut(),
@@ -320,24 +327,18 @@ impl EditorState {
             match pid {
                 PanelId::Viewport => {
                     // ── Set Hardware Scissor ─────────────────────────────────────
-                    // 7C-2 (master plan §5.3, E2): was a hardcoded `* 8`/
-                    // `* 16` pair duplicating CELL_W/CELL_H, the same class
-                    // of literal 7B-2 already replaced everywhere else this
-                    // conversion happens (`UiRect::from_cells`,
-                    // `backend.rs`'s own draw calls).
-                    // 7D-3 (docs/ember2d-master-plan.md §5.4): `set_scissor`
-                    // now takes an `f32` logical-pixel `Rect` (was a `u32`
-                    // tuple) — this call site's own cell-rounded-vs-exact-px
-                    // mismatch against the canvas draw below (R66, §3) is
-                    // fixed separately, in the same step's viewport-seam
-                    // commit; this is only the mechanical type-signature
-                    // update, same values as before.
-                    let scissor_rect = ember2d_sim::math::Rect::new(
-                        (pcx * ember2d::renderer::CELL_W) as f32,
-                        (pcy * ember2d::renderer::CELL_H) as f32,
-                        (pcw * ember2d::renderer::CELL_W) as f32,
-                        (pch * ember2d::renderer::CELL_H) as f32,
-                    );
+                    // R66-A (§3 in the master plan): was built from the
+                    // CELL-ROUNDED `pcx`/`pcy`/`pcw`/`pch` bridge (`* 8`/
+                    // `* 16`) — an independent re-derivation of the
+                    // viewport rect that could disagree with `viewport`
+                    // (used by every canvas draw call below) by up to a
+                    // cell after a sub-cell panel resize, since drag/resize
+                    // never snapped to whole cells. Built from `viewport`
+                    // directly now — the exact same value the canvas
+                    // itself draws from, so scissor and content can never
+                    // clip against a different rect than what's drawn.
+                    let scissor_rect =
+                        ember2d_sim::math::Rect::new(viewport.x, viewport.y, viewport.w, viewport.h);
                     renderer.set_scissor(Some(scissor_rect));
 
                     // Render Viewport content within its panel area
@@ -473,7 +474,7 @@ impl EditorState {
                         &self.theme,
                         &self.grid,
                         self.hierarchy_sel,
-                        panel.content_rect().into(),
+                        panel.content_rect(&metrics).into(),
                         &mut self.ui_frame,
                     );
                 }
@@ -485,7 +486,7 @@ impl EditorState {
                         &self.palette,
                         mode_label,
                         self.palette_scroll,
-                        panel.content_rect().into(),
+                        panel.content_rect(&metrics).into(),
                         &mut self.ui_frame,
                     );
                 }
@@ -497,7 +498,7 @@ impl EditorState {
                         insp_tile,
                         insp_pos,
                         insp_mode_tag,
-                        panel.content_rect().into(),
+                        panel.content_rect(&metrics).into(),
                         &mut self.ui_frame,
                     );
                 }
@@ -507,7 +508,7 @@ impl EditorState {
                         self.font.as_mut(),
                         &self.theme,
                         &self.console_log,
-                        panel.content_rect().into(),
+                        panel.content_rect(&metrics).into(),
                     );
                 }
                 PanelId::Stats => {
@@ -517,7 +518,7 @@ impl EditorState {
                         &self.theme,
                         &self.grid,
                         &self.palette,
-                        panel.content_rect().into(),
+                        panel.content_rect(&metrics).into(),
                     );
                 }
                 PanelId::ScriptEditor => {
@@ -548,7 +549,7 @@ impl EditorState {
                         self.file_browser_cursor,
                         self.file_browser_scroll,
                         &self.current_folder,
-                        panel.content_rect().into(),
+                        panel.content_rect(&metrics).into(),
                         &mut self.ui_frame,
                     );
                 }
@@ -618,10 +619,11 @@ impl EditorState {
                 renderer,
                 self.font.as_mut(),
                 &self.theme,
+                &metrics,
                 menu,
                 &self.available_themes,
-                mouse.cell_x,
-                mouse.cell_y,
+                mouse.pixel_x,
+                mouse.pixel_y,
                 &menu_state,
                 &mut self.ui_frame,
             );
@@ -637,6 +639,7 @@ impl EditorState {
             renderer,
             self.font.as_mut(),
             &self.theme,
+            &metrics,
             title_name,
             self.unsaved,
             self.undo.len(),
@@ -668,6 +671,7 @@ impl EditorState {
             renderer,
             self.font.as_mut(),
             &self.theme,
+            &metrics,
             mouse,
             &self.palette,
             self.show_grid,
@@ -677,8 +681,11 @@ impl EditorState {
             self.scroll,
             self.active_layer,
             self.erase_size,
-            self.panels.viewport().content_x(),
-            self.panels.viewport().content_y(),
+            // R66-D (§3 in the master plan): the exact pixel origin of
+            // `viewport` (this same frame's own content rect), not the
+            // cell-rounded `content_x()`/`content_y()` bridge — see
+            // `draw_status_bar`'s own doc comment.
+            (viewport.x, viewport.y),
             self.zoom,
         );
 
@@ -722,7 +729,7 @@ impl EditorState {
         // Help screen overlay.
         if self.show_help {
             let vp = self.panels.viewport();
-            ui::draw_help_overlay(renderer, self.font.as_mut(), &self.theme, vp.content_rect().into());
+            ui::draw_help_overlay(renderer, self.font.as_mut(), &self.theme, vp.content_rect(&metrics).into());
         }
 
         if let EditorMode::Modal(m) = &self.mode {

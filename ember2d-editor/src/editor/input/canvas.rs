@@ -1,7 +1,7 @@
 // editor/input/canvas.rs — Canvas interaction, painting, tools, and scrolling.
 
 use super::super::commands::Command;
-use super::super::ui::ToolKind;
+use super::super::ui::{ChromeMetrics, ToolKind};
 use super::super::{EditorMode, EditorState};
 use ember2d::input::Key;
 use ember2d_sim::level::TileRecord;
@@ -67,18 +67,25 @@ impl EditorState {
         }
 
         // ── Track inspected tile (last canvas cell the mouse was over) ────────
-        // 7C-3 (master plan §5.3, E4): `canvas_x`/`canvas_y`/`canvas_w`
-        // /`canvas_h` now read from the Viewport panel's own content rect
-        // instead of the deleted `Layout`'s independent cell-based copy.
+        // R66-B (§3 in the master plan): was `mouse.cell_x`/`cell_y`
+        // (viewport cells) against `vp.content_x()`/etc (the CELL-ROUNDED
+        // bridge) — an independent re-derivation of the viewport rect that
+        // could disagree with `mouse_to_grid`'s own exact-pixel gate at the
+        // same edges after a sub-cell panel resize. Uses the exact pixel
+        // `content_rect` and `mouse.pixel_x/y` now, matching
+        // `mouse_to_grid` exactly.
         let click = mouse.left_just_pressed();
-        let vp = self.panels.viewport();
-        let (canvas_x, canvas_y, canvas_w, canvas_h) =
-            (vp.content_x(), vp.content_y(), vp.content_w(), vp.content_h());
+        let metrics = ChromeMetrics::from_theme(&self.theme);
+        let viewport_rect = self.panels.viewport().content_rect(&metrics);
         let on_canvas = mouse.in_bounds
-            && mouse.cell_x >= canvas_x
-            && mouse.cell_x < canvas_x + canvas_w
-            && mouse.cell_y >= (canvas_y - 1) // Allow interaction on Viewport title bar (row 2)
-            && mouse.cell_y < canvas_y + canvas_h
+            && mouse.pixel_x >= viewport_rect.x
+            && mouse.pixel_x < viewport_rect.x + viewport_rect.w
+            // Allow interaction on the Viewport's own title bar row too,
+            // same as before this fix (the click still ultimately no-ops
+            // unless it also passes `mouse_to_grid`'s own containment
+            // check below).
+            && mouse.pixel_y >= viewport_rect.y - metrics.bar_h
+            && mouse.pixel_y < viewport_rect.y + viewport_rect.h
             // Pixel-space hit test (Phase 7 Part 1c, docs/ember2d-phase7-plan.md).
             && !self.panels.is_point_on_panel(mouse.pixel_x, mouse.pixel_y);
 
@@ -134,10 +141,10 @@ impl EditorState {
             // (master plan §5.3, E4): the pivot now uses the mouse's true
             // pixel position against the Viewport panel's own content rect,
             // not `mouse.cell_x`/`cell_y` against the deleted `Layout`'s
-            // cell-quantized origin.
-            let viewport = self.panels.viewport().content_rect();
-            let mx = (mouse.pixel_x - viewport.x) / ember2d::renderer::CELL_W as f32;
-            let my = (mouse.pixel_y - viewport.y) / ember2d::renderer::CELL_H as f32;
+            // cell-quantized origin. Reuses `viewport_rect` computed above
+            // (same exact value `on_canvas`'s own gate just used).
+            let mx = (mouse.pixel_x - viewport_rect.x) / ember2d::renderer::CELL_W as f32;
+            let my = (mouse.pixel_y - viewport_rect.y) / ember2d::renderer::CELL_H as f32;
 
             let gx_before = mx / self.zoom + self.target_scroll.0;
             let gy_before = my / self.zoom + self.target_scroll.1;

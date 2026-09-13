@@ -1,13 +1,13 @@
 // editor/ui/menu.rs — Menu system rendering and logic.
 
 use super::frame::{UiFrame, WidgetId};
+use super::metrics::ChromeMetrics;
+use super::rect::UiRect;
 use super::types::*;
 use super::widgets::{draw_row_px, draw_text_row};
-use ember2d::renderer::{color::Color, DrawSurface, Font, CELL_H, CELL_W};
+use ember2d::renderer::{color::Color, DrawSurface, Font};
 use ember2d::theme::{PaletteRole, Theme};
 use ember2d_sim::math::Rect;
-
-pub const MENU_W: usize = 22;
 
 pub enum MenuEntry {
     Item { label: &'static str, shortcut: &'static str, action: ToolbarAction },
@@ -19,15 +19,20 @@ pub enum MenuEntry {
     Sep,
 }
 
-fn menu_label_defs() -> &'static [(usize, &'static str, MenuKind)] {
+/// The top menu bar's labels, in draw/layout order (7D-3,
+/// docs/ember2d-master-plan.md §5.4: dropped each label's own fixed CELL
+/// column — `draw_menu_toolbar` now lays them out left-to-right by
+/// MEASURED width instead, so a theme's own font determines real spacing
+/// rather than an assumed monospace cell grid).
+fn menu_label_defs() -> &'static [(&'static str, MenuKind)] {
     &[
-        (1, "File", MenuKind::File),
-        (7, "Edit", MenuKind::Edit),
-        (13, "Level", MenuKind::Level),
-        (20, "View", MenuKind::View),
-        (26, "Tools", MenuKind::Tools),
-        (33, "Layers", MenuKind::Layers),
-        (41, "Theme", MenuKind::Theme),
+        ("File", MenuKind::File),
+        ("Edit", MenuKind::Edit),
+        ("Level", MenuKind::Level),
+        ("View", MenuKind::View),
+        ("Tools", MenuKind::Tools),
+        ("Layers", MenuKind::Layers),
+        ("Theme", MenuKind::Theme),
     ]
 }
 
@@ -43,10 +48,6 @@ pub fn theme_menu_entries(available: &[String]) -> Vec<MenuEntry> {
         .iter()
         .map(|name| MenuEntry::DynamicItem { label: name.clone(), action: ToolbarAction::SetTheme(name.clone()) })
         .collect()
-}
-
-fn menu_label_col(kind: MenuKind) -> usize {
-    menu_label_defs().iter().find(|(_, _, k)| *k == kind).map(|(col, _, _)| *col).unwrap_or(1)
 }
 
 pub fn menu_entries(kind: MenuKind) -> Vec<MenuEntry> {
@@ -250,71 +251,80 @@ fn is_action_enabled(action: &ToolbarAction, ms: &MenuState) -> bool {
 /// "Copy  ", ...) — 7C-4 (master plan §5.3): computed by the caller from
 /// `EditorMode` rather than passed as a bare `ToolKind`, since `ToolKind`
 /// shrank to just the four `Paint` sub-tools and no longer has a variant
-/// for every mode this indicator shows (`ui/menu.rs` has no reason to
-/// depend on `editor::EditorMode` just to render six words).
-/// `row_h` here is `CELL_H`, not `theme.metrics.row_h` — this bar's own
-/// height is layout-critical the same way `chrome.rs`'s title/status bars
-/// are: `PanelManager::new` (panel/mod.rs) starts every panel's canvas at
-/// `TOOLBAR_ROW + 1` cells down, and `draw_menu_dropdown`'s own hover
-/// detection compares `mouse_row`/`mouse_col` (still raw cell ints) — a
-/// taller row here would desync both. Column positions
-/// (`menu_label_defs`) stay literal `CELL_W` multiples for the same
-/// reason; text still renders through the theme's real font.
+/// for every mode this indicator shows.
+///
+/// `metrics.bar_h` (7D-3, docs/ember2d-master-plan.md §5.4 — was a
+/// hardcoded `CELL_H`) sizes this row; each label's own x position is now
+/// MEASURED (was a fixed `CELL_W`-multiple column per label in
+/// `menu_label_defs`), left-to-right, so real proportional text lays out
+/// correctly instead of assuming a monospace cell grid. `WidgetId::MenuBar`
+/// is pushed FIRST, covering the whole strip, so a click on empty toolbar
+/// space still resolves to something (`UiFrame::hit`'s reverse search picks
+/// whichever of the per-label pushes below wins when the click lands on
+/// one of them instead) — replaces the old `mouse.cell_y == TOOLBAR_ROW`
+/// raw-cell gate (`input/panels/menu_bar.rs`).
 pub fn draw_menu_toolbar(
     renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
     theme: &Theme,
+    metrics: &ChromeMetrics,
     active_menu: Option<MenuKind>,
     mode_label: &str,
     frame: &mut UiFrame,
 ) {
-    let row_h = CELL_H as f32;
+    let row_h = metrics.bar_h;
     let text_px = theme.font_sizes.body;
-    let row_y = TOOLBAR_ROW as f32 * row_h;
+    let row_y = row_h; // one bar below the title bar, which occupies row 0
     let panel_bg = theme.role_color(PaletteRole::PanelBg);
     let text_fg = theme.role_color(PaletteRole::TextPrimary);
     let accent = theme.role_color(PaletteRole::Accent);
     let pixel_w = renderer.pixel_width() as f32;
     renderer.fill_rect_px(Rect::new(0.0, row_y, pixel_w, row_h), panel_bg);
-    for &(col, label, kind) in menu_label_defs() {
+    frame.push(WidgetId::MenuBar, UiRect::new(0.0, row_y, pixel_w, row_h));
+    let mut draw_x = 0.0;
+    for &(label, kind) in menu_label_defs() {
         let open = active_menu == Some(kind);
         // No themed "text-on-accent" role — see `chrome.rs`'s
         // `draw_dock_tabs` comment on this same gap.
         let (fg, bg) = if open { (Color::Black, accent) } else { (text_fg, panel_bg) };
         let padded = format!(" {} ", label);
-        let draw_x = col.saturating_sub(1) as f32 * CELL_W as f32;
         let label_w = font.measure(&padded, text_px).0;
         let label_rect = Rect::new(draw_x, row_y, label_w, row_h);
         draw_row_px(renderer, frame, font, WidgetId::MenuLabel(kind), label_rect, text_px, &padded, fg, bg);
+        draw_x += label_w;
     }
     let indicator = format!("[ {} ]", mode_label);
     let indicator_w = font.measure(&indicator, text_px).0;
-    let indicator_x = (pixel_w - indicator_w - CELL_W as f32).max(0.0);
+    let pad = font.measure(" ", text_px).0;
+    let indicator_x = (pixel_w - indicator_w - pad).max(0.0);
     draw_text_row(renderer, font, &indicator, Rect::new(indicator_x, row_y, indicator_w, row_h), text_px, accent, panel_bg);
 }
 
-/// `row_h`/columns here are `CELL_H`/`CELL_W`-locked for the same reason
-/// `draw_menu_toolbar`'s own doc comment gives: `mouse_col`/`mouse_row`
-/// (the hover check below) are still raw cell ints, not pixels — a
-/// real-`row_h` dropdown would desync hover detection from what's drawn.
+/// `metrics.bar_h` sizes each row; the dropdown's own x position is read
+/// back from `WidgetId::MenuLabel(menu)`'s rect — pushed earlier THIS SAME
+/// frame by `draw_menu_toolbar`, which always runs first — rather than
+/// re-measuring the label layout a second time (7D-3, docs/ember2d-master-plan.md
+/// §5.4: the same anti-drift discipline `ui/frame.rs`'s header comment
+/// documents for every other widget). The hover check now compares the
+/// real mouse PIXEL position against each row's own drawn rect, replacing
+/// the old raw `mouse_col`/`mouse_row` cell-int comparison.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_menu_dropdown(
     renderer: &mut dyn DrawSurface,
     font: &mut dyn Font,
     theme: &Theme,
+    metrics: &ChromeMetrics,
     menu: MenuKind,
     available_themes: &[String],
-    mouse_col: usize,
-    mouse_row: usize,
+    mouse_x: f32,
+    mouse_y: f32,
     ms: &MenuState,
     frame: &mut UiFrame,
 ) {
-    let row_h = CELL_H as f32;
+    let row_h = metrics.bar_h;
     let text_px = theme.font_sizes.body;
-    let start_col = menu_label_col(menu);
-    let start_row = TOOLBAR_ROW + 1;
-    let menu_w_px = MENU_W as f32 * CELL_W as f32;
-    let col_x = start_col as f32 * CELL_W as f32;
+    let col_x = frame.rect_of(WidgetId::MenuLabel(menu)).map(|r| r.x).unwrap_or(0.0);
+    let start_row_y = 2.0 * row_h; // below the title bar AND the toolbar
     // `MenuKind::Theme`'s entries are runtime-known (`available_themes`),
     // not the fixed per-kind list every other menu draws from — see
     // `theme_menu_entries`'s own doc comment.
@@ -324,21 +334,32 @@ pub fn draw_menu_dropdown(
     let text_fg = theme.role_color(PaletteRole::TextPrimary);
     let dim = theme.role_color(PaletteRole::TextDim);
     let accent = theme.role_color(PaletteRole::Accent);
-    let start_row_y = start_row as f32 * row_h;
+    // Widest entry sets the dropdown's own width (7D-3, docs/ember2d-master-plan.md
+    // §5.4) — was a fixed cell-count (`MENU_W` = 22) regardless of content.
+    // `'>'` stands in for the widest realistic checkmark glyph when
+    // measuring (the real draw below picks the actual one per-row).
+    let menu_w_px = entries
+        .iter()
+        .map(|e| match e {
+            MenuEntry::Sep => 0.0,
+            MenuEntry::Item { label, shortcut, .. } => {
+                font.measure(&format!(" {} {:<11} {} ", '>', label, shortcut), text_px).0
+            }
+            MenuEntry::DynamicItem { label, .. } => font.measure(&format!(" {} {} ", '>', label), text_px).0,
+        })
+        .fold(0.0_f32, f32::max);
     renderer.fill_rect_px(Rect::new(col_x, start_row_y, menu_w_px, entries.len() as f32 * row_h), panel_bg);
     for (i, entry) in entries.iter().enumerate() {
-        let row = start_row + i;
-        let row_rect = Rect::new(col_x, row as f32 * row_h, menu_w_px, row_h);
+        let row_y = start_row_y + i as f32 * row_h;
+        let row_rect = Rect::new(col_x, row_y, menu_w_px, row_h);
+        let hovered = row_rect.contains_point(mouse_x, mouse_y);
         match entry {
             MenuEntry::Sep => {
-                let line: String = std::iter::repeat_n('-', MENU_W).collect();
+                let line: String = "-".repeat(20);
                 draw_text_row(renderer, font, &line, row_rect, text_px, dim, panel_bg);
-                // No hit pushed — a separator was never clickable (the old
-                // `menu_item_at` returned `None` for a `Sep` row too).
+                // No hit pushed — a separator was never clickable.
             }
             MenuEntry::Item { label, shortcut, action } => {
-                let hovered =
-                    mouse_row == row && mouse_col >= start_col && mouse_col < start_col + MENU_W;
                 let enabled = is_action_enabled(action, ms);
                 let check = menu_checkmark(action, ms);
                 // No themed "text-on-accent" role — same gap as above.
@@ -350,22 +371,13 @@ pub fn draw_menu_dropdown(
                     (text_fg, panel_bg)
                 };
                 let text = format!(" {} {:<11} {} ", check, label, shortcut);
-                // Pushed at the same MENU_W-wide, one-row rect the
-                // background fill above already covers for this row —
-                // matches the old `menu_item_at`'s `start_col..start_col+
-                // MENU_W` extent exactly (that one was never mismatched;
-                // a disabled/greyed item was always still clickable,
-                // no-opping harmlessly downstream — see this file's own
-                // note on `is_action_enabled` being cosmetic only).
                 draw_row_px(renderer, frame, font, WidgetId::MenuItem(menu, i), row_rect, text_px, &text, fg, bg);
             }
             MenuEntry::DynamicItem { label, action } => {
-                let hovered =
-                    mouse_row == row && mouse_col >= start_col && mouse_col < start_col + MENU_W;
                 let check = menu_checkmark(action, ms);
                 // No themed "text-on-accent" role — same gap as above.
                 let (fg, bg) = if hovered { (Color::Black, accent) } else { (text_fg, panel_bg) };
-                let text = format!(" {} {:<width$} ", check, label, width = MENU_W.saturating_sub(4));
+                let text = format!(" {} {} ", check, label);
                 draw_row_px(renderer, frame, font, WidgetId::MenuItem(menu, i), row_rect, text_px, &text, fg, bg);
             }
         }

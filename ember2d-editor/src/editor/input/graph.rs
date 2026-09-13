@@ -86,7 +86,15 @@ impl EditorState {
         // ── Palette open ──────────────────────────────────────────────────────
         if let Some((px, py)) = self.graph_palette_open {
             let entries = palette_entries();
-            let (_, screen_h) = self.panels.screen_size_cells();
+            // R69 (§3 in the master plan): reads `self.ui_space` (captured
+            // at the last real draw, `impl_render.rs`) instead of the
+            // removed `PanelManager::screen_size_cells` — graph mode is a
+            // fullscreen cell-grid surface that stays outside 7D-3's own
+            // points conversion (§7.1 decision gate), but its own screen
+            // size must still track the CURRENT window, not go stale the
+            // way it used to (a resize while in graph mode didn't take
+            // effect until the user left and re-entered it).
+            let (_, screen_h) = self.ui_space.screen_cells();
             let visible_h = (screen_h.saturating_sub(py + 1)).min(18);
             let selectable: Vec<usize> = entries
                 .iter()

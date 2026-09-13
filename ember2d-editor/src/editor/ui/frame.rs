@@ -47,6 +47,14 @@ pub enum WidgetId {
     CloseBtn(PanelId),
     ResizeHandle(PanelId),
     Tab(PanelId),
+    /// The top menu bar's own full-width strip — pushed BEFORE the
+    /// individual `MenuLabel`s (7D-3, docs/ember2d-master-plan.md §5.4),
+    /// so `UiFrame::hit`'s reverse search still finds a label first when
+    /// the click landed on one; this only wins for a click on the bar's
+    /// otherwise-empty space. Replaces the old `mouse.cell_y == TOOLBAR_ROW`
+    /// raw-cell gate (`input/panels/menu_bar.rs`) — the toolbar's real
+    /// row height comes from the active theme now, not a fixed cell.
+    MenuBar,
     /// One of the top menu bar's labels ("File", "Edit", …).
     MenuLabel(MenuKind),
     /// One row of an open dropdown menu, by index into

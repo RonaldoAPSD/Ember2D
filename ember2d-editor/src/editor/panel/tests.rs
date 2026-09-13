@@ -1,53 +1,73 @@
 // editor/panel/tests.rs — Phase 7 Part 1f (docs/ember2d-phase7-plan.md):
 // `Panel::new`/`apply_layout`/`validate_active_panels` tests, split into
-// their own file purely to keep `mod.rs` under CLAUDE.md's 600-line hard
-// limit. `UiRect::from_cells` itself (and its own dedicated unit tests in
-// `ui/rect.rs`) was deleted once its last real caller converted to pixel
-// construction directly (docs/ember2d-master-plan.md §5.4) — the property
-// this file's own first test pins still holds, just checked against the
-// same math inlined instead of a named helper.
+// their own file purely to keep `mod.rs` under CLAUDE.md's 750-line hard
+// limit. Rewritten in POINTS (7D-3, docs/ember2d-master-plan.md §5.4) —
+// every size here now comes from a `ChromeMetrics`, not `CELL_W`/`CELL_H`.
 
 use super::*;
 
+/// A fixed `ChromeMetrics` matching the real shipped `ember-clean` theme's
+/// own `Metrics` values (`row_h: 20, border: 6, padding: 6`,
+/// `themes/ember-clean/theme.ron`) — not synthetic numbers, but pinned
+/// directly here (rather than loading the real theme file) so these tests
+/// don't depend on it staying byte-for-byte unchanged, and stay exact and
+/// fast without touching disk.
+fn test_metrics() -> ChromeMetrics {
+    ChromeMetrics {
+        bar_h: 20.0,
+        row_h: 20.0,
+        border: 6.0,
+        padding: 6.0,
+        close_w: 20.0,
+        grip: 12.0,
+        min_w: 80.0,
+        min_h: 64.0,
+        undock_max_w: 320.0,
+        undock_max_h: 320.0,
+        dock_threshold_x: 24.0,
+        dock_threshold_y: 48.0,
+        hier_w: 112.0,
+        insp_w: 240.0,
+        pal_w: 192.0,
+        con_h: 144.0,
+        edit_h: 192.0,
+    }
+}
+
 #[test]
-fn every_panel_pm_new_constructs_matches_intended_cell_geometry() {
+fn every_panel_pm_new_constructs_matches_intended_point_geometry() {
     // Part 1's "appearance must not change" property, pinned directly
     // against every real panel `PanelManager::new` constructs — this pins
-    // that `Panel::new` builds the exact documented cell geometry for
-    // every one of the eight real panels, and that
-    // `cell_x`/`cell_y`/`cell_w`/`cell_h` invert it back exactly.
-    let (screen_w, screen_h) = (80usize, 24usize);
-    let pm = PanelManager::new(screen_w, screen_h);
+    // that `Panel::new` builds the exact documented point geometry
+    // (`ChromeMetrics::from_theme`'s own formula, `PanelManager::new`) for
+    // every one of the eight real panels.
+    let metrics = test_metrics();
+    let (screen_w, screen_h) = (640.0f32, 384.0f32);
+    let pm = PanelManager::new(screen_w, screen_h, &metrics);
 
-    let canvas_y = 2i32;
-    let canvas_h = screen_h.saturating_sub(3).max(4) as i32;
-    let insp_x = (screen_w as i32 - INSP_W as i32).max(0);
-    let pal_x = (insp_x - PAL_W as i32 - 2).max(0);
-    let con_y = screen_h as i32 - CON_H as i32 - 1;
+    let canvas_y = metrics.chrome_top();
+    let canvas_h = (screen_h - metrics.chrome_top() - metrics.bar_h).max(metrics.min_h);
+    let insp_x = (screen_w - metrics.insp_w).max(0.0);
+    let pal_x = (insp_x - metrics.pal_w - metrics.padding * 2.0).max(0.0);
+    let con_y = screen_h - metrics.con_h - metrics.bar_h;
 
-    let expected: [(PanelId, i32, i32, usize, usize); 8] = [
-        (PanelId::Viewport, 0, canvas_y, screen_w, canvas_h as usize),
-        (PanelId::Hierarchy, 0, canvas_y, HIER_W, canvas_h as usize),
-        (PanelId::Inspector, insp_x, canvas_y, INSP_W, canvas_h as usize),
-        (PanelId::Palette, pal_x, canvas_y, PAL_W, canvas_h as usize),
-        (PanelId::Console, 0, con_y, screen_w, CON_H),
-        (PanelId::Stats, pal_x, canvas_y, PAL_W, canvas_h as usize),
-        (PanelId::FileBrowser, 0, con_y, screen_w, CON_H),
-        (PanelId::ScriptEditor, 0, con_y, screen_w, EDIT_H),
+    let expected: [(PanelId, f32, f32, f32, f32); 8] = [
+        (PanelId::Viewport, 0.0, canvas_y, screen_w, canvas_h),
+        (PanelId::Hierarchy, 0.0, canvas_y, metrics.hier_w, canvas_h),
+        (PanelId::Inspector, insp_x, canvas_y, metrics.insp_w, canvas_h),
+        (PanelId::Palette, pal_x, canvas_y, metrics.pal_w, canvas_h),
+        (PanelId::Console, 0.0, con_y, screen_w, metrics.con_h),
+        (PanelId::Stats, pal_x, canvas_y, metrics.pal_w, canvas_h),
+        (PanelId::FileBrowser, 0.0, con_y, screen_w, metrics.con_h),
+        (PanelId::ScriptEditor, 0.0, con_y, screen_w, metrics.edit_h),
     ];
 
-    for (id, cx, cy, cw, ch) in expected {
+    for (id, x, y, w, h) in expected {
         let p = pm.get(id);
         assert_eq!(
             p.rect,
-            UiRect::new(cx as f32 * CELL_W, cy as f32 * CELL_H, cw as f32 * CELL_W, ch as f32 * CELL_H),
-            "{:?}'s constructed rect must equal its documented cell geometry, multiplied out",
-            id
-        );
-        assert_eq!(
-            (p.cell_x(), p.cell_y(), p.cell_w(), p.cell_h()),
-            (cx, cy, cw, ch),
-            "{:?}'s cell_x/y/w/h bridge must invert that construction exactly",
+            UiRect::new(x, y, w, h),
+            "{:?}'s constructed rect must equal its documented point geometry",
             id
         );
     }
@@ -55,14 +75,12 @@ fn every_panel_pm_new_constructs_matches_intended_cell_geometry() {
 
 #[test]
 fn apply_layout_fills_the_viewport_gap_for_every_docked_panel_combination() {
-    // Pixel-space screen matching `PanelManager::new(80, 24)`'s own cell
-    // dimensions (8x16 px/cell), so the docked panels' sizes are the real
-    // HIER_W/INSP_W/CON_H ones and not an arbitrary test size.
+    let metrics = test_metrics();
     let (screen_w, screen_h) = (640.0f32, 384.0f32);
-    let canvas_top = 2.0 * CELL_H;
-    let canvas_bottom = screen_h - CELL_H;
+    let canvas_top = metrics.chrome_top();
+    let canvas_bottom = metrics.chrome_bottom(screen_h);
 
-    let mut pm = PanelManager::new(80, 24);
+    let mut pm = PanelManager::new(screen_w, screen_h, &metrics);
 
     // (a) Default construction (7D layout default): Hierarchy left,
     // Inspector right, Console AND FileBrowser both Bottom-docked and
@@ -70,10 +88,10 @@ fn apply_layout_fills_the_viewport_gap_for_every_docked_panel_combination() {
     // active tab) — Files moved off Left, where it used to be the
     // alternate to Hierarchy. The viewport's height is already reduced
     // by the bottom dock from the very first layout pass.
-    pm.apply_layout(screen_w as usize, screen_h as usize);
-    let hier_w = HIER_W as f32 * CELL_W;
-    let insp_w = INSP_W as f32 * CELL_W;
-    let con_h = CON_H as f32 * CELL_H;
+    pm.apply_layout(screen_w, screen_h, &metrics);
+    let hier_w = metrics.hier_w;
+    let insp_w = metrics.insp_w;
+    let con_h = metrics.con_h;
     assert_eq!(pm.active_bottom, Some(PanelId::Console));
     assert_eq!(
         pm.get(PanelId::Viewport).rect,
@@ -90,7 +108,7 @@ fn apply_layout_fills_the_viewport_gap_for_every_docked_panel_combination() {
     // gap closes to zero and the viewport expands to fill it; the bottom
     // dock is untouched.
     pm.hide(PanelId::Hierarchy);
-    pm.apply_layout(screen_w as usize, screen_h as usize);
+    pm.apply_layout(screen_w, screen_h, &metrics);
     assert_eq!(
         pm.get(PanelId::Viewport).rect,
         UiRect::new(0.0, canvas_top, screen_w - insp_w, canvas_bottom - canvas_top - con_h,),
@@ -103,7 +121,7 @@ fn apply_layout_fills_the_viewport_gap_for_every_docked_panel_combination() {
     // clearing it — since the two share a height, the viewport's rect is
     // unchanged from (b).
     pm.hide(PanelId::Console);
-    pm.apply_layout(screen_w as usize, screen_h as usize);
+    pm.apply_layout(screen_w, screen_h, &metrics);
     assert_eq!(
         pm.active_bottom,
         Some(PanelId::FileBrowser),
@@ -118,7 +136,7 @@ fn apply_layout_fills_the_viewport_gap_for_every_docked_panel_combination() {
     // (d) Hide FileBrowser too: nothing left on Bottom, so its height
     // reservation disappears entirely.
     pm.hide(PanelId::FileBrowser);
-    pm.apply_layout(screen_w as usize, screen_h as usize);
+    pm.apply_layout(screen_w, screen_h, &metrics);
     assert_eq!(pm.active_bottom, None);
     assert_eq!(
         pm.get(PanelId::Viewport).rect,
@@ -128,7 +146,7 @@ fn apply_layout_fills_the_viewport_gap_for_every_docked_panel_combination() {
 
     // (e) Hide everything: the viewport must reclaim the entire canvas.
     pm.hide(PanelId::Inspector);
-    pm.apply_layout(screen_w as usize, screen_h as usize);
+    pm.apply_layout(screen_w, screen_h, &metrics);
     assert_eq!(
         pm.get(PanelId::Viewport).rect,
         UiRect::new(0.0, canvas_top, screen_w, canvas_bottom - canvas_top,),
@@ -138,7 +156,8 @@ fn apply_layout_fills_the_viewport_gap_for_every_docked_panel_combination() {
 
 #[test]
 fn validate_active_panels_recovers_to_another_visible_docked_panel_or_clears_to_none() {
-    let mut pm = PanelManager::new(80, 24);
+    let metrics = test_metrics();
+    let mut pm = PanelManager::new(640.0, 384.0, &metrics);
     assert_eq!(pm.active_left, Some(PanelId::Hierarchy));
 
     // Hiding the only visible Left-docked panel must clear the stale
@@ -187,4 +206,28 @@ fn validate_active_panels_recovers_to_another_visible_docked_panel_or_clears_to_
     pm.validate_active_panels();
     assert_eq!(pm.active_bottom, Some(PanelId::FileBrowser),
         "validate_active_panels must promote the first visible Bottom-docked panel when none is active");
+}
+
+/// R74 (§3 in the master plan): the resize grip is exactly `2 * border` on
+/// a side — its own 9-slice corners fit precisely without overlapping,
+/// unlike the old fixed 8px grip with a 6+6px border.
+#[test]
+fn chrome_metrics_resize_grip_fits_its_nine_slice_borders() {
+    let metrics = test_metrics();
+    assert_eq!(metrics.grip, 2.0 * metrics.border);
+}
+
+/// A docked panel is never squeezed so small the viewport disappears
+/// entirely — `min_w`/`min_h` (carried from the old 10x4-cell floor) are
+/// real constants regardless of the active theme's own row height.
+#[test]
+fn docked_panels_never_shrink_below_the_minimum_size() {
+    let metrics = test_metrics();
+    let mut pm = PanelManager::new(640.0, 384.0, &metrics);
+    pm.apply_layout(640.0, 384.0, &metrics);
+    pm.start_resize(PanelId::Hierarchy, 200.0, 100.0);
+    // Drag far past zero width — must clamp at `min_w`, not go negative or
+    // collapse to zero.
+    pm.update_resize(-10000.0, 100.0, &metrics);
+    assert!(pm.get(PanelId::Hierarchy).rect.w >= metrics.min_w);
 }

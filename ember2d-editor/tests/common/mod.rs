@@ -46,7 +46,7 @@ use ember2d::mouse::{MouseButton, MouseState};
 use ember2d::renderer::draw_log::DrawOp;
 use ember2d::renderer::{DisplayScale, NullRenderer, ScreenMapping, CELL_H, CELL_W};
 use ember2d_editor::editor::ui::{
-    menu_entries, theme_menu_entries, MenuEntry, MenuKind, ToolbarAction, WidgetId,
+    menu_entries, theme_menu_entries, ChromeMetrics, MenuEntry, MenuKind, ToolbarAction, WidgetId,
 };
 use ember2d_editor::editor::EditorState;
 use ember2d_sim::event::EventBus;
@@ -297,6 +297,19 @@ impl EditorHarness {
         self.end_frame();
     }
 
+    /// A mouse-wheel scroll of `dy` "notches" with the pointer resting at
+    /// logical pixel `(px, py)` — one frame, since a real wheel event and
+    /// the panel handler that reads `mouse.wheel_y` both fire within the
+    /// same frame (`MouseState::clear` in `begin_frame` is what would zero
+    /// a wheel delta left over from a previous frame, so this sets it
+    /// AFTER that, matching `click`'s own press-after-clear ordering).
+    pub fn wheel(&mut self, px: f32, py: f32, dy: f32) {
+        self.begin_frame();
+        self.move_mouse(px, py);
+        self.mouse.handle_scroll(0.0, dy);
+        self.end_frame();
+    }
+
     /// A left-button drag from `from` to `to`: press at `from` (one
     /// frame), move to `to` while still held (one frame), release (one
     /// frame).
@@ -481,7 +494,8 @@ pub fn select_dock_tab(h: &mut EditorHarness, id: ember2d_editor::editor::panel:
 /// `canvas_pixel_for_grid` when the click needs to actually land on the
 /// level's own tiles.
 pub fn canvas_center(h: &EditorHarness) -> (f32, f32) {
-    let vp = h.state.panels().viewport().content_rect();
+    let metrics = ChromeMetrics::from_theme(h.state.theme());
+    let vp = h.state.panels().viewport().content_rect(&metrics);
     (vp.x + vp.w / 2.0, vp.y + vp.h / 2.0)
 }
 
@@ -490,7 +504,8 @@ pub fn canvas_center(h: &EditorHarness) -> (f32, f32) {
 /// `mouse_to_grid` formula, inverted) — a fresh harness's default level is
 /// 32x20 at zoom 1.0/scroll (0,0), so a small `(gx, gy)` lands inside it.
 pub fn canvas_pixel_for_grid(h: &EditorHarness, gx: i32, gy: i32) -> (f32, f32) {
-    let vp = h.state.panels().viewport().content_rect();
+    let metrics = ChromeMetrics::from_theme(h.state.theme());
+    let vp = h.state.panels().viewport().content_rect(&metrics);
     let zoom = 1.0; // EditorState::new's default
     let local_x = (gx as f32 - 0.0 /* scroll.0 */ + 0.5) * zoom;
     let local_y = (gy as f32 - 0.0 /* scroll.1 */ + 0.5) * zoom;

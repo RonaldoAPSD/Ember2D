@@ -127,7 +127,7 @@ impl EditorState {
         }
 
         // 2. Localize to viewport content space (pixels).
-        let viewport = self.panels.viewport().content_rect();
+        let viewport = self.panels.viewport().content_rect(&super::ui::ChromeMetrics::from_theme(&self.theme));
         if !viewport.contains(px, py) {
             return None;
         }
@@ -141,17 +141,28 @@ impl EditorState {
         Some((gx, gy))
     }
 
+    /// The viewport's own content area, in `CELL_W`/`CELL_H` TILES — R66-C
+    /// (§3 in the master plan): `center_on`/`clamp_scroll` below used to
+    /// read `Panel::content_w()`/`content_h()` (the CELL-ROUNDED bridge) as
+    /// a tile count directly, which silently changed meaning the moment a
+    /// panel's real pixel size stopped being a whole-cell multiple (a
+    /// theme's `row_h`/`border` rarely divide `CELL_H`/`CELL_W` evenly).
+    /// Computed from the EXACT `content_rect` instead, matching
+    /// `mouse_to_grid`'s own formula above.
+    fn viewport_tiles(&self) -> (f32, f32) {
+        let viewport = self.panels.viewport().content_rect(&super::ui::ChromeMetrics::from_theme(&self.theme));
+        (viewport.w / ember2d::renderer::CELL_W as f32, viewport.h / ember2d::renderer::CELL_H as f32)
+    }
+
     pub(super) fn center_on(&mut self, gx: i32, gy: i32) {
-        let canvas_w = self.panels.viewport().content_w() as f32;
-        let canvas_h = self.panels.viewport().content_h() as f32;
+        let (canvas_w, canvas_h) = self.viewport_tiles();
         self.target_scroll.0 = (gx as f32 - canvas_w / 2.0 / self.zoom).max(0.0);
         self.target_scroll.1 = (gy as f32 - canvas_h / 2.0 / self.zoom).max(0.0);
         self.clamp_scroll();
     }
 
     pub(super) fn clamp_scroll(&mut self) {
-        let canvas_w = self.panels.viewport().content_w() as f32;
-        let canvas_h = self.panels.viewport().content_h() as f32;
+        let (canvas_w, canvas_h) = self.viewport_tiles();
         let max_x = (self.grid.width as f32 - canvas_w / self.zoom).max(0.0);
         let max_y = (self.grid.height as f32 - canvas_h / self.zoom).max(0.0);
         self.target_scroll.0 = self.target_scroll.0.clamp(0.0, max_x);

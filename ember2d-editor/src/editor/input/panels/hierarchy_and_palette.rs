@@ -7,6 +7,7 @@
 
 use super::super::super::commands::Command;
 use super::super::super::panel::PanelId;
+use super::super::super::ui::ChromeMetrics;
 use super::super::super::ui::HierarchySelection;
 use super::super::super::ui::WidgetId;
 use super::super::super::EditorMode;
@@ -56,7 +57,20 @@ impl EditorState {
     pub(super) fn handle_palette_click(&mut self, mouse: &ember2d::mouse::MouseState) -> bool {
         if self.panels.visible(PanelId::Palette) && mouse.in_bounds {
             let p = self.panels.get(PanelId::Palette);
-            let ch = p.content_h();
+            // R72 (§3 in the master plan): was `p.content_h()` (a
+            // CELL-ROUNDED row count) minus a literal `2` — an
+            // approximation of `draw_palette_panel`'s own `max_rows`/
+            // `visible_rows` (`ui/panels/dock.rs`) that only agreed with it
+            // by coincidence at the old fixed 16px `CELL_H`, and drifted
+            // once bars/rows followed the theme's real `row_h` instead —
+            // the wheel could stop short of the palette's last few rows.
+            // Recomputed here with the EXACT same formula the draw side
+            // uses, from the same pixel `content_rect`, so scrolling can
+            // never disagree with what's actually drawn.
+            let metrics = ChromeMetrics::from_theme(&self.theme);
+            let content = p.content_rect(&metrics);
+            let max_rows = ((content.h / metrics.row_h).floor() as usize).max(1);
+            let visible_rows = max_rows.saturating_sub(3);
 
             if p.contains(mouse.pixel_x, mouse.pixel_y) {
                 use crate::editor::palette::PaletteRow;
@@ -66,7 +80,7 @@ impl EditorState {
                 // "click" with a drawn hitbox to drift from.
                 if mouse.wheel_y != 0.0 {
                     let delta = -(mouse.wheel_y as i32);
-                    let max_scroll = layout.len().saturating_sub(ch.saturating_sub(2));
+                    let max_scroll = layout.len().saturating_sub(visible_rows);
                     self.palette_scroll =
                         (self.palette_scroll as i32 + delta).clamp(0, max_scroll as i32) as usize;
                 }
@@ -95,7 +109,7 @@ impl EditorState {
                             });
                             self.undo.push(Command::UpdatePalette { before, after: self.palette.clone() });
                             self.palette.selected = self.palette.tiles.len() - 1;
-                            self.palette_scroll = layout.len().saturating_sub(ch.saturating_sub(2));
+                            self.palette_scroll = layout.len().saturating_sub(visible_rows);
                             self.save_message = Some("Added new palette item.".to_string());
                             self.save_message_timer = 0;
                             self.unsaved = true;
