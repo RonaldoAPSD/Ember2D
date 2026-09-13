@@ -12,7 +12,7 @@ use super::super::types::*;
 use super::super::widgets::{draw_row_px, draw_text_row};
 use crate::editor::grid::LevelGrid;
 use crate::editor::palette::TilePalette;
-use ember2d::renderer::{color::Color, DrawSurface, Font};
+use ember2d::renderer::{color::Color, DrawSurface, Font, CELL_H, CELL_W};
 use ember2d::theme::{PaletteRole, Theme};
 use ember2d_sim::level::TileRecord;
 use ember2d_sim::math::{Rect, Vec2};
@@ -37,10 +37,7 @@ pub fn draw_palette_panel(
     palette: &TilePalette,
     mode: Option<&str>,
     scroll: usize,
-    cx: usize,
-    cy: usize,
-    cw: usize,
-    ch: usize,
+    content: Rect,
     frame: &mut UiFrame,
 ) {
     let panel_bg = theme.role_color(PaletteRole::PanelBg);
@@ -48,80 +45,87 @@ pub fn draw_palette_panel(
     let dim = theme.role_color(PaletteRole::TextDim);
     let accent = theme.role_color(PaletteRole::Accent);
     let selection = theme.role_color(PaletteRole::Selection);
+    let row_h = theme.metrics.row_h;
+    let text_px = theme.font_sizes.body;
+    let max_rows = ((content.h / row_h).floor() as usize).max(1);
 
     if let Some(m) = mode {
-        // Rust's own `{:^width$}` centers by character count, same
-        // "1 char = 1 cell" assumption as a hand-rolled `.len()` centering
-        // formula would make (Phase 7 Part 2c, docs/ember2d-phase7-plan.md)
-        // — replicated by hand here so the padding comes from `Font::measure`
-        // instead. Byte-for-byte identical output under `BitmapFont`: same
-        // left/right split Rust's own formatter uses (extra padding cell,
-        // if any, goes on the right).
-        let text_w = cells(font, m);
-        let total_pad = cw.saturating_sub(text_w);
-        let left_pad = total_pad / 2;
-        let right_pad = total_pad - left_pad;
-        let header = format!(" {}{}{} ", " ".repeat(left_pad), m, " ".repeat(right_pad));
-        renderer.draw_str(cx, cy, &header, Color::Black, accent);
+        // Centered through real measurement now, not a `{:^width$}`
+        // character-count center (Phase 7 Part 2c's own "1 char = 1 cell"
+        // assumption, no longer true once this draws through the theme's
+        // real font).
+        let header_rect = Rect::new(content.x, content.y, content.w, row_h);
+        let text_w = font.measure(m, text_px).0;
+        let text_x = content.x + ((content.w - text_w) / 2.0).max(0.0);
+        renderer.fill_rect_px(header_rect, accent);
+        let baseline_y = header_rect.y + font.ascent(text_px);
+        renderer.draw_text_px(font, m, Vec2::new(text_x, baseline_y), text_px, Color::Black);
     }
 
-    // 1. Search Bar
-    let search_row = cy + 1;
-    let search_label = format!(
-        " S: [{:<width$}]",
-        if palette.search.is_empty() { "Search..." } else { &palette.search },
-        width = cw.saturating_sub(6)
-    );
-    renderer.draw_str(
-        cx,
-        search_row,
-        &search_label,
-        if palette.search.is_empty() { dim } else { text_fg },
-        panel_bg,
-    );
-    frame.push(WidgetId::PaletteSearchBar, UiRect::from_cells(cx as i32, search_row as i32, cw, 1));
+    // 1. Search Bar — always the second row, whether or not a mode header
+    // drew into the first (matching the old cell math's unconditional
+    // `cy + 1`).
+    let search_rect = Rect::new(content.x, content.y + row_h, content.w, row_h);
+    let search_label =
+        format!(" S: [{}]", if palette.search.is_empty() { "Search..." } else { &palette.search });
+    let search_fg = if palette.search.is_empty() { dim } else { text_fg };
+    draw_text_row(renderer, font, &search_label, search_rect, text_px, search_fg, panel_bg);
+    frame.push(WidgetId::PaletteSearchBar, UiRect::new(search_rect.x, search_rect.y, search_rect.w, search_rect.h));
 
     use crate::editor::palette::PaletteRow;
     let layout = palette.build_layout();
-    let visible_rows = ch.saturating_sub(3); // Room for header, search, and buttons
-    let list_start = cy + 2;
+    let visible_rows = max_rows.saturating_sub(3); // Room for header, search, and buttons
 
     for (i, row_item) in layout.iter().enumerate().skip(scroll).take(visible_rows) {
-        let row = list_start + (i - scroll);
-        if row >= cy + ch - 1 {
+        let row_index = 2 + (i - scroll);
+        if row_index + 1 >= max_rows {
             break;
         }
+        let row_rect = Rect::new(content.x, content.y + row_index as f32 * row_h, content.w, row_h);
 
         match row_item {
             PaletteRow::Header(name) => {
                 let is_collapsed = palette.collapsed.contains(name);
                 let icon = if is_collapsed { "[+]" } else { "[-]" };
                 let label = format!("{} {}", icon, name);
-                let clipped: String =
-                    format!("{:<width$}", label, width = cw).chars().take(cw).collect();
-                renderer.draw_str(cx, row, &clipped, accent, panel_bg);
+                draw_text_row(renderer, font, &label, row_rect, text_px, accent, panel_bg);
             }
             PaletteRow::Item(idx) => {
                 let tile = &palette.tiles[*idx];
                 let is_selected = *idx == palette.selected;
                 let row_bg = if is_selected { selection } else { panel_bg };
 
-                // Row background
-                renderer.draw_rect_filled(cx, row, cw, 1, ' ', Color::White, row_bg);
+                renderer.fill_rect_px(row_rect, row_bg);
 
-                // Indented glyph container [ # ]
-                let gx = cx + 2;
-                renderer.draw_str(gx, row, "[   ]", if is_selected { accent } else { text_fg }, row_bg);
-                renderer.draw_char(gx + 2, row, tile.glyph, tile.fg, tile.bg);
+                // Indented glyph container [ # ] — the glyph itself stays
+                // on the engine's own bitmap-font pipeline (`draw_char`,
+                // cell-addressed), not the theme's font: it's a literal
+                // preview of how this tile glyph renders in-game, the same
+                // "never themed" reasoning the 7C-9 decision gate applies
+                // to the viewport itself, just for one glyph instead of
+                // the whole canvas.
+                let gx = row_rect.x + font.measure("  ", text_px).0;
+                let baseline_y = row_rect.y + font.ascent(text_px);
+                renderer.draw_text_px(
+                    font,
+                    "[   ]",
+                    Vec2::new(gx, baseline_y),
+                    text_px,
+                    if is_selected { accent } else { text_fg },
+                );
+                let glyph_cell_x = ((gx + font.measure("[ ", text_px).0) / CELL_W as f32).round() as usize;
+                let glyph_cell_y = (row_rect.y / CELL_H as f32).round() as usize;
+                renderer.draw_char(glyph_cell_x, glyph_cell_y, tile.glyph, tile.fg, tile.bg);
 
                 // Indented name
-                let name_col = gx + 5;
-                let max_name_len = cw.saturating_sub(gx - cx + 7);
-                let name_disp: String = tile.name.chars().take(max_name_len).collect();
-                renderer.draw_str(
-                    name_col,
-                    row,
-                    &name_disp,
+                let name_x = gx + font.measure("[   ] ", text_px).0;
+                let name_rect = Rect::new(name_x, row_rect.y, (row_rect.x + row_rect.w - name_x).max(0.0), row_h);
+                draw_text_row(
+                    renderer,
+                    font,
+                    &tile.name,
+                    name_rect,
+                    text_px,
                     if is_selected { text_fg } else { dim },
                     row_bg,
                 );
@@ -133,22 +137,24 @@ pub fn draw_palette_panel(
                     _ => None,
                 };
                 if let Some(num) = shortcut {
-                    renderer.draw_str(cx + cw - 1, row, &num, accent, row_bg);
+                    let num_x = row_rect.x + row_rect.w - font.measure(&num, text_px).0;
+                    renderer.draw_text_px(font, &num, Vec2::new(num_x, baseline_y), text_px, accent);
                 }
             }
         }
-        frame.push(WidgetId::PaletteRow(i), UiRect::from_cells(cx as i32, row as i32, cw, 1));
+        frame.push(WidgetId::PaletteRow(i), UiRect::new(row_rect.x, row_rect.y, row_rect.w, row_rect.h));
     }
 
     // [+ New] and [ Edit ] buttons at the bottom row
-    let btn_row = cy + ch - 1;
-    renderer.draw_str(cx, btn_row, " [ + New ] ", text_fg, selection);
-    frame.push(WidgetId::PaletteNewBtn, UiRect::from_cells(cx as i32, btn_row as i32, 11, 1));
-    renderer.draw_str(cx + cw - 10, btn_row, " [ Edit ] ", text_fg, panel_bg);
-    frame.push(
-        WidgetId::PaletteEditBtn,
-        UiRect::from_cells((cx + cw - 10) as i32, btn_row as i32, 10, 1),
-    );
+    let btn_row_rect = Rect::new(content.x, content.y + (max_rows - 1) as f32 * row_h, content.w, row_h);
+    let new_label = " [ + New ] ";
+    let new_w = font.measure(new_label, text_px).0;
+    let new_rect = Rect::new(btn_row_rect.x, btn_row_rect.y, new_w, row_h);
+    draw_row_px(renderer, frame, font, WidgetId::PaletteNewBtn, new_rect, text_px, new_label, text_fg, selection);
+    let edit_label = " [ Edit ] ";
+    let edit_w = font.measure(edit_label, text_px).0;
+    let edit_rect = Rect::new(btn_row_rect.x + btn_row_rect.w - edit_w, btn_row_rect.y, edit_w, row_h);
+    draw_row_px(renderer, frame, font, WidgetId::PaletteEditBtn, edit_rect, text_px, edit_label, text_fg, panel_bg);
 }
 
 /// The first panel converted off the character-cell grid entirely

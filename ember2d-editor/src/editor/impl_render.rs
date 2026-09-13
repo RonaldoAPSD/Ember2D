@@ -451,10 +451,7 @@ impl EditorState {
                         &self.palette,
                         mode_label,
                         self.palette_scroll,
-                        pcx,
-                        pcy,
-                        pcw,
-                        pch,
+                        panel.content_rect().into(),
                         &mut self.ui_frame,
                     );
                 }
