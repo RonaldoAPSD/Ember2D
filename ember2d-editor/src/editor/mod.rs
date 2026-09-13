@@ -38,7 +38,10 @@ use ui::{MenuKind, ToolKind, UiFrame};
 /// lint doesn't flag the field's own type directly.
 pub(super) type PaintBatch = BTreeMap<(i32, i32, u8), (Option<TileRecord>, Option<TileRecord>)>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// `Hash` (7D-3, master plan §5.4): lets this double as a `WidgetId`
+// variant's own payload (`WidgetId::PaletteEditorField`), the same reason
+// `HierarchySelection`/`InspectorField` derive it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PaletteField {
     Name,
     Tag,

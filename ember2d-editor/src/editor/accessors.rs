@@ -96,6 +96,18 @@ impl EditorState {
         self.palette.tiles.len()
     }
 
+    pub fn palette_tile(&self, idx: usize) -> &super::palette::TileDefinition {
+        &self.palette.tiles[idx]
+    }
+
+    /// Which tile the palette editor modal is currently open on
+    /// (`EditorMode::PaletteEditor`'s own implicit argument, not carried by
+    /// the mode itself) — a test opening the editor via the panel's own
+    /// `[Edit]` button needs this to read back the right tile afterward.
+    pub fn palette_editing_idx(&self) -> usize {
+        self.palette_editing_idx
+    }
+
     /// Row count of the built (headers + visible items) Palette layout —
     /// what `draw_palette_panel`/`handle_palette_click` both scroll against
     /// (`WidgetId::PaletteRow(idx)` indexes into this same layout), distinct

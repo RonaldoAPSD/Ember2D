@@ -16,18 +16,30 @@ use ember2d_sim::math::Rect;
 
 use super::chrome::{draw_themed_frame, draw_themed_title_strip};
 
-/// `row_h` here is deliberately `CELL_H`, NOT `theme.metrics.row_h` the
-/// way every other converted panel uses — `input/mod.rs`'s
-/// `handle_palette_editor_input` (and `handle_color_picker_input` below)
-/// still hit-test most of this modal's rows by comparing `mouse.cell_y`
-/// against `my + N` (a genuine, pre-existing E5-class independent
-/// recompute, never migrated to `UiFrame` for this modal). Real `row_h`
-/// would land rows on non-integer cell boundaries and break that
-/// comparison outright, not just misalign it by a few pixels — migrating
-/// this modal's own input handling to `UiFrame` is real, separate work
-/// this conversion isn't attempting. Text still renders through the
-/// theme's real font at `font_sizes.body`; only the vertical RHYTHM
-/// stays cell-locked.
+/// The advanced color picker's hue bar step count — shared with
+/// `input/palette_editor.rs`'s own `handle_color_picker_input` so both
+/// sides name the same 36 columns instead of each spelling the literal
+/// out separately (R65's own "one source of truth" reasoning, just for a
+/// constant rather than a rect).
+pub const HUE_BAR_STEPS: usize = 36;
+/// The advanced color picker's saturation/value map dimensions — same
+/// shared-constant reasoning as `HUE_BAR_STEPS`.
+pub const SV_MAP_W: usize = 20;
+pub const SV_MAP_H: usize = 8;
+
+/// R65 (§3 in the master plan): used to run at `CELL_H`, NOT
+/// `theme.metrics.row_h`, because `input/mod.rs`'s `handle_palette_editor_input`
+/// hit-tested every row by comparing `mouse.cell_y`/`mouse.cell_x` against
+/// `my`/`mx` values it recomputed independently — in CELL units, from a
+/// ROUNDED `screen_cells()`, while this function centered in real px. When
+/// the leftover cell-count remainder was odd (true at the default
+/// 1280×720), the two disagreed by half a row, landing a click on the
+/// wrong field. Fixed by giving every interactive row its own `WidgetId`,
+/// pushed at the exact point it's drawn here — `handle_palette_editor_input`
+/// now reads them back via `UiFrame::hit` instead of recomputing any of
+/// this layout itself, the same fix already applied to every other panel
+/// in this step. `row_h` is `theme.metrics.row_h` now, like the rest of
+/// this step's chrome.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_palette_editor_modal(
     renderer: &mut dyn DrawSurface,
@@ -40,8 +52,10 @@ pub fn draw_palette_editor_modal(
     screen_h: f32,
     frame: &mut UiFrame,
 ) {
+    use crate::editor::PaletteField;
+
     const MH_ROWS: usize = 18;
-    let row_h = CELL_H as f32;
+    let row_h = theme.metrics.row_h;
     let text_px = theme.font_sizes.body;
     let mw = 36.0 * CELL_W as f32;
     let mh = MH_ROWS as f32 * row_h;
@@ -66,10 +80,21 @@ pub fn draw_palette_editor_modal(
     let title_w = font.measure(&title, text_px).0;
     draw_text_row(renderer, font, &title, Rect::new(cx, my, title_w, row_h), text_px, title_fg, panel_bg);
     let close_w = font.measure("[X]", text_px).0;
-    draw_text_row(renderer, font, "[X]", Rect::new(mx + mw - close_w - CELL_W as f32, my, close_w, row_h), text_px, title_fg, panel_bg);
+    draw_button_px(
+        renderer,
+        frame,
+        font,
+        WidgetId::PaletteEditorClose,
+        Rect::new(mx + mw - close_w - CELL_W as f32, my, close_w, row_h),
+        text_px,
+        "[X]",
+        title_fg,
+        panel_bg,
+    );
 
-    // Name
-    let is_name_focused = matches!(focus, Some(crate::editor::PaletteField::Name));
+    // Name — the whole row is the click target (matches the old
+    // `mouse.cell_y == my + N` gate, which didn't care about `x` either).
+    let is_name_focused = matches!(focus, Some(PaletteField::Name));
     let name_val = if is_name_focused { format!("{}█", pal.name) } else { pal.name.clone() };
     draw_text_row(renderer, font, "Name: ", row_rect(2), text_px, text_fg, panel_bg);
     let name_x = cx + font.measure("Name: ", text_px).0;
@@ -84,9 +109,11 @@ pub fn draw_palette_editor_modal(
         if is_name_focused { accent } else { text_fg },
         input_bg,
     );
+    let r = row_rect(2);
+    frame.push(WidgetId::PaletteEditorField(PaletteField::Name), UiRect::new(r.x, r.y, r.w, r.h));
 
     // Glyph
-    let is_glyph_focused = matches!(focus, Some(crate::editor::PaletteField::Glyph));
+    let is_glyph_focused = matches!(focus, Some(PaletteField::Glyph));
     let glyph_val = if is_glyph_focused { '█' } else { pal.glyph };
     draw_text_row(renderer, font, "Glyph:", row_rect(3), text_px, text_fg, panel_bg);
     let glyph_x = cx + font.measure("Glyph:", text_px).0;
@@ -101,6 +128,8 @@ pub fn draw_palette_editor_modal(
         if is_glyph_focused { accent } else { text_fg },
         input_bg,
     );
+    let r = row_rect(3);
+    frame.push(WidgetId::PaletteEditorField(PaletteField::Glyph), UiRect::new(r.x, r.y, r.w, r.h));
     // The glyph preview stays on the engine's own bitmap-font pipeline —
     // same "literal in-game preview, not chrome" reasoning `dock.rs`'s
     // `draw_palette_panel` already documents for its own glyph preview.
@@ -108,16 +137,39 @@ pub fn draw_palette_editor_modal(
     let preview_cell_y = (row_rect(3).y / CELL_H as f32).round() as usize;
     renderer.draw_char(preview_cell_x, preview_cell_y, pal.glyph, pal.fg, pal.bg);
 
-    // Toggles
-    let toggles = format!(
-        "Solid: [{}]   Trigger: [{}]",
-        if pal.solid { 'x' } else { ' ' },
-        if pal.trigger { 'x' } else { ' ' }
+    // Toggles — two independent widgets, side by side, each sized to its
+    // own measured label (was one shared text row with fixed `cx..cx+10`/
+    // `cx+13..cx+25` cell ranges, R65).
+    let solid_label = format!("Solid: [{}]", if pal.solid { 'x' } else { ' ' });
+    let solid_w = font.measure(&solid_label, text_px).0;
+    draw_button_px(
+        renderer,
+        frame,
+        font,
+        WidgetId::PaletteEditorToggle { is_solid: true },
+        Rect::new(cx, row_rect(4).y, solid_w, row_h),
+        text_px,
+        &solid_label,
+        text_fg,
+        panel_bg,
     );
-    draw_text_row(renderer, font, &toggles, row_rect(4), text_px, text_fg, panel_bg);
+    let trigger_x = cx + solid_w + font.measure("   ", text_px).0;
+    let trigger_label = format!("Trigger: [{}]", if pal.trigger { 'x' } else { ' ' });
+    let trigger_w = font.measure(&trigger_label, text_px).0;
+    draw_button_px(
+        renderer,
+        frame,
+        font,
+        WidgetId::PaletteEditorToggle { is_solid: false },
+        Rect::new(trigger_x, row_rect(4).y, trigger_w, row_h),
+        text_px,
+        &trigger_label,
+        text_fg,
+        panel_bg,
+    );
 
     // Tag
-    let is_tag_focused = matches!(focus, Some(crate::editor::PaletteField::Tag));
+    let is_tag_focused = matches!(focus, Some(PaletteField::Tag));
     let tag_val = if is_tag_focused { format!("{}█", pal.tag) } else { pal.tag.clone() };
     draw_text_row(renderer, font, "Tag:  ", row_rect(5), text_px, text_fg, panel_bg);
     let tag_x = cx + font.measure("Tag:  ", text_px).0;
@@ -132,6 +184,8 @@ pub fn draw_palette_editor_modal(
         if is_tag_focused { accent } else { text_fg },
         input_bg,
     );
+    let r = row_rect(5);
+    frame.push(WidgetId::PaletteEditorField(PaletteField::Tag), UiRect::new(r.x, r.y, r.w, r.h));
 
     // Color Grids — 7C-1 (master plan §5.3): `draw_swatch_px` registers
     // each cell's own rect, and `PALETTE_COLORS` replaces this function's,
@@ -160,7 +214,18 @@ pub fn draw_palette_editor_modal(
         );
     }
     let fg_custom_label = format!("[ {} ]", custom_color_label(pal.fg));
-    draw_text_row(renderer, font, &fg_custom_label, row_rect(10), text_px, text_fg, input_bg);
+    let fg_custom_w = font.measure(&fg_custom_label, text_px).0;
+    draw_button_px(
+        renderer,
+        frame,
+        font,
+        WidgetId::PaletteEditorCustomColor { is_fg: true },
+        Rect::new(cx, row_rect(10).y, fg_custom_w, row_h),
+        text_px,
+        &fg_custom_label,
+        text_fg,
+        input_bg,
+    );
 
     draw_text_row(renderer, font, "Background Color:", row_rect(11), text_px, dim, panel_bg);
     for (i, &col) in PALETTE_COLORS.iter().enumerate() {
@@ -180,30 +245,52 @@ pub fn draw_palette_editor_modal(
         );
     }
     let bg_custom_label = format!("[ {} ]", custom_color_label(pal.bg));
-    draw_text_row(renderer, font, &bg_custom_label, row_rect(14), text_px, text_fg, input_bg);
+    let bg_custom_w = font.measure(&bg_custom_label, text_px).0;
+    draw_button_px(
+        renderer,
+        frame,
+        font,
+        WidgetId::PaletteEditorCustomColor { is_fg: false },
+        Rect::new(cx, row_rect(14).y, bg_custom_w, row_h),
+        text_px,
+        &bg_custom_label,
+        text_fg,
+        input_bg,
+    );
 
-    // Buttons at the bottom — drawn only, no `frame.push`: `input/mod.rs`'s
-    // own click handling for these two reads fixed cell ranges
-    // (`mx+2..mx+20`, `mx+22..mx+34`) independently, same pre-existing
-    // E5-class gap `row_h`'s own doc comment above names; positioned at
-    // those same fixed cell offsets here so the two stay visually
-    // aligned. No themed "text-on-accent" role exists (same gap
+    // Buttons at the bottom — R65: each is now its own `WidgetId`, sized to
+    // its own measured label, instead of a fixed cell range
+    // (`mx+2..mx+20`/`mx+22..mx+34`) `input/mod.rs` used to recompute
+    // independently. No themed "text-on-accent" role exists (same gap
     // `chrome.rs`'s `draw_dock_tabs` comments on), so Save & Close stays
     // plain black-on-accent. Delete uses the theme's `Danger` role rather
-    // than a literal red — this button really is a destructive action,
-    // so it gets the semantic-color treatment, not decorative chrome.
+    // than a literal red — this button really is a destructive action, so
+    // it gets the semantic-color treatment, not decorative chrome.
     let btn_row = row_rect(MH_ROWS - 2);
-    let save_x = mx + 2.0 * CELL_W as f32;
-    let save_w = 18.0 * CELL_W as f32;
-    draw_text_row(renderer, font, " [ Save & Close ] ", Rect::new(save_x, btn_row.y, save_w, row_h), text_px, Color::Black, accent);
-    let delete_x = mx + 22.0 * CELL_W as f32;
-    let delete_w = 12.0 * CELL_W as f32;
-    draw_text_row(
+    let save_label = " [ Save & Close ] ";
+    let save_w = font.measure(save_label, text_px).0;
+    draw_button_px(
         renderer,
+        frame,
         font,
-        " [ Delete ] ",
+        WidgetId::PaletteEditorSaveClose,
+        Rect::new(cx, btn_row.y, save_w, row_h),
+        text_px,
+        save_label,
+        Color::Black,
+        accent,
+    );
+    let delete_label = " [ Delete ] ";
+    let delete_w = font.measure(delete_label, text_px).0;
+    let delete_x = cx + save_w + font.measure("   ", text_px).0;
+    draw_button_px(
+        renderer,
+        frame,
+        font,
+        WidgetId::PaletteEditorDelete,
         Rect::new(delete_x, btn_row.y, delete_w, row_h),
         text_px,
+        delete_label,
         theme.role_color(PaletteRole::TitleText),
         danger,
     );
@@ -288,7 +375,7 @@ pub fn draw_color_picker_modal(
     // paints literal HSV-derived RGB, same reasoning as `PALETTE_COLORS`
     // above — it's the color being picked, not decorative chrome.
     draw_text_row(renderer, font, "Hue:", row_rect(2), text_px, dim, panel_bg);
-    let hbar_w = 36;
+    let hbar_w = HUE_BAR_STEPS;
     let hbar_x_cell = ((cx + 5.0 * CELL_W as f32) / CELL_W as f32).round() as usize;
     let hbar_row_cell = (row_rect(2).y / CELL_H as f32).round() as usize;
     for i in 0..hbar_w {
@@ -311,8 +398,8 @@ pub fn draw_color_picker_modal(
     // 2. SV Map (Saturation vs Value) — same continuous-area reasoning as
     // the hue bar above.
     draw_text_row(renderer, font, "Sat/Val Map:", row_rect(4), text_px, dim, panel_bg);
-    let map_w = 20;
-    let map_h = 8;
+    let map_w = SV_MAP_W;
+    let map_h = SV_MAP_H;
     let map_x = hbar_x_cell;
     let map_y = (row_rect(5).y / CELL_H as f32).round() as usize;
     for sy in 0..map_h {

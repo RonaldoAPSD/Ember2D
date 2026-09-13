@@ -218,18 +218,11 @@ fn adding_a_palette_item_via_the_new_button_is_undoable() {
 fn editing_a_palette_item_in_the_modal_editor_undoes_as_one_session() {
     // 7C-6 (master plan §5.3, D18): the modal palette editor's own path —
     // covers `palette_edit_before`/`close_palette_editor`, distinct from
-    // the docked panel's standalone [+ New] button tested above. The
-    // editor's title/field rows have no `WidgetId` (7C-1's own "Landed
-    // as" note: only its two color grids were migrated), so this clicks
-    // by raw cell position, mirroring the modal's own `mx`/`my`/`cx` math
-    // (`input/mod.rs`'s `handle_palette_editor_input`).
-    fn cell_click(h: &mut EditorHarness, col: usize, row: usize) {
-        h.click(
-            col as f32 * ember2d::renderer::CELL_W as f32 + 1.0,
-            row as f32 * ember2d::renderer::CELL_H as f32 + 1.0,
-        );
-    }
-
+    // the docked panel's standalone [+ New] button tested above. R65
+    // (7D-3, master plan §5.4) gave every field/toggle/button its own
+    // `WidgetId`, so this now clicks through `rect_of` like every other
+    // migrated modal, instead of the raw cell position the old
+    // `mx`/`my`/`cx` cell math (since removed) used to require.
     let mut h = EditorHarness::new();
     open_menu(&mut h, MenuKind::View);
     click_menu_item(&mut h, MenuKind::View, |a| matches!(a, ToolbarAction::TogglePalette));
@@ -242,18 +235,23 @@ fn editing_a_palette_item_in_the_modal_editor_undoes_as_one_session() {
     h.click(edit_btn_rect.x + 1.0, edit_btn_rect.y + 1.0);
     assert!(matches!(h.state.mode(), EditorMode::PaletteEditor));
 
-    let (sw, sh) = h.state.ui_space().screen_cells();
-    let (mw, mh) = (36usize, 18usize);
-    let mx = (sw.saturating_sub(mw)) / 2;
-    let my = (sh.saturating_sub(mh)) / 2;
-    let cx = mx + 2;
-
     let undo_before = h.state.undo_len();
 
-    // Toggle "solid" (row my+4, the "solid" checkbox starts at cx).
-    cell_click(&mut h, cx, my + 4);
-    // [ Save & Close ] — row my+mh-2, x in [mx+2, mx+20).
-    cell_click(&mut h, mx + 5, my + mh - 2);
+    // Toggle "solid".
+    let solid_rect = h
+        .state
+        .ui_frame()
+        .rect_of(WidgetId::PaletteEditorToggle { is_solid: true })
+        .expect("the palette editor's Solid toggle was not drawn");
+    h.click(solid_rect.x + 1.0, solid_rect.y + 1.0);
+
+    // [ Save & Close ].
+    let save_rect = h
+        .state
+        .ui_frame()
+        .rect_of(WidgetId::PaletteEditorSaveClose)
+        .expect("the palette editor's [ Save & Close ] button was not drawn");
+    h.click(save_rect.x + 1.0, save_rect.y + 1.0);
 
     assert!(matches!(h.state.mode(), EditorMode::Paint(ToolKind::Paint)), "Save & Close must exit the editor");
     assert_eq!(h.state.undo_len(), undo_before + 1, "the whole open-edit-close session must be one undo step");

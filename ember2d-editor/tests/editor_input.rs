@@ -14,7 +14,7 @@ use ember2d::input::Key;
 use ember2d_editor::editor::ui::{
     ChromeMetrics, ContextMenuAction, HierarchySelection, MenuKind, ToolbarAction, ToolKind, WidgetId,
 };
-use ember2d_editor::editor::{EditorMode, TextInputPurpose};
+use ember2d_editor::editor::{EditorMode, PaletteField, TextInputPurpose};
 
 // ── Baseline: the harness itself behaves like a fresh editor ────────────────
 
@@ -687,5 +687,48 @@ fn r72_the_palette_wheel_can_scroll_all_the_way_to_the_last_item() {
     assert!(
         h.state.ui_frame().rect_of(WidgetId::PaletteRow(last_row_idx)).is_some(),
         "scrolling far past the end must still bring the palette's last row into view"
+    );
+}
+
+/// R65 (§3 in the master plan): the palette editor modal used to draw
+/// centered in real px (`(screen_w - mw) / 2.0`) while its input handler
+/// centered in ROUNDED integer cells (`(sw_cells - mw) / 2`) and compared
+/// `mouse.cell_y == my + N` — at the default 1280×720 window (an odd
+/// leftover cell remainder), the drawn rows sat half a row off from what
+/// the input handler expected, so a click near a row's edge could land on
+/// the wrong field. Fixed by giving every field/toggle/button its own
+/// `WidgetId`, read back via `UiFrame::hit` — this test clicks at the far
+/// edge of the Tag field's own drawn rect (not its top-left corner, where
+/// the old half-row drift would most easily go unnoticed) and confirms
+/// typing lands in the Tag field, not a neighboring one.
+#[test]
+fn r65_palette_editor_fields_hit_where_drawn_with_an_odd_cell_remainder() {
+    let mut h = EditorHarness::new();
+    open_menu(&mut h, MenuKind::View);
+    click_menu_item(&mut h, MenuKind::View, |a| matches!(a, ToolbarAction::TogglePalette));
+
+    let edit_btn_rect = h
+        .state
+        .ui_frame()
+        .rect_of(WidgetId::PaletteEditBtn)
+        .expect("the Palette panel's [Edit] button was not drawn");
+    h.click(edit_btn_rect.x + 1.0, edit_btn_rect.y + 1.0);
+    assert!(matches!(h.state.mode(), EditorMode::PaletteEditor));
+
+    let tag_rect = h
+        .state
+        .ui_frame()
+        .rect_of(WidgetId::PaletteEditorField(PaletteField::Tag))
+        .expect("the palette editor's Tag row was not drawn");
+    // The far edge of the row, not the top-left corner — a half-row drift
+    // (the old bug) would still land inside a rect clicked at its origin.
+    h.click(tag_rect.x + tag_rect.w - 1.0, tag_rect.y + tag_rect.h - 1.0);
+    h.type_text("boss");
+
+    let idx = h.state.palette_editing_idx();
+    assert_eq!(
+        h.state.palette_tile(idx).tag,
+        "boss",
+        "clicking the Tag row's own drawn rect must focus the Tag field, not a neighboring one"
     );
 }

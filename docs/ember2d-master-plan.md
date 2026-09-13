@@ -313,7 +313,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R63 | S1 | `Renderer::draw_nine_slice`/`nine_slice_quads` (Phase 7 Part 1a) hardcoded every source sub-rect to start at `(0, 0)` and span the WHOLE passed texture (`texture.width`/`.height` as the entire 9-slice region) — correct for a texture dedicated to exactly one 9-slice (this function's only real caller before 7D-2), silently wrong the instant a caller's texture was a shared ATLAS with the 9-slice living at some other sub-rect (exactly `NineSlice::src`'s own 7D-1 design: one `themes/ember-clean/chrome.png` packing all 12 `SliceRole`s). Every `draw_nine_slice_px` call in 7D-2's new `draw_panel_chrome` silently sampled from the atlas's `(0,0)` origin regardless of which slice it asked for, rendering as a tiled mosaic of several unrelated slice colors crammed into whatever small destination rect was being drawn (a close button, a resize grip) — visually a checkerboard of amber-bordered squares scattered across the screen. Undetectable by the pre-existing `nine_slice_quads` unit tests (all three used a texture dedicated to one slice, `src.x`/`src.y` always incidentally `0`) or by any other automated test (nothing renders real pixels and inspects them) — found only by actually launching the editor and looking at a screenshot, per CLAUDE.md's own "use the feature" rule for UI changes | `ember2d/src/renderer/mod.rs` (`draw_nine_slice`, `nine_slice_quads`) | `[x]` 7D-2 (`4dc90ed`) — both functions gained a `src: Rect` parameter (the 9-slice's own sub-rect within the texture, defaulting to `Rect::new(0,0,tex_w,tex_h)` to reproduce the old whole-texture behavior exactly) threaded through to `DrawSurface::draw_nine_slice_px` and its one real caller. Regression test `nine_slice_quads_offsets_every_src_rect_by_a_non_zero_atlas_origin` (`renderer/tests.rs`) pins a non-zero atlas origin explicitly, the exact case the three pre-existing tests never covered; those three updated to pass an explicit `src` (all `(0,0,w,h)`, preserving their original assertions unchanged) |
 | **Found designing 7D-3 (UI points), 2026-09-13** | | | | |
 | R64 | S2 | Right-click row index for the File Browser/Hierarchy context menu is computed from `mouse.cell_y` (16px cell rows), but those rows draw at `theme.metrics.row_h` (20px in `ember-clean`) — beyond the first couple of rows, the wrong file or entity gets the Delete/Duplicate/etc. menu. Delete is only mitigated because the confirm dialog names the real path | `ember2d-editor/src/editor/input/panels/context_menu_trigger.rs` (rows built from `mouse.cell_y`/`content_y`) | `[x]` 7D-3 checkpoint 3 — the right-click handler now reads the same `UiFrame::hit` (`FileBrowserRow(i)`/`HierarchyRow(sel)`) the left-click handlers already trusted. Regression tests: `r64_right_clicking_a_deep_scrolled_file_browser_row_targets_that_exact_file`, `r64_right_clicking_a_deep_hierarchy_row_targets_that_exact_spawn` (`tests/editor_input.rs`), both confirmed to fail against the pre-fix code |
-| R65 | S3 | The palette-editor modal's draw centers itself in real px (`(screen_w - 36*CELL_W) / 2`) while its input handler centers in ROUNDED integer cells (`(sw_cells - 36) / 2`) and then compares `mouse.cell_y == my + N` — when the cell-count remainder is odd (true at the default 1280×720), the drawn rows sit half a row off from what the input expects, so a click near a row boundary can land on the wrong field | `ember2d-editor/src/editor/ui/panels/modals.rs:48-49` vs `input/mod.rs:243-247` | `[ ]` → 7D-3 (modals checkpoint) — moving the whole modal to `UiFrame`-pushed points-space widgets removes the independent recompute entirely |
+| R65 | S3 | The palette-editor modal's draw centers itself in real px (`(screen_w - 36*CELL_W) / 2`) while its input handler centers in ROUNDED integer cells (`(sw_cells - 36) / 2`) and then compares `mouse.cell_y == my + N` — when the cell-count remainder is odd (true at the default 1280×720), the drawn rows sit half a row off from what the input expects, so a click near a row boundary can land on the wrong field | `ember2d-editor/src/editor/ui/panels/modals.rs:48-49` vs `input/mod.rs:243-247` | `[x]` 7D-3 checkpoint 4 — every field/toggle/button now has its own `WidgetId`, pushed by `draw_palette_editor_modal` at the exact point it's drawn; `handle_palette_editor_input`/`handle_color_picker_input` (extracted to `input/palette_editor.rs`) read them all back via `UiFrame::hit`/`rect_of` instead of any independent cell math. Regression test: `r65_palette_editor_fields_hit_where_drawn_with_an_odd_cell_remainder` (`tests/editor_input.rs`) |
 | R66 | S3 | The viewport has no single source of truth for its own rect: the hardware scissor is built from `PanelManager`'s CELL-ROUNDED `content_x/y/w/h` bridges while the canvas itself draws from the exact-px `content_rect()` — after any sub-cell panel resize (drag/resize don't snap to cells) the two disagree by up to a cell, so the canvas is clipped short or spills past its own panel. The canvas's own click gate (`input/canvas.rs`, cells) and `mouse_to_grid` (`impl_state.rs`, px) can also disagree at the same edges; `center_on`/`clamp_scroll`/`FocusCamera` treat `content_w/h` as a tile COUNT, which silently changes if that bridge's own units ever do; the status bar's grid-position readout independently re-derives the canvas origin a third way | `ember2d-editor/src/editor/impl_render.rs:314-320` (scissor), `input/canvas.rs:74-83` (click gate), `impl_state/mod.rs:141-178` (`mouse_to_grid`/`center_on`/`clamp_scroll`), `input/context_menu.rs:120-123` (`FocusCamera`), `ui/panels/chrome.rs:145-146` (status readout) | `[x]` 7D-3 checkpoint 3 — the scissor, the canvas click gate, `mouse_to_grid`/`center_on`/`clamp_scroll`, and the status bar's own readout all now route through the same exact `content_rect(&metrics)` value instead of independently re-deriving it |
 | R67 | S2 | The docked script editor has two independent mouse-to-cursor click paths that disagree: the FIRST click (before the panel has focus, `handle_script_editor_click`) ignores `script_hscroll` entirely (a click in a horizontally-scrolled line lands in the wrong column) and has no lower row bound (clicking the error row still moves the cursor); the FOCUSED path's own wheel step is 2 lines vs. the first-click path's 1 | `ember2d-editor/src/editor/input/panels/file_and_script.rs:127-165` vs `input/script_editor.rs:286-618` | `[ ]` → 7D-3 (script-editor checkpoint) — one shared `ScriptLayout` (`ui/script_layout.rs`) replaces both independent recomputes |
 | R68 | S3 | The script editor's drawn layout reserves an error row and clips a `…` marker column that its OWN input handling doesn't know about: `keep_in_view`'s vertical/horizontal bounds don't account for either, so the cursor can end up scrolled to a row/column that's actually hidden behind the error bar or the `…` marker. The gutter is hardcoded to 4 columns in four separate places but `{:3} ` becomes 5 characters wide starting at line 1000, silently misaligning the gutter from the code by one column on any file that long | `ember2d-editor/src/editor/input/script_editor.rs:319-333,603-617`; `ui/script.rs:72,88,104` | `[ ]` → 7D-3 (script-editor checkpoint) — `ScriptLayout` computes the gutter width from the real line count and is the one place both draw and input read it from |
@@ -2792,8 +2792,41 @@ deleted at the end of this step; panels size to content and theme metrics.
     `--editor demos/roguelike/floor1.level`, maximized window): chrome bars
     now 20px (was 16px, the confirmed-with-the-user visual change), status
     bar readout no longer overlaps, viewport/panels/dock content all correct.
-  - Remaining checkpoints (not yet landed): modals (fixes R65) · script
-    editor (fixes R67/R68/R73) · chrome audit · live UI-scale menu + docs.
+  - **Checkpoint 4 — modals.** New `WidgetId` variants
+    (`PaletteEditorClose`/`Field`/`Toggle`/`CustomColor`/`SaveClose`/
+    `Delete`) — `draw_palette_editor_modal` (`ui/panels/modals.rs`) now
+    pushes every interactive row/button at the exact point it's drawn,
+    `row_h` switched from a hardcoded `CELL_H` to `theme.metrics.row_h`
+    (the coupling that used to force it onto the cell grid is gone once the
+    input side stops recomputing that grid independently). **R65** fixed:
+    `handle_palette_editor_input` and `handle_color_picker_input` extracted
+    to a new `input/palette_editor.rs` and rewritten to read every field
+    back via `UiFrame::hit`/`rect_of` — no more `mouse.cell_x`/`cell_y`
+    comparisons against an independently-recomputed `mx`/`my`/`cx`. The
+    advanced color picker's hue-bar/SV-map step counts (previously two
+    unnamed literals, `36`/`20`/`8`) become named `HUE_BAR_STEPS`/
+    `SV_MAP_W`/`SV_MAP_H` constants in `modals.rs`; their own hit-test math
+    was already exact (it reads the SAME rect the draw side pushed, not an
+    independent literal) so needed no behavior change, just the shared
+    name. Updated `editing_a_palette_item_in_the_modal_editor_undoes_as_one_session`
+    (`tests/editor_undo.rs`) to click through `rect_of` instead of raw cell
+    position. New accessors `palette_tile`/`palette_editing_idx`
+    (`accessors.rs`) for test assertions. New regression test
+    (`editor_input.rs`): `r65_palette_editor_fields_hit_where_drawn_with_an_odd_cell_remainder`
+    (clicks the Tag row's far edge, not its top-left corner, and confirms
+    typing lands in Tag — the old code would have landed several rows off
+    at the default 1280×720, since `row_h` going from `CELL_H` (16) to the
+    real theme row height (20) widened the draw/input mismatch far past a
+    single half-row drift). `cargo test --workspace`: 365 (was 364, +1),
+    all pass. Clippy: 44 warnings workspace-wide, none new in a touched
+    file. `scripts/check.ps1` clean. `cargo test -p ember2d --test replay`
+    3× fresh processes green. Confirmed live (screenshot, maximized
+    window): palette editor modal's every field/toggle/button clickable
+    and correctly targeted, Foreground/Background color grids and their
+    `[ Advanced ]` buttons open the color picker, hue bar/SV map/Apply/
+    Cancel all functional, Save & Close commits one undo step.
+  - Remaining checkpoints (not yet landed): script editor (fixes
+    R67/R68/R73) · chrome audit · live UI-scale menu + docs.
 
 **Preserved from the original two-pass investigation, for context:**
 first pass (2026-09-12) thought the step was blocked on 7D-2's own deferred

@@ -38,6 +38,7 @@
 
 use super::rect::UiRect;
 use super::types::{HierarchySelection, MenuKind, PanelId};
+use crate::editor::PaletteField;
 
 /// Identifies one interactive chrome element a frame's draw pass registered
 /// a hit rect for.
@@ -104,6 +105,30 @@ pub enum WidgetId {
     /// 7C-1: one swatch of the palette editor's foreground/background color
     /// grid, by `(is_fg, index into ui::widgets::PALETTE_COLORS)`.
     PaletteEditorSwatch { is_fg: bool, index: usize },
+    /// R65 (§3 in the master plan, 7D-3 checkpoint 4): the palette editor
+    /// modal's own title-bar close button — was hit-tested by comparing
+    /// `mouse.cell_y == my` against `mx + mw - 4..mx + mw - 1` (integer
+    /// cells), independently of where `draw_palette_editor_modal` actually
+    /// draws `"[X]"` in real px.
+    PaletteEditorClose,
+    /// R65: the whole Name/Glyph/Tag row a click anywhere on it focuses for
+    /// typing — was `mouse.cell_y == my + N` for a fixed `N` per field,
+    /// independently of the field's own drawn row.
+    PaletteEditorField(PaletteField),
+    /// R65: the Solid or Trigger toggle text — was a fixed `cx..cx+10`/
+    /// `cx+13..cx+25` cell range on one shared row, independently of each
+    /// toggle's own measured label width.
+    PaletteEditorToggle { is_solid: bool },
+    /// R65: the foreground or background "custom color" label that opens
+    /// the advanced color picker — was a fixed `cx..cx+30` cell range,
+    /// independently of the label's own measured width.
+    PaletteEditorCustomColor { is_fg: bool },
+    /// R65: the palette editor's "[ Save & Close ]" button — was a fixed
+    /// `mx+2..mx+20` cell range on the bottom row.
+    PaletteEditorSaveClose,
+    /// R65: the palette editor's "[ Delete ]" button — was a fixed
+    /// `mx+22..mx+34` cell range on the bottom row.
+    PaletteEditorDelete,
     /// 7C-1: one row of an open right-click context menu, by index into
     /// `ContextMenu::items` — same "index, not the resolved value"
     /// reasoning as `MenuItem`.
