@@ -1,18 +1,21 @@
 // editor/panel/tests.rs — Phase 7 Part 1f (docs/ember2d-phase7-plan.md):
-// `UiRect::from_cells`/`apply_layout`/`validate_active_panels` tests, split
-// into their own file purely to keep `mod.rs` under CLAUDE.md's 600-line
-// hard limit.
+// `Panel::new`/`apply_layout`/`validate_active_panels` tests, split into
+// their own file purely to keep `mod.rs` under CLAUDE.md's 600-line hard
+// limit. `UiRect::from_cells` itself (and its own dedicated unit tests in
+// `ui/rect.rs`) was deleted once its last real caller converted to pixel
+// construction directly (docs/ember2d-master-plan.md §5.4) — the property
+// this file's own first test pins still holds, just checked against the
+// same math inlined instead of a named helper.
 
 use super::*;
 
 #[test]
-fn every_panel_pm_new_constructs_matches_intended_cell_geometry_via_from_cells() {
+fn every_panel_pm_new_constructs_matches_intended_cell_geometry() {
     // Part 1's "appearance must not change" property, pinned directly
-    // against every real panel `PanelManager::new` constructs — `ui/rect.rs`'s
-    // own test pins `from_cells`'s pure math against a few sample shapes;
-    // this one pins that `Panel::new` actually calls it with the exact
-    // documented cell geometry for every one of the eight real panels, and
-    // that `cell_x`/`cell_y`/`cell_w`/`cell_h` invert it back exactly.
+    // against every real panel `PanelManager::new` constructs — this pins
+    // that `Panel::new` builds the exact documented cell geometry for
+    // every one of the eight real panels, and that
+    // `cell_x`/`cell_y`/`cell_w`/`cell_h` invert it back exactly.
     let (screen_w, screen_h) = (80usize, 24usize);
     let pm = PanelManager::new(screen_w, screen_h);
 
@@ -37,14 +40,14 @@ fn every_panel_pm_new_constructs_matches_intended_cell_geometry_via_from_cells()
         let p = pm.get(id);
         assert_eq!(
             p.rect,
-            UiRect::from_cells(cx, cy, cw, ch),
-            "{:?}'s constructed rect must equal UiRect::from_cells of its documented cell geometry",
+            UiRect::new(cx as f32 * CELL_W, cy as f32 * CELL_H, cw as f32 * CELL_W, ch as f32 * CELL_H),
+            "{:?}'s constructed rect must equal its documented cell geometry, multiplied out",
             id
         );
         assert_eq!(
             (p.cell_x(), p.cell_y(), p.cell_w(), p.cell_h()),
             (cx, cy, cw, ch),
-            "{:?}'s cell_x/y/w/h bridge must invert from_cells exactly",
+            "{:?}'s cell_x/y/w/h bridge must invert that construction exactly",
             id
         );
     }

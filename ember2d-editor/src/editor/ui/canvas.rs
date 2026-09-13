@@ -535,8 +535,8 @@ mod tests {
         // build with `UiRect`s standing in for the Viewport panel's own
         // rect at a couple of representative docked-panel layouts.
         let viewports = [
-            UiRect::from_cells(0, 2, 80, 21),
-            UiRect::from_cells(14, 3, 50, 18), // non-zero origin, e.g. a docked Hierarchy + Inspector layout
+            UiRect::new(0.0, 32.0, 640.0, 336.0), // (0, 2, 80, 21) cells
+            UiRect::new(112.0, 48.0, 400.0, 288.0), // (14, 3, 50, 18) cells — non-zero origin, e.g. a docked Hierarchy + Inspector layout
         ];
         for &viewport in &viewports {
             for &zoom in &[0.5f32, 1.0, 2.0, 3.0] {

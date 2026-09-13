@@ -3,7 +3,7 @@
 use super::super::ui::{cells, draw_menu_item, UiFrame, UiRect, WidgetId};
 use super::mod_types::*;
 use ember2d::project::ProjectData;
-use ember2d::renderer::{color::Color, Font, Renderer};
+use ember2d::renderer::{color::Color, Font, Renderer, CELL_H, CELL_W};
 
 /// The font size (in px) this file's monospace UI renders at — one cell
 /// wide (7C-2, master plan §5.3, E2: was a literal `8.0` repeated at every
@@ -308,7 +308,10 @@ pub(super) fn draw_template_step(
         // 7C-1 (master plan §5.3): see `draw_card_wizard`'s identical push
         // — both functions draw the same card geometry, so they share
         // `WidgetId::StartTemplateItem`.
-        frame.push(WidgetId::StartTemplateItem(i), UiRect::from_cells(cx as i32, cy as i32, TCARD_W, TCARD_H));
+        frame.push(
+            WidgetId::StartTemplateItem(i),
+            UiRect::new(cx as f32 * CELL_W as f32, cy as f32 * CELL_H as f32, TCARD_W as f32 * CELL_W as f32, TCARD_H as f32 * CELL_H as f32),
+        );
     }
     draw_hint_bar(
         renderer,
@@ -445,7 +448,10 @@ fn draw_card_wizard(
         // independently-recomputed `tcard_x0`/`tcard_y` arithmetic (E5) —
         // shared with `draw_template_step` below, which uses identical
         // geometry for a different label set.
-        frame.push(WidgetId::StartTemplateItem(i), UiRect::from_cells(cx as i32, cy as i32, TCARD_W, TCARD_H));
+        frame.push(
+            WidgetId::StartTemplateItem(i),
+            UiRect::new(cx as f32 * CELL_W as f32, cy as f32 * CELL_H as f32, TCARD_W as f32 * CELL_W as f32, TCARD_H as f32 * CELL_H as f32),
+        );
     }
     draw_hint_bar(
         renderer,
@@ -558,7 +564,10 @@ pub(super) fn draw_folder_browser(
         // absolute `list_i`, not the visible-row `vis_i` `folder_item_hit`
         // took, so the input handler no longer needs to re-derive one from
         // the other.
-        frame.push(WidgetId::StartFolderItem(list_i), UiRect::from_cells(fb_x as i32, row as i32, FB_W, 1));
+        frame.push(
+            WidgetId::StartFolderItem(list_i),
+            UiRect::new(fb_x as f32 * CELL_W as f32, row as f32 * CELL_H as f32, FB_W as f32 * CELL_W as f32, CELL_H as f32),
+        );
     }
     if fb_entries.len() > fb_max_vis {
         let pct = fb_cursor * (FB_H.saturating_sub(8)) / fb_entries.len().max(1);
@@ -681,7 +690,10 @@ pub(super) fn draw_browser(
             // `brow_list_y` arithmetic (E5) — shared by both screens that
             // call `draw_browser` (OpenProject and LevelPicker), same as
             // `browser_item_hit` was.
-            frame.push(WidgetId::StartBrowserItem(list_i), UiRect::from_cells(brow_x as i32, row as i32, BROW_W, 1));
+            frame.push(
+                WidgetId::StartBrowserItem(list_i),
+                UiRect::new(brow_x as f32 * CELL_W as f32, row as f32 * CELL_H as f32, BROW_W as f32 * CELL_W as f32, CELL_H as f32),
+            );
         }
         if items.len() > brow_max_vis {
             let pct = (cursor * (BROW_H.saturating_sub(8))) / items.len().max(1);

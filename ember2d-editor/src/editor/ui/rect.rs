@@ -1,29 +1,25 @@
 // editor/ui/rect.rs — UiRect: a pixel-space rectangle for editor layout
 // (Phase 7 Part 1b, docs/ember2d-phase7-plan.md).
 //
-// The editor's entire UI is quantized to 8×16 character cells today —
-// `Panel.x/y/w/h` are `i32`/`usize` cell coordinates, and every hit-test
-// (`on_title_bar`, `on_close_btn`, `on_resize_handle`) works in that same
-// grid. `UiRect` is the pixel-space replacement Part 1c migrates `Panel`/
-// `PanelManager` onto — plain `f32` pixels, no cell grid baked into the
-// type itself.
+// `UiRect` is the pixel-space type `Panel`/`PanelManager` (Part 1c) and
+// every themed `ui::draw_*` function (7D-2, docs/ember2d-master-plan.md
+// §5.4) build their geometry from — plain `f32` pixels, no cell grid
+// baked into the type itself.
 //
-// `from_cells` is what makes that migration survivable: because a cell is
-// exactly 8×16 pixels, converting an existing panel's cell rect through it
-// is a lossless multiply — Part 1's "appearance must not change" property.
-// Every panel starts life going through `from_cells`; panels migrate to
-// arbitrary pixel positions one at a time after that, and `from_cells`
-// itself (along with the cell-based coordinate system it bridges from)
-// goes away entirely once Part 4's restyle lands.
-
-/// Width/height of one character cell in pixels — re-exported as `f32`
-/// from `ember2d::renderer`'s own `CELL_W`/`CELL_H` (Phase 7 Part 1e,
-/// docs/ember2d-phase7-plan.md, E2). This used to be a local duplicate of
-/// the same two literals `editor/ui/canvas.rs::grid_to_pixel` and
-/// `editor/panel.rs` also hardcoded independently; now there's one
-/// definition and three call sites that read it.
-const CELL_W: f32 = ember2d::renderer::CELL_W as f32;
-const CELL_H: f32 = ember2d::renderer::CELL_H as f32;
+// `from_cells(cx, cy, cw, ch) -> Self` — a lossless `* CELL_W`/`* CELL_H`
+// multiply — used to live here as the one bridge every panel and every
+// `ui::draw_*` call built its geometry through while the whole editor was
+// still cell-quantized (Part 1's "appearance must not change" property).
+// Deleted once its last real caller (the color picker's hue bar/SV map,
+// `ui/panels/modals.rs` — cell-grid BY DESIGN, not unmigrated chrome; see
+// that file's own comment) converted to constructing the same pixel rect
+// directly instead of through a named helper. The cell-based coordinate
+// system itself didn't go away with it: `Panel::cell_x`/`content_x` (and
+// siblings, `panel/mod.rs`) are still very much alive for the genuinely
+// cell-grid subsystems that were never "chrome that hasn't migrated
+// yet" — the viewport, the script editor's per-character math, the node
+// graph's cell-addressed hit-testing — see that file's own header comment
+// for the full account.
 
 /// A pixel-space rectangle. `f32` for layout math; rounding to whole pixels
 /// happens at draw time, in the renderer primitives that consume one
@@ -41,18 +37,6 @@ pub struct UiRect {
 impl UiRect {
     pub fn new(x: f32, y: f32, w: f32, h: f32) -> Self {
         UiRect { x, y, w, h }
-    }
-
-    /// A cell rect converted to pixels — see this module's header comment
-    /// for why this conversion is lossless and why every panel starts life
-    /// going through it.
-    pub fn from_cells(cx: i32, cy: i32, cw: usize, ch: usize) -> Self {
-        UiRect {
-            x: cx as f32 * CELL_W,
-            y: cy as f32 * CELL_H,
-            w: cw as f32 * CELL_W,
-            h: ch as f32 * CELL_H,
-        }
     }
 
     pub fn right(self) -> f32 {
@@ -139,34 +123,6 @@ impl From<UiRect> for ember2d_sim::math::Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn from_cells_multiplies_by_the_exact_cell_size() {
-        let r = UiRect::from_cells(2, 3, 10, 5);
-        assert_eq!(r, UiRect::new(16.0, 48.0, 80.0, 80.0));
-    }
-
-    #[test]
-    fn from_cells_matches_the_old_cell_math_for_shapes_like_the_current_panels() {
-        // Part 1's "appearance must not change" property, pinned: converting
-        // any (cx, cy, cw, ch) cell rect through UiRect must reproduce the
-        // exact pixel geometry the old i32/usize `Panel` fields already
-        // implied — a plain cell-size multiply, lossless since a cell is
-        // exactly 8x16 pixels. Shapes below mirror PanelManager::new's own
-        // Hierarchy/Inspector/Console constants (panel.rs), not copies of
-        // them (Part 1c is what actually migrates those).
-        for &(cx, cy, cw, ch) in &[
-            (0i32, 2i32, 14usize, 20usize), // Hierarchy-shaped
-            (36, 2, 30, 20),                // Inspector-shaped
-            (0, 15, 80, 9),                 // Console-shaped
-        ] {
-            let r = UiRect::from_cells(cx, cy, cw, ch);
-            assert_eq!(r.x, cx as f32 * 8.0);
-            assert_eq!(r.y, cy as f32 * 16.0);
-            assert_eq!(r.w, cw as f32 * 8.0);
-            assert_eq!(r.h, ch as f32 * 16.0);
-        }
-    }
 
     #[test]
     fn contains_is_a_half_open_rect() {

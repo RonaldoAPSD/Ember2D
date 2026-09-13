@@ -298,7 +298,12 @@ pub fn draw_color_picker_modal(
     }
     frame.push(
         WidgetId::ColorPickerHueBar,
-        UiRect::from_cells(hbar_x_cell as i32, hbar_row_cell as i32, hbar_w, 1),
+        UiRect::new(
+            hbar_x_cell as f32 * CELL_W as f32,
+            hbar_row_cell as f32 * CELL_H as f32,
+            hbar_w as f32 * CELL_W as f32,
+            CELL_H as f32,
+        ),
     );
     let h_indicator_x = hbar_x_cell + ((h / 360.0) * (hbar_w - 1) as f32).round() as usize;
     renderer.draw_char(h_indicator_x, hbar_row_cell.saturating_sub(1), 'v', text_fg, panel_bg);
@@ -318,7 +323,15 @@ pub fn draw_color_picker_modal(
             renderer.draw_char(map_x + sx, map_y + sy, ' ', Color::Reset, col);
         }
     }
-    frame.push(WidgetId::ColorPickerSvMap, UiRect::from_cells(map_x as i32, map_y as i32, map_w, map_h));
+    frame.push(
+        WidgetId::ColorPickerSvMap,
+        UiRect::new(
+            map_x as f32 * CELL_W as f32,
+            map_y as f32 * CELL_H as f32,
+            map_w as f32 * CELL_W as f32,
+            map_h as f32 * CELL_H as f32,
+        ),
+    );
     // Cursor in map
     let cur_sx = (s * (map_w - 1) as f32).round() as usize;
     let cur_sy = ((1.0 - v) * (map_h - 1) as f32).round() as usize;

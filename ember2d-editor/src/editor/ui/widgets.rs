@@ -29,7 +29,7 @@
 
 use super::frame::{UiFrame, WidgetId};
 use super::rect::UiRect;
-use ember2d::renderer::{color::Color, DrawSurface, Font};
+use ember2d::renderer::{color::Color, DrawSurface, Font, CELL_H, CELL_W};
 use ember2d_sim::math::{Rect, Vec2};
 
 /// One row of pixel-positioned text: a background fill sized to `rect`,
@@ -138,7 +138,10 @@ pub fn draw_button(
     bg: Color,
 ) {
     renderer.draw_str(x, y, label, fg, bg);
-    frame.push(id, UiRect::from_cells(x as i32, y as i32, w, 1));
+    frame.push(
+        id,
+        UiRect::new(x as f32 * CELL_W as f32, y as f32 * CELL_H as f32, w as f32 * CELL_W as f32, CELL_H as f32),
+    );
 }
 
 /// A single-line, full-row list entry — context menu items, hierarchy
@@ -156,7 +159,10 @@ pub fn draw_row(
     bg: Color,
 ) {
     renderer.draw_str(x, y, label, fg, bg);
-    frame.push(id, UiRect::from_cells(x as i32, y as i32, w, 1));
+    frame.push(
+        id,
+        UiRect::new(x as f32 * CELL_W as f32, y as f32 * CELL_H as f32, w as f32 * CELL_W as f32, CELL_H as f32),
+    );
 }
 
 /// One color swatch cell of a color grid (the palette editor's foreground
@@ -175,7 +181,10 @@ pub fn draw_swatch(
     bg: Color,
 ) {
     renderer.draw_str(x, y, label, fg, bg);
-    frame.push(id, UiRect::from_cells(x as i32, y as i32, w, 1));
+    frame.push(
+        id,
+        UiRect::new(x as f32 * CELL_W as f32, y as f32 * CELL_H as f32, w as f32 * CELL_W as f32, CELL_H as f32),
+    );
 }
 
 /// One entry of `StartScreen`'s main menu — a two-row item (a label row,
@@ -217,7 +226,10 @@ pub fn draw_menu_item(
         renderer.draw_str(x, row, &format!("     {}. {}", index + 1, label), Color::White, Color::Black);
         renderer.draw_str(x + 9, row + 1, desc, Color::DarkGrey, Color::Black);
     }
-    frame.push(id, UiRect::from_cells(x as i32, row as i32, w, 2));
+    frame.push(
+        id,
+        UiRect::new(x as f32 * CELL_W as f32, row as f32 * CELL_H as f32, w as f32 * CELL_W as f32, 2.0 * CELL_H as f32),
+    );
 }
 
 /// The 16-color palette shared by the palette editor's foreground and

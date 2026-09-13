@@ -13,11 +13,24 @@
 // pixel rect is still a whole-cell multiple today (nothing here yet
 // produces a sub-cell position), so this is purely a coordinate-system
 // change with zero visual difference, exactly Part 1's stated goal.
-// `cell_x`/`cell_y`/`cell_w`/`cell_h` are the bridge back to the
-// still-cell-based DRAWING code (`draw_panel_chrome`, `draw_dock_tabs`)
-// that hasn't migrated yet (that's Part 4's job — actual pixel-drawn
-// chrome). The bridge goes away entirely once Part 4's restyle removes
-// `UiRect::from_cells`.
+//
+// `cell_x`/`cell_y`/`cell_w`/`cell_h`/`content_x`/`content_y`/`content_w`/
+// `content_h` (below) were originally documented as a temporary bridge
+// back to cell-based DRAWING code, expected to disappear once 7D-2's
+// chrome rewrite finished. Investigated at the end of that rewrite
+// (docs/ember2d-master-plan.md §5.4): every panel's own CHROME now draws
+// in real pixel space, but these four `content_*` methods are still the
+// one real API a whole separate set of GENUINELY cell-grid subsystems
+// depends on — the script editor's per-character cursor/selection math,
+// file-browser and hierarchy row clicks, the node graph's cell-addressed
+// `node_at`/`port_at` hit-testing, and the canvas/viewport's own grid
+// math (which stays cell-based forever per the 7C-9 decision gate, §7.1,
+// the same reasoning extended here). None of those are "chrome that
+// hasn't migrated yet" — they're cell-grid BY DESIGN, the same way the
+// viewport itself is, so this bridge stays. What DID fully go away is
+// `UiRect::from_cells` itself: every real caller converted to pixel-space
+// construction directly, and the function (with its own unit tests) was
+// deleted once the last one converted.
 //
 // HIT-TESTING (Phase 7 Part 1d, docs/ember2d-phase7-plan.md): panel chrome
 // and tabs no longer have their own `on_title_bar`/`on_close_btn`/
@@ -68,7 +81,12 @@ impl Panel {
         Panel {
             id,
             title,
-            rect: UiRect::from_cells(cx, cy, cw, ch),
+            // Every panel still starts life on the cell grid — its own
+            // pixel rect is just that cell geometry multiplied out
+            // (`UiRect::from_cells`'s own removed body, inlined here at
+            // its one remaining production call site,
+            // docs/ember2d-master-plan.md §5.4).
+            rect: UiRect::new(cx as f32 * CELL_W, cy as f32 * CELL_H, cw as f32 * CELL_W, ch as f32 * CELL_H),
             visible: false,
             z: 0,
             dock: DockSide::None,
