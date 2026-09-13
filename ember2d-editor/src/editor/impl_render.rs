@@ -701,15 +701,7 @@ impl EditorState {
         // Help screen overlay.
         if self.show_help {
             let vp = self.panels.viewport();
-            ui::draw_help_overlay(
-                renderer,
-                self.font.as_mut(),
-                &self.theme,
-                vp.content_x(),
-                vp.content_y(),
-                vp.content_w(),
-                vp.content_h(),
-            );
+            ui::draw_help_overlay(renderer, self.font.as_mut(), &self.theme, vp.content_rect().into());
         }
 
         if let EditorMode::Modal(m) = &self.mode {

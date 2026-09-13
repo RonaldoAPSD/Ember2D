@@ -9,7 +9,6 @@
 
 use super::super::frame::{UiFrame, WidgetId};
 use super::super::rect::UiRect;
-use super::super::types::*;
 use super::super::widgets::{draw_button_px, draw_swatch_px, draw_text_row, PALETTE_COLORS};
 use ember2d::renderer::{color::Color, DrawSurface, Font, Texture, CELL_H, CELL_W};
 use ember2d::theme::{PaletteRole, Theme};
@@ -383,74 +382,82 @@ pub fn draw_color_picker(renderer: &mut dyn DrawSurface, x: usize, y: usize, w: 
     }
 }
 
-pub fn draw_help_overlay(
-    renderer: &mut dyn DrawSurface,
-    font: &mut dyn Font,
-    theme: &Theme,
-    cx: usize,
-    cy: usize,
-    cw: usize,
-    ch: usize,
-) {
+/// No hit-testing anywhere in this overlay (dismissed only by key press,
+/// never a click) — the one function in this file with nothing else
+/// constraining its layout, so it's free to use the theme's real
+/// `metrics.row_h` throughout, unlike the modals above it.
+pub fn draw_help_overlay(renderer: &mut dyn DrawSurface, font: &mut dyn Font, theme: &Theme, content: Rect) {
     let bg = theme.role_color(PaletteRole::PanelBg);
     let fg = theme.role_color(PaletteRole::TextPrimary);
     let dim = theme.role_color(PaletteRole::TextDim);
     let accent = theme.role_color(PaletteRole::Accent);
-    renderer.draw_rect_filled(cx, cy, cw, ch, ' ', Color::White, bg);
+    let row_h = theme.metrics.row_h;
+    let text_px = theme.font_sizes.body;
+    let pad = CELL_W as f32;
+    renderer.fill_rect_px(content, bg);
+
     let title = " EMBER2D EDITOR — KEYBOARD SHORTCUTS ";
-    renderer.draw_str(cx + 1, cy + 1, title, accent, bg);
-    let sep: String = std::iter::repeat_n('-', cw.saturating_sub(2)).collect();
-    renderer.draw_str(cx + 1, cy + 2, &sep, dim, bg);
-    let col_w = (cw.saturating_sub(4)) / 3;
-    let c1 = cx + 1;
-    let c2 = c1 + col_w + 1;
-    let c3 = c2 + col_w + 1;
-    let row = |n: usize| cy + 4 + n;
-    renderer.draw_str(c1, row(0), "TOOLS", accent, bg);
-    renderer.draw_str(c1, row(1), " 1-3  Layers", fg, bg);
-    renderer.draw_str(c1, row(2), " 4-0  Palette", fg, bg);
-    renderer.draw_str(c1, row(3), " L    Line tool", fg, bg);
-    renderer.draw_str(c1, row(4), " F    Flood fill", fg, bg);
-    renderer.draw_str(c1, row(5), " E    Eraser size", fg, bg);
-    renderer.draw_str(c1, row(6), " Q    Select mode", fg, bg);
-    renderer.draw_str(c1, row(7), " ;/'  Solid/Trigger", fg, bg);
-    renderer.draw_str(c1, row(9), "CANVAS", accent, bg);
-    renderer.draw_str(c1, row(10), " Wheel     Zoom", fg, bg);
-    renderer.draw_str(c1, row(11), " Ctrl+Whl  Fast Zoom", fg, bg);
-    renderer.draw_str(c1, row(12), " Arrows    Scroll", fg, bg);
-    renderer.draw_str(c1, row(13), " Mid-drag  Pan", fg, bg);
-    renderer.draw_str(c1, row(14), " Home      Reset View", fg, bg);
-    renderer.draw_str(c1, row(15), " Delete    Erase", fg, bg);
-    renderer.draw_str(c2, row(0), "EDIT", accent, bg);
-    renderer.draw_str(c2, row(1), " U/Ctrl+Z  Undo", fg, bg);
-    renderer.draw_str(c2, row(2), " R/Ctrl+Y  Redo", fg, bg);
-    renderer.draw_str(c2, row(3), " C  Copy select", fg, bg);
-    renderer.draw_str(c2, row(4), " X  Cut select", fg, bg);
-    renderer.draw_str(c2, row(5), " V  Paste", fg, bg);
-    renderer.draw_str(c2, row(6), " I  Edit tag", fg, bg);
-    renderer.draw_str(c2, row(9), "LEVEL", accent, bg);
-    renderer.draw_str(c2, row(10), " N  Rename", fg, bg);
-    renderer.draw_str(c2, row(11), " Z  Resize", fg, bg);
-    renderer.draw_str(c2, row(12), " P  Set spawn", fg, bg);
-    renderer.draw_str(c2, row(13), " Sh+P  Add spawn", fg, bg);
-    renderer.draw_str(c2, row(14), " T  Attach script", fg, bg);
-    renderer.draw_str(c2, row(15), " Sh+drag  Rect fill", fg, bg);
-    renderer.draw_str(c3, row(0), "VIEW", accent, bg);
-    renderer.draw_str(c3, row(1), " Tab  Grid", fg, bg);
-    renderer.draw_str(c3, row(2), " G    Physics", fg, bg);
-    renderer.draw_str(c3, row(3), " B    Palette", fg, bg);
-    renderer.draw_str(c3, row(4), " H    Hierarchy", fg, bg);
-    renderer.draw_str(c3, row(5), " `    Stats", fg, bg);
-    renderer.draw_str(c3, row(6), " F1   Console", fg, bg);
-    renderer.draw_str(c3, row(7), " F2   Inspector", fg, bg);
-    renderer.draw_str(c3, row(9), "FILE", accent, bg);
-    renderer.draw_str(c3, row(10), " S    Save", fg, bg);
-    renderer.draw_str(c3, row(11), " Sh+S  Save As", fg, bg);
-    renderer.draw_str(c3, row(12), " O    Open", fg, bg);
-    renderer.draw_str(c3, row(13), " F5   Play preview", fg, bg);
-    renderer.draw_str(c3, row(14), " Esc  Cancel/Close", fg, bg);
-    renderer.draw_str(c3, row(15), " ?    This screen", fg, bg);
+    let title_w = font.measure(title, text_px).0;
+    draw_text_row(renderer, font, title, Rect::new(content.x + pad, content.y + row_h, title_w, row_h), text_px, accent, bg);
+    let sep_w = content.w - 2.0 * pad;
+    let sep: String = "-".repeat((sep_w / font.measure("-", text_px).0.max(1.0)) as usize);
+    draw_text_row(renderer, font, &sep, Rect::new(content.x + pad, content.y + 2.0 * row_h, sep_w, row_h), text_px, dim, bg);
+
+    let col_w = (content.w - 4.0 * pad) / 3.0;
+    let c1 = content.x + pad;
+    let c2 = c1 + col_w + pad;
+    let c3 = c2 + col_w + pad;
+    let row = |n: usize| content.y + (4 + n) as f32 * row_h;
+    let line = |col: f32, n: usize, text: &str, color: Color, renderer: &mut dyn DrawSurface, font: &mut dyn Font| {
+        draw_text_row(renderer, font, text, Rect::new(col, row(n), col_w, row_h), text_px, color, bg);
+    };
+    line(c1, 0, "TOOLS", accent, renderer, font);
+    line(c1, 1, " 1-3  Layers", fg, renderer, font);
+    line(c1, 2, " 4-0  Palette", fg, renderer, font);
+    line(c1, 3, " L    Line tool", fg, renderer, font);
+    line(c1, 4, " F    Flood fill", fg, renderer, font);
+    line(c1, 5, " E    Eraser size", fg, renderer, font);
+    line(c1, 6, " Q    Select mode", fg, renderer, font);
+    line(c1, 7, " ;/'  Solid/Trigger", fg, renderer, font);
+    line(c1, 9, "CANVAS", accent, renderer, font);
+    line(c1, 10, " Wheel     Zoom", fg, renderer, font);
+    line(c1, 11, " Ctrl+Whl  Fast Zoom", fg, renderer, font);
+    line(c1, 12, " Arrows    Scroll", fg, renderer, font);
+    line(c1, 13, " Mid-drag  Pan", fg, renderer, font);
+    line(c1, 14, " Home      Reset View", fg, renderer, font);
+    line(c1, 15, " Delete    Erase", fg, renderer, font);
+    line(c2, 0, "EDIT", accent, renderer, font);
+    line(c2, 1, " U/Ctrl+Z  Undo", fg, renderer, font);
+    line(c2, 2, " R/Ctrl+Y  Redo", fg, renderer, font);
+    line(c2, 3, " C  Copy select", fg, renderer, font);
+    line(c2, 4, " X  Cut select", fg, renderer, font);
+    line(c2, 5, " V  Paste", fg, renderer, font);
+    line(c2, 6, " I  Edit tag", fg, renderer, font);
+    line(c2, 9, "LEVEL", accent, renderer, font);
+    line(c2, 10, " N  Rename", fg, renderer, font);
+    line(c2, 11, " Z  Resize", fg, renderer, font);
+    line(c2, 12, " P  Set spawn", fg, renderer, font);
+    line(c2, 13, " Sh+P  Add spawn", fg, renderer, font);
+    line(c2, 14, " T  Attach script", fg, renderer, font);
+    line(c2, 15, " Sh+drag  Rect fill", fg, renderer, font);
+    line(c3, 0, "VIEW", accent, renderer, font);
+    line(c3, 1, " Tab  Grid", fg, renderer, font);
+    line(c3, 2, " G    Physics", fg, renderer, font);
+    line(c3, 3, " B    Palette", fg, renderer, font);
+    line(c3, 4, " H    Hierarchy", fg, renderer, font);
+    line(c3, 5, " `    Stats", fg, renderer, font);
+    line(c3, 6, " F1   Console", fg, renderer, font);
+    line(c3, 7, " F2   Inspector", fg, renderer, font);
+    line(c3, 9, "FILE", accent, renderer, font);
+    line(c3, 10, " S    Save", fg, renderer, font);
+    line(c3, 11, " Sh+S  Save As", fg, renderer, font);
+    line(c3, 12, " O    Open", fg, renderer, font);
+    line(c3, 13, " F5   Play preview", fg, renderer, font);
+    line(c3, 14, " Esc  Cancel/Close", fg, renderer, font);
+    line(c3, 15, " ?    This screen", fg, renderer, font);
+
     let hint = "Press ? or Esc to close";
-    let hcol = cx + (cw.saturating_sub(cells(font, hint))) / 2;
-    renderer.draw_str(hcol, cy + ch - 2, hint, dim, bg);
+    let hint_w = font.measure(hint, text_px).0;
+    let hint_x = content.x + ((content.w - hint_w) / 2.0).max(0.0);
+    draw_text_row(renderer, font, hint, Rect::new(hint_x, content.y + content.h - 2.0 * row_h, hint_w, row_h), text_px, dim, bg);
 }
