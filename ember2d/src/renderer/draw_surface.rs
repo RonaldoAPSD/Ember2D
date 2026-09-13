@@ -48,6 +48,14 @@ pub trait DrawSurface {
     /// title-centering math that runs headlessly (7C-5 tests) needs a real
     /// width to center against, not just the side effect of drawing.
     fn draw_text_px(&mut self, font: &mut dyn Font, text: &str, pos: Vec2, px: f32, color: Color) -> f32;
+    /// The pixel-space twin of `draw_rect_filled` (docs/ember2d-master-plan.md
+    /// §5.4, the `UiRect::from_cells` removal) — a solid color fill at an
+    /// arbitrary pixel rect, not snapped to the character-cell grid.
+    /// Mirrors `Renderer::fill_rect_px` exactly (backed by the 1×1 white
+    /// texture, same instanced path glyphs/sprites use). Panel content
+    /// converting off `from_cells` uses this for a text row's background —
+    /// `draw_text_px` only ever draws the glyphs themselves, no fill.
+    fn fill_rect_px(&mut self, rect: Rect, color: Color);
     fn draw_char(&mut self, x: usize, y: usize, ch: char, fg: Color, bg: Color);
     /// Same argument count as `Renderer::draw_char_scaled_pixels` (which
     /// this mirrors) already carries unsuppressed at the `v0.5.7b`
@@ -99,6 +107,9 @@ impl DrawSurface for Renderer {
     }
     fn draw_text_px(&mut self, font: &mut dyn Font, text: &str, pos: Vec2, px: f32, color: Color) -> f32 {
         Renderer::draw_text_px(self, font, text, pos, px, color)
+    }
+    fn fill_rect_px(&mut self, rect: Rect, color: Color) {
+        Renderer::fill_rect_px(self, rect, color);
     }
     fn draw_char(&mut self, x: usize, y: usize, ch: char, fg: Color, bg: Color) {
         Renderer::draw_char(self, x, y, ch, fg, bg);
@@ -185,6 +196,7 @@ impl DrawSurface for NullRenderer {
         // same number a real render would produce, not a dummy `0.0`.
         font.measure(text, px).0
     }
+    fn fill_rect_px(&mut self, _rect: Rect, _color: Color) {}
     fn draw_char(&mut self, _x: usize, _y: usize, _ch: char, _fg: Color, _bg: Color) {}
     #[allow(clippy::too_many_arguments)]
     fn draw_char_scaled_pixels(

@@ -29,7 +29,34 @@
 
 use super::frame::{UiFrame, WidgetId};
 use super::rect::UiRect;
-use ember2d::renderer::{color::Color, DrawSurface};
+use ember2d::renderer::{color::Color, DrawSurface, Font};
+use ember2d_sim::math::{Rect, Vec2};
+
+/// One row of pixel-positioned text: a background fill sized to `rect`,
+/// then `text` baseline-positioned inside it at `px` through `font` — the
+/// pixel-space replacement for `renderer.draw_str(cell_x, cell_y, text,
+/// fg, bg)` (docs/ember2d-master-plan.md §5.4, the `UiRect::from_cells`
+/// removal). `rect.y` is the row's TOP, matching `UiRect`/
+/// `Panel::content_rect`'s own convention — the baseline is computed from
+/// `font.ascent(px)`, the same math `Renderer::draw_str`'s own `Ttf`
+/// branch already uses for its "cell-snapped baseline," just without the
+/// cell-snap rounding, since `rect.y` is already a real pixel position,
+/// not a cell index waiting to be multiplied out. Returns the text's own
+/// measured advance, so a caller can position whatever comes next on the
+/// same row (mirrors `DrawSurface::draw_text_px`'s own return value).
+pub fn draw_text_row(
+    renderer: &mut dyn DrawSurface,
+    font: &mut dyn Font,
+    text: &str,
+    rect: Rect,
+    px: f32,
+    fg: Color,
+    bg: Color,
+) -> f32 {
+    renderer.fill_rect_px(rect, bg);
+    let baseline_y = rect.y + font.ascent(px);
+    renderer.draw_text_px(font, text, Vec2::new(rect.x, baseline_y), px, fg)
+}
 
 /// A single clickable line of text — every modal "button" (confirm
 /// Yes/No, the advanced color picker's Apply/Cancel/title-close) is

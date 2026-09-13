@@ -9,12 +9,13 @@
 use super::super::frame::{InspectorField, UiFrame, WidgetId};
 use super::super::rect::UiRect;
 use super::super::types::*;
-use super::super::widgets::draw_row;
+use super::super::widgets::{draw_row, draw_text_row};
 use crate::editor::grid::LevelGrid;
 use crate::editor::palette::TilePalette;
 use ember2d::renderer::{color::Color, DrawSurface, Font};
 use ember2d::theme::{PaletteRole, Theme};
 use ember2d_sim::level::TileRecord;
+use ember2d_sim::math::Rect;
 use ember2d_sim::scripting::{LogEntry, LogLevel};
 use std::collections::HashMap;
 
@@ -150,39 +151,53 @@ pub fn draw_palette_panel(
     );
 }
 
+/// The first panel converted off the character-cell grid entirely
+/// (docs/ember2d-master-plan.md §5.4, the `UiRect::from_cells` removal) —
+/// picked as the proof-of-pattern slice because it has no interactive
+/// hit-rects to re-derive, the smallest possible surface for a first real
+/// conversion. `content` is `Panel::content_rect()` (already pixel-native,
+/// unlike the `content_x/y/w/h` cell-int bridge methods every OTHER
+/// caller in this file still uses) — rows are `theme.metrics.row_h`
+/// pixels tall (20px in `ember-clean`, not the old fixed 16px `CELL_H`),
+/// and text draws through the theme's own font at `font_sizes.body` via
+/// `draw_text_row`, not the cell-quantized `draw_str`. This is also the
+/// first place the theme's real font (Cascadia Mono TTF) actually renders
+/// anywhere but `draw_panel_chrome`'s title bar — every other panel still
+/// renders through `draw_str`, which ignores the theme's font entirely
+/// (see the master plan's own note on why that's not a quick fix).
 pub fn draw_stats_panel(
     renderer: &mut dyn DrawSurface,
+    font: &mut dyn Font,
     theme: &Theme,
     grid: &LevelGrid,
     palette: &TilePalette,
-    cx: usize,
-    cy: usize,
-    cw: usize,
-    ch: usize,
+    content: Rect,
 ) {
     let panel_bg = theme.role_color(PaletteRole::PanelBg);
+    let text_fg = theme.role_color(PaletteRole::TextPrimary);
+    let row_h = theme.metrics.row_h;
+    let text_px = theme.font_sizes.body;
     let mut counts: HashMap<String, usize> = HashMap::new();
     for (_, tile) in grid.iter() {
         *counts.entry(tile.tag.clone()).or_insert(0) += 1;
     }
     let total = grid.tiles.len();
+    // At least 1, so a panel too short for even one real row still gets
+    // its "Total" line rather than dividing by zero below.
+    let max_rows = ((content.h / row_h).floor() as usize).max(1);
     for (i, def) in palette.tiles.iter().enumerate() {
-        let row = cy + i;
-        if row >= cy + ch - 1 {
+        // Leave the last row for "Total", same reservation the old
+        // cell-based `row >= cy + ch - 1` check made.
+        if i + 1 >= max_rows {
             break;
         }
+        let row_rect = Rect::new(content.x, content.y + i as f32 * row_h, content.w, row_h);
         let count = counts.get(&def.tag).copied().unwrap_or(0);
         let label = format!(" {}: {:>4}", def.name, count);
-        let clipped: String = label.chars().take(cw).collect();
-        renderer.draw_str(cx, row, &clipped, def.fg, panel_bg);
+        draw_text_row(renderer, font, &label, row_rect, text_px, def.fg, panel_bg);
     }
-    renderer.draw_str(
-        cx,
-        cy + ch - 1,
-        &format!(" Total:{:>4}", total),
-        theme.role_color(PaletteRole::TextPrimary),
-        panel_bg,
-    );
+    let total_row = Rect::new(content.x, content.y + (max_rows - 1) as f32 * row_h, content.w, row_h);
+    draw_text_row(renderer, font, &format!(" Total:{:>4}", total), total_row, text_px, text_fg, panel_bg);
 }
 
 pub fn draw_console(

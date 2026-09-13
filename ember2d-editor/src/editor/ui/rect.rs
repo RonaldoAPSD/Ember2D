@@ -121,6 +121,21 @@ impl UiRect {
     }
 }
 
+/// `UiRect` is this crate's own pixel-rect type; `ember2d_sim::math::Rect`
+/// is what `DrawSurface`'s pixel-native methods (`fill_rect_px`,
+/// `draw_nine_slice_px`, `draw_text_row`) take, since they're defined at
+/// the `ember2d`/`ember2d_sim` level and know nothing about `ui::UiRect`.
+/// Identical `{x, y, w, h}` shape — this is the one place that fact is
+/// load-bearing, so a panel's own `content_rect()` (`UiRect`) can feed
+/// straight into a themed draw call with `.into()` instead of every call
+/// site re-typing the same four-field copy (docs/ember2d-master-plan.md
+/// §5.4, the `UiRect::from_cells` removal).
+impl From<UiRect> for ember2d_sim::math::Rect {
+    fn from(r: UiRect) -> Self {
+        ember2d_sim::math::Rect::new(r.x, r.y, r.w, r.h)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

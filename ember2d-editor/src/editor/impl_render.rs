@@ -478,7 +478,14 @@ impl EditorState {
                     ui::draw_console(renderer, &self.theme, &self.console_log, pcx, pcy, pcw, pch);
                 }
                 PanelId::Stats => {
-                    ui::draw_stats_panel(renderer, &self.theme, &self.grid, &self.palette, pcx, pcy, pcw, pch);
+                    ui::draw_stats_panel(
+                        renderer,
+                        self.font.as_mut(),
+                        &self.theme,
+                        &self.grid,
+                        &self.palette,
+                        panel.content_rect().into(),
+                    );
                 }
                 PanelId::ScriptEditor => {
                     ui::draw_script_editor(
