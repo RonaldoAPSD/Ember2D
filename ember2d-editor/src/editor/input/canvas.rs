@@ -84,7 +84,8 @@ impl EditorState {
         // as the rect it's added to. `is_point_on_panel` compares against
         // OTHER panels' own points-space rects, so it gets the points-space
         // mouse position instead.
-        let viewport_rect = self.ui_space.rect_to_logical(self.panels.viewport().content_rect(&metrics).into());
+        let viewport_rect =
+            self.ui_space.rect_to_logical(self.panels.viewport().content_rect(&metrics).into());
         let bar_h_logical = metrics.bar_h * self.ui_space.pt_to_logical();
         let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
         let on_canvas = mouse.in_bounds
@@ -425,8 +426,10 @@ impl EditorState {
     /// no-op-click behavior.
     pub(super) fn commit_paint_batch(&mut self) {
         if let Some(batch) = self.paint_batch.take() {
-            let cells: Vec<_> =
-                batch.into_iter().map(|((x, y, layer), (before, after))| (x, y, layer, before, after)).collect();
+            let cells: Vec<_> = batch
+                .into_iter()
+                .map(|((x, y, layer), (before, after))| (x, y, layer, before, after))
+                .collect();
             if !cells.is_empty() {
                 self.undo.push(Command::Batch { cells });
                 self.unsaved = true;
@@ -498,7 +501,8 @@ impl EditorState {
             }
         }
         if mouse.left_just_released() {
-            if let (Some(anchor), Some(current)) = (start, self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y))
+            if let (Some(anchor), Some(current)) =
+                (start, self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y))
             {
                 if cutting {
                     self.cut_selection(anchor, current);

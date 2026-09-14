@@ -8,7 +8,9 @@
 // primitives (`draw_texture_px`, `draw_nine_slice`, `fill_rect_px`) left
 // behind in `mod.rs`.
 
-use super::{BitmapFont, Color, Font, GlyphInfo, Renderer, Texture, TextRun, UiFontKind, CELL_H, CELL_W};
+use super::{
+    BitmapFont, Color, Font, GlyphInfo, Renderer, TextRun, Texture, UiFontKind, CELL_H, CELL_W,
+};
 use ember2d_sim::math::{Rect, Vec2};
 
 impl Renderer {
@@ -61,7 +63,8 @@ impl Renderer {
     /// stand-in on every other call — the overwhelming majority of frames,
     /// once an atlas has been uploaded at least once.
     pub fn draw_text_run(&mut self, font: &mut dyn Font, run: &TextRun) -> f32 {
-        let glyphs: Vec<GlyphInfo> = run.text.chars().filter_map(|ch| font.glyph(ch, run.raster_px)).collect();
+        let glyphs: Vec<GlyphInfo> =
+            run.text.chars().filter_map(|ch| font.glyph(ch, run.raster_px)).collect();
 
         let dirty = font.take_dirty();
         let tex_id = font.texture_id();
@@ -110,7 +113,10 @@ impl Renderer {
         px: f32,
         color: Color,
     ) -> f32 {
-        self.draw_text_run(font, &TextRun { text, origin: pos, raster_px: px, texel_scale: 1.0, pitch: None, color })
+        self.draw_text_run(
+            font,
+            &TextRun { text, origin: pos, raster_px: px, texel_scale: 1.0, pitch: None, color },
+        )
     }
 
     /// 7B-5 (docs/ember2d-master-plan.md §5.2): the `EMBER_UI_FONT=ttf`

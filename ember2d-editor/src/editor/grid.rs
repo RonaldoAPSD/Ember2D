@@ -271,11 +271,36 @@ mod tests {
     fn to_level_data_sorts_tiles_by_layer_then_y_then_x_regardless_of_insertion_order() {
         let mut grid = LevelGrid::new(10, 10);
         // Insert deliberately out of (layer, y, x) order.
-        grid.place(5, 0, 1, TileRecord::new(5, 0, 1, 'e', Color::White, Color::Reset, false, false, ""));
-        grid.place(0, 0, 0, TileRecord::new(0, 0, 0, 'a', Color::White, Color::Reset, false, false, ""));
-        grid.place(1, 0, 1, TileRecord::new(1, 0, 1, 'c', Color::White, Color::Reset, false, false, ""));
-        grid.place(0, 5, 1, TileRecord::new(0, 5, 1, 'd', Color::White, Color::Reset, false, false, ""));
-        grid.place(9, 0, 0, TileRecord::new(9, 0, 0, 'b', Color::White, Color::Reset, false, false, ""));
+        grid.place(
+            5,
+            0,
+            1,
+            TileRecord::new(5, 0, 1, 'e', Color::White, Color::Reset, false, false, ""),
+        );
+        grid.place(
+            0,
+            0,
+            0,
+            TileRecord::new(0, 0, 0, 'a', Color::White, Color::Reset, false, false, ""),
+        );
+        grid.place(
+            1,
+            0,
+            1,
+            TileRecord::new(1, 0, 1, 'c', Color::White, Color::Reset, false, false, ""),
+        );
+        grid.place(
+            0,
+            5,
+            1,
+            TileRecord::new(0, 5, 1, 'd', Color::White, Color::Reset, false, false, ""),
+        );
+        grid.place(
+            9,
+            0,
+            0,
+            TileRecord::new(9, 0, 0, 'b', Color::White, Color::Reset, false, false, ""),
+        );
 
         let data = grid.to_level_data();
         let glyphs: Vec<char> = data.tiles.iter().map(|t| t.glyph).collect();
@@ -294,8 +319,18 @@ mod tests {
     #[test]
     fn saving_the_same_grid_twice_produces_identical_tile_order() {
         let mut grid = LevelGrid::new(10, 10);
-        grid.place(3, 2, 1, TileRecord::new(3, 2, 1, '#', Color::White, Color::Reset, true, false, ""));
-        grid.place(1, 1, 0, TileRecord::new(1, 1, 0, '.', Color::White, Color::Reset, false, false, ""));
+        grid.place(
+            3,
+            2,
+            1,
+            TileRecord::new(3, 2, 1, '#', Color::White, Color::Reset, true, false, ""),
+        );
+        grid.place(
+            1,
+            1,
+            0,
+            TileRecord::new(1, 1, 0, '.', Color::White, Color::Reset, false, false, ""),
+        );
 
         let first = grid.to_level_data();
         let second = grid.to_level_data();

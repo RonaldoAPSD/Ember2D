@@ -11,12 +11,19 @@ use ember2d::theme::{PaletteRole, Theme};
 use ember2d_sim::math::Rect;
 
 pub enum MenuEntry {
-    Item { label: &'static str, shortcut: &'static str, action: ToolbarAction },
+    Item {
+        label: &'static str,
+        shortcut: &'static str,
+        action: ToolbarAction,
+    },
     /// A runtime-known label (7D-4, master plan §5.4) — `theme_menu_entries`
     /// is the one place that builds these, since a shipped theme's
     /// directory name isn't a compile-time `&'static str` the way every
     /// other menu's entries are.
-    DynamicItem { label: String, action: ToolbarAction },
+    DynamicItem {
+        label: String,
+        action: ToolbarAction,
+    },
     Sep,
 }
 
@@ -50,7 +57,10 @@ fn menu_label_defs() -> &'static [(&'static str, MenuKind)] {
 pub fn theme_menu_entries(available: &[String]) -> Vec<MenuEntry> {
     let mut entries: Vec<MenuEntry> = available
         .iter()
-        .map(|name| MenuEntry::DynamicItem { label: name.clone(), action: ToolbarAction::SetTheme(name.clone()) })
+        .map(|name| MenuEntry::DynamicItem {
+            label: name.clone(),
+            action: ToolbarAction::SetTheme(name.clone()),
+        })
         .collect();
     entries.push(MenuEntry::Sep);
     entries.extend(UiScaleChoice::ALL.iter().map(|&choice| MenuEntry::DynamicItem {
@@ -301,14 +311,32 @@ pub fn draw_menu_toolbar(
         let padded = format!(" {} ", label);
         let label_w = painter.measure(font, &padded, text_px);
         let label_rect = Rect::new(draw_x, row_y, label_w, row_h);
-        draw_row_px(painter, frame, font, WidgetId::MenuLabel(kind), label_rect, text_px, &padded, fg, bg);
+        draw_row_px(
+            painter,
+            frame,
+            font,
+            WidgetId::MenuLabel(kind),
+            label_rect,
+            text_px,
+            &padded,
+            fg,
+            bg,
+        );
         draw_x += label_w;
     }
     let indicator = format!("[ {} ]", mode_label);
     let indicator_w = painter.measure(font, &indicator, text_px);
     let pad = painter.measure(font, " ", text_px);
     let indicator_x = (pixel_w - indicator_w - pad).max(0.0);
-    draw_text_row(painter, font, &indicator, Rect::new(indicator_x, row_y, indicator_w, row_h), text_px, accent, panel_bg);
+    draw_text_row(
+        painter,
+        font,
+        &indicator,
+        Rect::new(indicator_x, row_y, indicator_w, row_h),
+        text_px,
+        accent,
+        panel_bg,
+    );
 }
 
 /// `metrics.bar_h` sizes each row; the dropdown's own x position is read
@@ -336,11 +364,14 @@ pub fn draw_menu_dropdown(
     let text_px = theme.font_sizes.body;
     let col_x = frame.rect_of(WidgetId::MenuLabel(menu)).map(|r| r.x).unwrap_or(0.0);
     let start_row_y = 2.0 * row_h; // below the title bar AND the toolbar
-    // `MenuKind::Theme`'s entries are runtime-known (`available_themes`),
-    // not the fixed per-kind list every other menu draws from — see
-    // `theme_menu_entries`'s own doc comment.
-    let entries =
-        if menu == MenuKind::Theme { theme_menu_entries(available_themes) } else { menu_entries(menu) };
+                                   // `MenuKind::Theme`'s entries are runtime-known (`available_themes`),
+                                   // not the fixed per-kind list every other menu draws from — see
+                                   // `theme_menu_entries`'s own doc comment.
+    let entries = if menu == MenuKind::Theme {
+        theme_menu_entries(available_themes)
+    } else {
+        menu_entries(menu)
+    };
     let panel_bg = theme.role_color(PaletteRole::PanelBg);
     let text_fg = theme.role_color(PaletteRole::TextPrimary);
     let dim = theme.role_color(PaletteRole::TextDim);
@@ -356,7 +387,9 @@ pub fn draw_menu_dropdown(
             MenuEntry::Item { label, shortcut, .. } => {
                 painter.measure(font, &format!(" {} {:<11} {} ", '>', label, shortcut), text_px)
             }
-            MenuEntry::DynamicItem { label, .. } => painter.measure(font, &format!(" {} {} ", '>', label), text_px),
+            MenuEntry::DynamicItem { label, .. } => {
+                painter.measure(font, &format!(" {} {} ", '>', label), text_px)
+            }
         })
         .fold(0.0_f32, f32::max);
     painter.fill(Rect::new(col_x, start_row_y, menu_w_px, entries.len() as f32 * row_h), panel_bg);
@@ -382,14 +415,34 @@ pub fn draw_menu_dropdown(
                     (text_fg, panel_bg)
                 };
                 let text = format!(" {} {:<11} {} ", check, label, shortcut);
-                draw_row_px(painter, frame, font, WidgetId::MenuItem(menu, i), row_rect, text_px, &text, fg, bg);
+                draw_row_px(
+                    painter,
+                    frame,
+                    font,
+                    WidgetId::MenuItem(menu, i),
+                    row_rect,
+                    text_px,
+                    &text,
+                    fg,
+                    bg,
+                );
             }
             MenuEntry::DynamicItem { label, action } => {
                 let check = menu_checkmark(action, ms);
                 // No themed "text-on-accent" role — same gap as above.
                 let (fg, bg) = if hovered { (Color::Black, accent) } else { (text_fg, panel_bg) };
                 let text = format!(" {} {} ", check, label);
-                draw_row_px(painter, frame, font, WidgetId::MenuItem(menu, i), row_rect, text_px, &text, fg, bg);
+                draw_row_px(
+                    painter,
+                    frame,
+                    font,
+                    WidgetId::MenuItem(menu, i),
+                    row_rect,
+                    text_px,
+                    &text,
+                    fg,
+                    bg,
+                );
             }
         }
     }

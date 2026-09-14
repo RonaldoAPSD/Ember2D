@@ -67,7 +67,10 @@ fn every_audio_path_a_demo_script_references_exists_on_disk() {
             }
         }
     }
-    assert!(checked > 0, "no play_sound/play_music call found in any demo script — this test would pass vacuously");
+    assert!(
+        checked > 0,
+        "no play_sound/play_music call found in any demo script — this test would pass vacuously"
+    );
 }
 
 #[test]

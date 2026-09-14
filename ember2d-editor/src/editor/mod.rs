@@ -167,7 +167,10 @@ pub enum EditorMode {
     /// Was `select_mode: bool` — click-to-inspect, no painting.
     Inspect,
     /// Was `selecting`/`cutting`/`sel_anchor`.
-    Select { start: Option<(i32, i32)>, cutting: bool },
+    Select {
+        start: Option<(i32, i32)>,
+        cutting: bool,
+    },
     Paste,
     /// `None` places the single default spawn; `Some(name)` adds a named
     /// one — was `placing_spawn: bool` and `placing_named_spawn:
@@ -178,14 +181,19 @@ pub enum EditorMode {
     /// concern (`EditorFocus`, below) that doesn't touch `mode` at all,
     /// since normal editing stays available around it.
     Script,
-    Graph { gx: i32, gy: i32 },
+    Graph {
+        gx: i32,
+        gy: i32,
+    },
     PaletteEditor,
     /// The Palette panel's search field. Was `palette_search_focused: bool`.
     PaletteSearch,
     /// `true` edits the palette's current foreground color, `false` its
     /// background — always entered from, and always returns to,
     /// `PaletteEditor`.
-    ColorPicker { is_fg: bool },
+    ColorPicker {
+        is_fg: bool,
+    },
     Prompt(TextInputPurpose),
     Modal(Modal),
     ContextMenu(ui::ContextMenu),
@@ -564,7 +572,11 @@ impl EditorState {
             ignore_drag: false,
             pan_anchor: None,
             scroll_repeat: 0,
-            panels: PanelManager::new(PLACEHOLDER_SCREEN_W, PLACEHOLDER_SCREEN_H, &placeholder_metrics),
+            panels: PanelManager::new(
+                PLACEHOLDER_SCREEN_W,
+                PLACEHOLDER_SCREEN_H,
+                &placeholder_metrics,
+            ),
             ui_frame: UiFrame::new(),
             font: theme_font,
             focused_panel: None,
@@ -649,7 +661,8 @@ impl EditorState {
     /// R14 (7A-2, docs/ember2d-master-plan.md) — see `EditorFocus`'s own
     /// doc comment for why this is derived rather than a stored field.
     pub(crate) fn focus(&self) -> EditorFocus {
-        if matches!(self.mode, EditorMode::Script) || self.focused_panel == Some(PanelId::ScriptEditor)
+        if matches!(self.mode, EditorMode::Script)
+            || self.focused_panel == Some(PanelId::ScriptEditor)
         {
             EditorFocus::ScriptPanel
         } else {

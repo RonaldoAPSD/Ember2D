@@ -12,7 +12,7 @@ use common::{
     EditorHarness,
 };
 use ember2d::input::Key;
-use ember2d_editor::editor::ui::{MenuKind, ToolbarAction, ToolKind, WidgetId};
+use ember2d_editor::editor::ui::{MenuKind, ToolKind, ToolbarAction, WidgetId};
 use ember2d_editor::editor::EditorMode;
 
 // ── 7C-6: LevelGrid determinism and undo batching (D18) ─────────────────────
@@ -83,7 +83,11 @@ fn scatter_paint_batches_into_at_most_one_undo_step() {
     h.drag_through(&path);
     h.release_key(Key::LeftAlt);
 
-    assert!(h.state.undo_len() <= 1, "a whole scatter drag must be AT MOST one undo step, got {}", h.state.undo_len());
+    assert!(
+        h.state.undo_len() <= 1,
+        "a whole scatter drag must be AT MOST one undo step, got {}",
+        h.state.undo_len()
+    );
 }
 
 #[test]
@@ -108,7 +112,10 @@ fn adding_a_graph_node_then_undoing_removes_it() {
         .rect_of(WidgetId::InspectorRow(InspectorField::GraphBtn))
         .expect("Inspector's GraphBtn row was not drawn for the selected tile");
     h.click(graph_btn_rect.x + 1.0, graph_btn_rect.y + 1.0);
-    assert!(matches!(h.state.mode(), EditorMode::Graph { .. }), "clicking GraphBtn must open the graph editor");
+    assert!(
+        matches!(h.state.mode(), EditorMode::Graph { .. }),
+        "clicking GraphBtn must open the graph editor"
+    );
 
     fn node_count(h: &EditorHarness) -> Option<usize> {
         h.state.grid().get(5, 5, 1).and_then(|t| t.graph.as_ref()).map(|g| g.nodes.len())
@@ -158,7 +165,10 @@ fn deleting_a_named_spawn_via_the_context_menu_is_undoable() {
         .rect_of(WidgetId::HierarchyRow(HierarchySelection::Spawn(0)))
         .expect("the named spawn's Hierarchy row was not drawn");
     h.right_click(row_rect.x + 1.0, row_rect.y + 1.0);
-    assert!(matches!(h.state.mode(), EditorMode::ContextMenu(_)), "right-clicking a hierarchy row must open its context menu");
+    assert!(
+        matches!(h.state.mode(), EditorMode::ContextMenu(_)),
+        "right-clicking a hierarchy row must open its context menu"
+    );
 
     // A Spawn selection's context menu is built (`context_menu_trigger.rs`)
     // as ["Focus Camera", "Duplicate", "Delete"] — index 2 is "Delete".
@@ -211,7 +221,11 @@ fn adding_a_palette_item_via_the_new_button_is_undoable() {
     h.press_key(Key::Z);
     h.release_key(Key::Z);
     h.release_key(Key::LeftCtrl);
-    assert_eq!(h.state.palette_tile_count(), before_count, "undo must remove the new palette item again");
+    assert_eq!(
+        h.state.palette_tile_count(),
+        before_count,
+        "undo must remove the new palette item again"
+    );
 }
 
 #[test]
@@ -253,14 +267,25 @@ fn editing_a_palette_item_in_the_modal_editor_undoes_as_one_session() {
         .expect("the palette editor's [ Save & Close ] button was not drawn");
     h.click(save_rect.x + 1.0, save_rect.y + 1.0);
 
-    assert!(matches!(h.state.mode(), EditorMode::Paint(ToolKind::Paint)), "Save & Close must exit the editor");
-    assert_eq!(h.state.undo_len(), undo_before + 1, "the whole open-edit-close session must be one undo step");
+    assert!(
+        matches!(h.state.mode(), EditorMode::Paint(ToolKind::Paint)),
+        "Save & Close must exit the editor"
+    );
+    assert_eq!(
+        h.state.undo_len(),
+        undo_before + 1,
+        "the whole open-edit-close session must be one undo step"
+    );
 
     h.press_key(Key::LeftCtrl);
     h.press_key(Key::Z);
     h.release_key(Key::Z);
     h.release_key(Key::LeftCtrl);
-    assert_eq!(h.state.undo_len(), undo_before, "undo must remove that one session's worth of edits");
+    assert_eq!(
+        h.state.undo_len(),
+        undo_before,
+        "undo must remove that one session's worth of edits"
+    );
 }
 
 // ── 7C-6: confirm before destructive actions ─────────────────────────────────
@@ -368,7 +393,11 @@ fn switching_levels_with_nothing_unsaved_does_not_confirm() {
         !matches!(h.state.mode(), EditorMode::Modal(_)),
         "switching with nothing unsaved must not show a confirm modal"
     );
-    assert_eq!(h.state.grid().width, 4, "the switch must have happened directly, with no confirm step");
+    assert_eq!(
+        h.state.grid().width,
+        4,
+        "the switch must have happened directly, with no confirm step"
+    );
 }
 
 #[test]
@@ -405,7 +434,10 @@ fn switching_levels_with_unsaved_edits_confirms_first() {
         .expect("other.level's row was not drawn");
     h.click(row_rect.x + 1.0, row_rect.y + 1.0);
 
-    assert!(matches!(h.state.mode(), EditorMode::Modal(_)), "switching with unsaved edits must confirm first");
+    assert!(
+        matches!(h.state.mode(), EditorMode::Modal(_)),
+        "switching with unsaved edits must confirm first"
+    );
     h.key(Key::Y);
     assert_eq!(h.state.grid().width, 4, "confirming must actually load the other (4-wide) level");
 }
@@ -450,7 +482,10 @@ fn switching_levels_with_only_an_unsaved_script_edit_still_confirms_first() {
         .rect_of(WidgetId::FileBrowserRow(script_row))
         .expect("player.rhai's row was not drawn");
     h.click(script_rect.x + 1.0, script_rect.y + 1.0);
-    assert!(matches!(h.state.mode(), EditorMode::Script), "clicking player.rhai must open the script editor");
+    assert!(
+        matches!(h.state.mode(), EditorMode::Script),
+        "clicking player.rhai must open the script editor"
+    );
 
     h.type_text("// edited");
     assert!(h.state.script_unsaved(), "typing into the script buffer must mark it dirty");

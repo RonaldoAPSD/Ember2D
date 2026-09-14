@@ -212,8 +212,12 @@ impl EditorState {
                     // exactly where `draw_panel_chrome`'s own title-bar row
                     // does (`panel/chrome.rs`), through the same
                     // `ChromeMetrics` value, so the two can't drift.
-                    let strip =
-                        ember2d_sim::math::Rect::new(panel.rect.x, panel.rect.y, panel.rect.w, metrics.bar_h);
+                    let strip = ember2d_sim::math::Rect::new(
+                        panel.rect.x,
+                        panel.rect.y,
+                        panel.rect.w,
+                        metrics.bar_h,
+                    );
                     ui::draw_dock_tabs(
                         &mut painter,
                         self.font.as_mut(),
@@ -251,7 +255,13 @@ impl EditorState {
                     // above, and the raw `renderer` escape hatch, not
                     // `painter`.
                     ui::draw_void(renderer, &self.grid, self.scroll, self.zoom, viewport_logical);
-                    ui::draw_level_boundary(renderer, &self.grid, self.scroll, self.zoom, viewport_logical);
+                    ui::draw_level_boundary(
+                        renderer,
+                        &self.grid,
+                        self.scroll,
+                        self.zoom,
+                        viewport_logical,
+                    );
                     if self.show_grid {
                         ui::draw_grid_overlay(
                             renderer,
@@ -285,8 +295,11 @@ impl EditorState {
                     );
 
                     // ── Mode overlays ─────────────────────────────────────────────
-                    let sel_anchor =
-                        if let EditorMode::Select { start, .. } = &self.mode { *start } else { None };
+                    let sel_anchor = if let EditorMode::Select { start, .. } = &self.mode {
+                        *start
+                    } else {
+                        None
+                    };
                     if matches!(self.mode, EditorMode::Paste) {
                         if let Some(cursor) = grid_cursor {
                             ui::draw_paste_preview(
@@ -430,7 +443,8 @@ impl EditorState {
                     );
                 }
                 PanelId::ScriptEditor => {
-                    let script_error = self.script_error().map(|(line, msg)| (line, msg.to_string()));
+                    let script_error =
+                        self.script_error().map(|(line, msg)| (line, msg.to_string()));
                     let script_selection = self.script_selection();
                     ui::draw_script_editor(
                         &mut painter,
@@ -638,7 +652,12 @@ impl EditorState {
         // Help screen overlay.
         if self.show_help {
             let vp = self.panels.viewport();
-            ui::draw_help_overlay(&mut painter, self.font.as_mut(), &self.theme, vp.content_rect(&metrics).into());
+            ui::draw_help_overlay(
+                &mut painter,
+                self.font.as_mut(),
+                &self.theme,
+                vp.content_rect(&metrics).into(),
+            );
         }
 
         if let EditorMode::Modal(m) = &self.mode {
@@ -656,7 +675,14 @@ impl EditorState {
         }
 
         if let EditorMode::ContextMenu(cm) = &self.mode {
-            ui::draw_context_menu(&mut painter, self.font.as_mut(), &self.theme, &self.theme_chrome_tex, cm, &mut self.ui_frame);
+            ui::draw_context_menu(
+                &mut painter,
+                self.font.as_mut(),
+                &self.theme,
+                &self.theme_chrome_tex,
+                cm,
+                &mut self.ui_frame,
+            );
         }
     }
 }

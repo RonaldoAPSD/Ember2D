@@ -178,7 +178,10 @@ mod tests {
         let content = Rect::new(0.0, 0.0, 400.0, 400.0);
         let short = ScriptLayout::compute(&theme, &mut font, content, 42, false, false);
         let long = ScriptLayout::compute(&theme, &mut font, content, 1000, false, false);
-        assert!(long.gutter_w > short.gutter_w, "a 1000-line buffer must get a wider gutter than a 42-line one");
+        assert!(
+            long.gutter_w > short.gutter_w,
+            "a 1000-line buffer must get a wider gutter than a 42-line one"
+        );
     }
 
     #[test]
@@ -188,7 +191,11 @@ mod tests {
         let content = Rect::new(0.0, 0.0, 400.0, 400.0);
         let layout = ScriptLayout::compute(&theme, &mut font, content, 10, false, false);
         let buffer = vec!["hello".to_string()];
-        assert_eq!(layout.hit(0.0, 0.0, 0, 0, &buffer), None, "the header row is not the text area");
+        assert_eq!(
+            layout.hit(0.0, 0.0, 0, 0, &buffer),
+            None,
+            "the header row is not the text area"
+        );
     }
 
     #[test]

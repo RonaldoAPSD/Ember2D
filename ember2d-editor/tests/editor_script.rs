@@ -26,9 +26,15 @@ fn open_docked_unfocused_script(h: &mut EditorHarness, dir: &std::path::Path, co
         .rect_of(ember2d_editor::editor::ui::WidgetId::FileBrowserRow(0))
         .expect("script.rhai's row was not drawn");
     h.click(row_rect.x + 1.0, row_rect.y + 1.0);
-    assert!(matches!(h.state.mode(), EditorMode::Script), "opening a .rhai file must enter fullscreen script mode");
+    assert!(
+        matches!(h.state.mode(), EditorMode::Script),
+        "opening a .rhai file must enter fullscreen script mode"
+    );
     h.key(Key::Escape);
-    assert!(matches!(h.state.mode(), EditorMode::Paint(_)), "Escape must leave fullscreen script mode");
+    assert!(
+        matches!(h.state.mode(), EditorMode::Paint(_)),
+        "Escape must leave fullscreen script mode"
+    );
 
     open_menu(h, MenuKind::View);
     click_menu_item(h, MenuKind::View, |a| matches!(a, ToolbarAction::ToggleScriptEditor));
@@ -106,7 +112,11 @@ fn r67_clicking_the_reserved_error_row_does_not_move_the_cursor() {
     // row once one is showing.
     h.click(content_rect.x + 1.0, content_rect.y + content_rect.h - 1.0);
 
-    assert_eq!(before, h.state.script_cursor(), "clicking the error row must never move the cursor");
+    assert_eq!(
+        before,
+        h.state.script_cursor(),
+        "clicking the error row must never move the cursor"
+    );
 }
 
 /// R68 (§3 in the master plan): the gutter is now sized from the buffer's

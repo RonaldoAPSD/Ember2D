@@ -21,7 +21,13 @@ const CELL_H: f32 = ember2d::renderer::CELL_H as f32;
 /// frame; adding `viewport.x`/`.y` directly (already pixels) is simpler
 /// than the old `canvas_x as i32 * CELL_W as i32` reconversion, not just
 /// equivalent to it.
-pub fn grid_to_pixel(gx: i32, gy: i32, scroll: (f32, f32), zoom: f32, viewport: UiRect) -> (i32, i32) {
+pub fn grid_to_pixel(
+    gx: i32,
+    gy: i32,
+    scroll: (f32, f32),
+    zoom: f32,
+    viewport: UiRect,
+) -> (i32, i32) {
     let px = ((gx as f32 - scroll.0) * CELL_W * zoom).round() as i32;
     let py = ((gy as f32 - scroll.1) * CELL_H * zoom).round() as i32;
     (px + viewport.x.round() as i32, py + viewport.y.round() as i32)
@@ -138,7 +144,17 @@ pub fn draw_grid_overlay(
                 continue;
             }
             let ch = if on_col && on_row { '+' } else { '.' };
-            draw_scaled_tile(renderer, gx, gy, ch, Color::DarkGrey, Color::Reset, scroll, zoom, viewport);
+            draw_scaled_tile(
+                renderer,
+                gx,
+                gy,
+                ch,
+                Color::DarkGrey,
+                Color::Reset,
+                scroll,
+                zoom,
+                viewport,
+            );
         }
     }
 }
@@ -159,7 +175,17 @@ pub fn draw_void(
     for gy in start_gy..(start_gy + ch_grid + 1) {
         for gx in start_gx..(start_gx + cw_grid + 1) {
             if !grid.in_bounds(gx, gy) {
-                draw_scaled_tile(renderer, gx, gy, ' ', Color::Reset, Color::Black, scroll, zoom, viewport);
+                draw_scaled_tile(
+                    renderer,
+                    gx,
+                    gy,
+                    ' ',
+                    Color::Reset,
+                    Color::Black,
+                    scroll,
+                    zoom,
+                    viewport,
+                );
             }
         }
     }
@@ -175,10 +201,30 @@ pub fn draw_level_boundary(
     let gw = grid.width as i32;
     let gh = grid.height as i32;
     for gy in 0..gh {
-        draw_scaled_tile(renderer, gw, gy, '|', Color::DarkGrey, Color::Reset, scroll, zoom, viewport);
+        draw_scaled_tile(
+            renderer,
+            gw,
+            gy,
+            '|',
+            Color::DarkGrey,
+            Color::Reset,
+            scroll,
+            zoom,
+            viewport,
+        );
     }
     for gx in 0..gw {
-        draw_scaled_tile(renderer, gx, gh, '-', Color::DarkGrey, Color::Reset, scroll, zoom, viewport);
+        draw_scaled_tile(
+            renderer,
+            gx,
+            gh,
+            '-',
+            Color::DarkGrey,
+            Color::Reset,
+            scroll,
+            zoom,
+            viewport,
+        );
     }
     draw_scaled_tile(renderer, gw, gh, '+', Color::DarkGrey, Color::Reset, scroll, zoom, viewport);
 }
@@ -222,11 +268,31 @@ pub fn draw_cursor_highlight(
 
     if select_mode {
         // Correct color for select mode as per plan: stark Dark Blue background for visibility
-        draw_scaled_tile(renderer, gx, gy, '+', Color::Yellow, Color::DarkBlue, scroll, zoom, viewport);
+        draw_scaled_tile(
+            renderer,
+            gx,
+            gy,
+            '+',
+            Color::Yellow,
+            Color::DarkBlue,
+            scroll,
+            zoom,
+            viewport,
+        );
     } else {
         let tile = palette.current();
         // Correct color for paint mode as per plan: stark White background to make it pop
-        draw_scaled_tile(renderer, gx, gy, tile.glyph, tile.fg, Color::White, scroll, zoom, viewport);
+        draw_scaled_tile(
+            renderer,
+            gx,
+            gy,
+            tile.glyph,
+            tile.fg,
+            Color::White,
+            scroll,
+            zoom,
+            viewport,
+        );
     }
 }
 
@@ -269,7 +335,17 @@ pub fn draw_extra_spawns(
     for (name, x, y) in spawns {
         let gx = x.round() as i32;
         let gy = y.round() as i32;
-        draw_scaled_tile(renderer, gx, gy, '!', Color::Magenta, Color::Reset, scroll, zoom, viewport);
+        draw_scaled_tile(
+            renderer,
+            gx,
+            gy,
+            '!',
+            Color::Magenta,
+            Color::Reset,
+            scroll,
+            zoom,
+            viewport,
+        );
 
         let (px, py) = grid_to_pixel(gx, gy, scroll, zoom, viewport);
         let label: String = name.chars().take(3).collect();
@@ -283,7 +359,8 @@ pub fn draw_extra_spawns(
         // up overlapping it instead of sitting beside it.
         let lx = (px as f32 / CELL_W + zoom).round() as usize;
         let ly = (py as f32 / CELL_H).round() as usize;
-        if lx >= canvas_x && lx < canvas_x + canvas_w && ly >= canvas_y && ly < canvas_y + canvas_h {
+        if lx >= canvas_x && lx < canvas_x + canvas_w && ly >= canvas_y && ly < canvas_y + canvas_h
+        {
             renderer.draw_str(lx, ly, &label, Color::Magenta, Color::Reset);
         }
     }
@@ -304,7 +381,17 @@ pub fn draw_rect_preview(
     let y1 = anchor.1.max(current.1);
     for gy in y0..=y1 {
         for gx in x0..=x1 {
-            draw_scaled_tile(renderer, gx, gy, glyph, Color::Black, Color::White, scroll, zoom, viewport);
+            draw_scaled_tile(
+                renderer,
+                gx,
+                gy,
+                glyph,
+                Color::Black,
+                Color::White,
+                scroll,
+                zoom,
+                viewport,
+            );
         }
     }
 }
@@ -319,7 +406,17 @@ pub fn draw_line_preview(
     viewport: UiRect,
 ) {
     for (gx, gy) in bresenham(anchor, current) {
-        draw_scaled_tile(renderer, gx, gy, glyph, Color::Black, Color::Cyan, scroll, zoom, viewport);
+        draw_scaled_tile(
+            renderer,
+            gx,
+            gy,
+            glyph,
+            Color::Black,
+            Color::Cyan,
+            scroll,
+            zoom,
+            viewport,
+        );
     }
 }
 
@@ -515,7 +612,13 @@ mod tests {
     /// docs/ember2d-phase7-plan.md — the test that catches E1) means
     /// operating on the unquantized pixel value `grid_to_pixel` itself
     /// returns.
-    fn pixel_to_grid(px: i32, py: i32, scroll: (f32, f32), zoom: f32, viewport: UiRect) -> (i32, i32) {
+    fn pixel_to_grid(
+        px: i32,
+        py: i32,
+        scroll: (f32, f32),
+        zoom: f32,
+        viewport: UiRect,
+    ) -> (i32, i32) {
         let local_x = px as f32 - viewport.x;
         let local_y = py as f32 - viewport.y;
         let gx = (local_x / (CELL_W * zoom) + scroll.0).floor() as i32;
@@ -535,7 +638,7 @@ mod tests {
         // build with `UiRect`s standing in for the Viewport panel's own
         // rect at a couple of representative docked-panel layouts.
         let viewports = [
-            UiRect::new(0.0, 32.0, 640.0, 336.0), // (0, 2, 80, 21) cells
+            UiRect::new(0.0, 32.0, 640.0, 336.0),   // (0, 2, 80, 21) cells
             UiRect::new(112.0, 48.0, 400.0, 288.0), // (14, 3, 50, 18) cells — non-zero origin, e.g. a docked Hierarchy + Inspector layout
         ];
         for &viewport in &viewports {

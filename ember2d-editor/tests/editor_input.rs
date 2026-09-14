@@ -12,7 +12,8 @@ use common::{
 };
 use ember2d::input::Key;
 use ember2d_editor::editor::ui::{
-    ChromeMetrics, ContextMenuAction, HierarchySelection, MenuKind, ToolbarAction, ToolKind, WidgetId,
+    ChromeMetrics, ContextMenuAction, HierarchySelection, MenuKind, ToolKind, ToolbarAction,
+    WidgetId,
 };
 use ember2d_editor::editor::{EditorMode, PaletteField, TextInputPurpose};
 
@@ -30,7 +31,11 @@ fn clicking_on_canvas_with_the_paint_tool_places_a_tile() {
     let mut h = EditorHarness::new();
     let (cx, cy) = canvas_pixel_for_grid(&h, 5, 5);
     h.click(cx, cy);
-    assert_eq!(h.state.grid().tiles.len(), 1, "a left-click on canvas with Paint active must place exactly one tile");
+    assert_eq!(
+        h.state.grid().tiles.len(),
+        1,
+        "a left-click on canvas with Paint active must place exactly one tile"
+    );
     assert!(h.state.unsaved());
 }
 
@@ -74,7 +79,9 @@ fn a_menu_click_does_not_also_paint_the_canvas_underneath_it() {
 fn selecting_rect_from_the_tools_menu_switches_the_active_tool() {
     let mut h = EditorHarness::new();
     open_menu(&mut h, MenuKind::Tools);
-    click_menu_item(&mut h, MenuKind::Tools, |a| matches!(a, ToolbarAction::SetTool(ToolKind::Rect)));
+    click_menu_item(&mut h, MenuKind::Tools, |a| {
+        matches!(a, ToolbarAction::SetTool(ToolKind::Rect))
+    });
     assert!(matches!(h.state.mode(), EditorMode::Paint(ToolKind::Rect)));
 }
 
@@ -86,7 +93,9 @@ fn r13_dismissing_a_dropdown_over_the_canvas_does_not_also_arm_a_rect_anchor() {
     // reason) could also drop a rect anchor on the canvas underneath it.
     let mut h = EditorHarness::new();
     open_menu(&mut h, MenuKind::Tools);
-    click_menu_item(&mut h, MenuKind::Tools, |a| matches!(a, ToolbarAction::SetTool(ToolKind::Rect)));
+    click_menu_item(&mut h, MenuKind::Tools, |a| {
+        matches!(a, ToolbarAction::SetTool(ToolKind::Rect))
+    });
     assert!(matches!(h.state.mode(), EditorMode::Paint(ToolKind::Rect)));
 
     open_menu(&mut h, MenuKind::File);
@@ -106,7 +115,9 @@ fn selecting_fill_from_the_tools_menu_then_dismissing_a_dropdown_does_not_flood_
     // Same R13 class of bug as the Rect test above, for the Fill tool.
     let mut h = EditorHarness::new();
     open_menu(&mut h, MenuKind::Tools);
-    click_menu_item(&mut h, MenuKind::Tools, |a| matches!(a, ToolbarAction::SetTool(ToolKind::Fill)));
+    click_menu_item(&mut h, MenuKind::Tools, |a| {
+        matches!(a, ToolbarAction::SetTool(ToolKind::Fill))
+    });
     assert!(matches!(h.state.mode(), EditorMode::Paint(ToolKind::Fill)));
 
     open_menu(&mut h, MenuKind::Edit);
@@ -114,7 +125,11 @@ fn selecting_fill_from_the_tools_menu_then_dismissing_a_dropdown_does_not_flood_
     h.click(cx, cy);
 
     assert_eq!(h.state.active_menu(), None);
-    assert_eq!(h.state.grid().tiles.len(), 0, "dismissing a dropdown over the canvas must not trigger a flood fill");
+    assert_eq!(
+        h.state.grid().tiles.len(),
+        0,
+        "dismissing a dropdown over the canvas must not trigger a flood fill"
+    );
 }
 
 // ── Docked panels and focus ──────────────────────────────────────────────────
@@ -158,7 +173,10 @@ fn r14_pressing_a_shortcut_key_while_the_docked_script_panel_is_focused_does_not
         "clicking inside the docked script panel must focus it"
     );
     assert!(!h.state.focus_is_canvas(), "focus must have left the canvas");
-    assert!(matches!(h.state.mode(), EditorMode::Paint(_)), "docked focus must not itself change `mode`");
+    assert!(
+        matches!(h.state.mode(), EditorMode::Paint(_)),
+        "docked focus must not itself change `mode`"
+    );
 
     let physics_before = h.state.show_physics();
     h.key(Key::G); // View > Physics's shortcut when focus IS on canvas
@@ -311,7 +329,10 @@ fn a_copy_select_drag_selects_a_region_and_returns_to_paint_on_release() {
     click_menu_item(&mut h, MenuKind::Edit, |a| matches!(a, ToolbarAction::EnterCopy));
     let (cx, cy) = canvas_center(&h);
     h.drag((cx, cy), (cx + 16.0, cy + 16.0));
-    assert!(matches!(h.state.mode(), EditorMode::Paint(ToolKind::Paint)), "releasing a copy-select drag must return to Paint");
+    assert!(
+        matches!(h.state.mode(), EditorMode::Paint(ToolKind::Paint)),
+        "releasing a copy-select drag must return to Paint"
+    );
 }
 
 #[test]
@@ -443,7 +464,10 @@ fn creating_a_new_level_via_the_level_menu_refreshes_the_file_browser() {
     open_menu(&mut h, MenuKind::Level);
     click_menu_item(&mut h, MenuKind::Level, |a| matches!(a, ToolbarAction::NewLevel));
     // 7C-6 (master plan §5.3): New Level now confirms first.
-    assert!(matches!(h.state.mode(), EditorMode::Modal(_)), "New Level must confirm before opening the name prompt");
+    assert!(
+        matches!(h.state.mode(), EditorMode::Modal(_)),
+        "New Level must confirm before opening the name prompt"
+    );
     h.key(Key::Y);
     assert!(matches!(h.state.mode(), EditorMode::Prompt(TextInputPurpose::NewLevelName)));
 
@@ -504,7 +528,10 @@ fn renaming_a_level_also_renames_its_file_on_disk() {
         h.state.file_browser_files()
     );
     assert!(
-        !h.state.file_browser_files().iter().any(|f| f.contains("Test.level") && !f.contains("Test4")),
+        !h.state
+            .file_browser_files()
+            .iter()
+            .any(|f| f.contains("Test.level") && !f.contains("Test4")),
         "the File Browser must not still show the old filename: {:?}",
         h.state.file_browser_files()
     );

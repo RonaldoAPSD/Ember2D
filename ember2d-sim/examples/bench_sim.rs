@@ -382,7 +382,11 @@ fn main() {
     }
 
     println!("\n--- shipped content ---");
-    for path in &["demos/roguelike/floor1.level", "demos/roguelike/floor2.level", "demos/roguelike/floor3.level"] {
+    for path in &[
+        "demos/roguelike/floor1.level",
+        "demos/roguelike/floor2.level",
+        "demos/roguelike/floor3.level",
+    ] {
         bench_real_level(path, steps);
     }
 }

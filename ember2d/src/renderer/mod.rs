@@ -14,10 +14,11 @@ pub mod texture;
 // (`mouse.rs` and the editor's test harness construct one directly); the
 // rest stay crate-internal, reached through the plain `use` just below.
 mod geometry;
-use geometry::{
-    compute_layout, nine_slice_quads, pixel_size_to_cells, screen_cell_to_pixel, snap_rect_to_scale, uv_rect_for,
-};
 pub use geometry::ScreenMapping;
+use geometry::{
+    compute_layout, nine_slice_quads, pixel_size_to_cells, screen_cell_to_pixel,
+    snap_rect_to_scale, uv_rect_for,
+};
 
 // ui_space.rs/ui_painter.rs (7D-3, docs/ember2d-master-plan.md §5.4): the
 // points<->logical<->physical coordinate-space conversion and the
@@ -45,7 +46,9 @@ pub use assets::AssetManager;
 pub use backend::WgpuBackend;
 pub use color::{Color, DEFAULT_BG, DEFAULT_FG};
 pub use draw_surface::{DisplayScale, DrawSurface, NullRenderer, TextRun};
-pub use font::{glyph_atlas_side_for, ui_font_from_env, BitmapFont, Font, GlyphInfo, TtfFont, UiFontKind};
+pub use font::{
+    glyph_atlas_side_for, ui_font_from_env, BitmapFont, Font, GlyphInfo, TtfFont, UiFontKind,
+};
 pub use texture::{Texture, TextureId};
 pub use ui_painter::UiPainter;
 pub use ui_space::UiSpace;
@@ -446,7 +449,8 @@ impl Renderer {
                 r.h / texture.height as f32,
             ]
         });
-        self.backend.draw_texture(px as f32, py as f32, texture, cell_size, rotation, tint, uv_rect);
+        self.backend
+            .draw_texture(px as f32, py as f32, texture, cell_size, rotation, tint, uv_rect);
     }
 
     /// Solid filled rectangle in pixels (Phase 7 Part 1a,

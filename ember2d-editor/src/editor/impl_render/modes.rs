@@ -100,7 +100,11 @@ impl EditorState {
     /// (`metrics.bar_h`, itself `theme.metrics.row_h`), so the fullscreen
     /// script editor's own title/status bars are the same height as the
     /// docked editor's title/menu/status bars, not an independent size.
-    pub(super) fn render_script_mode(&mut self, renderer: &mut dyn DrawSurface, metrics: &ui::ChromeMetrics) {
+    pub(super) fn render_script_mode(
+        &mut self,
+        renderer: &mut dyn DrawSurface,
+        metrics: &ui::ChromeMetrics,
+    ) {
         use ember2d::renderer::UiPainter;
         use ember2d::theme::PaletteRole;
         use ember2d_sim::math::{Rect, Vec2};
@@ -135,7 +139,13 @@ impl EditorState {
         painter.fill(title_rect, accent);
         painter.clip(Some(title_rect));
         let title_baseline = painter.ascent(self.font.as_ref(), text_px);
-        painter.text(self.font.as_mut(), &title, Vec2::new(0.0, title_baseline), text_px, Color::Black);
+        painter.text(
+            self.font.as_mut(),
+            &title,
+            Vec2::new(0.0, title_baseline),
+            text_px,
+            Color::Black,
+        );
         painter.clip(None);
 
         // Editor area — `script_error`'s message is copied to an owned
@@ -167,7 +177,13 @@ impl EditorState {
         painter.fill(status_rect, panel_bg);
         painter.clip(Some(status_rect));
         let status_baseline = status_rect.y + painter.ascent(self.font.as_ref(), text_px);
-        painter.text(self.font.as_mut(), &status, Vec2::new(0.0, status_baseline), text_px, text_fg);
+        painter.text(
+            self.font.as_mut(),
+            &status,
+            Vec2::new(0.0, status_baseline),
+            text_px,
+            text_fg,
+        );
         painter.clip(None);
     }
 }

@@ -26,9 +26,13 @@ use ember2d_editor::editor::EditorState;
 /// `os_scale_factor` resolution (that gets its own dedicated test).
 fn harness_at(render_scale: u32, ui_scale: u8) -> EditorHarness {
     ensure_workspace_root_cwd();
-    let prefs = EditorPrefs { ui_scale: UiScaleChoice::Fixed(ui_scale), theme: "ember-clean".to_string() };
+    let prefs =
+        EditorPrefs { ui_scale: UiScaleChoice::Fixed(ui_scale), theme: "ember-clean".to_string() };
     let state = EditorState::new("harness.level").with_prefs(PrefsStore::InMemory(prefs));
-    EditorHarness::with_state_and_display(state, DisplayScale { render_scale, os_scale_factor: 1.0 })
+    EditorHarness::with_state_and_display(
+        state,
+        DisplayScale { render_scale, os_scale_factor: 1.0 },
+    )
 }
 
 #[test]
@@ -62,9 +66,7 @@ fn auto_ui_scale_resolves_from_the_displays_own_os_scale_factor() {
     // pin the 100/125/150/200% -> 2/3/3/4 table in isolation; this exercises
     // the same resolution through a real `EditorState`'s draw path, at the
     // default `Auto` preference no test here ever changes.
-    for (os_scale_factor, expected_ui_scale) in
-        [(1.0_f32, 2_u32), (1.5, 3), (2.0, 4)]
-    {
+    for (os_scale_factor, expected_ui_scale) in [(1.0_f32, 2_u32), (1.5, 3), (2.0, 4)] {
         ensure_workspace_root_cwd();
         let h = EditorHarness::with_display(DisplayScale { render_scale: 2, os_scale_factor });
         assert_eq!(
@@ -105,7 +107,9 @@ fn chrome_geometry_scales_with_ui_scale_at_a_fixed_render_scale() {
                 DrawOp::Fill(r) if r.x == 0.0 && r.y == 0.0 => Some(r.h),
                 _ => None,
             })
-            .expect("the title bar's own background fill must be drawn at the screen's top-left corner")
+            .expect(
+                "the title bar's own background fill must be drawn at the screen's top-left corner",
+            )
     };
     let h_small = title_bar_height(small.draw_ops());
     let h_big = title_bar_height(big.draw_ops());
@@ -135,8 +139,16 @@ fn canvas_painting_is_unaffected_by_ui_scale() {
     let (hx, hy) = canvas_pixel_for_grid(&high, 5, 5);
     high.click(hx, hy);
 
-    assert_eq!(low.state.grid().tiles.len(), 1, "the low-ui_scale click must place exactly one tile");
-    assert_eq!(high.state.grid().tiles.len(), 1, "the high-ui_scale click must place exactly one tile");
+    assert_eq!(
+        low.state.grid().tiles.len(),
+        1,
+        "the low-ui_scale click must place exactly one tile"
+    );
+    assert_eq!(
+        high.state.grid().tiles.len(),
+        1,
+        "the high-ui_scale click must place exactly one tile"
+    );
     assert!(
         low.state.grid().get(5, 5, low.state.active_layer()).is_some(),
         "must land on grid cell (5,5) at ui_scale 1"

@@ -103,8 +103,18 @@ pub trait DrawSurface {
     /// `texel_scale: 1.0, pitch: None` — reproduces every pre-7D-3 call
     /// site's exact behavior without each implementor repeating the same
     /// wrapper.
-    fn draw_text_px(&mut self, font: &mut dyn Font, text: &str, pos: Vec2, px: f32, color: Color) -> f32 {
-        self.draw_text_run(font, &TextRun { text, origin: pos, raster_px: px, texel_scale: 1.0, pitch: None, color })
+    fn draw_text_px(
+        &mut self,
+        font: &mut dyn Font,
+        text: &str,
+        pos: Vec2,
+        px: f32,
+        color: Color,
+    ) -> f32 {
+        self.draw_text_run(
+            font,
+            &TextRun { text, origin: pos, raster_px: px, texel_scale: 1.0, pitch: None, color },
+        )
     }
     /// The pixel-space twin of `draw_rect_filled` (docs/ember2d-master-plan.md
     /// §5.4, the `UiRect::from_cells` removal) — a solid color fill at an

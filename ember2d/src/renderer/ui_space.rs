@@ -274,7 +274,11 @@ mod tests {
     #[test]
     fn from_surface_does_not_divide_the_already_logical_pixel_size_again() {
         use super::super::{DisplayScale, NullRenderer};
-        let surface = NullRenderer::with_display(1280, 720, DisplayScale { render_scale: 2, os_scale_factor: 2.0 });
+        let surface = NullRenderer::with_display(
+            1280,
+            720,
+            DisplayScale { render_scale: 2, os_scale_factor: 2.0 },
+        );
         let ui = UiSpace::from_surface(&surface, 2);
         assert_eq!(
             ui.screen_pt(),

@@ -253,7 +253,10 @@ mod tests {
         // `texel_scale` in a live draw (checkpoint 7, not before — this
         // test asserted the wrong value from checkpoint 1 onward and
         // nothing caught it until then).
-        assert_eq!(*texel_scale, 1.0, "at render_scale 1, one atlas texel is exactly one logical px");
+        assert_eq!(
+            *texel_scale, 1.0,
+            "at render_scale 1, one atlas texel is exactly one logical px"
+        );
     }
 
     /// R85: at a render_scale that ACTUALLY differs from 1 (unlike the test
@@ -271,7 +274,11 @@ mod tests {
         let ops = surface.ops();
         let DrawOp::Text { texel_scale, .. } = &ops[0] else { panic!("expected a Text op") };
         assert_eq!(*texel_scale, 0.5);
-        assert_ne!(*texel_scale, space.pt_to_logical(), "texel_scale must not be pt_to_logical (S/R)");
+        assert_ne!(
+            *texel_scale,
+            space.pt_to_logical(),
+            "texel_scale must not be pt_to_logical (S/R)"
+        );
     }
 
     #[test]

@@ -30,7 +30,10 @@ impl EditorState {
                 match sel {
                     HierarchySelection::Player => {
                         self.hierarchy_sel = Some(sel);
-                        self.center_on(self.grid.spawn_point.0 as i32, self.grid.spawn_point.1 as i32);
+                        self.center_on(
+                            self.grid.spawn_point.0 as i32,
+                            self.grid.spawn_point.1 as i32,
+                        );
                     }
                     HierarchySelection::Spawn(idx) => {
                         if idx >= self.grid.extra_spawns.len() {
@@ -114,7 +117,10 @@ impl EditorState {
                                 trigger: false,
                                 tag: String::new(),
                             });
-                            self.undo.push(Command::UpdatePalette { before, after: self.palette.clone() });
+                            self.undo.push(Command::UpdatePalette {
+                                before,
+                                after: self.palette.clone(),
+                            });
                             self.palette.selected = self.palette.tiles.len() - 1;
                             self.palette_scroll = layout.len().saturating_sub(visible_rows);
                             self.save_message = Some("Added new palette item.".to_string());

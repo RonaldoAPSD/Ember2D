@@ -78,7 +78,15 @@ pub fn draw_palette_editor_modal(
     let title_fg = theme.role_color(PaletteRole::TitleText);
     let cx = mx + 2.0 * CELL_W as f32;
     let title_w = painter.measure(font, &title, text_px);
-    draw_text_row(painter, font, &title, Rect::new(cx, my, title_w, row_h), text_px, title_fg, panel_bg);
+    draw_text_row(
+        painter,
+        font,
+        &title,
+        Rect::new(cx, my, title_w, row_h),
+        text_px,
+        title_fg,
+        panel_bg,
+    );
     let close_w = painter.measure(font, "[X]", text_px);
     draw_button_px(
         painter,
@@ -133,7 +141,8 @@ pub fn draw_palette_editor_modal(
     // The glyph preview stays on the engine's own bitmap-font pipeline —
     // same "literal in-game preview, not chrome" reasoning `dock.rs`'s
     // `draw_palette_panel` already documents for its own glyph preview.
-    let preview_cell_x = ((glyph_x + painter.measure(font, "['", text_px)) / CELL_W as f32).round() as usize;
+    let preview_cell_x =
+        ((glyph_x + painter.measure(font, "['", text_px)) / CELL_W as f32).round() as usize;
     let preview_cell_y = (row_rect(3).y / CELL_H as f32).round() as usize;
     painter.surface().draw_char(preview_cell_x, preview_cell_y, pal.glyph, pal.fg, pal.bg);
 
@@ -348,7 +357,15 @@ pub fn draw_color_picker_modal(
     let title = format!(" ADVANCED COLOR: {} ", if is_fg { "FOREGROUND" } else { "BACKGROUND" });
     let title_fg = theme.role_color(PaletteRole::TitleText);
     let title_w = painter.measure(font, &title, text_px);
-    draw_text_row(painter, font, &title, Rect::new(mx, my, title_w, row_h), text_px, title_fg, panel_bg);
+    draw_text_row(
+        painter,
+        font,
+        &title,
+        Rect::new(mx, my, title_w, row_h),
+        text_px,
+        title_fg,
+        panel_bg,
+    );
     // 7C-1 (master plan §5.3): registers the title-close hitbox at the
     // exact point it's drawn, replacing `input/mod.rs`'s own
     // independently-recomputed `mx+mw-4..mx+mw-1` range (E5).
@@ -393,7 +410,13 @@ pub fn draw_color_picker_modal(
         ),
     );
     let h_indicator_x = hbar_x_cell + ((h / 360.0) * (hbar_w - 1) as f32).round() as usize;
-    painter.surface().draw_char(h_indicator_x, hbar_row_cell.saturating_sub(1), 'v', text_fg, panel_bg);
+    painter.surface().draw_char(
+        h_indicator_x,
+        hbar_row_cell.saturating_sub(1),
+        'v',
+        text_fg,
+        panel_bg,
+    );
 
     // 2. SV Map (Saturation vs Value) — same continuous-area reasoning as
     // the hue bar above.
@@ -429,13 +452,29 @@ pub fn draw_color_picker_modal(
     let preview_x_cell = ((mx + 30.0 * CELL_W as f32) / CELL_W as f32).round() as usize;
     draw_text_row(painter, font, "Selected:", row_rect(6), text_px, dim, panel_bg);
     let preview_row_cell = (row_rect(7).y / CELL_H as f32).round() as usize;
-    painter.surface().draw_rect_filled(preview_x_cell, preview_row_cell, 8, 3, ' ', Color::Reset, current_col);
+    painter.surface().draw_rect_filled(
+        preview_x_cell,
+        preview_row_cell,
+        8,
+        3,
+        ' ',
+        Color::Reset,
+        current_col,
+    );
 
     if let Color::Rgb(r, g, b) = current_col {
         let hex = format!("#{:02X}{:02X}{:02X}", r, g, b);
         let hex_x = preview_x_cell as f32 * CELL_W as f32;
         let hex_w = painter.measure(font, &hex, text_px);
-        draw_text_row(painter, font, &hex, Rect::new(hex_x, row_rect(11).y, hex_w, row_h), text_px, accent, panel_bg);
+        draw_text_row(
+            painter,
+            font,
+            &hex,
+            Rect::new(hex_x, row_rect(11).y, hex_w, row_h),
+            text_px,
+            accent,
+            panel_bg,
+        );
     }
 
     // Buttons. No themed "text-on-accent" role exists (same gap noted
@@ -486,7 +525,12 @@ pub fn draw_color_picker(renderer: &mut dyn DrawSurface, x: usize, y: usize, w: 
 /// never a click) — the one function in this file with nothing else
 /// constraining its layout, so it's free to use the theme's real
 /// `metrics.row_h` throughout, unlike the modals above it.
-pub fn draw_help_overlay(painter: &mut UiPainter, font: &mut dyn Font, theme: &Theme, content: Rect) {
+pub fn draw_help_overlay(
+    painter: &mut UiPainter,
+    font: &mut dyn Font,
+    theme: &Theme,
+    content: Rect,
+) {
     let bg = theme.role_color(PaletteRole::PanelBg);
     let fg = theme.role_color(PaletteRole::TextPrimary);
     let dim = theme.role_color(PaletteRole::TextDim);
@@ -498,18 +542,47 @@ pub fn draw_help_overlay(painter: &mut UiPainter, font: &mut dyn Font, theme: &T
 
     let title = " EMBER2D EDITOR — KEYBOARD SHORTCUTS ";
     let title_w = painter.measure(font, title, text_px);
-    draw_text_row(painter, font, title, Rect::new(content.x + pad, content.y + row_h, title_w, row_h), text_px, accent, bg);
+    draw_text_row(
+        painter,
+        font,
+        title,
+        Rect::new(content.x + pad, content.y + row_h, title_w, row_h),
+        text_px,
+        accent,
+        bg,
+    );
     let sep_w = content.w - 2.0 * pad;
     let sep: String = "-".repeat((sep_w / painter.measure(font, "-", text_px).max(1.0)) as usize);
-    draw_text_row(painter, font, &sep, Rect::new(content.x + pad, content.y + 2.0 * row_h, sep_w, row_h), text_px, dim, bg);
+    draw_text_row(
+        painter,
+        font,
+        &sep,
+        Rect::new(content.x + pad, content.y + 2.0 * row_h, sep_w, row_h),
+        text_px,
+        dim,
+        bg,
+    );
 
     let col_w = (content.w - 4.0 * pad) / 3.0;
     let c1 = content.x + pad;
     let c2 = c1 + col_w + pad;
     let c3 = c2 + col_w + pad;
     let row = |n: usize| content.y + (4 + n) as f32 * row_h;
-    let line = |col: f32, n: usize, text: &str, color: Color, painter: &mut UiPainter, font: &mut dyn Font| {
-        draw_text_row(painter, font, text, Rect::new(col, row(n), col_w, row_h), text_px, color, bg);
+    let line = |col: f32,
+                n: usize,
+                text: &str,
+                color: Color,
+                painter: &mut UiPainter,
+                font: &mut dyn Font| {
+        draw_text_row(
+            painter,
+            font,
+            text,
+            Rect::new(col, row(n), col_w, row_h),
+            text_px,
+            color,
+            bg,
+        );
     };
     line(c1, 0, "TOOLS", accent, painter, font);
     line(c1, 1, " 1-3  Layers", fg, painter, font);
@@ -559,5 +632,13 @@ pub fn draw_help_overlay(painter: &mut UiPainter, font: &mut dyn Font, theme: &T
     let hint = "Press ? or Esc to close";
     let hint_w = painter.measure(font, hint, text_px);
     let hint_x = content.x + ((content.w - hint_w) / 2.0).max(0.0);
-    draw_text_row(painter, font, hint, Rect::new(hint_x, content.y + content.h - 2.0 * row_h, hint_w, row_h), text_px, dim, bg);
+    draw_text_row(
+        painter,
+        font,
+        hint,
+        Rect::new(hint_x, content.y + content.h - 2.0 * row_h, hint_w, row_h),
+        text_px,
+        dim,
+        bg,
+    );
 }

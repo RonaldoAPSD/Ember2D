@@ -277,16 +277,7 @@ pub fn draw_graph(
                     }
                 }
                 draw_wire(
-                    renderer,
-                    ox,
-                    oy,
-                    target_x,
-                    target_y,
-                    0,
-                    accent,
-                    panel_bg,
-                    screen_w,
-                    screen_h,
+                    renderer, ox, oy, target_x, target_y, 0, accent, panel_bg, screen_w, screen_h,
                 );
             }
         }

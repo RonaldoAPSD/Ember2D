@@ -50,8 +50,8 @@
 // `Panel::contains`'s own doc comment for why those were never prone to
 // this class of bug to begin with.
 
-pub use super::ui::{DockSide, PanelId};
 use super::ui::{ChromeMetrics, UiRect};
+pub use super::ui::{DockSide, PanelId};
 
 mod chrome;
 pub use chrome::draw_panel_chrome;
@@ -209,7 +209,14 @@ impl PanelManager {
             Panel::new(PanelId::Console, "Console", 0.0, con_y, screen_w, metrics.con_h),
             Panel::new(PanelId::Stats, "Stats", pal_x, canvas_y, metrics.pal_w, canvas_h),
             Panel::new(PanelId::FileBrowser, "Files", 0.0, con_y, screen_w, metrics.con_h),
-            Panel::new(PanelId::ScriptEditor, "Script Editor", 0.0, con_y, screen_w, metrics.edit_h),
+            Panel::new(
+                PanelId::ScriptEditor,
+                "Script Editor",
+                0.0,
+                con_y,
+                screen_w,
+                metrics.edit_h,
+            ),
         ];
 
         panels[0].visible = true; // Viewport
@@ -420,7 +427,14 @@ impl PanelManager {
     }
 
     /// `mouse_x`/`mouse_y`/`screen_w`/`screen_h` are all points.
-    pub fn update_drag(&mut self, mouse_x: f32, mouse_y: f32, screen_w: f32, screen_h: f32, metrics: &ChromeMetrics) {
+    pub fn update_drag(
+        &mut self,
+        mouse_x: f32,
+        mouse_y: f32,
+        screen_w: f32,
+        screen_h: f32,
+        metrics: &ChromeMetrics,
+    ) {
         let Some(id) = self.dragging else { return };
         let i = self.idx(id);
         let Some((ox, oy)) = self.panels[i].drag_offset else { return };
@@ -645,7 +659,6 @@ impl PanelManager {
                 self.panels.iter().find(|p| p.visible && p.dock == DockSide::Bottom).map(|p| p.id);
         }
     }
-
 }
 
 // tests.rs: split out in Part 1f to stay under the 600-line limit.

@@ -229,7 +229,11 @@ mod tests {
     #[test]
     fn glyph_atlas_side_never_shrinks_below_the_pre_7d_3_default_or_past_the_wgpu_headroom_cap() {
         assert_eq!(glyph_atlas_side_for(0.5), 512, "clamped up to the old fixed default");
-        assert_eq!(glyph_atlas_side_for(10_000.0), 4096, "clamped down, leaving headroom under wgpu's 8192 limit");
+        assert_eq!(
+            glyph_atlas_side_for(10_000.0),
+            4096,
+            "clamped down, leaving headroom under wgpu's 8192 limit"
+        );
     }
 
     #[test]

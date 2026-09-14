@@ -73,7 +73,14 @@ pub fn draw_script_editor(
     let selection_bg = theme.role_color(PaletteRole::Selection);
     let text_px = theme.font_sizes.body;
 
-    let layout = ScriptLayout::compute(theme, font, content, buffer.len(), error.is_some(), find_query.is_some());
+    let layout = ScriptLayout::compute(
+        theme,
+        font,
+        content,
+        buffer.len(),
+        error.is_some(),
+        find_query.is_some(),
+    );
     painter.fill(content, bg_col);
 
     let title = match path {
@@ -87,7 +94,9 @@ pub fn draw_script_editor(
     painter.clip(None);
 
     if let Some(query) = find_query {
-        let find_rect = layout.find_bar.expect("find_query.is_some() implies ScriptLayout reserved a find_bar rect");
+        let find_rect = layout
+            .find_bar
+            .expect("find_query.is_some() implies ScriptLayout reserved a find_bar rect");
         painter.fill(find_rect, accent);
         let text = format!(" Find: {}_", query);
         let baseline = find_rect.y + painter.ascent(font, text_px);
@@ -126,7 +135,14 @@ pub fn draw_script_editor(
 
         let num_str = format!("{:>width$} ", i + 1, width = layout.gutter_digits);
         let num_baseline = row_y + painter.ascent(font, text_px);
-        painter.text_mono( font, &num_str, Vec2::new(layout.text.x, num_baseline), text_px, layout.char_w, dim);
+        painter.text_mono(
+            font,
+            &num_str,
+            Vec2::new(layout.text.x, num_baseline),
+            text_px,
+            layout.char_w,
+            dim,
+        );
 
         let line_char_count = line.chars().count();
         let visible_cols = layout.visible_cols();
@@ -176,7 +192,14 @@ pub fn draw_script_editor(
         );
         if clipped {
             let marker_x = layout.line_x + highlight_cols as f32 * layout.char_w;
-            painter.text_mono( font, "\u{2026}", Vec2::new(marker_x, num_baseline), text_px, layout.char_w, dim);
+            painter.text_mono(
+                font,
+                "\u{2026}",
+                Vec2::new(marker_x, num_baseline),
+                text_px,
+                layout.char_w,
+                dim,
+            );
         }
 
         if i == cursor.1 && cursor.0 >= hscroll {
@@ -209,7 +232,13 @@ pub fn draw_script_editor(
         let baseline = error_rect.y + painter.ascent(font, text_px);
         painter.fill(error_rect, danger);
         painter.clip(Some(error_rect));
-        painter.text(font, &text, Vec2::new(error_rect.x, baseline), text_px, theme.role_color(PaletteRole::TitleText));
+        painter.text(
+            font,
+            &text,
+            Vec2::new(error_rect.x, baseline),
+            text_px,
+            theme.role_color(PaletteRole::TitleText),
+        );
         painter.clip(None);
     }
 }
@@ -341,7 +370,7 @@ fn draw_highlighted_rhai(
             }
             let run: String = chars[start..i].iter().collect();
             let run_cols = run.chars().count();
-            painter.text_mono( font, &run, at!(col), text_px, char_w, Color::Grey);
+            painter.text_mono(font, &run, at!(col), text_px, char_w, Color::Grey);
             col += run_cols;
             continue;
         }
@@ -353,7 +382,7 @@ fn draw_highlighted_rhai(
         // Comments
         if ch == '/' && i + 1 < chars.len() && chars[i + 1] == '/' {
             let rest: String = chars[i..].iter().collect();
-            painter.text_mono( font, &rest, at!(col), text_px, char_w, Color::Grey);
+            painter.text_mono(font, &rest, at!(col), text_px, char_w, Color::Grey);
             return;
         }
 
@@ -369,14 +398,14 @@ fn draw_highlighted_rhai(
             }
             let run: String = chars[start..i].iter().collect();
             let run_cols = run.chars().count();
-            painter.text_mono( font, &run, at!(col), text_px, char_w, Color::Yellow);
+            painter.text_mono(font, &run, at!(col), text_px, char_w, Color::Yellow);
             col += run_cols;
             continue;
         }
 
         // Numbers
         if ch.is_ascii_digit() {
-            painter.text_mono( font, &ch.to_string(), at!(col), text_px, char_w, Color::Magenta);
+            painter.text_mono(font, &ch.to_string(), at!(col), text_px, char_w, Color::Magenta);
             col += 1;
             i += 1;
             continue;
@@ -391,7 +420,7 @@ fn draw_highlighted_rhai(
             let word: String = chars[start..i].iter().collect();
             let color = if keywords.contains(&word.as_str()) { Color::Cyan } else { Color::White };
             let word_cols = word.chars().count();
-            painter.text_mono( font, &word, at!(col), text_px, char_w, color);
+            painter.text_mono(font, &word, at!(col), text_px, char_w, color);
             col += word_cols;
             continue;
         }
@@ -403,7 +432,7 @@ fn draw_highlighted_rhai(
             ',' | ';' | ':' | '.' => Color::Grey,
             _ => Color::White,
         };
-        painter.text_mono( font, &ch.to_string(), at!(col), text_px, char_w, color);
+        painter.text_mono(font, &ch.to_string(), at!(col), text_px, char_w, color);
         col += 1;
         i += 1;
     }
@@ -429,16 +458,20 @@ mod tests {
 
     #[test]
     fn an_unterminated_block_comment_stays_open_to_the_end_of_the_buffer() {
-        let buffer: Vec<String> =
-            ["/* never closes", "still going", "still going"].iter().map(|s| s.to_string()).collect();
+        let buffer: Vec<String> = ["/* never closes", "still going", "still going"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let starts = block_comment_starts(&buffer);
         assert_eq!(starts, vec![false, true, true]);
     }
 
     #[test]
     fn a_line_comment_does_not_start_a_block_comment() {
-        let buffer: Vec<String> =
-            ["// this /* is not a block comment", "let x = 1;"].iter().map(|s| s.to_string()).collect();
+        let buffer: Vec<String> = ["// this /* is not a block comment", "let x = 1;"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let starts = block_comment_starts(&buffer);
         assert_eq!(starts, vec![false, false]);
     }

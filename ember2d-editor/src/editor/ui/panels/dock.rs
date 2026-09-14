@@ -70,7 +70,10 @@ pub fn draw_palette_panel(
         format!(" S: [{}]", if palette.search.is_empty() { "Search..." } else { &palette.search });
     let search_fg = if palette.search.is_empty() { dim } else { text_fg };
     draw_text_row(painter, font, &search_label, search_rect, text_px, search_fg, panel_bg);
-    frame.push(WidgetId::PaletteSearchBar, UiRect::new(search_rect.x, search_rect.y, search_rect.w, search_rect.h));
+    frame.push(
+        WidgetId::PaletteSearchBar,
+        UiRect::new(search_rect.x, search_rect.y, search_rect.w, search_rect.h),
+    );
 
     use crate::editor::palette::PaletteRow;
     let layout = palette.build_layout();
@@ -113,13 +116,25 @@ pub fn draw_palette_panel(
                     text_px,
                     if is_selected { accent } else { text_fg },
                 );
-                let glyph_cell_x = ((gx + painter.measure(font, "[ ", text_px)) / CELL_W as f32).round() as usize;
+                let glyph_cell_x =
+                    ((gx + painter.measure(font, "[ ", text_px)) / CELL_W as f32).round() as usize;
                 let glyph_cell_y = (row_rect.y / CELL_H as f32).round() as usize;
-                painter.surface().draw_char(glyph_cell_x, glyph_cell_y, tile.glyph, tile.fg, tile.bg);
+                painter.surface().draw_char(
+                    glyph_cell_x,
+                    glyph_cell_y,
+                    tile.glyph,
+                    tile.fg,
+                    tile.bg,
+                );
 
                 // Indented name
                 let name_x = gx + painter.measure(font, "[   ] ", text_px);
-                let name_rect = Rect::new(name_x, row_rect.y, (row_rect.x + row_rect.w - name_x).max(0.0), row_h);
+                let name_rect = Rect::new(
+                    name_x,
+                    row_rect.y,
+                    (row_rect.x + row_rect.w - name_x).max(0.0),
+                    row_h,
+                );
                 draw_text_row(
                     painter,
                     font,
@@ -142,19 +157,44 @@ pub fn draw_palette_panel(
                 }
             }
         }
-        frame.push(WidgetId::PaletteRow(i), UiRect::new(row_rect.x, row_rect.y, row_rect.w, row_rect.h));
+        frame.push(
+            WidgetId::PaletteRow(i),
+            UiRect::new(row_rect.x, row_rect.y, row_rect.w, row_rect.h),
+        );
     }
 
     // [+ New] and [ Edit ] buttons at the bottom row
-    let btn_row_rect = Rect::new(content.x, content.y + (max_rows - 1) as f32 * row_h, content.w, row_h);
+    let btn_row_rect =
+        Rect::new(content.x, content.y + (max_rows - 1) as f32 * row_h, content.w, row_h);
     let new_label = " [ + New ] ";
     let new_w = painter.measure(font, new_label, text_px);
     let new_rect = Rect::new(btn_row_rect.x, btn_row_rect.y, new_w, row_h);
-    draw_row_px(painter, frame, font, WidgetId::PaletteNewBtn, new_rect, text_px, new_label, text_fg, selection);
+    draw_row_px(
+        painter,
+        frame,
+        font,
+        WidgetId::PaletteNewBtn,
+        new_rect,
+        text_px,
+        new_label,
+        text_fg,
+        selection,
+    );
     let edit_label = " [ Edit ] ";
     let edit_w = painter.measure(font, edit_label, text_px);
-    let edit_rect = Rect::new(btn_row_rect.x + btn_row_rect.w - edit_w, btn_row_rect.y, edit_w, row_h);
-    draw_row_px(painter, frame, font, WidgetId::PaletteEditBtn, edit_rect, text_px, edit_label, text_fg, panel_bg);
+    let edit_rect =
+        Rect::new(btn_row_rect.x + btn_row_rect.w - edit_w, btn_row_rect.y, edit_w, row_h);
+    draw_row_px(
+        painter,
+        frame,
+        font,
+        WidgetId::PaletteEditBtn,
+        edit_rect,
+        text_px,
+        edit_label,
+        text_fg,
+        panel_bg,
+    );
 }
 
 /// The first panel converted off the character-cell grid entirely
@@ -202,8 +242,17 @@ pub fn draw_stats_panel(
         let label = format!(" {}: {:>4}", def.name, count);
         draw_text_row(painter, font, &label, row_rect, text_px, def.fg, panel_bg);
     }
-    let total_row = Rect::new(content.x, content.y + (max_rows - 1) as f32 * row_h, content.w, row_h);
-    draw_text_row(painter, font, &format!(" Total:{:>4}", total), total_row, text_px, text_fg, panel_bg);
+    let total_row =
+        Rect::new(content.x, content.y + (max_rows - 1) as f32 * row_h, content.w, row_h);
+    draw_text_row(
+        painter,
+        font,
+        &format!(" Total:{:>4}", total),
+        total_row,
+        text_px,
+        text_fg,
+        panel_bg,
+    );
 }
 
 pub fn draw_console(
@@ -244,7 +293,8 @@ pub fn draw_console(
         };
         let text = truncate_chars(&entry.text, max_text);
         draw_text_row(painter, font, prefix, row_rect, text_px, pfg, panel_bg);
-        let message_rect = Rect::new(message_x, row_rect.y, content.w - (message_x - content.x), row_h);
+        let message_rect =
+            Rect::new(message_x, row_rect.y, content.w - (message_x - content.x), row_h);
         draw_text_row(painter, font, &text, message_rect, text_px, text_fg, panel_bg);
     }
 }
@@ -295,7 +345,8 @@ pub fn draw_inspector(
     painter.fill(content, panel_bg);
     draw_text_row(painter, font, mode_tag, row_rect(0), text_px, Color::Black, accent);
 
-    let sep: String = "-".repeat((content.w / painter.measure(font, "-", text_px).max(1.0)) as usize);
+    let sep: String =
+        "-".repeat((content.w / painter.measure(font, "-", text_px).max(1.0)) as usize);
 
     let Some(tile) = tile else {
         let hint = if pos.is_some() { " (empty cell)" } else { " hover a tile" };
@@ -305,33 +356,72 @@ pub fn draw_inspector(
 
     // ── Tile Edit Mode ───────────────────────────────────────────────────
     if let Some((gx, gy)) = pos {
-        draw_text_row(painter, font, &format!(" ({},{})", gx, gy), row_rect(1), text_px, accent, panel_bg);
+        draw_text_row(
+            painter,
+            font,
+            &format!(" ({},{})", gx, gy),
+            row_rect(1),
+            text_px,
+            accent,
+            panel_bg,
+        );
     }
     let glyph_str = format!("  '{}' glyph", tile.glyph);
     draw_text_row(painter, font, &glyph_str, row_rect(INSP_GLYPH_OFF), text_px, tile.fg, input_bg);
-    frame.push(WidgetId::InspectorRow(Glyph), UiRect::new(content.x, row_rect(INSP_GLYPH_OFF).y, content.w, row_h));
+    frame.push(
+        WidgetId::InspectorRow(Glyph),
+        UiRect::new(content.x, row_rect(INSP_GLYPH_OFF).y, content.w, row_h),
+    );
 
     draw_text_row(painter, font, &sep, row_rect(4), text_px, dim, panel_bg);
     draw_text_row(painter, font, " Tag:", row_rect(INSP_TAG_OFF), text_px, dim, panel_bg);
     let tag_disp = if tile.tag.is_empty() { "(none)" } else { &tile.tag };
-    draw_text_row(painter, font, &format!("  {}", tag_disp), row_rect(INSP_TAG_OFF + 1), text_px, text_fg, input_bg);
+    draw_text_row(
+        painter,
+        font,
+        &format!("  {}", tag_disp),
+        row_rect(INSP_TAG_OFF + 1),
+        text_px,
+        text_fg,
+        input_bg,
+    );
     // The click target is the "Tag:" LABEL's own row (`INSP_TAG_OFF`), one
     // row above where the value actually renders (`INSP_TAG_OFF + 1`) —
     // that's exactly where the pre-migration `tag_row` hitbox already was,
     // preserved as-is here rather than "fixed" to also cover the value
     // row, since that would be a UX change this phase wasn't asked to make.
-    frame.push(WidgetId::InspectorRow(Tag), UiRect::new(content.x, row_rect(INSP_TAG_OFF).y, content.w, row_h));
+    frame.push(
+        WidgetId::InspectorRow(Tag),
+        UiRect::new(content.x, row_rect(INSP_TAG_OFF).y, content.w, row_h),
+    );
 
     draw_text_row(painter, font, &sep, row_rect(7), text_px, dim, panel_bg);
     let solid_label = format!(" [{}] Solid", if tile.solid { 'x' } else { ' ' });
-    draw_text_row(painter, font, &solid_label, row_rect(INSP_SOLID_OFF), text_px, text_fg, input_bg);
-    frame.push(WidgetId::InspectorRow(Solid), UiRect::new(content.x, row_rect(INSP_SOLID_OFF).y, content.w, row_h));
+    draw_text_row(
+        painter,
+        font,
+        &solid_label,
+        row_rect(INSP_SOLID_OFF),
+        text_px,
+        text_fg,
+        input_bg,
+    );
+    frame.push(
+        WidgetId::InspectorRow(Solid),
+        UiRect::new(content.x, row_rect(INSP_SOLID_OFF).y, content.w, row_h),
+    );
     let trig_label = format!(" [{}] Trigger", if tile.trigger { 'x' } else { ' ' });
     draw_text_row(painter, font, &trig_label, row_rect(INSP_TRIG_OFF), text_px, text_fg, input_bg);
-    frame.push(WidgetId::InspectorRow(Trigger), UiRect::new(content.x, row_rect(INSP_TRIG_OFF).y, content.w, row_h));
+    frame.push(
+        WidgetId::InspectorRow(Trigger),
+        UiRect::new(content.x, row_rect(INSP_TRIG_OFF).y, content.w, row_h),
+    );
     let cam_label = format!(" [{}] Camera follow", if tile.camera_follow { 'x' } else { ' ' });
     draw_text_row(painter, font, &cam_label, row_rect(INSP_CAM_OFF), text_px, text_fg, input_bg);
-    frame.push(WidgetId::InspectorRow(CameraFollow), UiRect::new(content.x, row_rect(INSP_CAM_OFF).y, content.w, row_h));
+    frame.push(
+        WidgetId::InspectorRow(CameraFollow),
+        UiRect::new(content.x, row_rect(INSP_CAM_OFF).y, content.w, row_h),
+    );
 
     draw_text_row(painter, font, &sep, row_rect(12), text_px, dim, panel_bg);
     // No " Script:" label draw here — it used to share `INSP_SCRIPT_OFF`'s
@@ -349,14 +439,28 @@ pub fn draw_inspector(
         }
         None => ("  (none)".to_string(), dim),
     };
-    draw_text_row(painter, font, &script_disp, row_rect(INSP_SCRIPT_OFF), text_px, script_fg, input_bg);
-    frame.push(WidgetId::InspectorRow(Script), UiRect::new(content.x, row_rect(INSP_SCRIPT_OFF).y, content.w, row_h));
+    draw_text_row(
+        painter,
+        font,
+        &script_disp,
+        row_rect(INSP_SCRIPT_OFF),
+        text_px,
+        script_fg,
+        input_bg,
+    );
+    frame.push(
+        WidgetId::InspectorRow(Script),
+        UiRect::new(content.x, row_rect(INSP_SCRIPT_OFF).y, content.w, row_h),
+    );
     let (exit_disp, exit_fg) = match &tile.next_level {
         Some(p) => (format!("  >{}", p), accent),
         None => ("  (no exit)".to_string(), dim),
     };
     draw_text_row(painter, font, &exit_disp, row_rect(INSP_EXIT_OFF), text_px, exit_fg, input_bg);
-    frame.push(WidgetId::InspectorRow(Exit), UiRect::new(content.x, row_rect(INSP_EXIT_OFF).y, content.w, row_h));
+    frame.push(
+        WidgetId::InspectorRow(Exit),
+        UiRect::new(content.x, row_rect(INSP_EXIT_OFF).y, content.w, row_h),
+    );
 
     draw_text_row(painter, font, &sep, row_rect(16), text_px, dim, panel_bg);
     // No " Scripting:" label either — same dead-draw reasoning as
@@ -366,7 +470,15 @@ pub fn draw_inspector(
         if tile.graph.is_some() {
             let n = tile.graph.as_ref().map(|g| g.nodes.len()).unwrap_or(0);
             let e = tile.graph.as_ref().map(|g| g.edges.len()).unwrap_or(0);
-            draw_text_row(painter, font, "  [Edit Graph]", row_rect(INSP_GRAPH_BTN), text_px, Color::Black, accent);
+            draw_text_row(
+                painter,
+                font,
+                "  [Edit Graph]",
+                row_rect(INSP_GRAPH_BTN),
+                text_px,
+                Color::Black,
+                accent,
+            );
             if 19 < max_rows {
                 let info = format!("  {} nodes  {} edges", n, e);
                 draw_text_row(painter, font, &info, row_rect(19), text_px, dim, panel_bg);
@@ -375,9 +487,20 @@ pub fn draw_inspector(
             // A distinct "create" action, not decorative chrome — stays
             // literal green rather than a theme role, same reasoning as
             // `draw_console`'s own untouched log-level colors.
-            draw_text_row(painter, font, "  [New Graph]", row_rect(INSP_GRAPH_BTN), text_px, Color::Black, Color::DarkGreen);
+            draw_text_row(
+                painter,
+                font,
+                "  [New Graph]",
+                row_rect(INSP_GRAPH_BTN),
+                text_px,
+                Color::Black,
+                Color::DarkGreen,
+            );
         }
-        frame.push(WidgetId::InspectorRow(GraphBtn), UiRect::new(content.x, row_rect(INSP_GRAPH_BTN).y, content.w, row_h));
+        frame.push(
+            WidgetId::InspectorRow(GraphBtn),
+            UiRect::new(content.x, row_rect(INSP_GRAPH_BTN).y, content.w, row_h),
+        );
     }
     if 20 < max_rows {
         draw_text_row(painter, font, &sep, row_rect(20), text_px, dim, panel_bg);
@@ -385,9 +508,21 @@ pub fn draw_inspector(
     if INSP_LAYER_OFF < max_rows {
         // No " Layer:" label — same dead-draw reasoning as above, both
         // drawn at `INSP_LAYER_OFF`.
-        let layer_disp = if tile.collider_layer.is_empty() { "(any)" } else { &tile.collider_layer };
-        draw_text_row(painter, font, &format!("  {}", layer_disp), row_rect(INSP_LAYER_OFF), text_px, accent, input_bg);
-        frame.push(WidgetId::InspectorRow(Layer), UiRect::new(content.x, row_rect(INSP_LAYER_OFF).y, content.w, row_h));
+        let layer_disp =
+            if tile.collider_layer.is_empty() { "(any)" } else { &tile.collider_layer };
+        draw_text_row(
+            painter,
+            font,
+            &format!("  {}", layer_disp),
+            row_rect(INSP_LAYER_OFF),
+            text_px,
+            accent,
+            input_bg,
+        );
+        frame.push(
+            WidgetId::InspectorRow(Layer),
+            UiRect::new(content.x, row_rect(INSP_LAYER_OFF).y, content.w, row_h),
+        );
     }
     if INSP_MASK_OFF < max_rows {
         // No " Mask:" label — same dead-draw reasoning as above.
@@ -396,8 +531,19 @@ pub fn draw_inspector(
         } else {
             tile.collider_mask.join(",")
         };
-        draw_text_row(painter, font, &format!("  {}", mask_str), row_rect(INSP_MASK_OFF), text_px, accent, input_bg);
-        frame.push(WidgetId::InspectorRow(Mask), UiRect::new(content.x, row_rect(INSP_MASK_OFF).y, content.w, row_h));
+        draw_text_row(
+            painter,
+            font,
+            &format!("  {}", mask_str),
+            row_rect(INSP_MASK_OFF),
+            text_px,
+            accent,
+            input_bg,
+        );
+        frame.push(
+            WidgetId::InspectorRow(Mask),
+            UiRect::new(content.x, row_rect(INSP_MASK_OFF).y, content.w, row_h),
+        );
     }
 }
 
@@ -535,11 +681,20 @@ pub fn draw_file_browser_panel(
         // here (rather than through `draw_row_px`) since a file browser
         // row draws more than one text run — an icon tag, then the name —
         // depending on which of the four content branches below runs.
-        frame.push(WidgetId::FileBrowserRow(i), UiRect::new(row_rect.x, row_rect.y, row_rect.w, row_rect.h));
+        frame.push(
+            WidgetId::FileBrowserRow(i),
+            UiRect::new(row_rect.x, row_rect.y, row_rect.w, row_rect.h),
+        );
 
         if raw_line.contains("[UP]") {
             let baseline_y = row_rect.y + painter.ascent(font, text_px);
-            painter.text(font, " .. [PARENT FOLDER] ", Vec2::new(row_rect.x, baseline_y), text_px, accent);
+            painter.text(
+                font,
+                " .. [PARENT FOLDER] ",
+                Vec2::new(row_rect.x, baseline_y),
+                text_px,
+                accent,
+            );
             continue;
         }
 

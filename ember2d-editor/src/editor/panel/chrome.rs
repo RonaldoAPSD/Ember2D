@@ -57,7 +57,8 @@ pub fn draw_panel_chrome(
     }
 
     if panel.id == PanelId::Viewport {
-        painter.fill(Rect::new(panel.rect.x, panel.rect.y, panel.rect.w, panel.rect.h), Color::Black);
+        painter
+            .fill(Rect::new(panel.rect.x, panel.rect.y, panel.rect.w, panel.rect.h), Color::Black);
         return;
     }
 
@@ -74,14 +75,18 @@ pub fn draw_panel_chrome(
     // earlier checkpoint of this step hardcoded while the two were pinned
     // equal.
     match theme.slice(SliceRole::Panel) {
-        Some(slice) => painter.nine_slice(full_rect, chrome_tex, slice.src, slice.border, Color::White),
+        Some(slice) => {
+            painter.nine_slice(full_rect, chrome_tex, slice.src, slice.border, Color::White)
+        }
         None => painter.fill(full_rect, theme.role_color(PaletteRole::PanelBg)),
     }
 
     // 2. Title bar — a second 9-slice over just the top strip, drawn AFTER
     // the frame so it wins there.
     match theme.slice(SliceRole::TitleBar) {
-        Some(slice) => painter.nine_slice(title_rect, chrome_tex, slice.src, slice.border, Color::White),
+        Some(slice) => {
+            painter.nine_slice(title_rect, chrome_tex, slice.src, slice.border, Color::White)
+        }
         None => painter.fill(title_rect, theme.role_color(PaletteRole::TitleBg)),
     }
     frame.push(
@@ -104,7 +109,13 @@ pub fn draw_panel_chrome(
     let measured_w = painter.measure(font, &title, title_px);
     let text_x = panel.rect.x + ((avail_w - measured_w).max(0.0) / 2.0).round();
     let baseline_y = (panel.rect.y + painter.ascent(font, title_px)).round();
-    painter.text(font, &title, Vec2::new(text_x, baseline_y), title_px, theme.role_color(PaletteRole::TitleText));
+    painter.text(
+        font,
+        &title,
+        Vec2::new(text_x, baseline_y),
+        title_px,
+        theme.role_color(PaletteRole::TitleText),
+    );
 
     // 4. Close button — a small themed square at the title bar's right
     // edge, an "X" drawn in the same theme font as the title.
@@ -114,7 +125,13 @@ pub fn draw_panel_chrome(
     }
     let x_w = painter.measure(font, "X", title_px);
     let x_x = (close_rect.x + (close_w - x_w) / 2.0).round();
-    painter.text(font, "X", Vec2::new(x_x, baseline_y), title_px, theme.role_color(PaletteRole::TextPrimary));
+    painter.text(
+        font,
+        "X",
+        Vec2::new(x_x, baseline_y),
+        title_px,
+        theme.role_color(PaletteRole::TextPrimary),
+    );
     frame.push(
         WidgetId::CloseBtn(panel.id),
         UiRect::new(close_rect.x, close_rect.y, close_rect.w, close_rect.h),
@@ -126,8 +143,12 @@ pub fn draw_panel_chrome(
     // size is ALL corner, never overlapping, at any theme's own border
     // width).
     let grip_size = metrics.grip;
-    let grip_rect =
-        Rect::new(panel.rect.right() - grip_size, panel.rect.bottom() - grip_size, grip_size, grip_size);
+    let grip_rect = Rect::new(
+        panel.rect.right() - grip_size,
+        panel.rect.bottom() - grip_size,
+        grip_size,
+        grip_size,
+    );
     if let Some(slice) = theme.slice(SliceRole::ResizeGrip) {
         painter.nine_slice(grip_rect, chrome_tex, slice.src, slice.border, Color::White);
     }

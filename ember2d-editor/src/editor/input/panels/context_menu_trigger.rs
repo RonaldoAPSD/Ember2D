@@ -63,7 +63,8 @@ impl EditorState {
                         items.push(("Delete", action));
                     }
                 }
-                self.mode = EditorMode::ContextMenu(ui::ContextMenu { x: col, y: row, selected: 0, items });
+                self.mode =
+                    EditorMode::ContextMenu(ui::ContextMenu { x: col, y: row, selected: 0, items });
                 return true;
             }
 
@@ -99,7 +100,8 @@ impl EditorState {
                     items.push(("Duplicate", ui::ContextMenuAction::DuplicateEntity(sel)));
                     items.push(("Delete", ui::ContextMenuAction::DeleteEntity(sel)));
                 }
-                self.mode = EditorMode::ContextMenu(ui::ContextMenu { x: col, y: row, selected: 0, items });
+                self.mode =
+                    EditorMode::ContextMenu(ui::ContextMenu { x: col, y: row, selected: 0, items });
                 return true;
             }
         }

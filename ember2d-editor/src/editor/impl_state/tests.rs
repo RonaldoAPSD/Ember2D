@@ -324,7 +324,8 @@ fn script_editor_click_past_a_multibyte_character_then_typing_does_not_panic() {
     let metrics = ChromeMetrics::from_theme(&editor.theme);
     let content: ember2d_sim::math::Rect =
         editor.panels.get(PanelId::ScriptEditor).content_rect(&metrics).into();
-    let layout = ScriptLayout::compute(&editor.theme, editor.code_font.as_mut(), content, 1, false, false);
+    let layout =
+        ScriptLayout::compute(&editor.theme, editor.code_font.as_mut(), content, 1, false, false);
     mouse.pixel_x = layout.line_x + 5.0 * layout.char_w;
     mouse.pixel_y = layout.text.y + 1.0;
     mouse.in_bounds = true;

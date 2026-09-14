@@ -168,7 +168,8 @@ impl StartScreen {
         // 7C-1 (master plan §5.3): every hover/click check below reads this
         // one `UiFrame::hit` instead of a per-screen removed `*_item_hit`
         // function recomputing its own draw-side layout math (E5).
-        let hit = if mouse.in_bounds { self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) } else { None };
+        let hit =
+            if mouse.in_bounds { self.ui_frame.hit(mouse.pixel_x, mouse.pixel_y) } else { None };
 
         match self.screen {
             Screen::MainMenu => {
@@ -190,7 +191,8 @@ impl StartScreen {
                 if let Some(WidgetId::StartMenuItem(i)) = hit {
                     self.menu_cursor = i;
                 }
-                if input.just_pressed(Key::Enter) || (click && matches!(hit, Some(WidgetId::StartMenuItem(_))))
+                if input.just_pressed(Key::Enter)
+                    || (click && matches!(hit, Some(WidgetId::StartMenuItem(_))))
                 {
                     match self.menu_cursor {
                         0 => {

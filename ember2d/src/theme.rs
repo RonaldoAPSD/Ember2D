@@ -278,7 +278,8 @@ mod tests {
             font_sizes: (small: 10.0, body: 12.0, heading: 18.0),
             metrics: (padding: 6.0, border: 2.0, row_h: 20.0, min_target: 24.0),
         )"#;
-        let data: ThemeData = ron::from_str(ron_text).expect("a theme.ron with no code_font key must still parse");
+        let data: ThemeData =
+            ron::from_str(ron_text).expect("a theme.ron with no code_font key must still parse");
         assert_eq!(data.code_font, None);
     }
 
@@ -322,7 +323,10 @@ mod tests {
         let theme = Theme::load(&mut assets, &dir.to_string_lossy());
 
         assert_eq!(theme.name, "sample");
-        assert!(assets.get(theme.chrome).is_some(), "chrome_path must resolve to a real texture handle");
+        assert!(
+            assets.get(theme.chrome).is_some(),
+            "chrome_path must resolve to a real texture handle"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -341,7 +345,11 @@ mod tests {
         assert_eq!(theme.name, "ember-clean");
         assert_ne!(theme.name, "fallback", "the real theme file must have been found and parsed");
         let tex = assets.get(theme.chrome).expect("chrome texture must resolve");
-        assert_ne!((tex.width, tex.height), (1, 1), "the real chrome.png must decode, not fall back to AssetManager's 1x1 placeholder");
+        assert_ne!(
+            (tex.width, tex.height),
+            (1, 1),
+            "the real chrome.png must decode, not fall back to AssetManager's 1x1 placeholder"
+        );
 
         for role in [
             SliceRole::Panel,
@@ -357,7 +365,10 @@ mod tests {
             SliceRole::Checkbox,
             SliceRole::ResizeGrip,
         ] {
-            assert!(theme.slice(role).is_some(), "ember-clean must define every SliceRole, missing {role:?}");
+            assert!(
+                theme.slice(role).is_some(),
+                "ember-clean must define every SliceRole, missing {role:?}"
+            );
         }
         assert!(matches!(theme.font, FontChoice::Ttf { .. }));
     }

@@ -104,7 +104,10 @@ pub enum WidgetId {
     ColorPickerCancel,
     /// 7C-1: one swatch of the palette editor's foreground/background color
     /// grid, by `(is_fg, index into ui::widgets::PALETTE_COLORS)`.
-    PaletteEditorSwatch { is_fg: bool, index: usize },
+    PaletteEditorSwatch {
+        is_fg: bool,
+        index: usize,
+    },
     /// R65 (§3 in the master plan, 7D-3 checkpoint 4): the palette editor
     /// modal's own title-bar close button — was hit-tested by comparing
     /// `mouse.cell_y == my` against `mx + mw - 4..mx + mw - 1` (integer
@@ -118,11 +121,15 @@ pub enum WidgetId {
     /// R65: the Solid or Trigger toggle text — was a fixed `cx..cx+10`/
     /// `cx+13..cx+25` cell range on one shared row, independently of each
     /// toggle's own measured label width.
-    PaletteEditorToggle { is_solid: bool },
+    PaletteEditorToggle {
+        is_solid: bool,
+    },
     /// R65: the foreground or background "custom color" label that opens
     /// the advanced color picker — was a fixed `cx..cx+30` cell range,
     /// independently of the label's own measured width.
-    PaletteEditorCustomColor { is_fg: bool },
+    PaletteEditorCustomColor {
+        is_fg: bool,
+    },
     /// R65: the palette editor's "[ Save & Close ]" button — was a fixed
     /// `mx+2..mx+20` cell range on the bottom row.
     PaletteEditorSaveClose,
@@ -293,7 +300,10 @@ mod tests {
     fn rect_of_returns_the_exact_rect_a_widget_was_pushed_with() {
         let mut frame = UiFrame::new();
         frame.push(WidgetId::ColorPickerHueBar, UiRect::new(12.0, 34.0, 288.0, 20.0));
-        assert_eq!(frame.rect_of(WidgetId::ColorPickerHueBar), Some(UiRect::new(12.0, 34.0, 288.0, 20.0)));
+        assert_eq!(
+            frame.rect_of(WidgetId::ColorPickerHueBar),
+            Some(UiRect::new(12.0, 34.0, 288.0, 20.0))
+        );
     }
 
     #[test]

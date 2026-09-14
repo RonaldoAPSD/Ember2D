@@ -60,7 +60,8 @@ impl EditorState {
                             self.mode = EditorMode::Prompt(TextInputPurpose::PlayerTag);
                         }
                         Some(WidgetId::InspectorRow(InspectorField::Script)) => {
-                            self.prompt_buffer = self.grid.player.script.clone().unwrap_or_default();
+                            self.prompt_buffer =
+                                self.grid.player.script.clone().unwrap_or_default();
                             self.mode = EditorMode::Prompt(TextInputPurpose::PlayerScript);
                         }
                         Some(WidgetId::InspectorRow(InspectorField::Layer)) => {
@@ -131,7 +132,8 @@ impl EditorState {
                                     .map(|t| t.glyph.to_string())
                                     .unwrap_or_default();
                                 self.prompt_buffer = g;
-                            self.mode = EditorMode::Prompt(TextInputPurpose::TileGlyph { gx, gy });
+                                self.mode =
+                                    EditorMode::Prompt(TextInputPurpose::TileGlyph { gx, gy });
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Tag)) => {
                                 let tag = self
@@ -140,7 +142,8 @@ impl EditorState {
                                     .map(|t| t.tag.clone())
                                     .unwrap_or_default();
                                 self.prompt_buffer = tag;
-                            self.mode = EditorMode::Prompt(TextInputPurpose::TileTag { gx, gy });
+                                self.mode =
+                                    EditorMode::Prompt(TextInputPurpose::TileTag { gx, gy });
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Script)) => {
                                 let script = self
@@ -149,7 +152,8 @@ impl EditorState {
                                     .and_then(|t| t.script.clone())
                                     .unwrap_or_default();
                                 self.prompt_buffer = script;
-                            self.mode = EditorMode::Prompt(TextInputPurpose::ScriptPath { gx, gy });
+                                self.mode =
+                                    EditorMode::Prompt(TextInputPurpose::ScriptPath { gx, gy });
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Exit)) => {
                                 let path = self
@@ -158,7 +162,8 @@ impl EditorState {
                                     .and_then(|t| t.next_level.clone())
                                     .unwrap_or_default();
                                 self.prompt_buffer = path;
-                            self.mode = EditorMode::Prompt(TextInputPurpose::TileNextLevel { gx, gy });
+                                self.mode =
+                                    EditorMode::Prompt(TextInputPurpose::TileNextLevel { gx, gy });
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Layer)) => {
                                 let layer = self
@@ -167,7 +172,11 @@ impl EditorState {
                                     .map(|t| t.collider_layer.clone())
                                     .unwrap_or_default();
                                 self.prompt_buffer = layer;
-                            self.mode = EditorMode::Prompt(TextInputPurpose::TileColliderLayer { gx, gy });
+                                self.mode =
+                                    EditorMode::Prompt(TextInputPurpose::TileColliderLayer {
+                                        gx,
+                                        gy,
+                                    });
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Mask)) => {
                                 let mask = self
@@ -176,7 +185,11 @@ impl EditorState {
                                     .map(|t| t.collider_mask.join(","))
                                     .unwrap_or_default();
                                 self.prompt_buffer = mask;
-                            self.mode = EditorMode::Prompt(TextInputPurpose::TileColliderMask { gx, gy });
+                                self.mode =
+                                    EditorMode::Prompt(TextInputPurpose::TileColliderMask {
+                                        gx,
+                                        gy,
+                                    });
                             }
                             Some(WidgetId::InspectorRow(InspectorField::Solid)) => {
                                 if let Some(tile) =

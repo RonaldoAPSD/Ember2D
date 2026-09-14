@@ -243,7 +243,9 @@ impl EditorState {
         // Delete selected node
         if input.just_pressed(Key::Delete) || input.just_pressed(Key::Backspace) {
             if let Some(sel) = self.graph_selected_node {
-                if self.apply_graph_edit(gx, gy, self.active_layer, |graph| graph.remove_node(sel)).is_some()
+                if self
+                    .apply_graph_edit(gx, gy, self.active_layer, |graph| graph.remove_node(sel))
+                    .is_some()
                 {
                     self.graph_selected_node = None;
                 }
@@ -342,7 +344,8 @@ impl EditorState {
                                 // 7C-6 (master plan §5.3, D18): snapshot
                                 // now, before any position change — see
                                 // `graph_drag_before`'s own doc comment.
-                                self.graph_drag_before = self.grid.get(gx, gy, self.active_layer).cloned();
+                                self.graph_drag_before =
+                                    self.grid.get(gx, gy, self.active_layer).cloned();
                             } else {
                                 self.graph_editing_param =
                                     Some((nid, param_default_for(&node.kind)));

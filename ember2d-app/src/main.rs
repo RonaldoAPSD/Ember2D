@@ -103,7 +103,9 @@ fn main() -> io::Result<()> {
             match engine.run()? {
                 Some(Transition::ToEditorWithResult(res)) => {
                     engine.pop_state(); // Pop start screen
-                    if let Ok(editor) = EditorState::new_from_result(res).map(|e| e.with_prefs(PrefsStore::user())) {
+                    if let Ok(editor) =
+                        EditorState::new_from_result(res).map(|e| e.with_prefs(PrefsStore::user()))
+                    {
                         let folder =
                             editor.project_folder.clone().unwrap_or_else(|| ".".to_string());
                         let mut play_gameplay_loop = GameplayLoop::RealTime;

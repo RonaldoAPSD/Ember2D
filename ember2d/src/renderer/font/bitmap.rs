@@ -141,7 +141,11 @@ mod tests {
         let mut font = BitmapFont::new();
         let g = font.glyph('A', 16.0).unwrap();
         assert_eq!(g.size, Vec2::new(16.0, 16.0), "size scales with the request");
-        assert_eq!((g.atlas_rect.w, g.atlas_rect.h), (8.0, 8.0), "atlas_rect stays the native cell");
+        assert_eq!(
+            (g.atlas_rect.w, g.atlas_rect.h),
+            (8.0, 8.0),
+            "atlas_rect stays the native cell"
+        );
     }
 
     #[test]

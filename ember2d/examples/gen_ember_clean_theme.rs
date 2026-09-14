@@ -22,7 +22,9 @@
 // from scratch. Re-run after editing the palette/geometry below; the output
 // is committed to git same as hand-authored content would be.
 
-use ember2d::theme::{FontChoice, FontSizes, Metrics, NineSlice, PaletteRole, SliceRole, ThemeData};
+use ember2d::theme::{
+    FontChoice, FontSizes, Metrics, NineSlice, PaletteRole, SliceRole, ThemeData,
+};
 use ember2d_sim::color::Color;
 use ember2d_sim::math::Rect;
 use image::{Rgba, RgbaImage};
@@ -52,18 +54,90 @@ const AMBER_DIM: [u8; 4] = [0x8a, 0x67, 0x2c, 0xff];
 
 fn slices() -> Vec<SliceSpec> {
     vec![
-        SliceSpec { role: SliceRole::Panel, col: 0, row: 0, fill: [0x1b, 0x1e, 0x24, 0xff], border_color: NEUTRAL_BORDER },
-        SliceSpec { role: SliceRole::TitleBar, col: 1, row: 0, fill: [0x26, 0x2b, 0x33, 0xff], border_color: NEUTRAL_BORDER },
-        SliceSpec { role: SliceRole::Button, col: 2, row: 0, fill: [0x20, 0x24, 0x2b, 0xff], border_color: [0x3a, 0x40, 0x49, 0xff] },
-        SliceSpec { role: SliceRole::ButtonHover, col: 3, row: 0, fill: [0x30, 0x28, 0x18, 0xff], border_color: AMBER_DIM },
-        SliceSpec { role: SliceRole::ButtonPressed, col: 0, row: 1, fill: [0x14, 0x15, 0x19, 0xff], border_color: AMBER },
-        SliceSpec { role: SliceRole::ButtonDisabled, col: 1, row: 1, fill: [0x20, 0x22, 0x25, 0xff], border_color: [0x2c, 0x2e, 0x33, 0xff] },
-        SliceSpec { role: SliceRole::Input, col: 2, row: 1, fill: [0x14, 0x17, 0x1c, 0xff], border_color: [0x3a, 0x40, 0x49, 0xff] },
-        SliceSpec { role: SliceRole::TabActive, col: 3, row: 1, fill: [0x20, 0x24, 0x2b, 0xff], border_color: AMBER },
-        SliceSpec { role: SliceRole::TabInactive, col: 0, row: 2, fill: [0x18, 0x1a, 0x1f, 0xff], border_color: NEUTRAL_BORDER },
-        SliceSpec { role: SliceRole::Scrollbar, col: 1, row: 2, fill: [0x2a, 0x2f, 0x38, 0xff], border_color: NEUTRAL_BORDER },
-        SliceSpec { role: SliceRole::Checkbox, col: 2, row: 2, fill: [0x14, 0x17, 0x1c, 0xff], border_color: [0x3a, 0x40, 0x49, 0xff] },
-        SliceSpec { role: SliceRole::ResizeGrip, col: 3, row: 2, fill: [0x1b, 0x1e, 0x24, 0xff], border_color: AMBER_DIM },
+        SliceSpec {
+            role: SliceRole::Panel,
+            col: 0,
+            row: 0,
+            fill: [0x1b, 0x1e, 0x24, 0xff],
+            border_color: NEUTRAL_BORDER,
+        },
+        SliceSpec {
+            role: SliceRole::TitleBar,
+            col: 1,
+            row: 0,
+            fill: [0x26, 0x2b, 0x33, 0xff],
+            border_color: NEUTRAL_BORDER,
+        },
+        SliceSpec {
+            role: SliceRole::Button,
+            col: 2,
+            row: 0,
+            fill: [0x20, 0x24, 0x2b, 0xff],
+            border_color: [0x3a, 0x40, 0x49, 0xff],
+        },
+        SliceSpec {
+            role: SliceRole::ButtonHover,
+            col: 3,
+            row: 0,
+            fill: [0x30, 0x28, 0x18, 0xff],
+            border_color: AMBER_DIM,
+        },
+        SliceSpec {
+            role: SliceRole::ButtonPressed,
+            col: 0,
+            row: 1,
+            fill: [0x14, 0x15, 0x19, 0xff],
+            border_color: AMBER,
+        },
+        SliceSpec {
+            role: SliceRole::ButtonDisabled,
+            col: 1,
+            row: 1,
+            fill: [0x20, 0x22, 0x25, 0xff],
+            border_color: [0x2c, 0x2e, 0x33, 0xff],
+        },
+        SliceSpec {
+            role: SliceRole::Input,
+            col: 2,
+            row: 1,
+            fill: [0x14, 0x17, 0x1c, 0xff],
+            border_color: [0x3a, 0x40, 0x49, 0xff],
+        },
+        SliceSpec {
+            role: SliceRole::TabActive,
+            col: 3,
+            row: 1,
+            fill: [0x20, 0x24, 0x2b, 0xff],
+            border_color: AMBER,
+        },
+        SliceSpec {
+            role: SliceRole::TabInactive,
+            col: 0,
+            row: 2,
+            fill: [0x18, 0x1a, 0x1f, 0xff],
+            border_color: NEUTRAL_BORDER,
+        },
+        SliceSpec {
+            role: SliceRole::Scrollbar,
+            col: 1,
+            row: 2,
+            fill: [0x2a, 0x2f, 0x38, 0xff],
+            border_color: NEUTRAL_BORDER,
+        },
+        SliceSpec {
+            role: SliceRole::Checkbox,
+            col: 2,
+            row: 2,
+            fill: [0x14, 0x17, 0x1c, 0xff],
+            border_color: [0x3a, 0x40, 0x49, 0xff],
+        },
+        SliceSpec {
+            role: SliceRole::ResizeGrip,
+            col: 3,
+            row: 2,
+            fill: [0x1b, 0x1e, 0x24, 0xff],
+            border_color: AMBER_DIM,
+        },
     ]
 }
 

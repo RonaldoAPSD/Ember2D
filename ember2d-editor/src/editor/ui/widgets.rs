@@ -141,7 +141,12 @@ pub fn draw_row(
     renderer.draw_str(x, y, label, fg, bg);
     frame.push(
         id,
-        UiRect::new(x as f32 * CELL_W as f32, y as f32 * CELL_H as f32, w as f32 * CELL_W as f32, CELL_H as f32),
+        UiRect::new(
+            x as f32 * CELL_W as f32,
+            y as f32 * CELL_H as f32,
+            w as f32 * CELL_W as f32,
+            CELL_H as f32,
+        ),
     );
 }
 
@@ -181,12 +186,23 @@ pub fn draw_menu_item(
         );
         renderer.draw_str(x + 9, row + 1, desc, Color::Cyan, Color::DarkBlue);
     } else {
-        renderer.draw_str(x, row, &format!("     {}. {}", index + 1, label), Color::White, Color::Black);
+        renderer.draw_str(
+            x,
+            row,
+            &format!("     {}. {}", index + 1, label),
+            Color::White,
+            Color::Black,
+        );
         renderer.draw_str(x + 9, row + 1, desc, Color::DarkGrey, Color::Black);
     }
     frame.push(
         id,
-        UiRect::new(x as f32 * CELL_W as f32, row as f32 * CELL_H as f32, w as f32 * CELL_W as f32, 2.0 * CELL_H as f32),
+        UiRect::new(
+            x as f32 * CELL_W as f32,
+            row as f32 * CELL_H as f32,
+            w as f32 * CELL_W as f32,
+            2.0 * CELL_H as f32,
+        ),
     );
 }
 

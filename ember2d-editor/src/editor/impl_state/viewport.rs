@@ -26,7 +26,11 @@ impl EditorState {
     /// with `ui/canvas.rs::draw_cursor_highlight`'s identical formula at
     /// every zoom level, not just whole-number ones — see that function's
     /// own comment on E1 for why the two must never independently drift.
-    pub(in crate::editor) fn mouse_to_grid(&self, mouse_px: f32, mouse_py: f32) -> Option<(i32, i32)> {
+    pub(in crate::editor) fn mouse_to_grid(
+        &self,
+        mouse_px: f32,
+        mouse_py: f32,
+    ) -> Option<(i32, i32)> {
         // 7D-3 checkpoint 7 (master plan §5.4): every caller passes
         // `mouse.pixel_x/y` (LOGICAL, per the 7C-9 decision gate — canvas
         // math stays logical forever) but `PanelManager`/`Panel::rect` are
@@ -78,7 +82,10 @@ impl EditorState {
         let metrics = super::super::ui::ChromeMetrics::from_theme(&self.theme);
         let viewport_pt = self.panels.viewport().content_rect(&metrics);
         let viewport = self.ui_space.rect_to_logical(viewport_pt.into());
-        (viewport.w / ember2d::renderer::CELL_W as f32, viewport.h / ember2d::renderer::CELL_H as f32)
+        (
+            viewport.w / ember2d::renderer::CELL_W as f32,
+            viewport.h / ember2d::renderer::CELL_H as f32,
+        )
     }
 
     pub(in crate::editor) fn center_on(&mut self, gx: i32, gy: i32) {

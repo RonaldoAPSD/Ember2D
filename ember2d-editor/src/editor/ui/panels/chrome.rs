@@ -36,7 +36,12 @@ use ember2d_sim::math::{Rect, Vec2};
 /// overlays — can reuse it instead of a third copy. Takes a pixel `Rect`
 /// directly now (docs/ember2d-master-plan.md §5.4, the `UiRect::from_cells`
 /// removal) — no longer converts from cell coordinates itself.
-pub(super) fn draw_themed_frame(painter: &mut UiPainter, theme: &Theme, chrome_tex: &Texture, rect: Rect) {
+pub(super) fn draw_themed_frame(
+    painter: &mut UiPainter,
+    theme: &Theme,
+    chrome_tex: &Texture,
+    rect: Rect,
+) {
     match theme.slice(SliceRole::Panel) {
         Some(slice) => painter.nine_slice(rect, chrome_tex, slice.src, slice.border, Color::White),
         None => painter.fill(rect, theme.role_color(PaletteRole::PanelBg)),
@@ -289,7 +294,15 @@ pub fn draw_text_input(
     // themed title strip just drawn.
     let title_w = painter.measure(font, &title, text_px);
     let title_rect = Rect::new(mx, my, title_w, row_h);
-    draw_text_row(painter, font, &title, title_rect, text_px, theme.role_color(PaletteRole::TitleText), panel_bg);
+    draw_text_row(
+        painter,
+        font,
+        &title,
+        title_rect,
+        text_px,
+        theme.role_color(PaletteRole::TitleText),
+        panel_bg,
+    );
 
     // Input field
     let input_row = Rect::new(mx, my + 2.0 * row_h, mw, row_h);
@@ -328,7 +341,15 @@ pub fn draw_text_input(
     // highlighted `InputBg` box hugs the text instead of stretching to
     // the modal's right edge.
     let input_rect = Rect::new(input_x, input_row.y, buf_w, row_h);
-    draw_text_row(painter, font, &clipped_buf, input_rect, text_px, panel_fg, theme.role_color(PaletteRole::InputBg));
+    draw_text_row(
+        painter,
+        font,
+        &clipped_buf,
+        input_rect,
+        text_px,
+        panel_fg,
+        theme.role_color(PaletteRole::InputBg),
+    );
 
     // Helper text
     let hint = "[Enter] Confirm   [Esc] Cancel";
@@ -470,6 +491,16 @@ pub fn draw_context_menu(
         // 7C-1 (master plan §5.3): `draw_row_px` registers this rect at
         // the exact point it's drawn, replacing `input/context_menu.rs`'s
         // own independently-recomputed `mw`/`mh`/boundary-clamp math (E5).
-        draw_row_px(painter, frame, font, WidgetId::ContextMenuRow(i), row_rect, text_px, &text, fg, bg);
+        draw_row_px(
+            painter,
+            frame,
+            font,
+            WidgetId::ContextMenuRow(i),
+            row_rect,
+            text_px,
+            &text,
+            fg,
+            bg,
+        );
     }
 }

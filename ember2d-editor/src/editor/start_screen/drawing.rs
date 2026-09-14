@@ -27,7 +27,8 @@ fn keep_tail(font: &mut dyn Font, text: &str, avail: usize) -> String {
     let mut suffix_w = 0usize;
     let mut start = chars.len();
     for (i, &ch) in chars.iter().enumerate().rev() {
-        let cw = (font.glyph(ch, FONT_PX).map(|g| g.advance).unwrap_or(FONT_PX) / FONT_PX).round() as usize;
+        let cw = (font.glyph(ch, FONT_PX).map(|g| g.advance).unwrap_or(FONT_PX) / FONT_PX).round()
+            as usize;
         if suffix_w + cw > budget {
             break;
         }
@@ -210,7 +211,8 @@ pub(super) fn draw_text_step(
         let mut suffix_w = 0usize;
         let mut start = chars.len();
         for (i, &ch) in chars.iter().enumerate().rev() {
-            let cw = (font.glyph(ch, FONT_PX).map(|g| g.advance).unwrap_or(FONT_PX) / FONT_PX).round() as usize;
+            let cw = (font.glyph(ch, FONT_PX).map(|g| g.advance).unwrap_or(FONT_PX) / FONT_PX)
+                .round() as usize;
             if suffix_w + cw > budget {
                 break;
             }
@@ -310,7 +312,12 @@ pub(super) fn draw_template_step(
         // `WidgetId::StartTemplateItem`.
         frame.push(
             WidgetId::StartTemplateItem(i),
-            UiRect::new(cx as f32 * CELL_W as f32, cy as f32 * CELL_H as f32, TCARD_W as f32 * CELL_W as f32, TCARD_H as f32 * CELL_H as f32),
+            UiRect::new(
+                cx as f32 * CELL_W as f32,
+                cy as f32 * CELL_H as f32,
+                TCARD_W as f32 * CELL_W as f32,
+                TCARD_H as f32 * CELL_H as f32,
+            ),
         );
     }
     draw_hint_bar(
@@ -450,7 +457,12 @@ fn draw_card_wizard(
         // geometry for a different label set.
         frame.push(
             WidgetId::StartTemplateItem(i),
-            UiRect::new(cx as f32 * CELL_W as f32, cy as f32 * CELL_H as f32, TCARD_W as f32 * CELL_W as f32, TCARD_H as f32 * CELL_H as f32),
+            UiRect::new(
+                cx as f32 * CELL_W as f32,
+                cy as f32 * CELL_H as f32,
+                TCARD_W as f32 * CELL_W as f32,
+                TCARD_H as f32 * CELL_H as f32,
+            ),
         );
     }
     draw_hint_bar(
@@ -566,7 +578,12 @@ pub(super) fn draw_folder_browser(
         // the other.
         frame.push(
             WidgetId::StartFolderItem(list_i),
-            UiRect::new(fb_x as f32 * CELL_W as f32, row as f32 * CELL_H as f32, FB_W as f32 * CELL_W as f32, CELL_H as f32),
+            UiRect::new(
+                fb_x as f32 * CELL_W as f32,
+                row as f32 * CELL_H as f32,
+                FB_W as f32 * CELL_W as f32,
+                CELL_H as f32,
+            ),
         );
     }
     if fb_entries.len() > fb_max_vis {
@@ -692,7 +709,12 @@ pub(super) fn draw_browser(
             // `browser_item_hit` was.
             frame.push(
                 WidgetId::StartBrowserItem(list_i),
-                UiRect::new(brow_x as f32 * CELL_W as f32, row as f32 * CELL_H as f32, BROW_W as f32 * CELL_W as f32, CELL_H as f32),
+                UiRect::new(
+                    brow_x as f32 * CELL_W as f32,
+                    row as f32 * CELL_H as f32,
+                    BROW_W as f32 * CELL_W as f32,
+                    CELL_H as f32,
+                ),
             );
         }
         if items.len() > brow_max_vis {

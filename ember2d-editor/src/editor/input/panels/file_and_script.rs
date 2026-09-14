@@ -120,9 +120,10 @@ impl EditorState {
                                         crate::editor::EditorMode::Modal(crate::editor::Modal {
                                             title: "Switch Level?".to_string(),
                                             message: format!("Load {}?", clean_name),
-                                            purpose: crate::editor::ModalPurpose::ConfirmSwitchLevel {
-                                                path,
-                                            },
+                                            purpose:
+                                                crate::editor::ModalPurpose::ConfirmSwitchLevel {
+                                                    path,
+                                                },
                                         });
                                 } else {
                                     self.switch_to_level(&path);
@@ -179,9 +180,13 @@ impl EditorState {
 
                 if mouse.left_just_pressed() {
                     self.ignore_drag = true;
-                    if let Some((col, row)) =
-                        layout.hit(px, py, self.script_scroll, self.script_hscroll, &self.script_buffer)
-                    {
+                    if let Some((col, row)) = layout.hit(
+                        px,
+                        py,
+                        self.script_scroll,
+                        self.script_hscroll,
+                        &self.script_buffer,
+                    ) {
                         self.script_cursor = (col, row);
                     }
                     return true;

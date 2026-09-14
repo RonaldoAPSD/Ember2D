@@ -43,7 +43,8 @@ impl EditorState {
         // whatever was actually clicked. Checked before the `mode` match
         // below since it's an orthogonal FOCUS concern, not part of `mode`
         // itself — see `EditorMode::Script`'s own doc comment.
-        if self.focused_panel == Some(PanelId::ScriptEditor) && !matches!(self.mode, EditorMode::Script)
+        if self.focused_panel == Some(PanelId::ScriptEditor)
+            && !matches!(self.mode, EditorMode::Script)
         {
             let p = self.panels.get(PanelId::ScriptEditor);
             // 7D-3 checkpoint 7 (master plan §5.4): logical -> points —
