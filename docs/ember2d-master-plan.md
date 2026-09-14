@@ -3331,7 +3331,7 @@ in the API doc's migration section in the same commit.
 
 **Checklist sections at gate:** §11, §12, §13.
 
-#### `[x]` 7.5-1 — Uniform typing and sentinels (breaking) (`PENDING_HASH`)
+#### `[x]` 7.5-1 — Uniform typing and sentinels (breaking) (`a3d483e`)
 
 - **Why:** R31, R32.
 - **Change:** Every registered function that takes a coordinate, size, or
