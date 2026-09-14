@@ -26,6 +26,7 @@ pub mod press_buffer;
 pub mod project;
 pub mod renderer;
 pub mod sim;
+pub mod state_stack;
 pub mod theme;
 pub mod ui;
 

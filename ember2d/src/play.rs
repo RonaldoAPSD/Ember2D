@@ -132,6 +132,13 @@ impl GameState for PauseMenuState {
     fn take_transition(&mut self) -> Option<Transition> {
         self.pending_transition.take()
     }
+
+    /// A small centered panel over the still-visible play screen (R51,
+    /// docs/ember2d-master-plan.md §3.2) — the one state that needs what's
+    /// beneath it drawn.
+    fn is_overlay(&self) -> bool {
+        true
+    }
 }
 
 // ── PlayState ─────────────────────────────────────────────────────────────────
@@ -619,8 +626,12 @@ impl GameState for PlayState {
         // the render pass's own per-frame GPU clear was hardcoded to pure
         // black. The clear color now matches DEFAULT_BG
         // (renderer/backend.rs's `render()`), so the GPU clear alone
-        // already does this, comprehensively, for free — no per-cell
-        // instances needed.
+        // already does this — but ONLY because `Engine::run` no longer draws
+        // the paused `EditorState` between that clear and this state (R51,
+        // §3.2: that fill had also been burying the editor under an F5
+        // preview, and removing it exposed the editor's chrome through every
+        // cell play didn't draw). Don't re-add a fill here; the engine's
+        // opaque-state rule (`state_stack.rs`) is the real fix.
 
         // self.camera's viewport/origin were already refreshed this frame by
         // update() (see script_camera_origin's doc comment). Shake jitters a

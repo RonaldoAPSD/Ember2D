@@ -401,9 +401,13 @@ impl WgpuBackend {
             // otherwise a texture drawn every frame would still look like
             // the oldest (and therefore next-evicted) entry the moment
             // anything else gets uploaded, since nothing else ever
-            // touched it again. `font_texture_id` never reaches here (see
-            // `new`'s own comment on why it's exempt), so this is safe to
-            // call unconditionally for every real cache hit.
+            // touched it again. `font_texture_id` CAN reach here since 7D-3
+            // (a `BitmapFont` drawn through `draw_text_run` — the fallback
+            // theme, or a `FontChoice::Bitmap` theme — goes via
+            // `draw_texture_px`, unlike the `draw_char` fast path); touching
+            // it pushes id 0 into the LRU with no `bytes` entry, which only
+            // matters if the budget ever tries to evict it — see `new`'s own
+            // comment on why it's exempt from that in practice.
             self.texture_budget.touch(texture.id);
             return;
         }

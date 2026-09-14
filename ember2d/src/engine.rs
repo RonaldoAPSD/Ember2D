@@ -26,16 +26,23 @@ use ember2d_sim::world::{EntityId, World};
 
 // ── Mode transition ───────────────────────────────────────────────────────────
 
+/// The five app-level variants (`ToPlay`..`ToStart`) are NOT handled by
+/// `Engine::run` itself — it returns them to the caller (`ember2d-app/src/
+/// app.rs`), which decides what the stack does next. In particular `ToPlay`
+/// does NOT replace the editor: `app.rs` pushes the new `PlayState` ON TOP of
+/// the still-live `EditorState` (so its grid/undo/panels survive the preview)
+/// and `ToEditor` pops back down to it — see R51 (docs/ember2d-master-plan.md
+/// §3.2) for what that stacking meant for rendering.
 pub enum Transition {
-    /// Switch to play mode with new level data (replaces current state).
+    /// Switch to play mode with new level data (stacked over the editor).
     ToPlay(LevelData),
-    /// Load a saved game session (replaces current state).
+    /// Load a saved game session (replaces the current play state).
     LoadGame(ember2d_sim::save::SaveState),
-    /// Return to editor (replaces current state).
+    /// Return to editor (pops everything above it).
     ToEditor,
     /// Open editor with a specific project/level result.
     ToEditorWithResult(StartResult),
-    /// Return to start screen (replaces current state).
+    /// Return to start screen (pops the whole stack).
     ToStart,
     /// Push a new state on top of the stack (e.g. Pause Menu).
     Push(Box<dyn GameState>),
@@ -136,6 +143,16 @@ pub trait GameState {
     fn update(&mut self, ctx: UpdateContext);
     fn late_update(&mut self, _ctx: UpdateContext) {}
     fn render(&mut self, ctx: RenderContext);
+    /// Whether the states BENEATH this one should still be drawn each frame
+    /// (R51, docs/ember2d-master-plan.md §3.2). Default `false`: an ordinary
+    /// state fully covers whatever is under it, so the engine draws nothing
+    /// below it — `PlayState` over the editor, the editor over nothing. Only
+    /// a genuine overlay (`PauseMenuState`: a small centered panel that needs
+    /// the play screen visible around it) returns `true`. See
+    /// `state_stack::render_start_index` for how the engine uses this.
+    fn is_overlay(&self) -> bool {
+        false
+    }
     fn take_transition(&mut self) -> Option<Transition> {
         None
     }
@@ -718,9 +735,19 @@ impl Engine {
             self.mouse.decay(delta_time);
             self.gamepad.decay(delta_time);
 
-            // Render all states from bottom to top
+            // Render from the topmost OPAQUE state up — not every state from
+            // the bottom (R51, docs/ember2d-master-plan.md §3.2). This loop
+            // used to draw the whole stack bottom-to-top, which was only ever
+            // invisible because `PlayState::render` opened with an opaque
+            // full-screen fill that buried the paused `EditorState` beneath
+            // it; 7B-3 replaced that fill with the GPU clear (which runs once,
+            // HERE, before anything draws) and the editor's chrome started
+            // showing through everywhere play drew nothing. `update` has
+            // always been top-only (above); render now matches, except for a
+            // state that opts in as an overlay (`GameState::is_overlay`).
             self.renderer.clear();
-            for state in &mut self.state_stack {
+            let first = crate::state_stack::render_start_index(&self.state_stack);
+            for state in &mut self.state_stack[first..] {
                 state.render(RenderContext {
                     world: &self.world,
                     renderer: &mut self.renderer,

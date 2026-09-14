@@ -707,6 +707,23 @@ impl GameState for EditorState {
     fn render(&mut self, ctx: RenderContext) {
         self.handle_render(ctx);
     }
+    /// Back on top after an F5 preview (R51, master plan §3.2): `draw` — where
+    /// `ui_frame`/`ui_space`/`apply_layout` are refreshed — no longer runs
+    /// while `PlayState` is stacked above this, so the first frame back runs
+    /// `update()` against whatever `UiFrame` was captured before F5, stale
+    /// if the window was resized during play. Cleared here so that one frame
+    /// hit-tests nothing (the same first-frame contract `ui/frame.rs`'s own
+    /// header describes) rather than pre-preview rects; `draw` rebuilds
+    /// everything at the end of that same frame.
+    fn on_resume(
+        &mut self,
+        _world: &mut ember2d_sim::world::World,
+        _events: &mut ember2d_sim::event::EventBus,
+        _viewport_width: usize,
+        _viewport_height: usize,
+    ) {
+        self.ui_frame.clear();
+    }
     fn take_transition(&mut self) -> Option<Transition> {
         self.pending_transition.take()
     }

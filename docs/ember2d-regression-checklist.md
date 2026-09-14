@@ -173,6 +173,13 @@ Only until visual scripting is shelved. Afterwards, confirm old levels with grap
 ## 11. Play mode
 
 - [✓] F5 enters play; Escape opens the pause menu (7B gate, 2026-09-07)
+- [ ] F5 from the editor shows ONLY the play screen — no editor panels,
+      bars, dock tabs, or the editor's own viewport bleeding through where
+      play draws nothing (R51, master plan §3.2: the paused editor used to
+      be drawn underneath every preview). Esc's pause panel draws OVER the
+      still-visible play screen. Back to Editor restores the editor
+      cleanly — its menus open and panels respond on the first click — also
+      after resizing the window while in play. Check both demos.
 - [✓] Pause menu: Resume, Back to Editor, Quit — all three render; only
       Resume actually clicked/keyed through this pass (7B gate, 2026-09-07)
 - [✓] Tiles spawn with correct solid/trigger/tag/layer/collider layer —
