@@ -214,7 +214,7 @@ window). **Phase 7E (Editor features) deferred by user direction, same
 day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
 completeness (§5.6) under way: 7.5-1/7.5-2/7.5-3 landed
-(`a3d483e`/`fe75ef6`/`PENDING_HASH`). Next: 7.5-4 (data-driven actor
+(`a3d483e`/`fe75ef6`/`0c1ebb2`). Next: 7.5-4 (data-driven actor
 stats) — note its own plan text assumes 7E-2's inspector "Actor" section,
 which doesn't exist yet (7E deferred); scope that decision the same way
 7.5-3's inspector bullet was scoped before writing code.**
@@ -3532,7 +3532,7 @@ in the API doc's migration section in the same commit.
   the non-zero score/kills path is verified by the extended
   `shooter_arena.rs` test above rather than a screenshot.
 
-#### `[x]` 7.5-3 — Per-entity variables (`PENDING_HASH`)
+#### `[x]` 7.5-3 — Per-entity variables (`0c1ebb2`)
 
 - **Why:** the `"hp_" + id`/`"aware_" + id`/`"ehp_" + id` global-key-
   concatenation convention (already visible in 7.5-2's own script edits)
