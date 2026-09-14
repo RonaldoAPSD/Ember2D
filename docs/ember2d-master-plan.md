@@ -184,26 +184,31 @@ start screen's New/Open Project browsers start from.
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
 
-**Next up (handoff note, 2026-09-13, after R51/R86 landed):** the user's
-own extensive manual pass over everything 7C/7D changed — regression
-checklist §3–§9 plus §11 (F5 preview, R51/R86 items) — which doubles as
-the 7C and 7D phase gates (§0.5; tags `v0.5.7c`/`v0.5.7d`, `main`
-fast-forwarded per §9). Expect it to surface look-and-feel work ("fix the
-look of the engine" — the user's stated intent); that has no step yet and
-belongs in §5.4 (a 7D-5, or folded into 7D-1/7D-4's partial remainders)
-rather than 7E. Known-open rows a fresh session should NOT re-discover
-during that pass: R46 (wheel `PixelDelta` hardcoded cell size), R79/R80
-(graph mode and start screen don't scale — by design), R81 (dropdowns/
-context menus not clamped on-screen — reachable at high UI scale), R82
-(unpadded glyph atlas), R83 (`ContextMenu.x/y` still cell-based), the §11
-parking-lot note on `WgpuBackend::render`'s zero-instance early return, and
-the two 7D-3 live observations already logged as expected behavior: chrome
-text overlaps at 4× on a small window, and a bigger UI scale SHRINKS the
-viewport (fixed-point-width side panels eat more of a fixed window). R76
-(`check.ps1` counted non-blank lines, silently missing 3 real-line-over-750
-files) is now fixed — see its own row (§3.2) — so the only gate
-prerequisite the pass itself still can't tick is a one-time `cargo fmt
---all` commit (45 drifted files, §11).
+**Next up (handoff note, updated 2026-09-13, after R88/R89 and the UI
+Scale: 1.5x follow-up landed):** the user's own extensive manual pass over
+everything 7C/7D changed — regression checklist §3–§9 plus §11 (F5
+preview, R51/R86 items) — which doubles as the 7C and 7D phase gates
+(§0.5; tags `v0.5.7c`/`v0.5.7d`, `main` fast-forwarded per §9). That pass
+is effectively already under way: R88 (status bar coordinate readout) and
+R89 (menu dropdown hover highlight) both landed from the user finding them
+live, at `UI Scale: 1x`, and reporting each with a screenshot — exactly
+the "fix the look of the engine" look-and-feel work this note originally
+expected, now happening informally rather than as one dedicated pass.
+Both of the pass's own former gate prerequisites are done: the one-time
+`cargo fmt --all` commit (§11) and R76 (`check.ps1`'s line-count fix) —
+see their own rows (§3.2). Known-open rows a fresh session should NOT
+re-discover while triaging a new live report: R46 (wheel `PixelDelta`
+hardcoded cell size), R79/R80 (graph mode and start screen don't scale —
+by design), R81 (dropdowns/context menus not clamped on-screen — reachable
+at high UI scale), R82 (unpadded glyph atlas), R83 (`ContextMenu.x/y`
+still cell-based), the §11 parking-lot note on `WgpuBackend::render`'s
+zero-instance early return, and the two 7D-3 live observations already
+logged as expected behavior: chrome text overlaps at 4× on a small
+window, and a bigger UI scale SHRINKS the viewport (fixed-point-width
+side panels eat more of a fixed window). Nothing left is blocking the
+gate itself except the pass reaching its own end — keep triaging live
+reports as they come in, or run the checklist directly (§3–§9, §11) and
+tag `v0.5.7c`/`v0.5.7d` once it's clean.
 
 ### 2.3 Baseline numbers (at `v0.5.7b`)
 
