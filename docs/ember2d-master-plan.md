@@ -92,7 +92,8 @@ Each step is written in the same shape so nothing gets forgotten:
 
 A phase is done when all of these hold:
 
-1. `cargo build --workspace --examples` clean; `cargo test --workspace` green.
+1. `cargo build --workspace --bins --examples` clean (see §8 on why not
+   `--examples` alone); `cargo test --workspace` green.
 2. `cargo clippy --workspace --all-targets` introduces no *new* warnings
    versus the previous gate (count recorded in §9).
 3. `scripts/check.ps1` (§6.5) passes: no `.rs` over 750 lines, no
@@ -182,6 +183,25 @@ start screen's New/Open Project browsers start from.
 | 9 | Scene and UI layer + RPG demo | `[ ]` — §5.8 |
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
+
+**Next up (handoff note, 2026-09-13, after R51/R86 landed):** the user's
+own extensive manual pass over everything 7C/7D changed — regression
+checklist §3–§9 plus §11 (F5 preview, R51/R86 items) — which doubles as
+the 7C and 7D phase gates (§0.5; tags `v0.5.7c`/`v0.5.7d`, `main`
+fast-forwarded per §9). Expect it to surface look-and-feel work ("fix the
+look of the engine" — the user's stated intent); that has no step yet and
+belongs in §5.4 (a 7D-5, or folded into 7D-1/7D-4's partial remainders)
+rather than 7E. Known-open rows a fresh session should NOT re-discover
+during that pass: R46 (wheel `PixelDelta` hardcoded cell size), R76
+(`check.ps1` counts non-blank lines — `engine.rs`, `renderer/backend.rs`,
+`simulation.rs` are all over 750 REAL lines today and pass), R79/R80 (graph
+mode and start screen don't scale — by design), R81 (dropdowns/context
+menus not clamped on-screen — reachable at high UI scale), R82 (unpadded
+glyph atlas), R83 (`ContextMenu.x/y` still cell-based), the §11 parking-lot
+note on `WgpuBackend::render`'s zero-instance early return, and the two
+7D-3 live observations already logged as expected behavior: chrome text
+overlaps at 4× on a small window, and a bigger UI scale SHRINKS the
+viewport (fixed-point-width side panels eat more of a fixed window).
 
 ### 2.3 Baseline numbers (at `v0.5.7b`)
 
@@ -3645,9 +3665,14 @@ See that step. Record the choice here.
 
 ## 8. Verification protocol
 
-**Per step:** `cargo build --workspace --examples`; `cargo test --workspace`;
-the step's own named tests; manual smoke test named in the step;
-`git diff --stat` matches the step's **Scope**.
+**Per step:** `cargo build --workspace --bins --examples` (NOT `--examples`
+alone — that selects only example targets and silently leaves
+`target/debug/ember2d.exe` stale, so any live check that launches the exe
+directly instead of via `cargo run` tests the previous build; caught
+2026-09-13 during R86, when a "no panic" live test ran a pre-fix binary);
+`cargo test --workspace` (which never rebuilds the bin either); the step's
+own named tests; manual smoke test named in the step; `git diff --stat`
+matches the step's **Scope**.
 
 **Per phase:** §0.5, in full, no exceptions. The checklist sections listed
 in the phase heading are run by hand and ticked in
