@@ -204,7 +204,12 @@ mod tests {
     fn painter_at(s: u32, r: u32) -> (NullRenderer, UiSpace) {
         let mut surface = NullRenderer::new(800, 600);
         surface.start_recording();
-        let space = UiSpace::new(s, r, (800.0 / r as f32, 600.0 / r as f32));
+        // `s as f32`: `UiSpace::new`'s `ui_scale` param is `f32` now (7D-4
+        // follow-up, docs/ember2d-master-plan.md §5.4 — the Theme > UI
+        // Scale menu gained a `1.5x` entry) — this helper keeps its own
+        // `u32` signature since every existing call site here only ever
+        // wants a whole step.
+        let space = UiSpace::new(s as f32, r, (800.0 / r as f32, 600.0 / r as f32));
         (surface, space)
     }
 

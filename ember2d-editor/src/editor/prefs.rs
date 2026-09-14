@@ -17,21 +17,35 @@ use std::path::PathBuf;
 
 /// The editor's UI-scale preference (7D-3, docs/ember2d-master-plan.md
 /// §5.4) — `Auto` follows the display's own DPI reading (`resolve`),
-/// `Fixed(n)` pins it regardless of DPI. Physical pixels per UI point,
-/// matching `ember2d::renderer::UiSpace`'s own `ui_scale`.
+/// `Fixed(n)` pins it to a whole step regardless of DPI, `OnePointFive` a
+/// single dedicated half-step between `Fixed(1)` and `Fixed(2)` (7D-4
+/// follow-up, master plan §5.4 — added live-reported "hovering at 1x looks
+/// completely off" feedback also surfaced R88, and a request for something
+/// between 1x and 2x). A DEDICATED variant, not a generalized fractional
+/// `Fixed`: the menu only ever offers this one half-step, so there was no
+/// user-facing need to let `Fixed` itself hold anything but whole steps —
+/// keeping it a `u8` means every existing `Fixed(n)`-shaped prefs file and
+/// test literal stays exactly as valid as before. Physical pixels per UI
+/// point, matching `ember2d::renderer::UiSpace`'s own `ui_scale` (which
+/// IS `f32` — `resolve`'s return type is what actually carries `1.5`
+/// through; this enum's own variants stay simple, `Eq`-derivable values).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UiScaleChoice {
     #[default]
     Auto,
     Fixed(u8),
+    OnePointFive,
 }
 
 impl UiScaleChoice {
     /// Every choice the `Theme` menu's UI Scale entries list, in display
-    /// order (7D-3's own last checkpoint wires these to a live menu).
-    pub const ALL: [UiScaleChoice; 5] = [
+    /// order (7D-3's own last checkpoint wires these to a live menu;
+    /// `OnePointFive` inserted between `Fixed(1)` and `Fixed(2)`, 7D-4
+    /// follow-up, master plan §5.4).
+    pub const ALL: [UiScaleChoice; 6] = [
         UiScaleChoice::Auto,
         UiScaleChoice::Fixed(1),
+        UiScaleChoice::OnePointFive,
         UiScaleChoice::Fixed(2),
         UiScaleChoice::Fixed(3),
         UiScaleChoice::Fixed(4),
@@ -39,12 +53,13 @@ impl UiScaleChoice {
 
     /// Clamps a `Fixed` value to `1..=4` — the range the `Theme` menu ever
     /// offers — so a hand-edited or corrupt prefs file can never persist
-    /// (or resolve to) an out-of-range scale. `Auto` is always already
-    /// valid, nothing to clamp.
+    /// (or resolve to) an out-of-range scale. `Auto`/`OnePointFive` are
+    /// always already valid (a single fixed point each), nothing to clamp.
     pub fn sanitized(self) -> Self {
         match self {
             UiScaleChoice::Auto => UiScaleChoice::Auto,
             UiScaleChoice::Fixed(n) => UiScaleChoice::Fixed(n.clamp(1, 4)),
+            UiScaleChoice::OnePointFive => UiScaleChoice::OnePointFive,
         }
     }
 
@@ -57,12 +72,19 @@ impl UiScaleChoice {
     /// is a defensive ceiling for an unusually high real-world OS scale
     /// factor, well above anything `ALL`'s own `Fixed` range offers, so
     /// `Auto` can never silently produce something wilder than a user
-    /// could pick directly. `Fixed(n)` ignores the display's own scale
-    /// factor entirely — that's the point of pinning it.
-    pub fn resolve(self, os_scale_factor: f32) -> u32 {
+    /// could pick directly. `Fixed(n)`/`OnePointFive` ignore the display's
+    /// own scale factor entirely — that's the point of pinning it. `f32`,
+    /// not `u32` (7D-4 follow-up, master plan §5.4) — the only change
+    /// `OnePointFive` needed downstream: `UiSpace::ui_scale` and every
+    /// caller here already cast an integer through `f32` arithmetic
+    /// anyway, so widening the CARRIER type was the whole fix.
+    pub fn resolve(self, os_scale_factor: f32) -> f32 {
         match self {
-            UiScaleChoice::Auto => (((os_scale_factor * 2.0).round()) as i32).clamp(1, 8) as u32,
-            UiScaleChoice::Fixed(n) => n.clamp(1, 4) as u32,
+            UiScaleChoice::Auto => {
+                (((os_scale_factor * 2.0).round()) as i32).clamp(1, 8) as f32
+            }
+            UiScaleChoice::Fixed(n) => n.clamp(1, 4) as f32,
+            UiScaleChoice::OnePointFive => 1.5,
         }
     }
 
@@ -73,6 +95,7 @@ impl UiScaleChoice {
         match self {
             UiScaleChoice::Auto => "UI Scale: Auto".to_string(),
             UiScaleChoice::Fixed(n) => format!("UI Scale: {n}x"),
+            UiScaleChoice::OnePointFive => "UI Scale: 1.5x".to_string(),
         }
     }
 }
@@ -320,13 +343,39 @@ mod tests {
         assert_eq!(UiScaleChoice::Fixed(9).sanitized(), UiScaleChoice::Fixed(4));
         assert_eq!(UiScaleChoice::Fixed(2).sanitized(), UiScaleChoice::Fixed(2));
         assert_eq!(UiScaleChoice::Auto.sanitized(), UiScaleChoice::Auto);
+        assert_eq!(UiScaleChoice::OnePointFive.sanitized(), UiScaleChoice::OnePointFive);
     }
 
     #[test]
     fn auto_ui_scale_resolves_100_to_2_125_to_3_150_to_3_200_to_4() {
-        assert_eq!(UiScaleChoice::Auto.resolve(1.0), 2);
-        assert_eq!(UiScaleChoice::Auto.resolve(1.25), 3);
-        assert_eq!(UiScaleChoice::Auto.resolve(1.5), 3);
-        assert_eq!(UiScaleChoice::Auto.resolve(2.0), 4);
+        assert_eq!(UiScaleChoice::Auto.resolve(1.0), 2.0);
+        assert_eq!(UiScaleChoice::Auto.resolve(1.25), 3.0);
+        assert_eq!(UiScaleChoice::Auto.resolve(1.5), 3.0);
+        assert_eq!(UiScaleChoice::Auto.resolve(2.0), 4.0);
+    }
+
+    /// 7D-4 follow-up (master plan §5.4): `OnePointFive` ignores the
+    /// display's own scale factor entirely, same as `Fixed` — it's a pin,
+    /// not a second `Auto` rule.
+    #[test]
+    fn one_point_five_resolves_to_1_5_regardless_of_os_scale_factor() {
+        assert_eq!(UiScaleChoice::OnePointFive.resolve(1.0), 1.5);
+        assert_eq!(UiScaleChoice::OnePointFive.resolve(2.0), 1.5);
+    }
+
+    #[test]
+    fn one_point_five_is_in_the_menus_own_list_between_1x_and_2x() {
+        assert_eq!(
+            UiScaleChoice::ALL,
+            [
+                UiScaleChoice::Auto,
+                UiScaleChoice::Fixed(1),
+                UiScaleChoice::OnePointFive,
+                UiScaleChoice::Fixed(2),
+                UiScaleChoice::Fixed(3),
+                UiScaleChoice::Fixed(4),
+            ]
+        );
+        assert_eq!(UiScaleChoice::OnePointFive.menu_label(), "UI Scale: 1.5x");
     }
 }

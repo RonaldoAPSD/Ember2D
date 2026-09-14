@@ -42,7 +42,7 @@ fn setting_ui_scale_via_the_theme_menu_takes_effect_on_the_next_frame_and_persis
     // both persist the preference AND change what `ui_space()` reports on
     // the very next render, without a restart.
     let mut h = EditorHarness::new();
-    assert_eq!(h.state.ui_space().ui_scale(), 2, "Auto at 100% OS scale must start at ui_scale 2");
+    assert_eq!(h.state.ui_space().ui_scale(), 2.0, "Auto at 100% OS scale must start at ui_scale 2");
 
     open_menu(&mut h, MenuKind::Theme);
     click_theme_menu_item(&mut h, "UI Scale: 3x");
@@ -54,7 +54,7 @@ fn setting_ui_scale_via_the_theme_menu_takes_effect_on_the_next_frame_and_persis
     );
     assert_eq!(
         h.state.ui_space().ui_scale(),
-        3,
+        3.0,
         "the new scale must take effect on the very next draw, not require a restart"
     );
     assert_eq!(h.state.active_menu(), None, "picking a UI Scale entry must close its dropdown");
@@ -66,7 +66,7 @@ fn auto_ui_scale_resolves_from_the_displays_own_os_scale_factor() {
     // pin the 100/125/150/200% -> 2/3/3/4 table in isolation; this exercises
     // the same resolution through a real `EditorState`'s draw path, at the
     // default `Auto` preference no test here ever changes.
-    for (os_scale_factor, expected_ui_scale) in [(1.0_f32, 2_u32), (1.5, 3), (2.0, 4)] {
+    for (os_scale_factor, expected_ui_scale) in [(1.0_f32, 2.0_f32), (1.5, 3.0), (2.0, 4.0)] {
         ensure_workspace_root_cwd();
         let h = EditorHarness::with_display(DisplayScale { render_scale: 2, os_scale_factor });
         assert_eq!(
@@ -170,7 +170,7 @@ fn menu_and_theme_dropdown_clicks_round_trip_when_ui_scale_is_smaller_than_rende
     // (mixing up a multiply and a divide, say) would invert here instead
     // of just being a different multiplier.
     let mut h = harness_at(4, 2);
-    assert_eq!(h.state.ui_space().ui_scale(), 2);
+    assert_eq!(h.state.ui_space().ui_scale(), 2.0);
     assert_eq!(h.state.ui_space().render_scale(), 4);
 
     open_menu(&mut h, MenuKind::Theme);
@@ -248,4 +248,32 @@ fn r88_the_status_bars_coordinate_readout_matches_the_real_hovered_cell_when_ui_
         nums[1],
         pos_text
     );
+}
+
+/// 7D-4 follow-up (master plan §5.4): `UiScaleChoice::OnePointFive`, added
+/// after live user feedback wanted something between `1x` and `2x`. Picking
+/// it from the real menu must persist, take effect immediately, and — since
+/// `1.5` at the harness's default `render_scale: 2` is exactly the `S/R =
+/// 0.75` ratio no other fixed step reaches — render a full frame without
+/// panicking, the same bar every other `UiScaleChoice` in this file already
+/// clears.
+#[test]
+fn one_point_five_ui_scale_is_selectable_from_the_theme_menu_and_takes_effect() {
+    let mut h = EditorHarness::new();
+    open_menu(&mut h, MenuKind::Theme);
+    click_theme_menu_item(&mut h, "UI Scale: 1.5x");
+
+    assert_eq!(
+        h.state.prefs().ui_scale,
+        UiScaleChoice::OnePointFive,
+        "picking UI Scale: 1.5x must persist it to prefs"
+    );
+    assert_eq!(
+        h.state.ui_space().ui_scale(),
+        1.5,
+        "the new scale must take effect on the very next draw"
+    );
+    assert_eq!(h.state.active_menu(), None, "picking a UI Scale entry must close its dropdown");
+
+    h.frame(); // must not panic at S/R = 0.75
 }

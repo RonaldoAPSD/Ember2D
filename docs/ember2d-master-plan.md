@@ -209,7 +209,7 @@ prerequisite the pass itself still can't tick is a one-time `cargo fmt
 
 | Metric | Value | Where measured |
 |---|---|---|
-| Tests | 209 unit + 42 integration + 1 doctest = 252, all pass. **Current (2026-09-13, after R88): 377, all pass** — every 7C/7D step's own named tests, not re-baselined until the 7C/7D gate | `cargo test --workspace` |
+| Tests | 209 unit + 42 integration + 1 doctest = 252, all pass. **Current (2026-09-13, after the UI Scale: 1.5x follow-up): 380, all pass** — every 7C/7D step's own named tests, not re-baselined until the 7C/7D gate | `cargo test --workspace` |
 | Clippy | 0 errors, 59 warnings at `--lib` scope (unchanged from `v0.5.7a`; fewer at `--all-targets`). **Current: 43 at `--lib`, 55 at `--all-targets`** (both down; tracked per step through 7D) | `cargo clippy --workspace --lib` / `--all-targets` |
 | rustfmt | applied; `cargo fmt --all -- --check` clean. **Current (2026-09-13, `69c3067`): clean again** — one-time `cargo fmt --all` commit, same shape as 7A-9 (45 files, the exact count §11 had logged), no other change; same as 7A-9's own R42/R43, the mechanical reflow alone pushed one file (`ember2d-editor/tests/editor_input.rs`, 734→761) over the 750-line limit — logged as **R87**, not fixed in this commit | `cargo fmt --all -- --check` |
 | `cargo test --test replay` | green 3× fresh processes | §0.5 gate criterion 4 |
@@ -3216,6 +3216,41 @@ how the two shipped themes differ.
     by launching the real editor, opening the new `Theme` menu label,
     confirming the checkmark on the active theme, and clicking it —
     dropdown closes, chrome stays intact, editor doesn't crash.
+  - **Follow-up (2026-09-13): `UI Scale: 1.5x`.** Live user feedback on
+    hovering at `1x` (which also surfaced R88, §3.2 — a real bug, fixed
+    separately) came with a second, independent ask: something between
+    `1x` and `2x`. Added `UiScaleChoice::OnePointFive` — a single dedicated
+    variant, not a generalized fractional `Fixed`, since the menu only
+    ever offers this one half-step and a dedicated variant keeps every
+    existing `Fixed(n)` prefs file/test literal untouched. The real
+    plumbing change was downstream: `UiSpace::ui_scale`/
+    `UiScaleChoice::resolve`/`EditorState::effective_ui_scale`/
+    `rebuild_fonts_if_scale_changed`/`theme_loader::build_font` all
+    widened from `u32`/`u8` to `f32` — every one of them already cast an
+    integer through `f32` arithmetic before this, so the storage type was
+    the only real constraint. `docs/ember2d-theming.md` §6 updated to
+    match. **Verification.** `cargo build --workspace --bins --examples`
+    clean. `cargo test --workspace`: 380 (was 377, after R88), all pass —
+    new: `one_point_five_resolves_to_1_5_regardless_of_os_scale_factor`/
+    `one_point_five_is_in_the_menus_own_list_between_1x_and_2x`
+    (`prefs.rs`), `one_point_five_ui_scale_is_selectable_from_the_theme_
+    menu_and_takes_effect` (`tests/editor_ui_scale.rs`, a full click →
+    persist → `ui_space()` → live-frame round trip, same shape as the
+    existing whole-step version of this test). `cargo clippy --workspace
+    --lib`/`--all-targets` unchanged at 43/55 (the `ui_scale ==
+    self.font_raster_scale` float comparison in
+    `rebuild_fonts_if_scale_changed` compares only exact literals
+    `resolve()` ever returns — 1.0/1.5/2.0/3.0/4.0 — never a value that's
+    passed through lossy arithmetic first, so no new `float_cmp`-class
+    warning). `cargo test -p ember2d --test replay` 3× fresh processes
+    green. `scripts/check.ps1` clean. Verified live: launched the real
+    editor, opened `Theme`, confirmed `UI Scale: 1.5x` sits between `1x`
+    and `2x` with the checkmark on the previously-active `1x`, clicked it
+    — chrome re-rendered crisply at the new scale (no blur, no panic,
+    every panel resized), and the status bar's own coordinate readout
+    still agreed with the Inspector's hovered-tile position at this new
+    ratio (`S/R = 1.5/2 = 0.75`), confirming R88's fix generalizes past
+    the two ratios its own regression test pins.
 
 **Phase 7D gate:** §0.5, full checklist §3–§9, then tag `v0.5.7d`.
 

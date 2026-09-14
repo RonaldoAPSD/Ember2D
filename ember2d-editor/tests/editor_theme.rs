@@ -147,7 +147,7 @@ fn menu_clicks_round_trip_when_ui_scale_genuinely_diverges_from_render_scale() {
     assert_eq!(h.state.ui_space().render_scale(), 2);
     assert_eq!(
         h.state.ui_space().ui_scale(),
-        4,
+        4.0,
         "Auto at os_scale_factor 2.0 must resolve to ui_scale 4, independent of render_scale"
     );
     open_menu(&mut h, MenuKind::Theme);

@@ -6,8 +6,9 @@
 //   physical px  --(/ render_scale, R)-->  logical px  (unchanged since 7B-2:
 //     `Renderer.scale`, DPI-derived, floored at `MIN_UI_SCALE`)
 //   logical px   --(/ (ui_scale / render_scale), i.e. * R/S)-->  UI points
-//     (NEW: 1 point = `ui_scale` (S) physical pixels — an integer editor
-//     chrome preference, independent of R)
+//     (1 point = `ui_scale` (S) physical pixels — an editor chrome
+//     preference, independent of R; `f32`, not an integer, since the
+//     `Theme > UI Scale` menu offers 1.5x alongside the whole steps)
 // A glyph cell (`CELL_W`/`CELL_H`) is a FOURTH, unrelated unit — the
 // viewport/canvas/graph-mode/play-mode grid, which this type never touches;
 // see `ember2d::renderer::CELL_W`/`CELL_H` for that one.
@@ -29,22 +30,30 @@ use super::Font;
 /// without re-deriving it from a `DrawSurface` itself).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UiSpace {
-    ui_scale: u32,
+    /// `f32`, not `u32` (was, before the editor's Theme > UI Scale menu
+    /// gained a `1.5x` entry — 7D-4 follow-up,
+    /// docs/ember2d-master-plan.md §5.4) — every
+    /// consumer below already cast this to `f32` before using it in real
+    /// arithmetic, so widening the STORAGE type itself to match was the
+    /// only change a genuinely non-integer scale needed; `render_scale`
+    /// stays `u32` (DPI-derived, always a whole `Renderer.scale`, never a
+    /// user preference).
+    ui_scale: f32,
     render_scale: u32,
     screen_logical: (f32, f32),
 }
 
 impl UiSpace {
-    /// Both scales are clamped to at least 1 — a `0` in either would make
-    /// every conversion below divide by zero or collapse the whole screen
-    /// to a point, and neither should ever reach here from a real caller
-    /// (`ui_scale` is validated at `UiScaleChoice::resolve`,
-    /// `ember2d-editor/src/editor/prefs.rs`; `render_scale` is
-    /// `Renderer.scale`, already floored at `MIN_UI_SCALE`), but a
-    /// defensive floor here means a bad value degrades to "no scaling"
-    /// instead of a panic or a blank screen.
-    pub fn new(ui_scale: u32, render_scale: u32, screen_logical: (f32, f32)) -> Self {
-        UiSpace { ui_scale: ui_scale.max(1), render_scale: render_scale.max(1), screen_logical }
+    /// Both scales are clamped to at least 1 — a `0` (or negative) in
+    /// either would make every conversion below divide by zero, go
+    /// negative, or collapse the whole screen to a point, and neither
+    /// should ever reach here from a real caller (`ui_scale` is validated
+    /// at `UiScaleChoice::resolve`, `ember2d-editor/src/editor/prefs.rs`;
+    /// `render_scale` is `Renderer.scale`, already floored at
+    /// `MIN_UI_SCALE`), but a defensive floor here means a bad value
+    /// degrades to "no scaling" instead of a panic or a blank screen.
+    pub fn new(ui_scale: f32, render_scale: u32, screen_logical: (f32, f32)) -> Self {
+        UiSpace { ui_scale: ui_scale.max(1.0), render_scale: render_scale.max(1), screen_logical }
     }
 
     /// Builds a `UiSpace` from a live `DrawSurface`'s own reported
@@ -69,7 +78,7 @@ impl UiSpace {
     /// caught it: `self.ui_space` was only ever captured and read back
     /// as a value, never actually multiplied into a drawn pixel, until
     /// this one.
-    pub fn from_surface(surface: &dyn super::DrawSurface, ui_scale: u32) -> Self {
+    pub fn from_surface(surface: &dyn super::DrawSurface, ui_scale: f32) -> Self {
         let display = surface.display_scale();
         let screen_logical = (surface.pixel_width() as f32, surface.pixel_height() as f32);
         UiSpace::new(ui_scale, display.render_scale, screen_logical)
@@ -83,10 +92,10 @@ impl UiSpace {
     /// (`theme_loader::effective_ui_scale`); this constructor is only for
     /// tests and defaults that want the trivial 1:1 case specifically.
     pub fn identity(screen_logical: (f32, f32)) -> Self {
-        UiSpace { ui_scale: 1, render_scale: 1, screen_logical }
+        UiSpace { ui_scale: 1.0, render_scale: 1, screen_logical }
     }
 
-    pub fn ui_scale(self) -> u32 {
+    pub fn ui_scale(self) -> f32 {
         self.ui_scale
     }
 
@@ -118,7 +127,7 @@ impl UiSpace {
     /// `1.5` at `S=3, R=2`), which is exactly why chrome must never assume
     /// a point is a whole number of logical pixels.
     pub fn pt_to_logical(self) -> f32 {
-        self.ui_scale as f32 / self.render_scale as f32
+        self.ui_scale / self.render_scale as f32
     }
 
     pub fn to_logical(self, x: f32, y: f32) -> (f32, f32) {
@@ -190,7 +199,7 @@ impl UiSpace {
     /// (measuring at the raw point size instead of this one) — see this
     /// module's own header comment and `measure`'s doc comment below.
     pub fn raster_px(self, pt: f32) -> f32 {
-        pt * self.ui_scale as f32
+        pt * self.ui_scale
     }
 
     /// Measure `text` at `pt` points — rasterizes (or looks up) at the real
@@ -203,20 +212,20 @@ impl UiSpace {
     /// theoretical, atlas-pollution bug).
     pub fn measure(self, font: &mut dyn Font, text: &str, pt: f32) -> (f32, f32) {
         let (w, h) = font.measure(text, self.raster_px(pt));
-        let k = self.ui_scale as f32;
+        let k = self.ui_scale;
         (w / k, h / k)
     }
 
     pub fn advance(self, font: &mut dyn Font, ch: char, pt: f32) -> f32 {
-        font.glyph(ch, self.raster_px(pt)).map(|g| g.advance).unwrap_or(0.0) / self.ui_scale as f32
+        font.glyph(ch, self.raster_px(pt)).map(|g| g.advance).unwrap_or(0.0) / self.ui_scale
     }
 
     pub fn ascent(self, font: &dyn Font, pt: f32) -> f32 {
-        font.ascent(self.raster_px(pt)) / self.ui_scale as f32
+        font.ascent(self.raster_px(pt)) / self.ui_scale
     }
 
     pub fn line_height(self, font: &dyn Font, pt: f32) -> f32 {
-        font.line_height(self.raster_px(pt)) / self.ui_scale as f32
+        font.line_height(self.raster_px(pt)) / self.ui_scale
     }
 
     pub fn truncate_to_width(
@@ -226,7 +235,7 @@ impl UiSpace {
         pt: f32,
         max_w_pt: f32,
     ) -> String {
-        font.truncate_to_width(text, self.raster_px(pt), max_w_pt * self.ui_scale as f32)
+        font.truncate_to_width(text, self.raster_px(pt), max_w_pt * self.ui_scale)
     }
 
     /// The whole-POINT advance a monospace font run should use per
@@ -248,7 +257,7 @@ mod tests {
 
     #[test]
     fn points_equal_logical_px_when_ui_scale_equals_render_scale() {
-        let ui = UiSpace::new(2, 2, (100.0, 100.0));
+        let ui = UiSpace::new(2.0, 2, (100.0, 100.0));
         assert_eq!(ui.pt_to_logical(), 1.0);
         assert_eq!(ui.to_logical(10.0, 20.0), (10.0, 20.0));
         assert_eq!(ui.logical_to_pt(10.0, 20.0), (10.0, 20.0));
@@ -256,7 +265,7 @@ mod tests {
 
     #[test]
     fn logical_to_points_inverts_points_to_logical_at_s3_r2() {
-        let ui = UiSpace::new(3, 2, (100.0, 100.0));
+        let ui = UiSpace::new(3.0, 2, (100.0, 100.0));
         assert_eq!(ui.pt_to_logical(), 1.5);
         let (lx, ly) = ui.to_logical(10.0, 4.0);
         assert_eq!((lx, ly), (15.0, 6.0));
@@ -279,7 +288,7 @@ mod tests {
             720,
             DisplayScale { render_scale: 2, os_scale_factor: 2.0 },
         );
-        let ui = UiSpace::from_surface(&surface, 2);
+        let ui = UiSpace::from_surface(&surface, 2.0);
         assert_eq!(
             ui.screen_pt(),
             (1280.0, 720.0),
@@ -289,7 +298,7 @@ mod tests {
 
     #[test]
     fn snap_rounds_to_the_physical_pixel_grid_at_s3() {
-        let ui = UiSpace::new(3, 1, (100.0, 100.0));
+        let ui = UiSpace::new(3.0, 1, (100.0, 100.0));
         assert_eq!(ui.snap(10.4), 10.0);
         assert_eq!(ui.snap(10.6), 11.0);
         let r = ui.snap_rect(Rect::new(0.3, 0.3, 4.4, 4.4));
@@ -301,7 +310,7 @@ mod tests {
     fn measure_in_points_is_the_physical_measure_divided_by_s() {
         use super::super::{BitmapFont, Font};
         let mut font = BitmapFont::new();
-        let ui = UiSpace::new(2, 1, (100.0, 100.0));
+        let ui = UiSpace::new(2.0, 1, (100.0, 100.0));
         // BitmapFont's native size is 8px; at ui_scale 2 a request of "8
         // points" rasterizes at 16 physical px (one whole multiple above
         // native), so the returned point measurement must be half that.
@@ -312,7 +321,7 @@ mod tests {
 
     #[test]
     fn screen_pt_divides_the_logical_screen_by_pt_to_logical() {
-        let ui = UiSpace::new(3, 2, (150.0, 60.0));
+        let ui = UiSpace::new(3.0, 2, (150.0, 60.0));
         assert_eq!(ui.screen_pt(), (100.0, 40.0));
     }
 
@@ -320,7 +329,7 @@ mod tests {
     fn mono_pitch_is_a_whole_point() {
         use super::super::BitmapFont;
         let mut font = BitmapFont::new();
-        let ui = UiSpace::new(3, 2, (100.0, 100.0));
+        let ui = UiSpace::new(3.0, 2, (100.0, 100.0));
         let pitch = ui.mono_pitch(&mut font, 8.0);
         assert_eq!(pitch.fract(), 0.0, "pitch must be a whole point for stable column math");
     }

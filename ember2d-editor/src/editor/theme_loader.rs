@@ -42,19 +42,19 @@ const ASCII_PREWARM: std::ops::RangeInclusive<u8> = 0x20..=0x7E;
 /// will ever ask of it, then the whole ASCII prewarm set is rasterized
 /// immediately at all three sizes so the atlas is fully populated before
 /// this font ever draws a live frame.
-fn build_font(choice: &FontChoice, ui_scale: u32, sizes: &FontSizes) -> Box<dyn Font> {
+fn build_font(choice: &FontChoice, ui_scale: f32, sizes: &FontSizes) -> Box<dyn Font> {
     match choice {
         FontChoice::Bitmap => Box::new(BitmapFont::new()),
         FontChoice::Ttf { path } => std::fs::read(path)
             .ok()
             .and_then(|bytes| {
                 let max_pt = sizes.small.max(sizes.body).max(sizes.heading);
-                let side = glyph_atlas_side_for(max_pt * ui_scale as f32);
+                let side = glyph_atlas_side_for(max_pt * ui_scale);
                 TtfFont::with_atlas_size(&bytes, 0, side, side).ok()
             })
             .map(|mut font| {
                 for &pt in &[sizes.small, sizes.body, sizes.heading] {
-                    let raster_px = pt * ui_scale as f32;
+                    let raster_px = pt * ui_scale;
                     for byte in ASCII_PREWARM {
                         font.glyph(byte as char, raster_px);
                     }
@@ -69,7 +69,7 @@ fn build_font(choice: &FontChoice, ui_scale: u32, sizes: &FontSizes) -> Box<dyn 
 /// resolves `theme.code_font` if the theme names one, otherwise a SEPARATE
 /// instance of `theme.font`'s own choice (see `EditorState::code_font`'s
 /// own doc comment for why a second instance, not a shared reference).
-pub(super) fn load_theme_fonts(theme: &Theme, ui_scale: u32) -> (Box<dyn Font>, Box<dyn Font>) {
+pub(super) fn load_theme_fonts(theme: &Theme, ui_scale: f32) -> (Box<dyn Font>, Box<dyn Font>) {
     let font = build_font(&theme.font, ui_scale, &theme.font_sizes);
     let code_choice = theme.code_font.as_ref().unwrap_or(&theme.font);
     let code_font = build_font(code_choice, ui_scale, &theme.font_sizes);
@@ -89,10 +89,11 @@ pub(super) fn load_theme_fonts(theme: &Theme, ui_scale: u32) -> (Box<dyn Font>, 
 /// exact same real theme-loading path the live app does — no separate
 /// test-only code path.
 ///
-/// `ui_scale` (7D-3, master plan §5.4): the physical raster scale to build
-/// `font`/`code_font` at — see `build_font`'s own doc comment. Callers
+/// `ui_scale` (7D-3, master plan §5.4; `f32` since the 7D-4 follow-up added
+/// a `1.5x` menu entry) — the physical raster scale to build `font`/
+/// `code_font` at — see `build_font`'s own doc comment. Callers
 /// before a real `UiSpace` exists (`EditorState::new`, before any window)
-/// pass `1`; `EditorState::rebuild_fonts_if_scale_changed` re-derives fonts
+/// pass `1.0`; `EditorState::rebuild_fonts_if_scale_changed` re-derives fonts
 /// ALONE (via `load_theme_fonts`, not this whole function) once the real
 /// scale is known, without re-reading the theme file or re-decoding the
 /// chrome PNG.
@@ -112,7 +113,7 @@ pub(super) fn load_theme_fonts(theme: &Theme, ui_scale: u32) -> (Box<dyn Font>, 
 /// wired through `EditorState` just to avoid.
 pub(super) fn load_editor_theme_named(
     name: &str,
-    ui_scale: u32,
+    ui_scale: f32,
 ) -> (Theme, Texture, Box<dyn Font>, Box<dyn Font>) {
     let mut assets = AssetManager::new();
     let theme = Theme::load(&mut assets, &format!("themes/{name}"));
@@ -215,7 +216,7 @@ impl EditorState {
     /// `self.prefs.ui_scale` directly, and could be migrated one file at a
     /// time without ui_scale/render_scale ever actually diverging under
     /// them. Now reads the real preference.
-    pub(super) fn effective_ui_scale(&self, display: DisplayScale) -> u32 {
+    pub(super) fn effective_ui_scale(&self, display: DisplayScale) -> f32 {
         self.prefs.ui_scale.resolve(display.os_scale_factor)
     }
 
@@ -227,7 +228,7 @@ impl EditorState {
     /// needing a restart or a manual re-open of the theme. A no-op re-read
     /// of the theme file isn't needed here — `load_theme_fonts` only touches
     /// the already-loaded `self.theme`, not disk.
-    pub(super) fn rebuild_fonts_if_scale_changed(&mut self, ui_scale: u32) {
+    pub(super) fn rebuild_fonts_if_scale_changed(&mut self, ui_scale: f32) {
         if ui_scale == self.font_raster_scale {
             return;
         }

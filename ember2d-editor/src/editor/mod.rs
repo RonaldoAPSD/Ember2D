@@ -293,7 +293,7 @@ pub struct EditorState {
     /// (`rebuild_fonts_if_scale_changed`, `theme_loader.rs`) so a DPI or
     /// scale-preference change rebuilds the fonts at their new real size
     /// instead of drawing stale-scale glyphs until the next theme switch.
-    pub(super) font_raster_scale: u32,
+    pub(super) font_raster_scale: f32,
     pub(super) grid: LevelGrid,
     pub(super) palette: TilePalette,
     pub(super) undo: UndoStack,
@@ -498,12 +498,12 @@ const PLACEHOLDER_SCREEN_H: f32 = 384.0;
 
 impl EditorState {
     pub fn new(save_path: &str) -> Self {
-        // `1` (7D-3, master plan §5.4): no real window/`UiSpace` exists yet
+        // `1.0` (7D-3, master plan §5.4): no real window/`UiSpace` exists yet
         // at construction (same reasoning as `PLACEHOLDER_SCREEN_W/H`
         // below) — `rebuild_fonts_if_scale_changed` (`theme_loader.rs`)
         // re-derives these at the real scale on the first actual draw.
         let (theme, theme_chrome_tex, theme_font, theme_code_font) =
-            load_editor_theme_named(DEFAULT_THEME, 1);
+            load_editor_theme_named(DEFAULT_THEME, 1.0);
         let placeholder_metrics = ui::ChromeMetrics::from_theme(&theme);
         EditorState {
             theme,
@@ -513,7 +513,7 @@ impl EditorState {
             prefs: EditorPrefs::default(),
             prefs_store: PrefsStore::InMemory(EditorPrefs::default()),
             ui_space: UiSpace::identity((0.0, 0.0)),
-            font_raster_scale: 1,
+            font_raster_scale: 1.0,
             grid: LevelGrid::new(DEFAULT_LEVEL_W, DEFAULT_LEVEL_H),
             palette: TilePalette::default_palette(),
             undo: UndoStack::new(),
