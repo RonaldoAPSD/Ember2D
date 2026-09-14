@@ -201,22 +201,25 @@ glyph atlas), R83 (`ContextMenu.x/y` still cell-based), the §11 parking-lot
 note on `WgpuBackend::render`'s zero-instance early return, and the two
 7D-3 live observations already logged as expected behavior: chrome text
 overlaps at 4× on a small window, and a bigger UI scale SHRINKS the
-viewport (fixed-point-width side panels eat more of a fixed window).
+viewport (fixed-point-width side panels eat more of a fixed window). Two
+gate prerequisites the pass itself can't tick: a one-time `cargo fmt
+--all` commit (45 drifted files, §11) and the three real-line-over-750
+files in §2.3 (R76 — `engine.rs` grew further at R51).
 
 ### 2.3 Baseline numbers (at `v0.5.7b`)
 
 | Metric | Value | Where measured |
 |---|---|---|
-| Tests | 209 unit + 42 integration + 1 doctest = 252, all pass | `cargo test --workspace` |
-| Clippy | 0 errors, 59 warnings at `--lib` scope (unchanged from `v0.5.7a`; fewer at `--all-targets`) | `cargo clippy --workspace --lib` / `--all-targets` |
-| rustfmt | applied; `cargo fmt --all -- --check` clean | `cargo fmt --all -- --check` |
+| Tests | 209 unit + 42 integration + 1 doctest = 252, all pass. **Current (2026-09-13, after R86 `7e51b5d`): 376, all pass** — every 7C/7D step's own named tests, not re-baselined until the 7C/7D gate | `cargo test --workspace` |
+| Clippy | 0 errors, 59 warnings at `--lib` scope (unchanged from `v0.5.7a`; fewer at `--all-targets`). **Current: 43 at `--lib`, 55 at `--all-targets`** (both down; tracked per step through 7D) | `cargo clippy --workspace --lib` / `--all-targets` |
+| rustfmt | applied; `cargo fmt --all -- --check` clean. **Current: 45 files drifted** (accumulated across 7B-5/7C/7D, none from R51/R86's own new code) — a one-time `cargo fmt --all` commit, same as 7A-9, is due before the 7C/7D gate can pass this row | `cargo fmt --all -- --check` |
 | `cargo test --test replay` | green 3× fresh processes | §0.5 gate criterion 4 |
 | floor2 p50 ms/step | not re-measured this gate (no sim-path change in 7B) | `cargo run --release -p ember2d-sim --example bench_sim` |
 | floor2 allocs/step | not re-measured this gate (no sim-path change in 7B) | same |
 | `LEVEL_FORMAT_VERSION` | 3 (unchanged since 7A-4) | `ember2d-sim/src/level.rs:298` |
 | `API_VERSION` | 6 (unchanged) | `ember2d-sim/src/scripting/types.rs:25` |
 | Registered script functions | 124 (unchanged) | `grep -c register_fn ember2d-sim/src/scripting/registry.rs` |
-| Files over 750 lines | 0 | `scripts/check.ps1` |
+| Files over 750 lines | 0. **Current: 0 by `check.ps1`'s non-blank count, but 3 by real lines (R76): `ember2d/src/engine.rs` 789 (762 before R51 — the `is_overlay` hook and render-loop comment grew an already-over file), `ember2d/src/renderer/backend.rs` 810, `ember2d-sim/src/simulation.rs` 791** | `scripts/check.ps1` / `wc -l` |
 | Dependencies | wgpu 30.0.1, winit 0.30.13, kira 0.12.4, glam 0.33.7, rand 0.8.6, gilrs 0.11.2, rhai 1.24.0, fontdue 0.9.4 — wgpu/winit/glam/kira/gilrs all upgraded at 7B-1 (were 0.19.4/0.29.15/0.25/0.9.6/0.10 at `v0.5.7a`) | `Cargo.lock` |
 
 ---
@@ -3764,6 +3767,13 @@ or delete; never let this grow past a screen.
   `DEFAULT_BG`. Unreachable today (every state draws at least a HUD or a
   background), noticed during R51's re-diagnosis (2026-09-13); worth a
   one-line fix (always run the pass) whenever someone's next in `render`.
+- `cargo fmt --all -- --check` has drifted: 45 files as of 2026-09-13
+  (7B-5 through 7D-3 era, `ember2d/src/renderer/*`, `theme.rs`, most of
+  `ember2d-editor/src/editor/`, the 7D-3 test files). Not tracked per step
+  since 7A-9's one-time pass. §0.5/§2.3 require it clean at a gate, so a
+  single `cargo fmt --all` commit (no logic change, same shape as 7A-9)
+  is due right before the 7C/7D gate — do it as its own commit, not
+  folded into a feature step, so the diff stays reviewable.
 
 ---
 
