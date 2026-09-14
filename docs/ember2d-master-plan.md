@@ -211,7 +211,7 @@ prerequisite the pass itself still can't tick is a one-time `cargo fmt
 |---|---|---|
 | Tests | 209 unit + 42 integration + 1 doctest = 252, all pass. **Current (2026-09-13, after R86 `7e51b5d`): 376, all pass** — every 7C/7D step's own named tests, not re-baselined until the 7C/7D gate | `cargo test --workspace` |
 | Clippy | 0 errors, 59 warnings at `--lib` scope (unchanged from `v0.5.7a`; fewer at `--all-targets`). **Current: 43 at `--lib`, 55 at `--all-targets`** (both down; tracked per step through 7D) | `cargo clippy --workspace --lib` / `--all-targets` |
-| rustfmt | applied; `cargo fmt --all -- --check` clean. **Current: 45 files drifted** (accumulated across 7B-5/7C/7D, none from R51/R86's own new code) — a one-time `cargo fmt --all` commit, same as 7A-9, is due before the 7C/7D gate can pass this row | `cargo fmt --all -- --check` |
+| rustfmt | applied; `cargo fmt --all -- --check` clean. **Current (2026-09-13, `69c3067`): clean again** — one-time `cargo fmt --all` commit, same shape as 7A-9 (45 files, the exact count §11 had logged), no other change; same as 7A-9's own R42/R43, the mechanical reflow alone pushed one file (`ember2d-editor/tests/editor_input.rs`, 734→761) over the 750-line limit — logged as **R87**, not fixed in this commit | `cargo fmt --all -- --check` |
 | `cargo test --test replay` | green 3× fresh processes | §0.5 gate criterion 4 |
 | floor2 p50 ms/step | not re-measured this gate (no sim-path change in 7B) | `cargo run --release -p ember2d-sim --example bench_sim` |
 | floor2 allocs/step | not re-measured this gate (no sim-path change in 7B) | same |
@@ -359,6 +359,8 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R85 | S1 | `UiPainter::text`/`text_mono` used `pt_to_logical()` (`ui_scale / render_scale`, `S/R`) for `texel_scale` — but a glyph's raster bitmap is already `ui_scale` times bigger than its point size (`UiSpace::raster_px(pt) = pt * S`), so drawing that ALREADY-`S`-scaled bitmap at `S/R` logical pixels per texel scaled it up by `S` a SECOND time, rendering chrome text `S`× too large. A 9-slice's `border_scale` has no equivalent bug (an atlas texel is never pre-scaled by `S` the way a glyph raster is, so it genuinely needs the full `S/R`) — text specifically needed `1/R` instead. A pre-existing unit test (`painter_text_rasterizes_at_points_times_ui_scale`, from checkpoint 1) asserted the buggy `S/R` value as correct, so nothing caught this until a live screenshot did | `ember2d/src/renderer/ui_painter.rs` (`text`, `text_mono`) | `[x]` 7D-3 checkpoint 7 — new `UiSpace::raster_to_logical() = 1 / render_scale` method; both functions' `texel_scale` switched to it. Found via a SECOND live screenshot, right after R84's own fix corrected the layout but left every chrome text draw still severely overlapping. The pre-existing wrong test corrected (now asserts `texel_scale == 1.0` at `S == R`, not `S/R`); new regression test `painter_text_texel_scale_is_one_over_render_scale_not_s_over_r` (S=3, R=2, asserts `texel_scale == 0.5`, explicitly distinct from `pt_to_logical() == 1.5`) |
 | **Found by the 2026-09-13 play-mode regression sweep (R51's re-diagnosis)** | | | | |
 | R86 | S2 | `PauseMenuState::render` centered its 30×8-cell panel with a bare `(sw - 30) / 2`, `(sh - 8) / 2` in `usize` — but `compute_layout` floors the cell grid at 20×6 (`renderer/geometry.rs`), so a window narrower than the panel (under ~480 physical px at the default scale) or shorter than its 8 rows underflowed the moment Esc was pressed in play mode: a debug-build panic ("attempt to subtract with overflow", reproduced live at 400×220), or in release a wrapped-around origin feeding a gigantic `draw_rect_filled` loop. Pre-existing (the 20×6 floor predates 7B-2), never logged — nobody had shrunk a play window that far | `ember2d/src/play.rs` (`PauseMenuState::render`) | `[x]` (`7e51b5d`) — new `centered_origin(screen, size) = screen.saturating_sub(size) / 2` used for both axes, so the panel clamps to the window's top-left instead. `PauseMenuState` moved to its own `play/pause_menu.rs` (play.rs was at 751 real lines — over CLAUDE.md's limit — before this fix needed room; 688 after). Regression test `r86_the_pause_menu_origin_never_underflows_on_a_window_smaller_than_the_panel` (`play/pause_menu.rs`), confirmed to panic against the old formula. Verified live: Esc on a 400×220 play window draws the panel flush to the top-left, process stays up |
+| **Found by the 2026-09-13 `cargo fmt --all` sweep** | | | | |
+| R87 | S4 | The one-time `cargo fmt --all` commit (§11, same shape as 7A-9) pushed `ember2d-editor/tests/editor_input.rs` from 734 to 761 real lines, over CLAUDE.md's 750-line limit — the exact R42/R43 hazard from 7A-9's own pass, this time hitting a flat `#[test] fn` integration-test file (no impl block to split, unlike R42/R43's `ScriptCtx`) rather than a source file | `ember2d-editor/tests/editor_input.rs` | `[ ]` unscheduled — needs a feature-area split, same one-file-per-area convention already used for `editor_theme.rs`/`editor_script.rs`/`editor_undo.rs` (menu/dropdown clicks, paint-tool/canvas clicks, prompt/text-entry, and the R11-R14 regression tests read as the natural groups on a first pass, not yet verified against the whole file) |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -3766,13 +3768,10 @@ or delete; never let this grow past a screen.
   `DEFAULT_BG`. Unreachable today (every state draws at least a HUD or a
   background), noticed during R51's re-diagnosis (2026-09-13); worth a
   one-line fix (always run the pass) whenever someone's next in `render`.
-- `cargo fmt --all -- --check` has drifted: 45 files as of 2026-09-13
-  (7B-5 through 7D-3 era, `ember2d/src/renderer/*`, `theme.rs`, most of
-  `ember2d-editor/src/editor/`, the 7D-3 test files). Not tracked per step
-  since 7A-9's one-time pass. §0.5/§2.3 require it clean at a gate, so a
-  single `cargo fmt --all` commit (no logic change, same shape as 7A-9)
-  is due right before the 7C/7D gate — do it as its own commit, not
-  folded into a feature step, so the diff stays reviewable.
+- `cargo fmt --all -- --check` drift (45 files, 7B-5 through 7D-3 era) was
+  cleared by a one-time `cargo fmt --all` commit, 2026-09-13, same shape
+  as 7A-9 — see §2.3's rustfmt row and R87 (§3.2) for the one file that
+  pass pushed over 750 lines.
 
 ---
 
