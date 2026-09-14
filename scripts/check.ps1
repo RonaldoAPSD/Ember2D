@@ -27,7 +27,12 @@ foreach ($crate in @("ember2d-sim", "ember2d", "ember2d-editor", "ember2d-app"))
     $allRsFiles += Get-RsFiles $crate
 }
 foreach ($file in $allRsFiles) {
-    $lineCount = (Get-Content $file.FullName | Measure-Object -Line).Lines
+    # R76 (docs/ember2d-master-plan.md par.3.2): `Get-Content | Measure-Object
+    # -Line` silently drops blank lines from the count (an empty string
+    # counts as 0 lines to Measure-Object, not 1), undercounting every file
+    # that has any - `.Count` on the raw line array counts every element
+    # Get-Content produced, blank or not, matching check.sh's plain `wc -l`.
+    $lineCount = (Get-Content $file.FullName).Count
     if ($lineCount -gt 750) {
         $rel = $file.FullName.Substring($root.Length + 1)
         $failures += "$rel : $lineCount lines (limit 750)"

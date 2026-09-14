@@ -1,0 +1,404 @@
+// simulation/step.rs — Simulation's per-step execution: `step`/`late_step`,
+// their `run_actor_turn` helper, and `apply_script_result` (split out of
+// simulation.rs at R76, docs/ember2d-master-plan.md §3.2 — simulation.rs
+// was 791 real lines, over CLAUDE.md's 750-line limit; this is purely a
+// file split, no behavior change). A genuine child module, same mechanics
+// as `simulation/spawn.rs` (see that file's own header comment): Rust
+// 2018+'s file+sibling-directory layout lets `simulation.rs` and
+// `simulation/` coexist, so `mod step;` in simulation.rs resolves here.
+// simulation.rs itself keeps the `Simulation` struct, its constructors,
+// accessors, `rebuild_scheduler`/`index_exits`, and `on_start` — this file
+// is what a caller drives every step afterward.
+
+use std::collections::{BTreeMap, HashMap};
+
+use crate::command::Command;
+use crate::components::Controller;
+use crate::event::EventBus;
+use crate::level::LevelData;
+use crate::math::Vec2;
+use crate::save::SaveState;
+use crate::scheduler::ALTERNATING_COST;
+use crate::scripting::{LogEntry, ScriptUpdateResult, WorldSnapshot};
+use crate::world::{EntityId, World};
+
+use super::{is_local_player, resolve_exit_path, Simulation, StepInput, StepOutcome};
+
+impl Simulation {
+    /// One simulation step: advance animators, run `on_input` for whichever
+    /// local actor the scheduler is waiting on, merge in
+    /// `external_commands` (the seam-2 fix), run the housekeeping
+    /// `on_update` pass for every scripted entity, then `on_turn` for
+    /// whichever single actor is due (if it has a command, or is AI).
+    /// Mirrors `ember2d::play::PlayState::update`'s former body exactly —
+    /// see that history for why the pass order (on_update before on_turn,
+    /// not after) is load-bearing, not arbitrary.
+    pub fn step(
+        &mut self,
+        world: &mut World,
+        input: StepInput<'_>,
+        persistent: &mut BTreeMap<String, rhai::Dynamic>,
+    ) -> StepOutcome {
+        let StepInput {
+            input: input_snapshot,
+            mouse: mouse_snapshot,
+            gamepad: gamepad_snapshot,
+            external_commands,
+            camera_origin,
+            sim_dt,
+            elapsed,
+            viewport_w,
+            viewport_h,
+        } = input;
+
+        // R16 (7A-5, docs/ember2d-master-plan.md): counts this call — see
+        // `step_count`'s own doc comment.
+        self.step_count += 1;
+
+        let mut outcome = StepOutcome::default();
+        let mut logs = Vec::new();
+
+        // Advance every Animator before scripts run this step, so
+        // `clip_finished(id)` reflects this tick, not last step's.
+        for animator in world.animators.values_mut() {
+            if let Some(clip) = self.clips.get(&animator.clip) {
+                animator.advance(clip, sim_dt);
+            } else {
+                animator.just_finished = false;
+            }
+        }
+
+        // Built once per step, shared (via cheap `Rc::clone`) across
+        // on_input/on_update/on_turn below — see `WorldSnapshot`'s own doc
+        // comment (scripting/state.rs) for the perf regression this fixes.
+        let world_snapshot = std::rc::Rc::new(WorldSnapshot::build(world, &self.layers));
+
+        let front = self.scheduler.peek();
+        let is_local = front
+            .map(|f| {
+                matches!(world.actors.get(&f).map(|a| a.controller), Some(Controller::Local(_)))
+            })
+            .unwrap_or(false);
+
+        if let Some(front) = front {
+            if is_local {
+                let globals = std::mem::take(&mut self.globals);
+                let clips = std::mem::take(&mut self.clips);
+                let input_res = self.script_engine.run_on_input(
+                    world,
+                    world_snapshot.clone(),
+                    &mut logs,
+                    front,
+                    sim_dt,
+                    elapsed,
+                    input_snapshot.clone(),
+                    mouse_snapshot,
+                    gamepad_snapshot.clone(),
+                    &self.level.extra_spawns,
+                    globals,
+                    clips,
+                    persistent,
+                    camera_origin,
+                    self.turn_number,
+                    (viewport_w, viewport_h),
+                );
+                self.apply_script_result(world, input_res, persistent, &mut logs, &mut outcome);
+            }
+        }
+
+        // Seam-2 fix: merge externally-supplied commands in — same effect
+        // as an entity's own `ctx.submit()` during `on_input`, just sourced
+        // from outside instead. Overwrites on a matching actor id, same
+        // "last write wins" rule `ScriptState::pending_commands` already has.
+        for cmd in external_commands {
+            self.commands.insert(cmd.actor as i64, cmd.clone());
+        }
+
+        // `mem::take`, not `.clone()`: the housekeeping pass below always
+        // overwrites `self.commands` with its own (always-empty) result
+        // regardless, so the pre-pass value never needs to survive
+        // alongside a copy — but `turn_commands` itself is still read
+        // twice below (once by run_scripts, once for `run_actor_turn`), so
+        // that second use still needs its own clone.
+        let turn_commands = std::mem::take(&mut self.commands);
+
+        let globals = std::mem::take(&mut self.globals);
+        let clips = std::mem::take(&mut self.clips);
+        let res = self.script_engine.run_scripts(
+            world,
+            world_snapshot.clone(),
+            &mut logs,
+            sim_dt,
+            elapsed,
+            input_snapshot.clone(),
+            mouse_snapshot,
+            gamepad_snapshot.clone(),
+            &self.level.extra_spawns,
+            globals,
+            clips,
+            persistent,
+            camera_origin,
+            turn_commands.clone(),
+            self.turn_number,
+            (viewport_w, viewport_h),
+        );
+        self.apply_script_result(world, res, persistent, &mut logs, &mut outcome);
+
+        if let Some(front) = front {
+            let has_command =
+                turn_commands.get(&(front as i64)).map(|c| !c.action.is_empty()).unwrap_or(false);
+            if !is_local || has_command {
+                self.run_actor_turn(
+                    world,
+                    world_snapshot,
+                    front,
+                    is_local,
+                    turn_commands,
+                    sim_dt,
+                    elapsed,
+                    persistent,
+                    camera_origin,
+                    viewport_w,
+                    viewport_h,
+                    &mut logs,
+                    &mut outcome,
+                );
+            }
+        }
+
+        outcome.logs = logs;
+        outcome
+    }
+
+    /// Runs `actor`'s `on_turn`, applies the result, and — unless a `Local`
+    /// actor's action was rejected — advances `self.scheduler` and marks
+    /// this step as having consumed a turn.
+    #[allow(clippy::too_many_arguments)]
+    fn run_actor_turn(
+        &mut self,
+        world: &mut World,
+        snapshot: std::rc::Rc<WorldSnapshot>,
+        actor: EntityId,
+        is_local: bool,
+        commands: BTreeMap<i64, Command>,
+        sim_dt: f32,
+        elapsed: f32,
+        persistent: &mut BTreeMap<String, rhai::Dynamic>,
+        camera_origin: Vec2,
+        viewport_w: usize,
+        viewport_h: usize,
+        logs: &mut Vec<LogEntry>,
+        outcome: &mut StepOutcome,
+    ) {
+        let globals = std::mem::take(&mut self.globals);
+        let clips = std::mem::take(&mut self.clips);
+        let res = self.script_engine.run_on_turn(
+            world,
+            snapshot,
+            logs,
+            actor,
+            sim_dt,
+            elapsed,
+            &self.level.extra_spawns,
+            globals,
+            clips,
+            persistent,
+            camera_origin,
+            commands,
+            self.turn_number,
+            (viewport_w, viewport_h),
+        );
+        let act_cost = res.act_cost;
+        self.apply_script_result(world, res, persistent, logs, outcome);
+
+        // An AI actor's turn always counts; a Local actor's turn counts only
+        // if it called `ctx.act` — see `docs/ember2d-scripting-api.md`'s
+        // "The command boundary" for why (a rejected action like a wall
+        // bump costs nothing). Guarded on the scheduler's front still being
+        // `actor`: `apply_script_result` above may already have removed it
+        // (a self-despawn during its own on_turn).
+        let consumed = !is_local || act_cost.is_some();
+        if consumed && self.scheduler.peek() == Some(actor) {
+            let controller =
+                world.actors.get(&actor).map(|a| a.controller).unwrap_or(Controller::Ai);
+            let cost = act_cost.unwrap_or(ALTERNATING_COST as f64).max(1.0) as u64;
+            self.scheduler.advance(actor, controller, cost);
+            outcome.turn_triggered = true;
+            if is_local {
+                self.turn_number += 1;
+            }
+        }
+    }
+
+    /// The late phase: resolve solid collisions and exit triggers from this
+    /// step's collision events, then run `on_collide` for every pair
+    /// involving a scripted entity. `camera_origin` is the same value the
+    /// preceding `step()` call already computed this step (the camera
+    /// doesn't move between the two) — a small, deliberate addition beyond
+    /// docs/ember2d-phase5.5-plan.md's literal `late_step` sketch, since
+    /// `ScriptEngine::run_collisions` requires one exactly like `step` does.
+    pub fn late_step(
+        &mut self,
+        world: &mut World,
+        events: &EventBus,
+        prev_positions: &HashMap<EntityId, Vec2>,
+        camera_origin: Vec2,
+        sim_dt: f32,
+        elapsed: f32,
+        viewport_w: usize,
+        viewport_h: usize,
+        persistent: &mut BTreeMap<String, rhai::Dynamic>,
+    ) -> StepOutcome {
+        let mut outcome = StepOutcome::default();
+        let mut logs = Vec::new();
+        let mut all_pairs = Vec::new();
+
+        for event in events.events() {
+            let crate::event::GameEvent::Collision { entity_a, entity_b } = event else { continue };
+            let (a, b) = (*entity_a, *entity_b);
+            all_pairs.push((a, b));
+            let (player, other) = if is_local_player(world, a) {
+                (a, b)
+            } else if is_local_player(world, b) {
+                (b, a)
+            } else {
+                continue;
+            };
+            let solid = world.colliders.get(&other).map(|c| c.solid).unwrap_or(false);
+            let locked = world.colliders.get(&other).map(|c| c.locked).unwrap_or(false);
+
+            if solid {
+                world.resolve_solid_collision(player, other, prev_positions);
+            } else if let Some(path) = self.exit_targets.get(&other).cloned() {
+                if !locked {
+                    let full_path = resolve_exit_path(&path, &self.level.path);
+                    match LevelData::load(&full_path) {
+                        Ok(next) => {
+                            outcome.pending_level = Some(next);
+                        }
+                        Err(e) => {
+                            logs.push(LogEntry::warn(format!("Exit failed: {}", e)));
+                        }
+                    }
+                }
+            }
+        }
+
+        let globals = std::mem::take(&mut self.globals);
+        let clips = std::mem::take(&mut self.clips);
+        let res = self.script_engine.run_collisions(
+            world,
+            &all_pairs,
+            &mut logs,
+            sim_dt,
+            elapsed,
+            &self.level.extra_spawns,
+            globals,
+            clips,
+            persistent,
+            camera_origin,
+            (viewport_w, viewport_h),
+        );
+        self.apply_script_result(world, res, persistent, &mut logs, &mut outcome);
+        outcome.logs = logs;
+        outcome
+    }
+
+    /// Folds one `ScriptUpdateResult` into `self` (globals/clips/commands/
+    /// persistent, scheduler cleanup on despawn, save/load side effects) and
+    /// into the in-progress `outcome`/`logs` a caller is accumulating across
+    /// however many script passes one `step`/`late_step`/`on_start` call
+    /// makes. `pending_level`/`pending_save`/`pending_load` are resolved
+    /// (loaded/written) right here rather than left as raw paths — the
+    /// caller only ever sees an already-loaded `LevelData`/`SaveState`.
+    /// `pub(super)`, not private: `simulation/spawn.rs`'s own `do_on_start`
+    /// — a sibling child module, not a descendant of this one — calls this
+    /// too, to apply an `on_start` script's result the same way `step`/
+    /// `late_step` apply theirs.
+    pub(super) fn apply_script_result(
+        &mut self,
+        world: &mut World,
+        res: ScriptUpdateResult,
+        persistent: &mut BTreeMap<String, rhai::Dynamic>,
+        logs: &mut Vec<LogEntry>,
+        outcome: &mut StepOutcome,
+    ) {
+        // Phase 6 Step 3 (docs/ember2d-phase6-plan.md): every call site
+        // above `mem::take`s `self.globals`/`self.clips` immediately before
+        // its `run_*` call, specifically so this function's own
+        // `self.globals = res.globals` below is a pointer swap rather than
+        // a clone. That means `self.globals`/`self.clips` MUST already be
+        // empty by the time this function runs — if they're not, either a
+        // future caller reverted to `.clone()` (which never empties the
+        // source, so this fires immediately) or a take happened without
+        // its matching call reaching this point (an early return in
+        // between), either of which would otherwise silently duplicate or
+        // permanently lose script state with no visible symptom.
+        debug_assert!(
+            self.globals.is_empty() && self.clips.is_empty(),
+            "apply_script_result called without a preceding mem::take of self.globals/self.clips"
+        );
+        // A despawned actor must not keep cycling a dead turn slot forever.
+        for &id in &res.despawned {
+            self.scheduler.remove(id);
+        }
+        if let Some(level_path) = res.pending_level {
+            let full = resolve_exit_path(&level_path, &self.level.path);
+            match LevelData::load(&full) {
+                Ok(next) => {
+                    outcome.pending_level = Some(next);
+                }
+                Err(e) => {
+                    logs.push(LogEntry::warn(format!("load_level failed: {}", e)));
+                }
+            }
+        }
+        self.globals = res.globals;
+        self.clips = res.clips;
+        self.commands = res.commands;
+        *persistent = res.persistent;
+
+        if let Some(save_path) = res.pending_save {
+            // globals/clips were just refreshed from `res` above, so this
+            // captures the exact state a script saw the moment it called
+            // save_game — defect D17 fix (Step 5c, docs/ember2d-phase5-plan.md).
+            // R7 (7A-3, docs/ember2d-master-plan.md): turn_number/scheduler
+            // are what makes this a faithful mid-round save — see
+            // `SaveState::turn_number`/`::scheduler`'s own doc comments.
+            let state = SaveState::new(
+                world.clone(),
+                persistent.clone(),
+                self.globals.clone(),
+                self.clips.clone(),
+                self.level.path.clone(),
+                self.turn_number.max(0) as u64,
+                self.scheduler.snapshot(),
+            );
+            if let Err(e) = state.save_to_file(&save_path) {
+                logs.push(LogEntry::error(format!("save_game failed: {}", e)));
+            } else {
+                logs.push(LogEntry::info(format!("Game saved to {}", save_path)));
+            }
+        }
+
+        if let Some(load_path) = res.pending_load {
+            match SaveState::load_from_file(&load_path) {
+                Ok(state) => {
+                    outcome.pending_load = Some(state);
+                }
+                Err(e) => {
+                    logs.push(LogEntry::error(format!("load_game failed: {}", e)));
+                }
+            }
+        }
+
+        if res.camera_override.is_some() {
+            outcome.camera_override = res.camera_override;
+        }
+        if let Some(shake) = res.shake_state {
+            outcome.shake_state = Some(shake);
+        }
+        outcome.particles.extend(res.particles);
+        outcome.animations.extend(res.animations);
+    }
+}
