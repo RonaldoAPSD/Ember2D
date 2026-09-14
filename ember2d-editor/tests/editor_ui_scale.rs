@@ -17,7 +17,7 @@ use common::{
 use ember2d::renderer::draw_log::DrawOp;
 use ember2d::renderer::DisplayScale;
 use ember2d_editor::editor::prefs::{EditorPrefs, PrefsStore, UiScaleChoice};
-use ember2d_editor::editor::ui::MenuKind;
+use ember2d_editor::editor::ui::{MenuKind, WidgetId};
 use ember2d_editor::editor::EditorState;
 
 /// A harness at a specific `(render_scale, ui_scale)` pair, `ui_scale` forced
@@ -276,4 +276,45 @@ fn one_point_five_ui_scale_is_selectable_from_the_theme_menu_and_takes_effect() 
     assert_eq!(h.state.active_menu(), None, "picking a UI Scale entry must close its dropdown");
 
     h.frame(); // must not panic at S/R = 0.75
+}
+
+/// R89 (§3 in the master plan): `draw_menu_dropdown`'s own call site
+/// (`impl_render/mod.rs`) passed raw LOGICAL `mouse.pixel_x/y` straight
+/// into a function comparing it against POINTS-space row rects — the same
+/// class of unit mismatch as R88 (a sibling code path R88's own fix never
+/// touched), this time misdrawing which dropdown row shows the hovered
+/// highlight rather than the status bar's coordinate readout. Reported
+/// live by the user with a screenshot: cursor down near "Close Project"
+/// (index 9, `ui/menu.rs`'s own `MenuKind::File` list) while "Export
+/// Game..." (index 5) was drawn highlighted instead — reproduced exactly
+/// here. `handle_menu_dropdown_click` was never affected (it already
+/// converts via the same `logical_to_pt` this fix adds to the draw side),
+/// so a real click always landed correctly; only the visual hint lied
+/// about which row that click would hit.
+#[test]
+fn r89_menu_dropdown_hover_highlight_matches_the_real_hovered_row_when_ui_scale_is_smaller_than_render_scale(
+) {
+    let mut h = harness_at(2, 1); // the exact ratio R88's own live repro used
+    open_menu(&mut h, MenuKind::File);
+    h.frame(); // populate ui_frame with this menu's own drawn MenuItem rects
+
+    // "Close Project" is index 9 in `MenuKind::File`'s list (ui/menu.rs).
+    let rect = h
+        .state
+        .ui_frame()
+        .rect_of(WidgetId::MenuItem(MenuKind::File, 9))
+        .expect("Close Project's row was not drawn");
+    // points -> logical, same idiom `open_menu`/`click_menu_item`
+    // (tests/common/mod.rs) already use for every other widget rect.
+    let k = h.state.ui_space().pt_to_logical();
+    let center_x = (rect.x + rect.w / 2.0) * k;
+    let center_y = (rect.y + rect.h / 2.0) * k;
+    h.move_mouse(center_x, center_y);
+    h.frame();
+
+    assert_eq!(
+        h.state.hovered_menu_item(),
+        Some(9),
+        "hovering Close Project's own drawn rect must highlight Close Project (index 9), not a different row"
+    );
 }

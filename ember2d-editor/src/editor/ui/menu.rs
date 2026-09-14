@@ -344,9 +344,18 @@ pub fn draw_menu_toolbar(
 /// frame by `draw_menu_toolbar`, which always runs first — rather than
 /// re-measuring the label layout a second time (7D-3, docs/ember2d-master-plan.md
 /// §5.4: the same anti-drift discipline `ui/frame.rs`'s header comment
-/// documents for every other widget). The hover check now compares the
-/// real mouse PIXEL position against each row's own drawn rect, replacing
-/// the old raw `mouse_col`/`mouse_row` cell-int comparison.
+/// documents for every other widget). The hover check compares the mouse
+/// position against each row's own drawn rect, replacing the old raw
+/// `mouse_col`/`mouse_row` cell-int comparison. `mouse_x`/`mouse_y` MUST
+/// already be in POINTS (`UiSpace::logical_to_pt` of `MouseState::pixel_x`
+/// /`pixel_y`, same as `WidgetId::MenuItem`'s own `UiFrame::hit` lookup at
+/// click time, `input/panels/menu_bar.rs`) — this call site used to pass
+/// raw LOGICAL pixels straight through, so the drawn "hovered" highlight
+/// silently drifted from wherever the cursor really was at any `ui_scale
+/// != render_scale` (found live by the user, a menu open with the cursor
+/// down near "Close Project" highlighting "Export Game..." instead — the
+/// same class of bug as R88, this dropdown's own sibling code path R88's
+/// fix never touched).
 #[allow(clippy::too_many_arguments)]
 pub fn draw_menu_dropdown(
     painter: &mut UiPainter,
@@ -359,7 +368,7 @@ pub fn draw_menu_dropdown(
     mouse_y: f32,
     ms: &MenuState,
     frame: &mut UiFrame,
-) {
+) -> Option<usize> {
     let row_h = metrics.bar_h;
     let text_px = theme.font_sizes.body;
     let col_x = frame.rect_of(WidgetId::MenuLabel(menu)).map(|r| r.x).unwrap_or(0.0);
@@ -393,6 +402,7 @@ pub fn draw_menu_dropdown(
         })
         .fold(0.0_f32, f32::max);
     painter.fill(Rect::new(col_x, start_row_y, menu_w_px, entries.len() as f32 * row_h), panel_bg);
+    let mut hovered_row = None;
     for (i, entry) in entries.iter().enumerate() {
         let row_y = start_row_y + i as f32 * row_h;
         let row_rect = Rect::new(col_x, row_y, menu_w_px, row_h);
@@ -401,7 +411,8 @@ pub fn draw_menu_dropdown(
             MenuEntry::Sep => {
                 let line: String = "-".repeat(20);
                 draw_text_row(painter, font, &line, row_rect, text_px, dim, panel_bg);
-                // No hit pushed — a separator was never clickable.
+                // No hit pushed, and no `hovered_row` set — a separator was
+                // never clickable and never actually highlights.
             }
             MenuEntry::Item { label, shortcut, action } => {
                 let enabled = is_action_enabled(action, ms);
@@ -410,6 +421,7 @@ pub fn draw_menu_dropdown(
                 let (fg, bg) = if !enabled {
                     (dim, panel_bg)
                 } else if hovered {
+                    hovered_row = Some(i);
                     (Color::Black, accent)
                 } else {
                     (text_fg, panel_bg)
@@ -430,7 +442,12 @@ pub fn draw_menu_dropdown(
             MenuEntry::DynamicItem { label, action } => {
                 let check = menu_checkmark(action, ms);
                 // No themed "text-on-accent" role — same gap as above.
-                let (fg, bg) = if hovered { (Color::Black, accent) } else { (text_fg, panel_bg) };
+                let (fg, bg) = if hovered {
+                    hovered_row = Some(i);
+                    (Color::Black, accent)
+                } else {
+                    (text_fg, panel_bg)
+                };
                 let text = format!(" {} {} ", check, label);
                 draw_row_px(
                     painter,
@@ -446,4 +463,5 @@ pub fn draw_menu_dropdown(
             }
         }
     }
+    hovered_row
 }

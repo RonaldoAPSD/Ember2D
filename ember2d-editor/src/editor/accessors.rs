@@ -44,6 +44,13 @@ impl EditorState {
         self.active_menu
     }
 
+    /// Which row of the currently-open dropdown was actually drawn with
+    /// the hovered highlight on the last real draw (R89, §3 in the master
+    /// plan) — `None` if no menu is open, or the mouse isn't over any row.
+    pub fn hovered_menu_item(&self) -> Option<usize> {
+        self.menu_hover_item
+    }
+
     // `theme()`/`available_themes()` moved to `theme_loader.rs` (7D-4,
     // same accessor contract) purely to keep this file under 750 lines.
 

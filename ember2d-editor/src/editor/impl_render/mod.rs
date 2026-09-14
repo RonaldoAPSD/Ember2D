@@ -511,6 +511,10 @@ impl EditorState {
         }
 
         // ── Menu dropdown (drawn over panels and canvas) ──────────────────────
+        // Reset every frame, same as `ui_frame` (`clear()`, top of this
+        // function) — a menu that just closed (or never opened) must not
+        // leave a stale hovered row behind (R89, §3 in the master plan).
+        self.menu_hover_item = None;
         if let Some(menu) = self.active_menu {
             let menu_state = MenuState {
                 can_undo: self.undo.can_undo(),
@@ -538,15 +542,25 @@ impl EditorState {
                 current_ui_scale: self.prefs.ui_scale,
             };
 
-            ui::draw_menu_dropdown(
+            // R89 (§3 in the master plan): was raw `mouse.pixel_x/y`
+            // (LOGICAL pixels) compared against `draw_menu_dropdown`'s own
+            // POINTS-space row rects — the same unit mismatch as R88,
+            // this dropdown's own sibling code path that fix never
+            // touched. `logical_to_pt` here matches
+            // `handle_menu_dropdown_click`'s own conversion exactly
+            // (`input/panels/menu_bar.rs`), so the hover highlight can
+            // never disagree with where a click on the same frame would
+            // actually land again.
+            let (mouse_x_pt, mouse_y_pt) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
+            self.menu_hover_item = ui::draw_menu_dropdown(
                 &mut painter,
                 self.font.as_mut(),
                 &self.theme,
                 &metrics,
                 menu,
                 &self.available_themes,
-                mouse.pixel_x,
-                mouse.pixel_y,
+                mouse_x_pt,
+                mouse_y_pt,
                 &menu_state,
                 &mut self.ui_frame,
             );

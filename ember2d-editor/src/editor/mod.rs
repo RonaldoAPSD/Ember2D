@@ -287,6 +287,7 @@ pub struct EditorState {
     /// `UiSpace::identity` (points == logical pixels) before the first
     /// frame ever renders, harmless since `ui_frame` is equally empty then.
     pub(super) ui_space: UiSpace,
+    pub(super) menu_hover_item: Option<usize>, // R89 §3 — see hovered_menu_item()
     /// The `ui_scale` (physical pixels per point) `font`/`code_font` are
     /// CURRENTLY built at (7D-3, master plan §5.4) — compared against
     /// `effective_ui_scale`'s result once per draw
@@ -513,6 +514,7 @@ impl EditorState {
             prefs: EditorPrefs::default(),
             prefs_store: PrefsStore::InMemory(EditorPrefs::default()),
             ui_space: UiSpace::identity((0.0, 0.0)),
+            menu_hover_item: None,
             font_raster_scale: 1.0,
             grid: LevelGrid::new(DEFAULT_LEVEL_W, DEFAULT_LEVEL_H),
             palette: TilePalette::default_palette(),
