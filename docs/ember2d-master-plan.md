@@ -146,18 +146,21 @@ should be able to read to know where things stand.*
 Cargo workspace, four crates, one bin target (`ember2d-app`, binary name
 `ember2d`):
 
-| Crate | Contents | Depends on | Lines |
+| Crate | Contents | Depends on | Lines (incl. tests) |
 |---|---|---|---|
-| `ember2d-sim` | math, color, world, components, level, save, scripting, command, scheduler, graph, event, layers, simulation | serde, ron, rhai, rand only | ~10,240 |
-| `ember2d` | engine loop, renderer (wgpu), font system, input/mouse/gamepad, audio (kira), play, project, camera, `sim.rs` per-step pump | `ember2d-sim` | ~10,880 incl. tests |
-| `ember2d-editor` | level/script/graph editor, docking, start screen | both above | ~11,910 |
-| `ember2d-app` | `main.rs` + Editor↔Play orchestration | `ember2d`, `ember2d-editor` | ~325 |
+| `ember2d-sim` | math, color, world, components, level, save, scripting, command, scheduler, graph, event, layers, simulation | serde, ron, rhai, rand only | ~10,290 |
+| `ember2d` | engine loop, renderer (wgpu), font system, input/mouse/gamepad, audio (kira), play, project, camera, `sim.rs` per-step pump | `ember2d-sim` | ~13,575 |
+| `ember2d-editor` | level/script/graph editor, docking, start screen | both above | ~19,610 |
+| `ember2d-app` | `main.rs` + Editor↔Play orchestration | `ember2d`, `ember2d-editor` | ~350 |
 
 Line counts jumped at 7A-9 (`cargo fmt --all`, one-time, no logic change —
 rustfmt's own line-wrapping expanded the whole tree by roughly a third; two
-files it pushed over the 750-line limit were split at 7A-10, R42/R43).
-`ember2d` grew the most at 7B (new `press_buffer.rs`, `renderer/text.rs`,
-the `font/` module's `ui_font_from_env`) — still 0 files over 750 lines.
+files it pushed over the 750-line limit were split at 7A-10, R42/R43) and
+again at the equivalent 7C/7D-gate rustfmt sweep (`69c3067`, R87). Every
+crate grew substantially across 7C/7D's own new modules (`ui/`, `theme.rs`,
+`theme_loader.rs`, `panel/`, the headless test harness, etc.) — still 0
+files over 750 real lines (`scripts/check.ps1`, fixed to count them
+correctly at R76).
 
 `demos/roguelike/` and `demos/shooter/` (demo projects, moved out of the
 repo root here — 7C-5 follow-up, R-series) and `docs/` sit at the repo
@@ -175,8 +178,8 @@ start screen's New/Open Project browsers start from.
 | 7 Parts 1–2 | Pixel-space `UiRect`/`UiFrame`, `Font` trait, glyph atlas, TTF | `[x]` `cf59f42` — A.9 |
 | **7A** | Stabilisation sprint | `[x]` `v0.5.7a` — A.10 |
 | **7B** | Renderer foundation | `[x]` `v0.5.7b` — A.11 |
-| 7C | Editor foundation | `[ ]` — §5.3 (all 9 steps `[x]`, 7C-9's own §7.1 decision recorded; phase gate itself — §3–§10 manual pass, tag `v0.5.7c` — pending the user) |
-| 7D | Theme and restyle | `[~]` — §5.4 (7D-2/7D-3 done; 7D-1/7D-4 each landed partial — see their own "Landed as" notes; phase gate itself — §3-§9 manual pass — pending the user) |
+| 7C | Editor foundation | `[x]` `v0.5.7c` — A.12 (all 9 steps `[x]`, 7C-9's own §7.1 decision recorded) |
+| 7D | Theme and restyle | `[x]` `v0.5.7d` — A.13 (7D-1/7D-4's own deferred remainder — `themes/ember-pixel` — stays unbuilt by design, not a gap; R88/R89 and the `UI Scale: 1.5x` follow-up landed as part of this same closing pass) |
 | 7E | Editor features | `[ ]` — §5.5 |
 | 7.5 | Scripting completeness | `[ ]` — §5.6 |
 | 8 | Tilemap, assets, animation authoring | `[ ]` — §5.7 |
@@ -184,47 +187,47 @@ start screen's New/Open Project browsers start from.
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
 
-**Next up (handoff note, updated 2026-09-13, after R88/R89 and the UI
-Scale: 1.5x follow-up landed):** the user's own extensive manual pass over
-everything 7C/7D changed — regression checklist §3–§9 plus §11 (F5
-preview, R51/R86 items) — which doubles as the 7C and 7D phase gates
-(§0.5; tags `v0.5.7c`/`v0.5.7d`, `main` fast-forwarded per §9). That pass
-is effectively already under way: R88 (status bar coordinate readout) and
-R89 (menu dropdown hover highlight) both landed from the user finding them
-live, at `UI Scale: 1x`, and reporting each with a screenshot — exactly
-the "fix the look of the engine" look-and-feel work this note originally
-expected, now happening informally rather than as one dedicated pass.
-Both of the pass's own former gate prerequisites are done: the one-time
-`cargo fmt --all` commit (§11) and R76 (`check.ps1`'s line-count fix) —
-see their own rows (§3.2). Known-open rows a fresh session should NOT
-re-discover while triaging a new live report: R46 (wheel `PixelDelta`
-hardcoded cell size), R79/R80 (graph mode and start screen don't scale —
-by design), R81 (dropdowns/context menus not clamped on-screen — reachable
-at high UI scale), R82 (unpadded glyph atlas), R83 (`ContextMenu.x/y`
-still cell-based), the §11 parking-lot note on `WgpuBackend::render`'s
-zero-instance early return, and the two 7D-3 live observations already
-logged as expected behavior: chrome text overlaps at 4× on a small
-window, and a bigger UI scale SHRINKS the viewport (fixed-point-width
-side panels eat more of a fixed window). Nothing left is blocking the
-gate itself except the pass reaching its own end — keep triaging live
-reports as they come in, or run the checklist directly (§3–§9, §11) and
-tag `v0.5.7c`/`v0.5.7d` once it's clean.
+**Next up (handoff note, updated 2026-09-13):** 7C and 7D are closed —
+tags `v0.5.7c`/`v0.5.7d`, `main` fast-forwarded (§9). The gate closed on
+the user's own direct sign-off ("everything looks good enough for now")
+rather than a formal item-by-item run of `docs/ember2d-regression-
+checklist.md` §3–§9/§11 — that file's own checkboxes are still `[ ]`,
+not a claim this pass ticked them one at a time. What actually backs the
+sign-off: extensive live use surfaced and fixed two real bugs this same
+session (R88, R89 — §3.2), the `UI Scale: 1.5x` follow-up shipped, both
+demos smoke-tested live (floor2, arena — §0.5 item 6, screenshots
+confirmed HUD/enemies/player all rendering), and every automated §0.5
+criterion passed (build, full test suite, clippy unchanged, replay ×3,
+`check.ps1`). If a future session's own live use turns up something the
+checklist would have caught, that's still fair game to log as a fresh
+R-row — this sign-off isn't a claim nothing's left, only that nothing
+currently known is blocking. Known-open rows a fresh session should NOT
+re-discover: R46 (wheel `PixelDelta` hardcoded cell size), R79/R80 (graph
+mode and start screen don't scale — by design), R81 (dropdowns/context
+menus not clamped on-screen — reachable at high UI scale), R82 (unpadded
+glyph atlas), R83 (`ContextMenu.x/y` still cell-based), the §11
+parking-lot note on `WgpuBackend::render`'s zero-instance early return,
+and the two 7D-3 live observations already logged as expected behavior:
+chrome text overlaps at 4× on a small window, and a bigger UI scale
+SHRINKS the viewport (fixed-point-width side panels eat more of a fixed
+window). **Next real work: Phase 7E — Editor features (§5.5).**
 
-### 2.3 Baseline numbers (at `v0.5.7b`)
+### 2.3 Baseline numbers (at `v0.5.7d`)
 
 | Metric | Value | Where measured |
 |---|---|---|
-| Tests | 209 unit + 42 integration + 1 doctest = 252, all pass. **Current (2026-09-13, after R89): 381, all pass** — every 7C/7D step's own named tests, not re-baselined until the 7C/7D gate | `cargo test --workspace` |
-| Clippy | 0 errors, 59 warnings at `--lib` scope (unchanged from `v0.5.7a`; fewer at `--all-targets`). **Current: 43 at `--lib`, 55 at `--all-targets`** (both down; tracked per step through 7D) | `cargo clippy --workspace --lib` / `--all-targets` |
-| rustfmt | applied; `cargo fmt --all -- --check` clean. **Current (2026-09-13, `69c3067`): clean again** — one-time `cargo fmt --all` commit, same shape as 7A-9 (45 files, the exact count §11 had logged), no other change; same as 7A-9's own R42/R43, the mechanical reflow alone pushed one file (`ember2d-editor/tests/editor_input.rs`, 734→761) over the 750-line limit — logged as **R87**, not fixed in this commit | `cargo fmt --all -- --check` |
+| Tests | 381, all pass (was 252 at `v0.5.7b` — 209 unit + 42 integration + 1 doctest) — every 7C/7D step's own named tests, plus R88/R89 and the `UI Scale: 1.5x` follow-up | `cargo test --workspace` |
+| Clippy | 43 at `--lib` scope, 55 at `--all-targets` (down from `v0.5.7b`'s 59/71 — tracked per step through 7C/7D, no regression at this gate) | `cargo clippy --workspace --lib` / `--all-targets` |
+| rustfmt | `cargo fmt --all -- --check` clean (one-time sweep, `69c3067`, same shape as 7A-9 — the mechanical reflow alone pushed one file over 750 lines, R87, split the same session) | `cargo fmt --all -- --check` |
 | `cargo test --test replay` | green 3× fresh processes | §0.5 gate criterion 4 |
-| floor2 p50 ms/step | not re-measured this gate (no sim-path change in 7B) | `cargo run --release -p ember2d-sim --example bench_sim` |
-| floor2 allocs/step | not re-measured this gate (no sim-path change in 7B) | same |
+| floor2 p50 ms/step | not re-measured this gate (no sim-path change across 7C/7D) | `cargo run --release -p ember2d-sim --example bench_sim` |
+| floor2 allocs/step | not re-measured this gate (no sim-path change across 7C/7D) | same |
 | `LEVEL_FORMAT_VERSION` | 3 (unchanged since 7A-4) | `ember2d-sim/src/level.rs:298` |
 | `API_VERSION` | 6 (unchanged) | `ember2d-sim/src/scripting/types.rs:25` |
 | Registered script functions | 124 (unchanged) | `grep -c register_fn ember2d-sim/src/scripting/registry.rs` |
-| Files over 750 lines | 0. **Current: 0, real lines AND `check.ps1`'s own count now agree (R76, 2026-09-13) — `check.ps1`'s file-size check switched from `Get-Content \| Measure-Object -Line` (silently dropped blank lines) to `(Get-Content $path).Count`; the 3 files that undercount had been hiding (`ember2d/src/engine.rs` 789, `ember2d/src/renderer/backend.rs` 810, `ember2d-sim/src/simulation.rs` 791) were each split into a `.rs` + child submodule (`engine/window.rs`, `renderer/backend/draw.rs`, `simulation/step.rs`) — largest file in the tree now `ember2d-editor/src/editor/mod.rs` at 735** | `scripts/check.ps1` / `wc -l` |
-| Dependencies | wgpu 30.0.1, winit 0.30.13, kira 0.12.4, glam 0.33.7, rand 0.8.6, gilrs 0.11.2, rhai 1.24.0, fontdue 0.9.4 — wgpu/winit/glam/kira/gilrs all upgraded at 7B-1 (were 0.19.4/0.29.15/0.25/0.9.6/0.10 at `v0.5.7a`) | `Cargo.lock` |
+| Files over 750 lines | 0, real lines and `check.ps1`'s own count agree (fixed at R76 — the check used to silently undercount; the 3 files it had been hiding were each split into a `.rs` + child submodule). Largest file in the tree: `ember2d-editor/src/editor/mod.rs` at 750 | `scripts/check.ps1` / `wc -l` |
+| Dependencies | wgpu 30.0.1, winit 0.30.13, kira 0.12.4, glam 0.33.7, rand 0.8.6, gilrs 0.11.2, rhai 1.24.0, fontdue 0.9.4 (unchanged since `v0.5.7b`) — new this gate: `arboard` 3.6.1 (7C-8, OS clipboard) | `Cargo.lock` |
+| Both demos launch | `cargo run -- demos/roguelike/floor2.level` and `-- demos/shooter/arena.level` — both confirmed live, screenshots taken (HUD/HP/enemies/player rendering; §0.5 item 6) | manual, this gate |
 
 ---
 
@@ -3743,8 +3746,8 @@ the commit message. "Appearance unchanged" is a claim that needs evidence.
 | `v0.5.0-pre-refactor` | (retroactive, at `a7e3af0`) | — | 0 | — | — | — |
 | `v0.5.7a` | Phase 7A | 2026-09-07 | 229 (186 unit + 42 integration + 1 doctest) | 59 at `--lib` scope, 86 at `--all-targets` (7A-8: 133 → 61 after `cargo clippy --fix`; final count moved slightly during 7A-9's rustfmt pass and the 7A-10/7A-11/7A-12 fixes, still a net decrease from the phase's own baseline) | not re-measured (no sim-path change in 7A) | local only — CI still blocked by the account billing lock (R37/R40); not yet confirmed green on either OS |
 | `v0.5.7b` | Phase 7B | 2026-09-07 | 252 (209 unit + 42 integration + 1 doctest) | 59 at `--lib` scope (exact match with `v0.5.7a`), 71 at `--all-targets` (down from 86 — fewer test-binary duplicates, not a fix) | not re-measured (no sim-path change in 7B) | local only, same as `v0.5.7a` — CI still blocked by the account billing lock (R37/R40) |
-| `v0.5.7c` | Phase 7C | | | | | |
-| `v0.5.7d` | Phase 7D | | | | | |
+| `v0.5.7c` | Phase 7C | 2026-09-13 | 381 (was 252 at `v0.5.7b`) | 43 at `--lib` scope, 55 at `--all-targets` (down from 59/71) | not re-measured (no sim-path change) | local only — CI still blocked by the account billing lock (R37/R40) |
+| `v0.5.7d` | Phase 7D | 2026-09-13 | 381, same as `v0.5.7c` (tagged together — R88/R89 and the `UI Scale: 1.5x` follow-up landed as part of this same closing pass) | 43/55, unchanged from `v0.5.7c` | not re-measured (no sim-path change) | local only, same as `v0.5.7c` |
 | `v0.5.7` | Phase 7E | | | | | |
 | `v0.5.8` | Phase 7.5 | | | | | |
 | `v0.5.9` | Phase 8 | | | | | |
@@ -3921,6 +3924,63 @@ routing the DEFAULT path through it too would have shrunk every glyph
 vertical stretch), so the default path deliberately still calls `draw_char`
 directly; the mismatch is logged as R49/R50 rather than fixed. `25b9058` …
 `a1061c0`, `v0.5.7b`.
+
+**A.12 Phase 7C — Editor foundation.** 9 steps. `UiFrame` registration made
+mandatory (7C-1, `03f34bf`): 13 independent hit-test functions across
+`ember2d-editor` and `StartScreen` migrated to draw-and-push helpers in
+`ui/widgets.rs`, new `UiFrame::rect_of`. No cell literals below
+`Panel.rect` (7C-2, `e0d305c`, E2 remainder). `Layout` deleted outright —
+the viewport becomes a real, dockable (if non-closable) panel (7C-3,
+`9bad191`, E4); `mouse_to_grid` reads pixels directly off
+`PanelManager::viewport().content_rect()`, and `draw_cursor_highlight`/
+wheel-zoom pivot share its exact formula so the three can't drift.
+`EditorMode` enum replaces ~15 mutually-exclusive booleans (7C-4,
+`0eb2db8`); real `Consumed`/`Pass` input chaining deferred pending a test
+harness to verify it. That harness is 7C-5 (`4ede7f5`): a new
+`DrawSurface` trait + `NullRenderer` + `EditorHarness` (23 tests), which
+immediately found the fullscreen script editor completely broken (R54)
+and a 60Hz+ typed-character drop bug live since 7A-2 (R55). `LevelGrid`
+moves to a deterministic `BTreeMap` (D18) with real paint/erase/scatter
+undo batching, graph/hierarchy/palette edits all made undoable, and
+destructive actions now confirm first (7C-6, `b2a608f`); found and fixed
+R59 (Delete File resolving against the wrong directory) along the way.
+Script errors reach the editor console via new
+`GameState::take_script_log`/`receive_script_log` trait methods crossing
+the state-stack's type-erasure boundary, plus live compile-on-save/idle-
+timer syntax checking with inline error highlighting (7C-7, `35887a6`,
+R18). Script editor completeness — selection, OS clipboard via
+`arboard`, per-buffer undo, incremental find, horizontal scroll (7C-8,
+`1747b9d`). 7C-9 is the §7.1 decision gate: own chrome, not egui — found
+R61 (8 shipped scripts still referencing pre-`demos/`-move paths) via the
+gate's own demo smoke-launch. `v0.5.7c`.
+
+**A.13 Phase 7D — Theme and restyle.** 4 steps plus follow-ups. `Theme`
+resource — `PaletteRole`/`SliceRole`/`NineSlice`/`FontChoice`/
+`FontSizes`/`Metrics`, RON-loaded with loud-fallback-never-panic
+semantics — lands as pure logic first (7D-1, `5699ce5`/`b19ac82`), then
+the real `themes/ember-clean/` ships via a generator
+(`gen_ember_clean_theme.rs`) rather than hand-authored art;
+`themes/ember-pixel` stays deferred. Chrome moves through 9-slice across
+roughly 24 draw functions in 11 files (7D-2, `4dc90ed` through
+`c210901`), unifying every panel/modal/menu/dock-content color and
+geometry onto the theme; found and fixed R63 live (a nine-slice atlas
+region bug). `UiRect::from_cells` itself is deleted in a same-phase
+follow-up once investigation showed the theme's real font was rendering
+nowhere but the title bar. UI points — a whole new `ui_scale`/
+`render_scale` coordinate space (`UiSpace`/`UiPainter`, `EditorPrefs`,
+`ChromeMetrics`, `ScriptLayout`) — lands across 7 checkpoints (7D-3),
+fixing R50 and R64–R85 along the way, including two live-caught
+double-scaling bugs (R84/R85) the checkpoint's own earlier tests hadn't
+reached. Runtime theme switching via a new top-level `Theme` menu, plus
+`docs/ember2d-theming.md` (7D-4, `6464dd3`). Two dated follow-ups closed
+out this same pass: `UI Scale: 1.5x` added between 1x and 2x (`e5e489e`,
+widening `ui_scale` from an integer to `f32` throughout the renderer and
+editor), and two live-reported bugs found and fixed during the phase's
+own manual close-out — R88 (`ed1b224`, the status bar's coordinate
+readout) and R89 (`99ee94b`, the dropdown menu's hover highlight) — both
+the identical points/logical unit mismatch in sibling code paths, each
+found via a user screenshot and pinned with a regression test.
+`v0.5.7d`.
 
 ## Appendix B — Archived documents and what they still hold
 

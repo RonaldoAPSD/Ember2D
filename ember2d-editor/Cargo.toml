@@ -7,7 +7,7 @@
 
 [package]
 name       = "ember2d-editor"
-version    = "0.5.7-b"
+version    = "0.5.7-d"
 edition    = "2021"
 license    = "Apache-2.0"
 repository = "https://github.com/RonaldoAPSD/Ember2D"

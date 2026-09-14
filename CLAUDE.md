@@ -5,7 +5,7 @@
 Ember2D is a 2D/ASCII game engine and editor in Rust. GPU rendering via `wgpu` with
 `winit` windowing, `font8x8` glyph atlas, `rhai` scripting, `kira` audio, `gilrs` gamepad.
 
-**Current version:** 0.5.7-b (tag `v0.5.7b`, Phase 7B gate)
+**Current version:** 0.5.7-d (tag `v0.5.7d`, Phase 7D gate)
 **Status:** mid-refactor — read `docs/ember2d-master-plan.md` before writing code.
 
 ## Documentation — read before starting work
@@ -147,10 +147,10 @@ The simulation must be reproducible — replay, save/load, and 2-player netcode 
 
 ## Current State
 
-`main` is trunk at `v0.5.7b`. All work happens on the `claude` branch.
+`main` is trunk at `v0.5.7d`. All work happens on the `claude` branch.
 
 **The authoritative status is `docs/ember2d-master-plan.md` §2 (phase table, baseline numbers)
-and §3 (the one defect register, D1–D22 + R1–R40 + E1–E6, each with a status marker and the
+and §3 (the one defect register, D1–D22 + R1–R89 + E1–E6, each with a status marker and the
 step that fixes it).** Read §2 before starting any work — this section is deliberately not a
 second copy of it (R36, master plan §3.2: this exact paragraph used to fall out of sync with
 the tree and did): don't restate phase/step progress here, keep this section a pointer.

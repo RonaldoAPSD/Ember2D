@@ -717,7 +717,7 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
 name = "ember2d"
-version = "0.5.7-b"
+version = "0.5.7-d"
 dependencies = [
  "bytemuck",
  "ember2d-sim",
@@ -739,7 +739,7 @@ dependencies = [
 
 [[package]]
 name = "ember2d-app"
-version = "0.5.7-b"
+version = "0.5.7-d"
 dependencies = [
  "ember2d",
  "ember2d-editor",
@@ -748,7 +748,7 @@ dependencies = [
 
 [[package]]
 name = "ember2d-editor"
-version = "0.5.7-b"
+version = "0.5.7-d"
 dependencies = [
  "arboard",
  "ember2d",
@@ -762,7 +762,7 @@ dependencies = [
 
 [[package]]
 name = "ember2d-sim"
-version = "0.5.7-b"
+version = "0.5.7-d"
 dependencies = [
  "rand 0.8.6",
  "rhai",
