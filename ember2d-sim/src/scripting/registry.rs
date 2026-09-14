@@ -79,6 +79,8 @@ pub(super) fn register_all(engine: &mut Engine) {
     engine.register_fn("get_global", ScriptCtx::get_global);
     engine.register_fn("has_global", ScriptCtx::has_global);
     engine.register_fn("remove_global", ScriptCtx::remove_global);
+    engine.register_fn("add_global", ScriptCtx::add_global);
+    engine.register_fn("add_global", ScriptCtx::add_global_i);
     engine.register_fn("random_int", ScriptCtx::random_int);
     engine.register_fn("random_float", ScriptCtx::random_float);
     engine.register_fn("random_bool", ScriptCtx::random_bool);
@@ -122,6 +124,8 @@ pub(super) fn register_all(engine: &mut Engine) {
     engine.register_fn("has_persistent", ScriptCtx::has_persistent);
     engine.register_fn("clear_persistent", ScriptCtx::clear_persistent);
     engine.register_fn("clear_all_persistent", ScriptCtx::clear_all_persistent);
+    engine.register_fn("add_persistent", ScriptCtx::add_persistent);
+    engine.register_fn("add_persistent", ScriptCtx::add_persistent_i);
     engine.register_fn("draw_box", ScriptCtx::draw_box);
     engine.register_fn("draw_box", ScriptCtx::draw_box_f);
     engine.register_fn("fill_rect", ScriptCtx::fill_rect);

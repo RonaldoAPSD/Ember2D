@@ -14,13 +14,12 @@ fn on_update(id, ctx) {
 
 fn on_collide(id, other, ctx) {
     if ctx.has_tag(other, "player") && !ctx.is_collider_locked(id) {
-        // or_zero guards a get_* racing its own same-frame lazy-init (see
-        // player.rhai's header comment) — "depth" is always visible by now
-        // in practice, since player.rhai's on_update runs earlier in the
-        // same engine frame, but the guard costs nothing.
-        let depth = ctx.get_persistent("depth");
-        if depth == () { depth = 0; }
-        ctx.set_persistent("depth", depth + 1);
+        // add_persistent (docs/ember2d-master-plan.md §5.6, 7.5-2) reads
+        // "depth"'s current value — falling back to 0 itself if the key has
+        // never been set — and adds 1, so this no longer needs its own
+        // uninitialized-key guard the way a hand-rolled
+        // `set_persistent("depth", get_persistent("depth") + 1)` would.
+        ctx.add_persistent("depth", 1);
         // demos/roguelike/audio has nothing that fits descending stairs — left
         // silent rather than reusing a thematically-wrong clip.
     }

@@ -16,7 +16,7 @@
 // tests behavior against whatever the committed floor1.level currently is.
 
 mod common;
-use common::{find_tagged_entity_at, TurnHarness};
+use common::{dynamic_as_i64, find_tagged_entity_at, TurnHarness};
 use ember2d::prelude::*;
 
 // `CARGO_MANIFEST_DIR`-relative, not CWD-relative — see tests/replay.rs's
@@ -89,7 +89,7 @@ fn stepping_onto_gold_despawns_it_and_credits_the_player_on_the_same_turn() {
         !h.world.sprites.contains_key(&gold_id),
         "the gold entity must be despawned the same turn it's touched — not one turn later"
     );
-    let gold_count = h.persistent.get("gold").and_then(|d| d.as_int().ok()).unwrap_or(-1);
+    let gold_count = h.persistent.get("gold").and_then(dynamic_as_i64).unwrap_or(-1);
     assert_eq!(gold_count, 1, "picking up gold must credit persistent \"gold\" on the same turn, matching pickup.rhai's on_collide");
 }
 

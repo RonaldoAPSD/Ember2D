@@ -45,9 +45,19 @@ fn on_update(id, ctx) {
         ctx.set_global("music_started", true);
     }
 
-    let gold = or_zero(ctx.get_persistent("gold"));
-    let potions = or_zero(ctx.get_persistent("potions"));
-    let turns = or_zero(ctx.get_persistent("turns_taken"));
+    // player.rhai's own on_update always runs before this level even loads
+    // (the transition happens on stairs.rhai's on_collide, itself gated
+    // behind player.rhai having already lazy-inited these fields), so a
+    // plain read is safe here — see player.rhai's header comment on the
+    // same-pass lazy-init hazard this used to guard against with
+    // `or_zero()`. `.to_int()` still matters even though the read is safe:
+    // `add_persistent` (7.5-2) always stores its result as a float, and
+    // Rhai renders a whole-number float with a trailing ".0" in string
+    // concatenation (see player.rhai's draw_hud for the same cast, with the
+    // full explanation).
+    let gold = ctx.get_persistent("gold").to_int();
+    let potions = ctx.get_persistent("potions").to_int();
+    let turns = ctx.get_persistent("turns_taken").to_int();
 
     // Banner only covers the top of the 20x10 level, leaving the lower
     // rows free to walk around in rather than filling the whole screen.
@@ -59,8 +69,4 @@ fn on_update(id, ctx) {
     s += "  Potions: " + potions;
     s += "  Turns: " + turns;
     ctx.draw_hud(2, 3, s, "White", "DarkBlue");
-}
-
-fn or_zero(v) {
-    if v == () { 0 } else { v }
 }

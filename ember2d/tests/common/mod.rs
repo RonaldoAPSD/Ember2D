@@ -246,6 +246,17 @@ pub fn find_tagged_entity_at(world: &World, tag: &str, x: f32, y: f32) -> Option
     })
 }
 
+/// Reads a persistent/global `Dynamic` as `i64` regardless of whether it's
+/// currently stored as an int or a float. `Dynamic::as_int` is strict (it
+/// doesn't coerce a float, even a whole-number one) — needed since
+/// `add_persistent`/`add_global` (docs/ember2d-master-plan.md §5.6, 7.5-2)
+/// always store their result as a float, so a value like the roguelike's
+/// "hp"/"gold"/"turns_taken" is an `i64` right after lazy-init but an `f64`
+/// as soon as anything accumulates into it.
+pub fn dynamic_as_i64(d: &rhai::Dynamic) -> Option<i64> {
+    d.as_int().ok().or_else(|| d.as_float().ok().map(|f| f as i64))
+}
+
 /// A per-process scratch dir under the OS temp dir (7A-8) — every test
 /// script this crate's integration tests write lives under here instead of
 /// directly in the shared OS temp root, so two `cargo test` processes (the

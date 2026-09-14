@@ -20,21 +20,23 @@
 // so a bullet is not stopped by a wall and never receives an `on_collide`;
 // `update_bullets` below does that work explicitly with a rect query.
 //
-// ── THE ONE RULE THAT SHAPES EVERY WRITE HERE ────────────────────────────────
+// ── THE ONE RULE THAT SHAPES EVERY RUNNING TOTAL HERE ─────────────────────────
 //
 // A `get_global` never observes a `set_global` from the same script pass —
-// writes queue and apply only once every script has run. So a running total
-// must never be accumulated by read-modify-write more than once per pass: two
-// enemies dying in one pass would both read the same pre-pass "score" and the
-// second write would silently erase the first. Every such total in this file
-// (score, kills, per-enemy HP) is accumulated in a LOCAL first and written
-// exactly once. `resolve_hits` is the worked example.
+// writes queue and apply only once every script has run. A running total
+// accumulated by hand (`set_global(k, get_global(k) + d)`) breaks the moment
+// two writes to the same key land in one pass: both read the same pre-pass
+// value and the second write silently erases the first.
 //
-// The wave-bonus write in `begin_next_wave` is safe against the same hazard
-// for a structural reason worth stating, since it is not obvious: that
-// function only ever runs during the "breather" phase, and a breather by
-// definition has no enemies alive, so no kill — and therefore no other "score"
-// write — can occur in the same pass.
+// `add_global`/`add_persistent` (docs/ember2d-master-plan.md §5.6, 7.5-2)
+// exist precisely to remove that hazard: each call reads the CURRENT value —
+// this pass's own already-queued write if there's one, the resolved store
+// otherwise — and adds to it, so any number of calls to the same key in one
+// pass land as that many additions. Every running total in this file (score,
+// kills, per-enemy HP) uses one now. `resolve_hits` is the clearest example:
+// it used to hand-tally duplicate hits on one enemy before a single
+// read-modify-write specifically to dodge this hazard; with `add_global` it
+// can just apply each hit as its own call.
 
 // ── Tuning knobs ─────────────────────────────────────────────────────────────
 // Functions, not top-level `const`: `Engine::call_fn` evaluates only the named
@@ -112,10 +114,9 @@ fn on_update(id, ctx) {
         draw_wave_status(ctx);
         // `count_by_tag` reads the `WorldSnapshot` built at the top of this
         // step, so an enemy despawned by `update_bullets` a few lines above is
-        // still counted here and this test only passes on the FOLLOWING step.
-        // That one-step lag is load-bearing, not a defect: it is exactly what
-        // guarantees `begin_next_wave`'s "score" write can never share a pass
-        // with `resolve_hits`' one (see this file's header).
+        // still counted here and this test only passes on the FOLLOWING step
+        // — a one-step lag, not a defect: `resolve_hits` needs this step to
+        // finish landing its kills before the wave can be declared cleared.
         if enemies_left(ctx) == 0 { end_wave(ctx, now); }
     }
 }
@@ -132,12 +133,11 @@ fn end_wave(ctx, now) {
 }
 
 /// Pays out the cleared wave's bonus, then either starts the next wave or
-/// declares the run won. Runs only during a breather — see the header note on
-/// why that makes the "score" write here safe.
+/// declares the run won.
 fn begin_next_wave(ctx) {
     let cleared = ctx.get_global("wave");
     if cleared > 0 {
-        ctx.set_global("score", ctx.get_global("score") + 25 * cleared);
+        ctx.add_global("score", 25 * cleared);
     }
 
     if cleared >= total_waves() {
@@ -355,51 +355,37 @@ fn update_bullets(ctx, player) {
     resolve_hits(ctx, struck);
 }
 
-/// Applies this pass's accumulated bullet damage, one write per enemy and one
-/// write each for "score" and "kills".
+/// Applies this pass's bullet damage, one hit at a time.
 ///
-/// The duplicate tally is the point. Two bullets striking the same enemy in
-/// one pass is currently impossible — the fire cooldown puts consecutive shots
-/// about five cells apart — but resolving each hit with its own
-/// read-modify-write would silently drop all but one of them the moment that
-/// stops being true (a spread weapon, a faster cadence). Counting first and
-/// writing once costs a few lines and removes the trap entirely.
+/// Two bullets striking the same enemy in one pass is currently impossible —
+/// the fire cooldown puts consecutive shots about five cells apart — but this
+/// no longer needs that to stay true. `add_global` accumulates correctly no
+/// matter how many hits land on the same key in this pass (see this file's
+/// header note), so each hit is applied as its own call and checked for a
+/// kill immediately, rather than tallied up front for one read-modify-write —
+/// what this function used to do specifically to dodge that hazard by hand.
+/// `dead` still exists, but only to stop a hit after its enemy is already
+/// gone (an already-removed "ehp_<id>" key would otherwise read back as 0 and
+/// `add_global` would quietly resurrect it at a negative value).
 fn resolve_hits(ctx, struck) {
-    if struck.len() == 0 { return; }
-
-    let done = [];
-    let gained = 0;
-    let killed = 0;
+    let dead = [];
 
     for e in struck {
-        if done.contains(e) { continue; }
-        done.push(e);
-
-        let n = 0;
-        for x in struck {
-            if x == e { n += 1; }
-        }
+        if dead.contains(e) { continue; }
 
         let key = "ehp_" + e;
-        let hp = ctx.get_global(key) - n;
-        if hp > 0 {
-            ctx.set_global(key, hp);
-            continue;
-        }
+        let hp = ctx.add_global(key, -1);
+        if hp > 0 { continue; }
 
-        // Dead: drop the HP entry too, or the globals map would grow by one
-        // stale key per kill for the whole run.
+        dead.push(e);
+        // Drop the HP entry too, or the globals map would grow by one stale
+        // key per kill for the whole run.
         ctx.remove_global(key);
-        gained += points_for(ctx, e);
-        killed += 1;
+        ctx.add_global("score", points_for(ctx, e));
+        ctx.add_global("kills", 1);
         ctx.emit_particles(ctx.get_x(e), ctx.get_y(e), "x", "Red");
         maybe_drop(ctx, e);
         ctx.despawn(e);
-    }
-
-    if killed > 0 {
-        ctx.set_global("score", ctx.get_global("score") + gained);
-        ctx.set_global("kills", ctx.get_global("kills") + killed);
     }
 }
 

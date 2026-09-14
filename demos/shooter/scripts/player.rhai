@@ -25,7 +25,8 @@
 // place: it runs once, before any step, which means on_input can read "hp" on
 // step 1 without racing its own initializer. (That race is real — a deferred
 // `set_global` is not visible to a `get_global` in the same pass — and it is
-// what forces the roguelike's `or_zero()` guards everywhere.)
+// exactly what the roguelike's own player.rhai has to route around, since
+// its lazy-init can't use on_start; see that script's header comment.)
 //
 // NOTHING IS SUBMITTED AND ctx.act IS NEVER CALLED. `submit`/`on_turn`/`act`
 // are the turn-based command boundary; in realtime the player just writes
@@ -224,8 +225,13 @@ fn draw_stats(ctx) {
     ctx.draw_hud(2, 0, "HP ", "Grey", "Reset");
     ctx.draw_hud(5, 0, bar, colour, "Reset");
 
-    let s = "SCORE " + ctx.get_global("score");
-    s += "   KILLS " + ctx.get_global("kills");
+    // `.to_int()`: director.rhai accumulates both with `add_global`, which
+    // always stores its result as a float — Rhai renders a whole-number
+    // float with a trailing ".0" in string concatenation, so an uncast
+    // read here would show "SCORE 10.0" the moment either total is first
+    // touched.
+    let s = "SCORE " + ctx.get_global("score").to_int();
+    s += "   KILLS " + ctx.get_global("kills").to_int();
     ctx.draw_hud(20, 0, s, "White", "Reset");
 
     let vh = ctx.get_viewport_height();
@@ -236,8 +242,8 @@ fn draw_death_screen(ctx) {
     ctx.fill_rect(25, 8, 30, 7, " ", "White", "DarkRed");
     ctx.draw_box(25, 8, 30, 7, "White", "DarkRed");
     ctx.draw_hud(35, 10, "YOU DIED", "Yellow", "DarkRed");
-    let s = "Score " + ctx.get_global("score");
-    s += "  Kills " + ctx.get_global("kills");
+    let s = "Score " + ctx.get_global("score").to_int();
+    s += "  Kills " + ctx.get_global("kills").to_int();
     ctx.draw_hud(30, 11, s, "White", "DarkRed");
     ctx.draw_hud(30, 13, "Press R to restart", "White", "DarkRed");
 }

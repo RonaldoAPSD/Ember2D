@@ -354,8 +354,8 @@ writing.
 > lookup-table trig, or move to fixed-point).
 
 ### State
-Globals (per level): `set_global` · `get_global` · `has_global` · `remove_global`
-Persistent (across levels): `set_persistent` · `get_persistent` · `has_persistent` · `clear_persistent` · `clear_all_persistent`
+Globals (per level): `set_global` · `get_global` · `has_global` · `remove_global` · `add_global(key, delta)` → new value
+Persistent (across levels): `set_persistent` · `get_persistent` · `has_persistent` · `clear_persistent` · `clear_all_persistent` · `add_persistent(key, delta)` → new value
 
 > **Defect D2 (fixed in Phase 1):** `set_persistent` inside `on_start` used
 > to be silently discarded — `PlayState::on_start` ran `on_start` scripts
@@ -363,6 +363,25 @@ Persistent (across levels): `set_persistent` · `get_persistent` · `has_persist
 > persistent store. Fixed by threading the real store through
 > `GameState::on_start`'s signature instead; see `tests/persistent_on_start.rs`
 > for the regression test.
+
+> **`add_global`/`add_persistent` (Step 7.5-2, docs/ember2d-master-plan.md
+> §5.6):** read the CURRENT value — this pass's own already-queued write if
+> there is one, falling back to the resolved store, falling back to `0` if
+> the key has never been set — add `delta`, queue the result, and return
+> the new value. This is what makes calling either more than once for the
+> same key in the SAME script pass safe: each call sees the previous call's
+> write, so N calls this pass land as N additions. A hand-rolled
+> `set_global(k, get_global(k) + d)` can't do that — `get_global` never
+> observes a `set_global` from earlier in the same pass — which is why
+> every script that needed to add to a running total used to either tally
+> duplicate writes itself before one `set_*` call, or guard every read
+> against an uninitialized key with a local `or_zero()`-style helper.
+> `delta` accepts both an int and a float literal (same uniform-typing
+> convention Step 7.5-1 gave every coordinate/size argument); the return
+> value and the stored value are always a float, even when `delta` was an
+> int — a script displaying the result should cast with `.to_int()` if it
+> wants to avoid Rhai's string concatenation rendering a whole-number float
+> with a trailing `.0`.
 
 ### Timers
 `start_timer(name,seconds)` · `timer_done(name)` · `cancel_timer(name)`
@@ -510,9 +529,11 @@ numeric literals in one consistent style, though; mixing (`draw_hud(1,
 | 7.5 | Step 7.5-1 (docs/ember2d-master-plan.md §5.6, R31/R32): every registered function taking a coordinate, size, or layer-order argument now accepts BOTH Rhai int and float literals (was a strict type match — Rhai never coerces between them for a registered native function, so `draw_hud(1, 2, ...)` used to fail "function not found" against an `i64`-typed signature, and `set_position(id, 5, 5)` failed the same way against an `f64`-typed one) | **No** — purely additive: each affected function gained a same-name overload for the other numeric type, the original signature/behavior unchanged. A script's numeric literals within one call must still be consistently one style (all int or all float), not freely mixed. |
 | 7.5 | Step 7.5-1: `remove_global`/`clear_persistent` no longer alias `set_global`/`set_persistent(key, ())` — both used to signal "delete" by writing `Dynamic::UNIT` into the same pending-write map as a real value, so a script storing unit legitimately (`set_global("k", ())`) was silently deleted instead | Yes — `set_global("k", ())` now actually stores `()` at key `"k"`, readable back via `get_global`/`has_global`, where it used to delete the key instead. |
 | 7.5 | Step 7.5-1: `load_level` is last-wins now (matching `save_game`/`play_music`, which already were) — was first-wins | Yes — a script calling `load_level` more than once in the same pass now loads whichever path it named LAST, not the first. |
+| 7.5 | Step 7.5-2 (docs/ember2d-master-plan.md §5.6): `add_global`/`add_persistent` added, for accumulating a running total without the same-pass read-modify-write hazard every other `set_*` call has | **No** — purely additive: two new functions, nothing existing changed shape or behavior. |
 
 **Phase 6 is a zero-API-break phase** — `API_VERSION` stayed `6` through
-Step 5f. Phase 7.5 is the next break after it.
+Step 5f. Phase 7.5-1 is the next break after it; 7.5-2 (the row directly
+above) is additive and does not bump it further.
 
 `api_version()` was added in Step 3e (deferred from the original Phase 1 plan) —
 it currently returns `7`: `1` was the pre-refactor baseline, `2` covers Phase 2's
@@ -522,9 +543,10 @@ covers Phase 3's breaking renames (`set_color`/`set_z_order`/`set_animation`),
 boundary (`on_input`, `submit`, `command_action`, `command_param`), `6`
 covers Step 5f's turn scheduler (`on_turn`, `act`, `get_turn_number`,
 `get_speed`, `set_speed`, `trigger_turn` removed), and `7` covers Step 7.5-1's
-three rows directly above (uniform int/float typing, `set_global`/
-`set_persistent` unit storage, `load_level` last-wins). Bump it at every
-future "yes" above.
+three rows above it (uniform int/float typing, `set_global`/`set_persistent`
+unit storage, `load_level` last-wins) — Step 7.5-2's `add_global`/
+`add_persistent` row shipped after `7` without needing an `8`, being
+additive. Bump it at every future "yes" above.
 
 ---
 

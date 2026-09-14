@@ -256,6 +256,17 @@ fn two_bullets_landing_in_one_pass_both_count_against_an_enemy() {
         "a 2 HP grunt should die to two bullets landing in the same pass"
     );
     assert_eq!(h.count_tag("grunt"), 3, "only the struck grunt should have died");
+
+    // 7.5-2 (docs/ember2d-master-plan.md §5.6): `resolve_hits` now applies
+    // each hit as its own `add_global` call instead of tallying duplicates
+    // before one read-modify-write — this is the same two-bullets-one-pass
+    // shape re-proving that rewrite didn't just move the hazard, by also
+    // checking the "score"/"kills" side effects a dead grunt should produce
+    // exactly once, not zero (dropped) or twice (double-counted).
+    let score = h.sim.globals().get("score").and_then(|d| d.as_float().ok());
+    let kills = h.sim.globals().get("kills").and_then(|d| d.as_float().ok());
+    assert_eq!(score, Some(10.0), "killing one grunt (10 pts) must land exactly once");
+    assert_eq!(kills, Some(1.0), "killing one grunt must increment \"kills\" exactly once");
 }
 
 #[test]

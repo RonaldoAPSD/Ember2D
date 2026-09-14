@@ -3406,12 +3406,127 @@ in the API doc's migration section in the same commit.
   calls (all `i64`/`f64` in their ORIGINAL form) are unaffected by the
   purely-additive overloads.
 
-#### `[ ]` 7.5-2 — Atomic global/persistent arithmetic
+#### `[x]` 7.5-2 — Atomic global/persistent arithmetic (`PENDING_HASH`)
 
-`add_global(key, delta) -> new_value`, `add_persistent(key, delta) ->
-new_value`, applied at `apply_ctx` time against the **current** value
-(after earlier pending writes in the same pass). Delete `or_zero()` from
-all six scripts and `director.rhai`'s duplicate-tally.
+- **Why:** the plan's own §7.4 note and the pattern R31/R32 already
+  surfaced in 7.5-1 — a running total accumulated by hand
+  (`set_global(k, get_global(k) + d)`) breaks the moment two writes to the
+  same key land in one script pass, and every script that needed one had
+  independently invented its own workaround (`or_zero()` guards, or
+  director.rhai's hand-tallied `resolve_hits`).
+- **Change:** `add_global(key, delta) -> new_value`, `add_persistent(key,
+  delta) -> new_value`, reading the CURRENT value (this pass's own
+  already-queued write if there is one, else the resolved store, else `0`)
+  and adding `delta` on top — safe to call any number of times for the
+  same key in one pass. `or_zero()` deleted from all six roguelike scripts;
+  `director.rhai`'s `resolve_hits` no longer hand-tallies duplicate hits.
+- **Test:** two `add_global` calls to the same key in one pass both land
+  (not just the last one); `add_global`/`add_persistent` correctly treat a
+  `remove_global`/`clear_all_persistent` earlier in the same pass as
+  "current is 0," not a stale resolved value.
+- **Scope:** `ember2d-sim`, both demos, API doc.
+- **Landed as:** implemented `add_global`/`add_persistent` in
+  `api_ext.rs`, each reading `pending_*` first (own-pass write wins),
+  falling back to the resolved store, falling back to `0.0` via a shared
+  `dynamic_as_f64_or_zero` helper. `add_persistent` additionally treats
+  `pending_persistent_clear_all` as "current is 0" — a same-pass
+  `clear_all_persistent(); add_persistent(k, d);` would otherwise still see
+  the (not-yet-cleared) stale resolved value, since `apply_ctx` applies the
+  clear before `pending_persistent`, not before this read. Both got an
+  `i64` overload (`add_global_i`/`add_persistent_i`, same uniform-typing
+  convention 7.5-1 established) — needed immediately, since
+  `director.rhai`'s own `ctx.add_global("score", 25 * cleared)` is an int
+  expression. **Purely additive, no `API_VERSION` bump**: confirmed against
+  `docs/ember2d-scripting-api.md` §6's own convention (7.5-1's uniform-
+  typing overloads were also "No" for the same reason — new same-name
+  overloads, nothing existing changed shape) before writing the migration
+  row, rather than bumping on reflex the way 7.5-1 had to for its other two
+  changes.
+  **Script changes**, categorized by the on_update-sweep-then-apply_ctx-
+  then-on_turn-with-its-own-apply_ctx structure of `Simulation::step`
+  (confirmed by reading `simulation/step.rs` and `run_scripts` directly,
+  not assumed): every `or_zero()` read inside `on_turn` (player.rhai,
+  enemy_rat.rhai, enemy_boss.rhai) was provably safe to become a plain
+  `get_persistent`/`get_global`, since on_turn always runs in a LATER pass
+  than the SAME step's on_update, whose lazy-init has already been applied
+  by then. The one read inside `on_update` itself that raced its own
+  lazy-init (`draw_hud`) was fixed by restructuring, not a guard:
+  `on_update` now captures `hp`/`hp_max`/`gold`/`potions`/`depth` into
+  locals during lazy-init and hands them to `draw_hud` as parameters,
+  instead of it re-reading persistent. Every write-accumulate site
+  (`turns_taken`, `potions`, `gold`, `depth`, `hp` damage, enemy `hp_<id>`)
+  became one `add_persistent`/`add_global` call. `stairs.rhai` had an
+  inline `if depth == () { depth = 0; }` equivalent (never called
+  `or_zero()` itself) collapsed the same way. `pickup.rhai`'s own header
+  comment already documented its `or_zero()` as provably-unnecessary
+  defensive code before this step touched it — rewritten to say so about
+  `add_persistent` instead. `victory.rhai`'s three reads are safe because
+  that level is only reached after player.rhai's own lazy-init has already
+  run in an earlier pass. **`director.rhai`'s `resolve_hits`** dropped its
+  `done`/`n` duplicate-count-then-one-write entirely: each bullet hit is
+  now its own `ctx.add_global(key, -1)` call, checked for a kill
+  immediately, with a `dead` list only to stop a hit against an
+  already-removed key (`remove_global` then `add_global` in the same pass
+  must start from 0, not resurrect the pre-removal value — the exact
+  scenario a regression test below pins). Score/kills moved from
+  local-accumulate-then-one-write to a direct `add_global` call per kill.
+  **HUD `.0` risk, found by direct testing before touching any script**:
+  `add_global`/`add_persistent` always store their result as a float
+  (`Dynamic::from(f64)`), and a throwaway probe test confirmed Rhai's own
+  string concatenation renders a whole-number float with a trailing `.0`
+  (`"N=" + 5.0` → `"N=5.0"`, unlike Rust's own `Display for f64`, which
+  drops it) — every roguelike/shooter HUD line displaying a value that now
+  flows through either function casts with `.to_int()` first (confirmed
+  `.to_int()` is registered for `i64` too, as identity, via another
+  probe — a script mixing an untouched int field with a touched float one
+  in the same HUD line needed both to cast safely).
+  `demos/shooter/scripts/player.rhai`'s header comment (referencing the
+  roguelike's `or_zero()` pattern) and `director.rhai`'s header (the
+  read-modify-write hazard section) rewritten to describe the new
+  primitive instead of the deleted workaround.
+  New sibling test file `atomic_arithmetic_tests.rs` (same `#[path]`-split
+  convention `uniform_typing_tests.rs` established at 7.5-1) — 5 tests: two
+  same-pass `add_global` calls to one key both land (confirmed to fail
+  against a resolved-store-only implementation that ignores
+  `pending_globals`, temporarily reverted then restored); a never-set key
+  reads as 0; `add_global` after `remove_global` in the same pass starts
+  over from 0, not the pre-removal resolved value (confirmed to fail
+  against a version that lets `Remove` fall through to the resolved store,
+  seeded from an earlier pass via a new `run_source_with_result_and_globals`
+  helper — a same-pass `set_global` before `remove_global` wouldn't
+  discriminate this case at all, since `pending_globals` is a flat map);
+  `add_persistent` after `clear_all_persistent` in the same pass starts
+  over from 0 (confirmed to fail the same way, seeded via
+  `run_source_with_result_and_persistent`); the `i64` overload. Extended
+  `shooter_arena.rs`'s existing
+  `two_bullets_landing_in_one_pass_both_count_against_an_enemy` (already
+  the exact two-bullets-one-pass shape `resolve_hits`'s rewrite needed
+  re-proving) with a "score"/"kills" assertion after the kill, since it
+  already drives the real `Simulation`/`ScriptEngine`, not a synthetic
+  script. Fixed 3 pre-existing `ember2d/tests/*.rs` assertions
+  (`roguelike_combat.rs` x2, `roguelike_floor1.rs`) that read "hp"/"gold"
+  via `Dynamic::as_int()` — strict, doesn't coerce a float — which now
+  returns `None` for a value `add_persistent` touched; added a shared
+  `dynamic_as_i64` helper to `tests/common/mod.rs` rather than fixing each
+  site ad hoc. **Verification.** `cargo build --workspace --bins
+  --examples` clean. `cargo test --workspace`: 392 (was 386: +5 new
+  `atomic_arithmetic_tests`, +1 extended assertion in an existing test),
+  all pass. `cargo clippy --workspace --all-targets`: one new
+  `doc_lazy_continuation` warning from a doc comment's wrapped line
+  starting with `+ d)` (parsed as a markdown list marker) — reworded, zero
+  new warnings remain in any touched file. `cargo test -p ember2d --test
+  replay` 3× fresh processes green. `scripts/check.ps1` clean (`CLAUDE.md`'s
+  quoted registered-function count updated 144 → 148: `add_global`,
+  `add_global_i`, `add_persistent`, `add_persistent_i`; `API_VERSION`
+  unchanged at 7). Verified live: launched `demos/roguelike/floor1.level`
+  and `floor2.level`, walked onto two gold piles and through ~35 turns —
+  `Gold`/`Turn` render as clean ints (`Gold 1`, `Turn 22`) with no `.0`
+  regression. Launched `demos/shooter/arena.level`, confirmed
+  `SCORE 0  KILLS 0` (top HUD) and the death screen's `Score 0  Kills 0`
+  both render cleanly at zero; did not land a live kill by hand (mouse-aim
+  simulation proved harder to land than expected against the wave AI), so
+  the non-zero score/kills path is verified by the extended
+  `shooter_arena.rs` test above rather than a screenshot.
 
 #### `[ ]` 7.5-3 — Per-entity variables
 
@@ -3769,7 +3884,10 @@ regardless.
 
 Enable if `or_zero`-style duplication survives 7.5-2/7.5-3 in any shipped
 script. The `no_module` feature currently exists for build size and
-simplicity, not determinism.
+simplicity, not determinism. **7.5-2 side resolved:** `or_zero()` is gone
+from all six roguelike scripts (deleted, not just unused) — nothing left
+there to motivate this. Still open pending 7.5-3 (per-entity `hp_`/`aware_`/
+`acted_`/`atk_*`/`ehp_` key-prefix duplication).
 
 ### 7.5 Prefabs — decided in Phase 11
 

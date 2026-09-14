@@ -17,6 +17,16 @@ use rhai::{Array, Dynamic};
 use super::api::ScriptCtx;
 use super::types::*;
 
+/// Shared by `add_global`/`add_persistent`: reads a `Dynamic` as `f64`,
+/// treating anything that isn't a number — including the `UNIT` a
+/// never-set key resolves to — as `0.0`. This is the one place that
+/// implicit-zero convention still lives; every call site that used to
+/// implement it itself (`or_zero()` in the demo scripts, or a hand-rolled
+/// `get_global(k) + d` accumulator) is gone as of 7.5-2.
+fn dynamic_as_f64_or_zero(v: &Dynamic) -> f64 {
+    v.as_float().or_else(|_| v.as_int().map(|i| i as f64)).unwrap_or(0.0)
+}
+
 impl ScriptCtx {
     // 1. Shared Global State
     pub fn set_global(&mut self, key: String, value: Dynamic) {
@@ -34,6 +44,39 @@ impl ScriptCtx {
     /// from `set_global(key, ())`.
     pub fn remove_global(&mut self, key: String) {
         self.inner.borrow_mut().pending_globals.insert(key, PendingWrite::Remove);
+    }
+    /// 7.5-2 (docs/ember2d-master-plan.md §5.6): reads the CURRENT value —
+    /// this pass's own already-queued write if there is one, falling back to
+    /// the resolved store, falling back to `0.0` if the key has never been
+    /// set — adds `delta`, and queues the result. That "current" lookup is
+    /// what makes calling this more than once for the same key in the same
+    /// pass safe: each call sees the previous call's write, so N calls this
+    /// pass land as N additions. A hand-written
+    /// `set_global(k, get_global(k) + d)` can't do that — `get_global`
+    /// never observes a same-pass `set_global` (see this file's own
+    /// `get_global`) — which is why every
+    /// script that needed to add to a total either had to tally duplicates
+    /// itself before its one write (director.rhai's `resolve_hits`), or
+    /// guard every read with `or_zero()` against an uninitialized key (the
+    /// six demo scripts this step also cleans up). This one function
+    /// replaces both patterns.
+    pub fn add_global(&mut self, key: String, delta: f64) -> f64 {
+        let mut s = self.inner.borrow_mut();
+        let current = match s.pending_globals.get(&key) {
+            Some(PendingWrite::Set(v)) => dynamic_as_f64_or_zero(v),
+            Some(PendingWrite::Remove) => 0.0,
+            None => s.globals.get(&key).map(dynamic_as_f64_or_zero).unwrap_or(0.0),
+        };
+        let new_value = current + delta;
+        s.pending_globals.insert(key, PendingWrite::Set(Dynamic::from(new_value)));
+        new_value
+    }
+    /// `i64` overload — see `registry.rs`'s own note on why every
+    /// coordinate/size/layer-order function gets one (7.5-1, R31); `delta`
+    /// is exactly that kind of argument, and `25 * cleared` (director.rhai)
+    /// is as common a call shape as an int coordinate literal was there.
+    pub fn add_global_i(&mut self, key: String, delta: i64) -> f64 {
+        self.add_global(key, delta as f64)
     }
 
     // 2. Randomness
@@ -204,6 +247,33 @@ impl ScriptCtx {
     /// exactly `x = 1`, not an empty store).
     pub fn clear_all_persistent(&mut self) {
         self.inner.borrow_mut().pending_persistent_clear_all = true;
+    }
+    /// Mirrors `add_global` above, against `pending_persistent`/
+    /// `persistent` instead. Also has to account for `clear_all_persistent`
+    /// being called earlier in the same pass: `apply_ctx` clears the real
+    /// store before applying this pass's `pending_persistent` writes (see
+    /// that function's own doc comment), so a `clear_all_persistent();
+    /// add_persistent("gold", 1);` pass must treat "current" as `0.0` even
+    /// though the (not-yet-cleared) resolved store still shows an old
+    /// value — reading `persistent` directly here would get that wrong.
+    pub fn add_persistent(&mut self, key: String, delta: f64) -> f64 {
+        let mut s = self.inner.borrow_mut();
+        let current = match s.pending_persistent.get(&key) {
+            Some(PendingWrite::Set(v)) => dynamic_as_f64_or_zero(v),
+            Some(PendingWrite::Remove) => 0.0,
+            None if s.pending_persistent_clear_all => 0.0,
+            None => s.persistent.get(&key).map(dynamic_as_f64_or_zero).unwrap_or(0.0),
+        };
+        let new_value = current + delta;
+        s.pending_persistent.insert(key, PendingWrite::Set(Dynamic::from(new_value)));
+        new_value
+    }
+    /// `i64` overload — mirrors `add_global_i` above. Every roguelike call
+    /// site (`ctx.add_persistent("gold", 1)`, `"turns_taken", 1`,
+    /// `"hp", -2`) passes an int literal, which is exactly what this exists
+    /// for.
+    pub fn add_persistent_i(&mut self, key: String, delta: i64) -> f64 {
+        self.add_persistent(key, delta as f64)
     }
 
     // 8. HUD / Draw Utilities

@@ -691,3 +691,12 @@ mod safety_tests;
 #[cfg(test)]
 #[path = "uniform_typing_tests.rs"]
 mod uniform_typing_tests;
+
+// 7.5-2 (docs/ember2d-master-plan.md §5.6): add_global/add_persistent
+// regression coverage split into its own sibling file — same reasoning
+// uniform_typing_tests.rs's own header comment gives for its own split, and
+// a distinct concern from that file's (uniform int/float typing) rather
+// than an extension of it.
+#[cfg(test)]
+#[path = "atomic_arithmetic_tests.rs"]
+mod atomic_arithmetic_tests;

@@ -56,15 +56,24 @@
 // in inventory. "Q" quaffs one (if any) for +6 hp (capped at hp_max),
 // costing a turn like waiting does.
 //
-// THE SAME-PASS LAZY-INIT HAZARD (fixed, keep the fix — this WILL recur in
-// every future script with a lazy-init block): `ctx.set_persistent("hp",
-// 12)` doesn't make `ctx.get_persistent("hp")` return 12 later in this SAME
-// call — it still returns whatever it was before until apply_ctx folds the
-// write in at the end of the pass. `or_zero()` below is the general guard
-// for reads that might race their own lazy-init this way; `hp` in
-// on_update gets a stronger fix (computed directly during init, never
-// defaulted to 0) because a wrong default there isn't just cosmetic — 0
-// reads as "already dead".
+// THE SAME-PASS LAZY-INIT HAZARD (docs/ember2d-master-plan.md §5.6, 7.5-2):
+// `ctx.set_persistent("hp", 12)` doesn't make `ctx.get_persistent("hp")`
+// return 12 later in this SAME call — it still returns whatever it was
+// before until apply_ctx folds the write in at the end of the pass. That
+// only bites within on_update, which runs in the same pass as the lazy-init
+// below: on_update's own draw_hud call is fed the just-computed local
+// values directly (see on_update) rather than re-reading them, so it never
+// needs to guard against its own write. on_turn, by contrast, always runs
+// in a LATER pass than this step's on_update (Simulation::step runs every
+// scripted entity's on_update, applies it, THEN runs the one actor whose
+// turn it is — see ember2d/src/simulation/step.rs), so by the time on_turn
+// reads "hp"/"hp_max"/etc. this step's lazy-init has already been applied
+// and a plain get_persistent is safe. `or_zero()` used to paper over both
+// cases uniformly (and, for "hp"/"hp_max", incorrectly — a wrong default
+// there isn't cosmetic, 0 reads as "already dead"); it's gone as of 7.5-2,
+// replaced by the parameter-passing above and `add_persistent`/
+// `add_global` (docs/ember2d-scripting-api.md) for every write that used to
+// be a hand-rolled `set_x(get_x() + d)`.
 
 /// The only place this script reads raw input (see the Step 5e header note
 /// above). Priority mirrors on_turn's if/else-if chain exactly: restart
@@ -107,24 +116,41 @@ fn on_update(id, ctx) {
     // on_start scripts at all. Lazy-init here is what lets this script
     // survive both a fresh level load and a save/load without
     // special-casing either.
+    //
+    // Every field draw_hud needs is captured into a local here and handed
+    // to it directly below, rather than draw_hud re-reading persistent
+    // itself — see the header's "SAME-PASS LAZY-INIT HAZARD" note for why
+    // that's the fix, not a stray get_persistent guard.
     let hp;
+    let hp_max;
+    let gold;
+    let potions;
+    let depth;
     if !ctx.has_persistent("hp_max") {
         hp = 12;
+        hp_max = 12;
+        gold = 0;
+        potions = 1;
+        depth = 1;
         ctx.set_persistent("hp", hp);
-        ctx.set_persistent("hp_max", 12);
-        ctx.set_persistent("gold", 0);
-        ctx.set_persistent("potions", 1);
-        ctx.set_persistent("depth", 1);
+        ctx.set_persistent("hp_max", hp_max);
+        ctx.set_persistent("gold", gold);
+        ctx.set_persistent("potions", potions);
+        ctx.set_persistent("depth", depth);
         ctx.set_persistent("turns_taken", 0);
     } else {
         hp = ctx.get_persistent("hp");
+        hp_max = ctx.get_persistent("hp_max");
+        gold = ctx.get_persistent("gold");
+        potions = ctx.get_persistent("potions");
+        depth = ctx.get_persistent("depth");
     }
     if !ctx.has_global("music_started") {
         ctx.play_music("demos/roguelike/audio/music.ogg");
         ctx.set_global("music_started", true);
     }
 
-    draw_hud(ctx);
+    draw_hud(ctx, hp, hp_max, gold, potions, depth);
     if hp <= 0 { draw_death_screen(ctx); }
 }
 
@@ -132,7 +158,7 @@ fn on_update(id, ctx) {
 /// (Step 5f) — move/attack/quaff/restart, whichever `ctx.command_action()`
 /// (queued by this same step's on_input) names.
 fn on_turn(id, ctx) {
-    let hp = or_zero(ctx.get_persistent("hp"));
+    let hp = ctx.get_persistent("hp");
 
     if hp <= 0 {
         if ctx.command_action() == "restart" {
@@ -148,7 +174,7 @@ fn on_turn(id, ctx) {
     }
 
     let action = ctx.command_action();
-    let hp_max = or_zero(ctx.get_persistent("hp_max"));
+    let hp_max = ctx.get_persistent("hp_max");
 
     // "move"/"quaff" are their own functions (not inlined here) specifically
     // to keep this if/else-if chain shallow — an earlier version nested
@@ -166,16 +192,8 @@ fn on_turn(id, ctx) {
         return;
     }
 
-    ctx.set_persistent("turns_taken", or_zero(ctx.get_persistent("turns_taken")) + 1);
+    ctx.add_persistent("turns_taken", 1);
     ctx.act(100.0);
-}
-
-/// Guard for a get_global/get_persistent read that might race its own
-/// same-frame lazy-init (see the header comment) — safe to use wherever
-/// the value's true initial value is itself 0, or the read only feeds a
-/// cosmetic display rather than a comparison/branch.
-fn or_zero(v) {
-    if v == () { 0 } else { v }
 }
 
 /// One step of bump-movement: attacks an adjacent enemy/boss instead of
@@ -201,8 +219,8 @@ fn do_move(id, ctx) {
 /// consumed) if there's no potion to drink or the player is already at full
 /// hp — guards against a stray "q" press wasting one.
 fn do_quaff(id, ctx, hp, hp_max) {
-    if or_zero(ctx.get_persistent("potions")) <= 0 || hp >= hp_max { return false; }
-    ctx.set_persistent("potions", or_zero(ctx.get_persistent("potions")) - 1);
+    if ctx.get_persistent("potions") <= 0 || hp >= hp_max { return false; }
+    ctx.add_persistent("potions", -1);
     let healed = hp + 6;
     if healed > hp_max { healed = hp_max; }
     ctx.set_persistent("hp", healed);
@@ -215,9 +233,7 @@ fn do_quaff(id, ctx, hp, hp_max) {
 /// enemy_boss.rhai's own on_turn, writing this script's "hp" persistent
 /// value directly (see the header comment's "DAMAGE MODEL CHANGED" note).
 fn attack(target, ctx) {
-    let key = "hp_" + target;
-    let ehp = or_zero(ctx.get_global(key));
-    ctx.set_global(key, ehp - 3);
+    ctx.add_global("hp_" + target, -3);
     ctx.emit_particles(ctx.get_x(target), ctx.get_y(target), "*", "Red");
     ctx.shake_camera(1.0, 0.1);
     // demos/roguelike/audio has no dedicated attack sound — hurt.ogg (the only
@@ -226,12 +242,16 @@ fn attack(target, ctx) {
     ctx.play_sound("demos/roguelike/audio/hurt.ogg");
 }
 
-fn draw_hud(ctx) {
-    let hp = or_zero(ctx.get_persistent("hp"));
-    let hp_max = or_zero(ctx.get_persistent("hp_max"));
-    let gold = or_zero(ctx.get_persistent("gold"));
-    let potions = or_zero(ctx.get_persistent("potions"));
-    let depth = or_zero(ctx.get_persistent("depth"));
+/// `hp`/`hp_max`/`gold`/`potions`/`depth` are passed in rather than
+/// re-read (see on_update's own comment on why). Each is cast with
+/// `.to_int()` before it's concatenated because `add_persistent`
+/// (docs/ember2d-scripting-api.md, 7.5-2) always stores its result as a
+/// float — Rhai's string concatenation renders a whole-number float with a
+/// trailing ".0" (`"HP " + 12.0` is `"HP 12.0"`, not `"HP 12"`), which
+/// would otherwise flicker into the HUD the first time any of these fields
+/// gets touched by an add_persistent/add_global write instead of the
+/// original int literal from lazy-init.
+fn draw_hud(ctx, hp, hp_max, gold, potions, depth) {
     let turn = ctx.get_turn_number();
 
     // Built incrementally rather than as one long `a + b + c + ...` chain:
@@ -239,11 +259,11 @@ fn draw_hud(ctx) {
     // and a line with this many concatenations trips the engine's default
     // max-expression-depth guard ("Expression exceeds maximum complexity")
     // at compile time. Each `+=` below is its own small statement instead.
-    let s = "HP " + hp;
-    s += "/" + hp_max;
-    s += "   Gold " + gold;
-    s += "   Potions " + potions;
-    s += "   Depth " + depth;
+    let s = "HP " + hp.to_int();
+    s += "/" + hp_max.to_int();
+    s += "   Gold " + gold.to_int();
+    s += "   Potions " + potions.to_int();
+    s += "   Depth " + depth.to_int();
     s += "   Turn " + turn;
     ctx.draw_hud(1, 0, s, "White", "Reset");
 

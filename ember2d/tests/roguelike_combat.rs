@@ -7,7 +7,7 @@
 // (see docs/HANDOFF.md's 4h/4i/quaff-amendment write-ups).
 
 mod common;
-use common::TurnHarness;
+use common::{dynamic_as_i64, TurnHarness};
 use ember2d::prelude::*;
 
 // `CARGO_MANIFEST_DIR`-relative, not CWD-relative — see tests/replay.rs's
@@ -104,7 +104,7 @@ fn two_adjacent_rats_each_contribute_their_own_damage_in_the_same_resolve() {
 
     h.turn("space"); // both rats wake (adjacent = trivial line of sight) and land their hit this same round
 
-    let hp = h.persistent.get("hp").and_then(|d| d.as_int().ok());
+    let hp = h.persistent.get("hp").and_then(dynamic_as_i64);
     assert_eq!(
         hp, Some(8),
         "two adjacent rats (2 dmg each) must both land: 12 - 2 - 2 = 8 — not 12 - 2 = 10, which would mean one rat's direct write to persistent \"hp\" silently clobbered the other's"
@@ -196,8 +196,8 @@ fn identical_input_sequences_produce_identical_state_across_independent_instance
         h2.player_pos(),
         "same input sequence must produce the same player position"
     );
-    let hp = |h: &TurnHarness| h.persistent.get("hp").and_then(|d| d.as_int().ok());
-    let gold = |h: &TurnHarness| h.persistent.get("gold").and_then(|d| d.as_int().ok());
+    let hp = |h: &TurnHarness| h.persistent.get("hp").and_then(dynamic_as_i64);
+    let gold = |h: &TurnHarness| h.persistent.get("gold").and_then(dynamic_as_i64);
     assert_eq!(hp(&h1), hp(&h2), "same input sequence must produce the same hp");
     assert_eq!(gold(&h1), gold(&h2), "same input sequence must produce the same gold");
 

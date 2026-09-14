@@ -98,7 +98,7 @@ fn on_update(id, ctx) {
 /// Runs exactly once, only when TurnScheduler hands this actor the turn —
 /// wake up (if not already), then chase or attack.
 fn on_turn(id, ctx) {
-    let hp = or_zero(ctx.get_global("hp_" + id));
+    let hp = ctx.get_global("hp_" + id);
     if hp <= 0 { return; } // on_update should have despawned it already; guard anyway
 
     let player = ctx.find_by_tag("player");
@@ -116,7 +116,7 @@ fn on_turn(id, ctx) {
 
     let adjacent = (dx == 0.0 && dy.abs() == 1.0) || (dy == 0.0 && dx.abs() == 1.0);
     if adjacent {
-        ctx.set_persistent("hp", or_zero(ctx.get_persistent("hp")) - 2);
+        ctx.add_persistent("hp", -2);
         ctx.shake_camera(2.0, 0.2);
         ctx.play_sound("demos/roguelike/audio/hurt.ogg");
     } else {
@@ -148,12 +148,6 @@ fn on_turn(id, ctx) {
             ctx.animate_move(id, tx, ty, 0.08);
         }
     }
-}
-
-/// See player.rhai's header comment for why this guard exists: a get_*
-/// never observes a set_* from earlier in the same script pass.
-fn or_zero(v) {
-    if v == () { 0 } else { v }
 }
 
 /// Sticky aggro (see the header comment): once true, never re-checked
