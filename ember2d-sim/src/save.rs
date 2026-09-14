@@ -20,16 +20,20 @@ pub struct SaveState {
     /// unchanged either way, since RON's map syntax doesn't encode which
     /// Rust collection produced it.
     pub persistent: BTreeMap<String, rhai::Dynamic>,
-    /// Per-entity script state kept via `ctx.set_global`/`get_global` — the
-    /// roguelike's whole combat model (`hp_<id>`, `aware_<id>`, …) lives
-    /// here. Level-scoped in normal play (resets on
-    /// every level load), but must survive a *mid-run* save/load or that
-    /// state silently vanishes. **Defect D17** (docs/ember2d-refactor-plan.md
-    /// §3), fixed in Phase 5 Step 5c (docs/ember2d-phase5-plan.md) — before
-    /// this field existed, `SaveState` held only `world` + `persistent`, so
-    /// globals were dropped on every save. `#[serde(default)]` means a save
-    /// file written before this field existed still loads, as an empty map
-    /// — the same starting point a script sees on a fresh level load.
+    /// Level-scoped script state kept via `ctx.set_global`/`get_global`.
+    /// Must survive a *mid-run* save/load or that state silently vanishes.
+    /// **Defect D17** (docs/ember2d-refactor-plan.md §3), fixed in Phase 5
+    /// Step 5c (docs/ember2d-phase5-plan.md) — before this field existed,
+    /// `SaveState` held only `world` + `persistent`, so globals were
+    /// dropped on every save. `#[serde(default)]` means a save file written
+    /// before this field existed still loads, as an empty map — the same
+    /// starting point a script sees on a fresh level load. The roguelike's
+    /// per-enemy combat state (`hp`, `aware`) used to live here too, keyed
+    /// by `"hp_" + id`/`"aware_" + id` — Step 7.5-3 (docs/ember2d-master-
+    /// plan.md §5.6) moved that onto a real `Vars` component instead
+    /// (`components/vars.rs`), which needs no entry in `SaveState` at all:
+    /// it lives directly on `World`, which already serializes it as part of
+    /// the `world` field below.
     #[serde(default)]
     pub globals: BTreeMap<String, rhai::Dynamic>,
     /// Script-registered animation clip definitions — see

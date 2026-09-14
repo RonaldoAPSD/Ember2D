@@ -412,6 +412,63 @@ impl ScriptCtx {
         self.inner.borrow_mut().pending_collider_locked.push((id, locked));
     }
 
+    // ── Step 7.5-3: per-entity variables ────────────────────────────────────────
+    // See `components/vars.rs`'s own doc comment for what this replaces (the
+    // `"hp_" + id` global-key-concatenation convention). Same `pending_*`/
+    // snapshot split as `get_global`/`set_global` above — a `set_var` this
+    // pass is invisible to a `get_var` later in the SAME pass, for the same
+    // reason (`docs/ember2d-scripting-api.md`'s own note on `get_global`).
+
+    pub fn set_var(&mut self, id: i64, key: String, value: Dynamic) {
+        self.inner.borrow_mut().pending_vars.push((id, key, PendingWrite::Set(value)));
+    }
+    pub fn get_var(&mut self, id: i64, key: String) -> Dynamic {
+        self.inner
+            .borrow_mut()
+            .vars
+            .get(&id)
+            .and_then(|m| m.get(&key))
+            .cloned()
+            .unwrap_or(Dynamic::UNIT)
+    }
+    pub fn has_var(&mut self, id: i64, key: String) -> bool {
+        self.inner.borrow_mut().vars.get(&id).is_some_and(|m| m.contains_key(&key))
+    }
+    pub fn remove_var(&mut self, id: i64, key: String) {
+        self.inner.borrow_mut().pending_vars.push((id, key, PendingWrite::Remove));
+    }
+    /// Mirrors `add_global` (7.5-2, docs/ember2d-master-plan.md §5.6)
+    /// against per-entity `Vars` instead — needed the moment `Vars` takes
+    /// over a per-entity HP total like director.rhai's old `"ehp_" + id`
+    /// global, or the exact same-pass-duplicate-write hazard `add_global`
+    /// exists to close would just reopen at the `Vars` layer instead.
+    /// Reads the CURRENT value for `(id, key)` — the last matching entry
+    /// already queued in `pending_vars` this pass, if any (scanned in
+    /// reverse: `pending_vars` is a flat `Vec`, applied in push order, so
+    /// the LAST entry for a key is the one that wins), else the resolved
+    /// snapshot, else `0.0`.
+    pub fn add_var(&mut self, id: i64, key: String, delta: f64) -> f64 {
+        let mut s = self.inner.borrow_mut();
+        let pending = s.pending_vars.iter().rev().find(|(eid, k, _)| *eid == id && *k == key);
+        let current = match pending {
+            Some((_, _, PendingWrite::Set(v))) => dynamic_as_f64_or_zero(v),
+            Some((_, _, PendingWrite::Remove)) => 0.0,
+            None => s
+                .vars
+                .get(&id)
+                .and_then(|m| m.get(&key))
+                .map(dynamic_as_f64_or_zero)
+                .unwrap_or(0.0),
+        };
+        let new_value = current + delta;
+        s.pending_vars.push((id, key, PendingWrite::Set(Dynamic::from(new_value))));
+        new_value
+    }
+    /// `i64` overload — mirrors `add_global_i`.
+    pub fn add_var_i(&mut self, id: i64, key: String, delta: i64) -> f64 {
+        self.add_var(id, key, delta as f64)
+    }
+
     // ── V0.5 Hierarchy ────────────────────────────────────────────────────────
 
     pub fn get_parent(&mut self, id: i64) -> i64 {

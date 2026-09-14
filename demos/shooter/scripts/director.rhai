@@ -28,15 +28,17 @@
 // two writes to the same key land in one pass: both read the same pre-pass
 // value and the second write silently erases the first.
 //
-// `add_global`/`add_persistent` (docs/ember2d-master-plan.md §5.6, 7.5-2)
-// exist precisely to remove that hazard: each call reads the CURRENT value —
-// this pass's own already-queued write if there's one, the resolved store
-// otherwise — and adds to it, so any number of calls to the same key in one
-// pass land as that many additions. Every running total in this file (score,
-// kills, per-enemy HP) uses one now. `resolve_hits` is the clearest example:
-// it used to hand-tally duplicate hits on one enemy before a single
-// read-modify-write specifically to dodge this hazard; with `add_global` it
-// can just apply each hit as its own call.
+// `add_global`/`add_persistent`/`add_var` (docs/ember2d-master-plan.md §5.6,
+// 7.5-2/7.5-3) exist precisely to remove that hazard: each call reads the
+// CURRENT value — this pass's own already-queued write if there's one, the
+// resolved store otherwise — and adds to it, so any number of calls to the
+// same key in one pass land as that many additions. Every running total in
+// this file (score, kills via `add_global`; per-enemy HP via `add_var`) uses
+// one now. `resolve_hits` is the clearest example: it used to hand-tally
+// duplicate hits on one enemy before a single read-modify-write specifically
+// to dodge this hazard; now it can just apply each hit as its own call.
+// Per-enemy HP also used to live in a `"ehp_" + id` global — real per-entity
+// `Vars` state (7.5-3) replaced that too; see `spawn_enemy`'s own comment.
 
 // ── Tuning knobs ─────────────────────────────────────────────────────────────
 // Functions, not top-level `const`: `Engine::call_fn` evaluates only the named
@@ -170,12 +172,19 @@ fn spawn_wave(ctx, wave) {
 /// on), turning every contact into a shove instead of a hit. As a trigger it
 /// overlaps freely and `contact_damage` decides what that means.
 ///
-/// HP lives in a `"ehp_<id>"` global because a spawned entity has no script
-/// and therefore no per-entity state of its own — see the header.
+/// HP lives in this enemy's own `Vars` (`ctx.set_var`, Step 7.5-3,
+/// docs/ember2d-master-plan.md §5.6) — real per-entity component state that
+/// doesn't need the entity to have a script of its own (unlike `globals`/
+/// `persistent`, which live on `PlayState`, not `World`, and have no
+/// concept of "this entity's own" data at all). This used to be a
+/// `"ehp_" + id` global specifically because a spawned, unscripted enemy
+/// had no OTHER way to own per-entity state; `Vars` closes that gap
+/// directly, so `resolve_hits` below no longer needs to `remove_global` by
+/// hand on death either — `World::despawn` clears the whole component.
 fn spawn_enemy(ctx, tag, glyph, colour, hp, w, h) {
     let p = spawn_pos(ctx);
     let e = ctx.spawn_entity(glyph, p[0], p[1], tag, colour, "Reset", 8, false, w, h, "enemy");
-    ctx.set_global("ehp_" + e, hp);
+    ctx.set_var(e, "hp", hp);
 }
 
 /// A random open cell at least 12 cells from the player, so a wave never
@@ -359,28 +368,29 @@ fn update_bullets(ctx, player) {
 ///
 /// Two bullets striking the same enemy in one pass is currently impossible —
 /// the fire cooldown puts consecutive shots about five cells apart — but this
-/// no longer needs that to stay true. `add_global` accumulates correctly no
-/// matter how many hits land on the same key in this pass (see this file's
-/// header note), so each hit is applied as its own call and checked for a
-/// kill immediately, rather than tallied up front for one read-modify-write —
-/// what this function used to do specifically to dodge that hazard by hand.
-/// `dead` still exists, but only to stop a hit after its enemy is already
-/// gone (an already-removed "ehp_<id>" key would otherwise read back as 0 and
-/// `add_global` would quietly resurrect it at a negative value).
+/// no longer needs that to stay true. `add_var` accumulates correctly no
+/// matter how many hits land on the same enemy's "hp" in this pass (see this
+/// file's header note), so each hit is applied as its own call and checked
+/// for a kill immediately, rather than tallied up front for one
+/// read-modify-write — what this function used to do specifically to dodge
+/// that hazard by hand. `dead` still exists, but for a different reason now:
+/// without it, a THIRD bullet landing on an enemy already killed by the
+/// first two would still see `hp <= 0` and re-run the kill block — scoring
+/// and dropping loot twice for one death. It has nothing to do with an
+/// "ehp_<id>" global surviving past the kill the way it used to: `Vars`
+/// (Step 7.5-3) needs no explicit cleanup on death at all, since
+/// `ctx.despawn(e)` below clears this enemy's entire `Vars` component for
+/// free (`World::despawn`) — no `remove_var` call needed here.
 fn resolve_hits(ctx, struck) {
     let dead = [];
 
     for e in struck {
         if dead.contains(e) { continue; }
 
-        let key = "ehp_" + e;
-        let hp = ctx.add_global(key, -1);
+        let hp = ctx.add_var(e, "hp", -1);
         if hp > 0 { continue; }
 
         dead.push(e);
-        // Drop the HP entry too, or the globals map would grow by one stale
-        // key per kill for the whole run.
-        ctx.remove_global(key);
         ctx.add_global("score", points_for(ctx, e));
         ctx.add_global("kills", 1);
         ctx.emit_particles(ctx.get_x(e), ctx.get_y(e), "x", "Red");

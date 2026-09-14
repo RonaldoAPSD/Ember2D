@@ -700,3 +700,11 @@ mod uniform_typing_tests;
 #[cfg(test)]
 #[path = "atomic_arithmetic_tests.rs"]
 mod atomic_arithmetic_tests;
+
+// 7.5-3 (docs/ember2d-master-plan.md §5.6): set_var/get_var/has_var/
+// remove_var regression coverage split into its own sibling file — same
+// reasoning uniform_typing_tests.rs's/atomic_arithmetic_tests.rs's own
+// header comments give for their own splits.
+#[cfg(test)]
+#[path = "vars_tests.rs"]
+mod vars_tests;

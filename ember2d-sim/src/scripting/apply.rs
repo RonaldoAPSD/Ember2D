@@ -106,6 +106,23 @@ impl ScriptEngine {
                 world.add_tag(id as EntityId, Tag::new(&t));
             }
         }
+        // Step 7.5-3 (docs/ember2d-master-plan.md §5.6): same ghost-
+        // component guard `pending_tags` above already established for R10
+        // — no `Vars` entry for an entity nothing else spawned this pass.
+        for (id, key, write) in state.pending_vars.drain(..) {
+            if !world.transforms.contains_key(&(id as EntityId)) {
+                continue;
+            }
+            let entry = world.vars.entry(id as EntityId).or_default();
+            match write {
+                PendingWrite::Set(v) => {
+                    entry.values.insert(key, v);
+                }
+                PendingWrite::Remove => {
+                    entry.values.remove(&key);
+                }
+            }
+        }
         for (id, w, h) in state.pending_collider_size.drain(..) {
             if let Some(col) = world.colliders.get_mut(&(id as EntityId)) {
                 col.width = w;

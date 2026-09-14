@@ -111,6 +111,15 @@ pub struct WorldSnapshot {
     /// honestly-functioning read, not a stub, so a future non-`Alternating`
     /// mode that does consult it needs no scripting-API change.
     pub(super) actor_speeds: HashMap<i64, u32>,
+    /// Read-only per-entity `Vars` snapshot (Step 7.5-3, docs/ember2d-
+    /// master-plan.md §5.6) backing `ctx.get_var`/`has_var` — frozen at the
+    /// start of the pass, same as every other field here, so a `set_var`
+    /// this pass is invisible to a `get_var` later in the SAME pass (see
+    /// `ScriptState.pending_vars`'s own doc comment). An entity with no
+    /// `Vars` component at all (never had `set_var` called on it) simply
+    /// has no entry here — `get_var` treats that the same as an entry with
+    /// no matching key.
+    pub(super) vars: BTreeMap<i64, BTreeMap<String, rhai::Dynamic>>,
 }
 
 impl WorldSnapshot {
@@ -207,6 +216,11 @@ impl WorldSnapshot {
             }
         }
 
+        let mut vars = BTreeMap::new();
+        for (id, v) in &world.vars {
+            vars.insert(*id as i64, v.values.clone());
+        }
+
         WorldSnapshot {
             positions,
             velocities,
@@ -223,6 +237,7 @@ impl WorldSnapshot {
             animator_frames,
             clip_finished,
             actor_speeds,
+            vars,
             layers: layers.clone(),
         }
     }
@@ -337,6 +352,15 @@ pub(super) struct ScriptState {
     pub(super) pending_collider_locked: Vec<(i64, bool)>,
     pub(super) pending_collider_mask: Vec<(i64, Vec<String>)>,
     pub(super) pending_timers: Vec<(crate::world::EntityId, String, f64)>,
+    /// `ctx.set_var`/`remove_var`'s write queue (Step 7.5-3) — `(entity id,
+    /// key, write)`. Applied in `apply_ctx` directly onto `World::vars`,
+    /// guarded against a nonexistent entity the same way `pending_tags`
+    /// already is (R10, 7A-1) — no `Vars` for an entity nothing else
+    /// spawned this pass either. `PendingWrite`, not a raw `Dynamic`, same
+    /// `Set`/`Remove` distinction `pending_globals`/`pending_persistent`
+    /// use (7.5-1, R32) — `set_var(id, "k", ())` must store unit, not alias
+    /// `remove_var(id, "k")`.
+    pub(super) pending_vars: Vec<(i64, String, PendingWrite)>,
     /// Phase 6 Step 9 (docs/ember2d-phase6-plan.md): `mem::take`n out of
     /// `ScriptEngine.timers` at the start of whichever `run_*` method built
     /// this `ScriptState`, and put back by `apply_ctx` before it returns —
@@ -503,6 +527,7 @@ impl ScriptState {
             pending_collider_mask: Vec::new(),
             pending_collider_locked: Vec::new(),
             pending_timers: Vec::new(),
+            pending_vars: Vec::new(),
             timers: BTreeMap::new(),
             pending_commands: Vec::new(),
             pending_act_cost: None,

@@ -28,6 +28,7 @@ pub mod script;
 pub mod sprite;
 pub mod tag;
 pub mod transform;
+pub mod vars;
 
 // Re-export the most commonly used types at the `components` level.
 pub use actor::{Actor, Controller};
@@ -37,3 +38,4 @@ pub use script::Script;
 pub use sprite::{Sprite, SpriteSource};
 pub use tag::Tag;
 pub use transform::Transform;
+pub use vars::Vars;

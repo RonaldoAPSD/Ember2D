@@ -212,8 +212,12 @@ chrome text overlaps at 4× on a small window, and a bigger UI scale
 SHRINKS the viewport (fixed-point-width side panels eat more of a fixed
 window). **Phase 7E (Editor features) deferred by user direction, same
 day** — feature/UX polish, not refactoring work; its 6 steps stand as
-written in §5.5 for whenever it's picked back up. **Next real work:
-Phase 7.5 — Scripting completeness (§5.6), starting 7.5-1.**
+written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
+completeness (§5.6) under way: 7.5-1/7.5-2/7.5-3 landed
+(`a3d483e`/`fe75ef6`/`PENDING_HASH`). Next: 7.5-4 (data-driven actor
+stats) — note its own plan text assumes 7E-2's inspector "Actor" section,
+which doesn't exist yet (7E deferred); scope that decision the same way
+7.5-3's inspector bullet was scoped before writing code.**
 
 ### 2.3 Baseline numbers (at `v0.5.7d`)
 
@@ -3528,13 +3532,113 @@ in the API doc's migration section in the same commit.
   the non-zero score/kills path is verified by the extended
   `shooter_arena.rs` test above rather than a screenshot.
 
-#### `[ ]` 7.5-3 — Per-entity variables
+#### `[x]` 7.5-3 — Per-entity variables (`PENDING_HASH`)
 
-`set_var(id, key, value)`, `get_var(id, key) -> Dynamic`, `has_var`,
-`remove_var`, backed by a new `Vars` component (`BTreeMap<String, Dynamic>`,
-serialised in `SaveState`, cleared on despawn, visible in the inspector as
-read-only). Migrate `hp_`, `aware_`, `acted_`, `atk_*` keys in the
-roguelike and `ehp_` in the shooter.
+- **Why:** the `"hp_" + id`/`"aware_" + id`/`"ehp_" + id` global-key-
+  concatenation convention (already visible in 7.5-2's own script edits)
+  fakes per-entity scope out of a level-scoped global — no automatic
+  cleanup on despawn, no protection against a naming collision, and no
+  real reason it should live on `PlayState` rather than the entity itself.
+- **Change:** `set_var(id, key, value)`, `get_var(id, key) -> Dynamic`,
+  `has_var`, `remove_var`, backed by a new `Vars` component
+  (`BTreeMap<String, Dynamic>`), cleared on despawn. Migrate `hp_`/`aware_`
+  in the roguelike and `ehp_` in the shooter.
+- **Test:** `set_var` this pass is invisible to `get_var` later in the SAME
+  pass (matching `get_global`'s own rule) but visible next pass; `remove_var`
+  actually removes the key; despawn clears the whole component.
+- **Scope:** `ember2d-sim`, both demos, API doc.
+- **Landed as:** `acted_`/`atk_*` turned out to already be dead — grepped
+  first and confirmed both were removed by Phase 5f's turn-scheduler
+  rewrite (player.rhai's/enemy_rat.rhai's own header comments already said
+  so); only `hp_`/`aware_`/`ehp_` were live, so those are the whole
+  migration. **Scope decision made with the user up front, not assumed:**
+  the plan's own "visible in the inspector as read-only" sub-bullet has no
+  home today — the editor's Inspector panel only edits design-time
+  `TileRecord` data before entities exist; a runtime/play-mode entity
+  inspector is squarely Phase 7E (editor features), which the user
+  deferred earlier this session. Asked directly; the user chose "land
+  everything except the UI" — implement the component/API/migration now,
+  note the inspector bullet as deferred to 7E rather than silently
+  dropping it (see this file's §7.4 note below, and the plan's own 7E
+  entry when that phase resumes).
+  **`Vars` needs no `SaveState` field** the way `globals`/`persistent`/
+  `clips` do (`save.rs`) — it lives directly on `World` alongside
+  `Transform`/`Sprite`/`Tag`/etc., which `SaveState.world: World` already
+  serializes via `derive(Serialize, Deserialize)`; `#[serde(default)]` on
+  `World::vars` (matching `animators`/`actors`'s own convention) is what
+  lets an old save load with every entity's `Vars` empty. Read path: a new
+  `WorldSnapshot.vars: BTreeMap<i64, BTreeMap<String, Dynamic>>`, built
+  once per pass exactly like `tags`/`colliders`, so `get_var`/`has_var`
+  never observe a same-pass `set_var` — the same rule `get_global` already
+  has, for the same reason. Write path: `pending_vars: Vec<(i64, String,
+  PendingWrite)>` on `ScriptState`, applied in `apply_ctx` behind the same
+  ghost-component guard R10 (7A-1) already established for `pending_tags`
+  (`world.transforms.contains_key`) — `set_var` on a nonexistent entity is
+  a no-op, not a `Vars` created out of nowhere.
+  **`add_var(id, key, delta) -> new_value` added beyond the plan's own
+  text** — not a scope creep, a correctness requirement found while
+  migrating `director.rhai`'s `resolve_hits`: its per-enemy HP total
+  (`ehp_<id>`) was already on `add_global` as of 7.5-2 specifically to
+  close the same-pass duplicate-write hazard; moving that HP onto `Vars`
+  without an equivalent `add_var` would have reopened the exact hazard
+  7.5-2 had just closed, one layer down. Mirrors `add_global`'s own design
+  (current = last matching entry in `pending_vars` this pass, scanned in
+  reverse since it's a flat `Vec` not a map, else the resolved snapshot,
+  else `0.0`) plus an `add_var_i` int overload (7.5-1's uniform-typing
+  convention — `director.rhai`'s own `25 * cleared`-shaped calls need it).
+  `resolve_hits` also dropped its explicit `remove_global`/now-`remove_var`
+  call on a kill entirely: the very next line already calls `ctx.despawn`,
+  and despawn clears the whole `Vars` component for free, so the explicit
+  removal was redundant once `Vars` (not a bare global) was the backing
+  store. Its `dead` list stays, but for a different reason now — not
+  resurrection (that risk was specific to the old global convention), but
+  stopping a third bullet on an already-dead enemy from re-running the
+  kill block (score/loot/despawn) a second time.
+  **Script changes**: `on_start` seeds `set_var(id, "hp", n)` in place of
+  `set_global("hp_" + id, n)`; lazy-init in `on_update` mirrors it;
+  `update_awareness` reads/writes `get_var`/`set_var(id, "aware", ...)`;
+  player.rhai's `attack()` becomes `ctx.add_var(target, "hp", -3)`;
+  director.rhai's `spawn_enemy` becomes `ctx.set_var(e, "hp", hp)`. Updated
+  `save.rs`'s own stale doc comment (it named `hp_<id>`/`aware_<id>` as
+  living in `globals`) and `docs/ember2d-scripting-api.md` §2's per-entity-
+  state guidance, which used to recommend the global-key-concatenation
+  convention as the ONLY option — now describes `Vars` as the real
+  mechanism, with `set_global`/`get_global` kept for genuinely level-scoped
+  values. New sibling test file `vars_tests.rs` (same `#[path]`-split
+  convention `atomic_arithmetic_tests.rs` established at 7.5-2) — 7 tests:
+  the round-trip/same-pass-invisible guarantee, `has_var`, `remove_var`
+  actually removing the key, despawn clearing `Vars`, the ghost-component
+  guard, and two `add_var` tests (double-call-same-pass accumulation,
+  post-remove restart-from-zero) — all confirmed to fail against a
+  deliberately-broken implementation in turn (apply_ctx never applying
+  `pending_vars`; the ghost-component guard removed; `add_var` reading only
+  the resolved snapshot, ignoring `pending_vars`), then restored. Also
+  added `world.rs`'s own lower-level coverage (matching its existing
+  `animators`/`actors` test pattern): a RON round-trip, a pre-7.5-3 RON
+  string still loading with `vars` defaulting empty, despawn clearing
+  `vars`, and `entity_ids()`'s union including a `Vars`-only entity.
+  **Verification.** `cargo build --workspace --bins --examples` clean.
+  `cargo test --workspace`: 401 (was 392: +7 `vars_tests`, +2 `world.rs`
+  tests), all pass — including `roguelike_combat.rs`'s and
+  `shooter_arena.rs`'s existing combat/duplicate-hit tests, unchanged and
+  still green against the new `Vars`-backed storage. `cargo clippy
+  --workspace --all-targets`: zero new warnings in any touched file (one
+  new `doc_lazy_continuation` warning surfaced during 7.5-2's own commit,
+  already fixed there). `cargo test -p ember2d --test replay` 3× fresh
+  processes green (`World::vars` round-trips through the save/load-midpoint
+  replay test along with every other component). `scripts/check.ps1` clean
+  (`CLAUDE.md`'s quoted registered-function count updated 148 → 154:
+  `set_var`/`get_var`/`has_var`/`remove_var`/`add_var`/`add_var_i`;
+  `API_VERSION` unchanged at 7, purely additive per `docs/ember2d-
+  scripting-api.md` §6's own convention). Verified live: launched
+  `demos/roguelike/floor1.level` and `floor2.level` — HUD, movement, gold
+  pickup, and a sleeping rat's `DarkRed` tint (a `get_var(id, "aware")`
+  read through `WorldSnapshot`) all render correctly with no script error;
+  did not reach a rat to land a live attack by hand (floor2's wall layout
+  made manual navigation slow), so the `attack()`/`add_var`/despawn path
+  is verified by `roguelike_combat.rs`'s existing byte-exact assertions
+  (unchanged, still passing against the new storage) rather than a
+  screenshot of a kill.
 
 #### `[ ]` 7.5-4 — Data-driven actor stats
 
@@ -3884,10 +3988,13 @@ regardless.
 
 Enable if `or_zero`-style duplication survives 7.5-2/7.5-3 in any shipped
 script. The `no_module` feature currently exists for build size and
-simplicity, not determinism. **7.5-2 side resolved:** `or_zero()` is gone
-from all six roguelike scripts (deleted, not just unused) — nothing left
-there to motivate this. Still open pending 7.5-3 (per-entity `hp_`/`aware_`/
-`acted_`/`atk_*`/`ehp_` key-prefix duplication).
+simplicity, not determinism. **Both sides now resolved, nothing left to
+motivate this:** `or_zero()` is gone from all six roguelike scripts
+(7.5-2, deleted, not just unused), and the `hp_`/`aware_`/`ehp_` global-
+key-concatenation duplication is gone too (7.5-3 — `acted_`/`atk_*` turned
+out to already be dead before 7.5-3 even started, removed by Phase 5f's
+turn-scheduler rewrite). Revisit only if a future step reintroduces
+key-concatenation duplication in a shipped script.
 
 ### 7.5 Prefabs — decided in Phase 11
 

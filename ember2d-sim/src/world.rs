@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use crate::components::{Actor, Animator, Collider, Script, Sprite, Tag, Transform};
+use crate::components::{Actor, Animator, Collider, Script, Sprite, Tag, Transform, Vars};
 use crate::event::{EventBus, GameEvent};
 use crate::math::{Rect, Vec2};
 
@@ -66,6 +66,13 @@ pub struct World {
     /// same as any other new component store would.
     #[serde(default)]
     pub actors: BTreeMap<EntityId, Actor>,
+    /// Arbitrary per-entity script state (Step 7.5-3, docs/ember2d-master-
+    /// plan.md §5.6) — see `components/vars.rs`'s own doc comment for what
+    /// this replaces. `#[serde(default)]` for the same reason `animators`/
+    /// `actors` have it — an old save predating this field still loads, as
+    /// if every entity's `Vars` were empty.
+    #[serde(default)]
+    pub vars: BTreeMap<EntityId, Vars>,
 }
 
 impl World {
@@ -80,6 +87,7 @@ impl World {
             scripts: BTreeMap::new(),
             animators: BTreeMap::new(),
             actors: BTreeMap::new(),
+            vars: BTreeMap::new(),
         }
     }
 
@@ -99,6 +107,7 @@ impl World {
         self.scripts.remove(&id);
         self.animators.remove(&id);
         self.actors.remove(&id);
+        self.vars.remove(&id);
     }
 
     // ── Component accessors ───────────────────────────────────────────────
@@ -140,6 +149,12 @@ impl World {
     }
     pub fn remove_animator(&mut self, id: EntityId) {
         self.animators.remove(&id);
+    }
+    pub fn add_vars(&mut self, id: EntityId, v: Vars) {
+        self.vars.insert(id, v);
+    }
+    pub fn remove_vars(&mut self, id: EntityId) {
+        self.vars.remove(&id);
     }
 
     // ── Hierarchy ─────────────────────────────────────────────────────────
@@ -229,6 +244,7 @@ impl World {
         ids.extend(self.scripts.keys().copied());
         ids.extend(self.animators.keys().copied());
         ids.extend(self.actors.keys().copied());
+        ids.extend(self.vars.keys().copied());
         ids.into_iter().collect()
     }
 
@@ -477,6 +493,36 @@ mod tests {
     }
 
     #[test]
+    fn a_world_with_vars_round_trips_through_ron() {
+        let mut world = World::new();
+        let id = world.spawn();
+        world.vars.insert(
+            id,
+            Vars { values: BTreeMap::from([("hp".to_string(), rhai::Dynamic::from(6_i64))]) },
+        );
+
+        let ron = ron::to_string(&world).expect("World must serialize");
+        let restored: World = ron::from_str(&ron).expect("World must deserialize");
+        assert_eq!(
+            restored.vars.get(&id).and_then(|v| v.values.get("hp")).and_then(|d| d.as_int().ok()),
+            Some(6)
+        );
+    }
+
+    #[test]
+    fn a_saved_world_from_before_the_vars_store_existed_still_loads() {
+        // Step 7.5-3 added `vars` to an already-shipped serialized type;
+        // #[serde(default)] is what keeps an old save (missing the field
+        // entirely) loading instead of erroring out — same convention
+        // `animators`'s own test above pins.
+        let pre_step_7_5_3_ron = "(next_id:1,transforms:{},sprites:{},colliders:{},tags:{},\
+             scripts:{},animators:{},actors:{})";
+        let restored: World = ron::from_str(pre_step_7_5_3_ron)
+            .expect("a World RON with no `vars` key must still deserialize");
+        assert!(restored.vars.is_empty());
+    }
+
+    #[test]
     fn despawn_removes_the_entitys_animator() {
         let mut world = World::new();
         let id = world.spawn();
@@ -497,6 +543,18 @@ mod tests {
         assert!(
             !world.actors.contains_key(&id),
             "despawn must clean up the actors store like every other component store"
+        );
+    }
+
+    #[test]
+    fn despawn_removes_the_entitys_vars() {
+        let mut world = World::new();
+        let id = world.spawn();
+        world.add_vars(id, Vars::default());
+        world.despawn(id);
+        assert!(
+            !world.vars.contains_key(&id),
+            "despawn must clean up the vars store like every other component store"
         );
     }
 
@@ -576,6 +634,8 @@ mod tests {
         world.add_animator(animator_only, crate::components::Animator::new("clip"));
         let actor_only = world.spawn();
         world.add_actor(actor_only, crate::components::Actor::ai(100));
+        let vars_only = world.spawn();
+        world.add_vars(vars_only, Vars::default());
 
         let ids = world.entity_ids();
         assert!(
@@ -587,5 +647,6 @@ mod tests {
             "an entity with only an Animator component must be listed"
         );
         assert!(ids.contains(&actor_only), "an entity with only an Actor component must be listed");
+        assert!(ids.contains(&vars_only), "an entity with only a Vars component must be listed");
     }
 }

@@ -233,7 +233,7 @@ fn do_quaff(id, ctx, hp, hp_max) {
 /// enemy_boss.rhai's own on_turn, writing this script's "hp" persistent
 /// value directly (see the header comment's "DAMAGE MODEL CHANGED" note).
 fn attack(target, ctx) {
-    ctx.add_global("hp_" + target, -3);
+    ctx.add_var(target, "hp", -3);
     ctx.emit_particles(ctx.get_x(target), ctx.get_y(target), "*", "Red");
     ctx.shake_camera(1.0, 0.1);
     // demos/roguelike/audio has no dedicated attack sound — hurt.ogg (the only

@@ -19,19 +19,22 @@
 // `ctx.count_by_tag("boss") > 0`; placing this tile on floor 3 IS the
 // entire boss-gate mechanism — no stairs.rhai or engine changes needed to
 // wire it up.
+// HP/AWARENESS LIVE IN Vars, NOT A "hp_" + id GLOBAL — see enemy_rat.rhai's
+// own header comment (Step 7.5-3, docs/ember2d-master-plan.md §5.6) for
+// the full reasoning.
 fn on_start(id, ctx) {
-    ctx.set_global("hp_" + id, 15);
+    ctx.set_var(id, "hp", 15);
 }
 
 /// See enemy_rat.rhai's own on_update for the full reasoning (death check
 /// + tint only; the awareness decision lives in on_turn below).
 fn on_update(id, ctx) {
     let hp;
-    if !ctx.has_global("hp_" + id) {
+    if !ctx.has_var(id, "hp") {
         hp = 15;
-        ctx.set_global("hp_" + id, hp);
+        ctx.set_var(id, "hp", hp);
     } else {
-        hp = ctx.get_global("hp_" + id);
+        hp = ctx.get_var(id, "hp");
     }
 
     if hp <= 0 {
@@ -40,13 +43,13 @@ fn on_update(id, ctx) {
         return;
     }
 
-    if ctx.get_global("aware_" + id) == true { ctx.set_tint(id, "Magenta", "Reset"); }
+    if ctx.get_var(id, "aware") == true { ctx.set_tint(id, "Magenta", "Reset"); }
     else { ctx.set_tint(id, "DarkMagenta", "Reset"); }
 }
 
 /// See enemy_rat.rhai's own on_turn for the full reasoning.
 fn on_turn(id, ctx) {
-    let hp = ctx.get_global("hp_" + id);
+    let hp = ctx.get_var(id, "hp");
     if hp <= 0 { return; }
 
     let player = ctx.find_by_tag("player");
@@ -89,7 +92,7 @@ fn on_turn(id, ctx) {
 /// ["solid"], and why this lives in its own function instead of inlined in
 /// on_turn — the same max-expression-complexity guard applies here too).
 fn update_awareness(id, ctx, hp, ex, ey, px, py) {
-    let aware = ctx.get_global("aware_" + id) == true;
+    let aware = ctx.get_var(id, "aware") == true;
     if aware { return true; }
 
     if hp < 15 { aware = true; }
@@ -98,6 +101,6 @@ fn update_awareness(id, ctx, hp, ex, ey, px, py) {
         if hit.is_empty() { aware = true; }
     }
 
-    if aware { ctx.set_global("aware_" + id, true); }
+    if aware { ctx.set_var(id, "aware", true); }
     aware
 }

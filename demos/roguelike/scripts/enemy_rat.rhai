@@ -61,24 +61,36 @@
 // earlier pass, fully committed before the level's first real frame, so
 // there's no reason to move it and no reason to trust a same-frame race
 // that's already been fixed once.
+//
+// HP/AWARENESS LIVE IN Vars, NOT A "hp_" + id GLOBAL (Step 7.5-3,
+// docs/ember2d-master-plan.md §5.6) — the old convention faked per-entity
+// scoping out of a level-scoped global by concatenating this rat's own id
+// into the key string. `ctx.set_var(id, "hp", ...)`/`get_var(id, "hp")` are
+// real per-entity component state (`components/vars.rs`): automatically
+// cleared when this rat despawns, with no risk of a naming collision with
+// any other entity's own "hp"/"aware" var. Same same-pass-write-invisible
+// convention `get_global`/`set_global` always had, so every ordering
+// argument this file's other comments already make (on_start committing
+// before the level's first real frame; on_turn always reading a value this
+// SAME step's on_update already committed) carries over unchanged.
 fn on_start(id, ctx) {
-    ctx.set_global("hp_" + id, 6);
+    ctx.set_var(id, "hp", 6);
 }
 
 /// Runs every step regardless of whose turn it is (Step 5f) — the death
 /// check (so a rat killed mid-round disappears as soon as possible, not
 /// waiting for its next scheduled turn) and the awareness tint. The tint
-/// only *reads* "aware_<id>" here — the awareness *decision* (raycast, hp
+/// only *reads* "aware" here — the awareness *decision* (raycast, hp
 /// check, actually waking up) happens once per turn in on_turn's
 /// update_awareness call, so the color redraws every step but the
 /// underlying state only ever changes on this rat's own turn.
 fn on_update(id, ctx) {
     let hp;
-    if !ctx.has_global("hp_" + id) {
+    if !ctx.has_var(id, "hp") {
         hp = 6;
-        ctx.set_global("hp_" + id, hp);
+        ctx.set_var(id, "hp", hp);
     } else {
-        hp = ctx.get_global("hp_" + id);
+        hp = ctx.get_var(id, "hp");
     }
 
     if hp <= 0 {
@@ -91,14 +103,14 @@ fn on_update(id, ctx) {
         return;
     }
 
-    if ctx.get_global("aware_" + id) == true { ctx.set_tint(id, "Red", "Reset"); }
+    if ctx.get_var(id, "aware") == true { ctx.set_tint(id, "Red", "Reset"); }
     else { ctx.set_tint(id, "DarkRed", "Reset"); }
 }
 
 /// Runs exactly once, only when TurnScheduler hands this actor the turn —
 /// wake up (if not already), then chase or attack.
 fn on_turn(id, ctx) {
-    let hp = ctx.get_global("hp_" + id);
+    let hp = ctx.get_var(id, "hp");
     if hp <= 0 { return; } // on_update should have despawned it already; guard anyway
 
     let player = ctx.find_by_tag("player");
@@ -163,7 +175,7 @@ fn on_turn(id, ctx) {
 /// max-expression-complexity guard at compile time — the same class of
 /// limit player.rhai's HUD line hit from string concatenation instead.
 fn update_awareness(id, ctx, hp, ex, ey, px, py) {
-    let aware = ctx.get_global("aware_" + id) == true;
+    let aware = ctx.get_var(id, "aware") == true;
     if aware { return true; }
 
     if hp < 6 { aware = true; }
@@ -172,6 +184,6 @@ fn update_awareness(id, ctx, hp, ex, ey, px, py) {
         if hit.is_empty() { aware = true; }
     }
 
-    if aware { ctx.set_global("aware_" + id, true); }
+    if aware { ctx.set_var(id, "aware", true); }
     aware
 }

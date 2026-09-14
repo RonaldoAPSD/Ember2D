@@ -67,19 +67,32 @@ between calls anymore; it is currently dead state, kept alive only for
 hot-reload/despawn bookkeeping (R22, docs/ember2d-master-plan.md §3.2,
 scheduled for cleanup in step 7.5-10).
 
-Any per-entity value a script itself needs to remember across calls must
-go through `ctx.set_global`/`get_global` (level-scoped — resets on every
-level load) or `ctx.set_persistent`/`get_persistent` (survives level
-transitions) instead, keyed per-entity by string concatenation (e.g.
-`"hp_" + id`). See `demos/roguelike/scripts/player.rhai` and `enemy_rat.rhai` for
-this in practice, including the sharp edge that comes with it: **a `get_*`
-never observes a `set_*` from earlier in the same script pass** — every
-write is deferred and only applied after every script has run that frame,
-so a value lazy-initialized this same call still reads back as `()`, not
-the value just set. Guard such reads (an `or_zero()`-style helper, or a
-value computed directly in its own init branch rather than defaulted) —
-see either script's header comment for two real bugs this caused and how
-they were found.
+A per-entity value a script needs to remember across calls goes through
+`ctx.set_var`/`get_var`/`has_var`/`remove_var` (Step 7.5-3, docs/ember2d-
+master-plan.md §5.6) — real per-entity component state (`Vars`,
+`components/vars.rs`), automatically cleared when that entity despawns. See
+`demos/roguelike/scripts/enemy_rat.rhai` and `demos/shooter/scripts/
+director.rhai`'s `spawn_enemy`/`resolve_hits` for this in practice. Before
+7.5-3, the only way to fake per-entity scope was `ctx.set_global`/
+`get_global` keyed by string concatenation (`"hp_" + id`) — that
+convention is gone from every shipped script, but the mechanism it was
+built on (`set_global`/`get_global`, still the right tool for a
+genuinely LEVEL-scoped value — resets on every level load — with
+`set_persistent`/`get_persistent` for a value that must survive a level
+transition) has the same sharp edge `set_var`/`get_var` inherits: **a
+`get_*` never observes a `set_*` from earlier in the same script pass** —
+every write is deferred and only applied after every script has run that
+frame, so a value lazy-initialized this same call still reads back as `()`
+(or, via `add_global`/`add_persistent`/`add_var`, accumulates correctly
+regardless — see §4 "State" below), not the value just set. A read that
+might race its own same-pass lazy-init needs either restructuring (pass
+the just-computed value as a parameter instead of re-reading it — see
+`demos/roguelike/scripts/player.rhai`'s `on_update`/`draw_hud`) or to
+simply happen in a LATER pass than the write (every `on_turn` read in the
+demo scripts qualifies, since `on_turn` always runs after that step's own
+`on_update` has fully committed — see either script's header comment for
+the two real bugs this caused before that ordering guarantee was
+understood, and how they were found).
 
 ### `ctx` carries the calling entity
 `ctx.with_entity(id)` means `start_timer` / `timer_done` / `cancel_timer` need no id argument, and `raycast` skips self.
@@ -356,6 +369,7 @@ writing.
 ### State
 Globals (per level): `set_global` · `get_global` · `has_global` · `remove_global` · `add_global(key, delta)` → new value
 Persistent (across levels): `set_persistent` · `get_persistent` · `has_persistent` · `clear_persistent` · `clear_all_persistent` · `add_persistent(key, delta)` → new value
+Per-entity (`Vars`, cleared on despawn): `set_var(id,key,value)` · `get_var(id,key)` · `has_var(id,key)` · `remove_var(id,key)` · `add_var(id,key,delta)` → new value
 
 > **Defect D2 (fixed in Phase 1):** `set_persistent` inside `on_start` used
 > to be silently discarded — `PlayState::on_start` ran `on_start` scripts
@@ -382,6 +396,17 @@ Persistent (across levels): `set_persistent` · `get_persistent` · `has_persist
 > int — a script displaying the result should cast with `.to_int()` if it
 > wants to avoid Rhai's string concatenation rendering a whole-number float
 > with a trailing `.0`.
+
+> **`set_var`/`get_var`/`has_var`/`remove_var`/`add_var` (Step 7.5-3,
+> docs/ember2d-master-plan.md §5.6):** real per-entity state, backed by a
+> `Vars` component (`components/vars.rs`) rather than a level-scoped
+> global. `World::despawn` clears an entity's entire `Vars` automatically —
+> no `remove_var` bookkeeping needed on death, unlike the `"hp_" + id`/
+> `"ehp_" + id` global-key-concatenation convention this replaces (still
+> readable in git history; every shipped script has migrated off it).
+> Same same-pass-write-invisible rule as `get_global`/`set_global` (see
+> `docs/ember2d-scripting-api.md` §2's note above), and `add_var` gives it
+> the same atomic-accumulate guarantee `add_global`/`add_persistent` have.
 
 ### Timers
 `start_timer(name,seconds)` · `timer_done(name)` · `cancel_timer(name)`
@@ -530,10 +555,11 @@ numeric literals in one consistent style, though; mixing (`draw_hud(1,
 | 7.5 | Step 7.5-1: `remove_global`/`clear_persistent` no longer alias `set_global`/`set_persistent(key, ())` — both used to signal "delete" by writing `Dynamic::UNIT` into the same pending-write map as a real value, so a script storing unit legitimately (`set_global("k", ())`) was silently deleted instead | Yes — `set_global("k", ())` now actually stores `()` at key `"k"`, readable back via `get_global`/`has_global`, where it used to delete the key instead. |
 | 7.5 | Step 7.5-1: `load_level` is last-wins now (matching `save_game`/`play_music`, which already were) — was first-wins | Yes — a script calling `load_level` more than once in the same pass now loads whichever path it named LAST, not the first. |
 | 7.5 | Step 7.5-2 (docs/ember2d-master-plan.md §5.6): `add_global`/`add_persistent` added, for accumulating a running total without the same-pass read-modify-write hazard every other `set_*` call has | **No** — purely additive: two new functions, nothing existing changed shape or behavior. |
+| 7.5 | Step 7.5-3 (docs/ember2d-master-plan.md §5.6): `set_var`/`get_var`/`has_var`/`remove_var`/`add_var` added — real per-entity state (a new `Vars` component), replacing the `"hp_" + id`-style global-key-concatenation convention | **No** — purely additive: five new functions backed by a new component; every existing function's shape and behavior is unchanged. |
 
 **Phase 6 is a zero-API-break phase** — `API_VERSION` stayed `6` through
-Step 5f. Phase 7.5-1 is the next break after it; 7.5-2 (the row directly
-above) is additive and does not bump it further.
+Step 5f. Phase 7.5-1 is the next break after it; 7.5-2 and 7.5-3 (the two
+rows directly above) are both additive and do not bump it further.
 
 `api_version()` was added in Step 3e (deferred from the original Phase 1 plan) —
 it currently returns `7`: `1` was the pre-refactor baseline, `2` covers Phase 2's
@@ -545,8 +571,9 @@ covers Step 5f's turn scheduler (`on_turn`, `act`, `get_turn_number`,
 `get_speed`, `set_speed`, `trigger_turn` removed), and `7` covers Step 7.5-1's
 three rows above it (uniform int/float typing, `set_global`/`set_persistent`
 unit storage, `load_level` last-wins) — Step 7.5-2's `add_global`/
-`add_persistent` row shipped after `7` without needing an `8`, being
-additive. Bump it at every future "yes" above.
+`add_persistent` row and Step 7.5-3's `set_var`/`get_var`/`has_var`/
+`remove_var`/`add_var` row both shipped after `7` without needing an `8`/`9`,
+being additive. Bump it at every future "yes" above.
 
 ---
 

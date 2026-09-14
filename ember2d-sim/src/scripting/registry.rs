@@ -148,6 +148,12 @@ pub(super) fn register_all(engine: &mut Engine) {
     engine.register_fn("start_timer", ScriptCtx::start_timer);
     engine.register_fn("timer_done", ScriptCtx::timer_done);
     engine.register_fn("cancel_timer", ScriptCtx::cancel_timer);
+    engine.register_fn("set_var", ScriptCtx::set_var);
+    engine.register_fn("get_var", ScriptCtx::get_var);
+    engine.register_fn("has_var", ScriptCtx::has_var);
+    engine.register_fn("remove_var", ScriptCtx::remove_var);
+    engine.register_fn("add_var", ScriptCtx::add_var);
+    engine.register_fn("add_var", ScriptCtx::add_var_i);
     engine.register_fn("get_parent", ScriptCtx::get_parent);
     engine.register_fn("set_parent", ScriptCtx::set_parent);
     engine.register_fn("set_parent_keep_world", ScriptCtx::set_parent_keep_world);
