@@ -309,7 +309,11 @@ pub(super) struct ScriptState {
     pub(super) pending_spatial_sounds: Vec<(String, f32, f32)>,
     pub(super) pending_music: Option<String>,
     pub(super) stop_music: bool,
-    pub(super) pending_globals: BTreeMap<String, rhai::Dynamic>,
+    /// `PendingWrite`, not a raw `rhai::Dynamic` (7.5-1, docs/ember2d-
+    /// master-plan.md §5.6, R32) — see that type's own doc comment for why
+    /// a real `Set`/`Remove` distinction replaced writing `Dynamic::UNIT`
+    /// to mean "delete."
+    pub(super) pending_globals: BTreeMap<String, PendingWrite>,
     /// `register_clip` writes here rather than into `clips` directly, so a
     /// clip a script registers this frame only becomes visible (to that
     /// script or any other) starting next frame — the same "writes settle
@@ -320,7 +324,8 @@ pub(super) struct ScriptState {
     pub(super) pending_stop_clip: Vec<i64>,
     pub(super) pending_clip_speed: Vec<(i64, f32)>,
     pub(super) pending_set_frame: Vec<(i64, usize)>,
-    pub(super) pending_persistent: BTreeMap<String, rhai::Dynamic>,
+    /// `PendingWrite`, same reasoning as `pending_globals` above.
+    pub(super) pending_persistent: BTreeMap<String, PendingWrite>,
     pub(super) pending_camera: Option<crate::math::Vec2>,
     pub(super) pending_shake: Option<ShakeState>,
     pub(super) pending_visibility: Vec<(i64, bool)>,

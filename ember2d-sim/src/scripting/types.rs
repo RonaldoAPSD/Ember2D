@@ -22,7 +22,17 @@ use std::collections::BTreeMap;
 /// `ctx.act`/`get_turn_number`/`get_speed`/`set_speed`, and
 /// `ctx.trigger_turn` removed outright (the turn scheduler replaces it —
 /// see `ScriptUpdateResult`'s field doc comments below).
-pub const API_VERSION: i64 = 6;
+/// v7 is Phase 7.5 Step 7.5-1 (docs/ember2d-master-plan.md §5.6, R31/R32):
+/// every registered function taking a coordinate, size, or layer-order
+/// argument now accepts BOTH Rhai int and float literals (was a strict
+/// type match — Rhai never coerces between them for a registered native
+/// function, so e.g. `draw_hud(1, 2, ...)` used to fail "function not
+/// found" against an `i64`-typed signature); `remove_global`/
+/// `clear_persistent` no longer alias `set_*("k", ())`, since both now
+/// queue a real `PendingWrite::Remove` instead of the old
+/// `Dynamic::UNIT`-means-delete sentinel; `load_level` is last-wins now,
+/// matching `save_game`/`play_music` (was first-wins).
+pub const API_VERSION: i64 = 7;
 
 // ── Console log types (used by editor console panel) ─────────────────────────
 
@@ -97,6 +107,23 @@ pub struct ScriptUpdateResult {
     /// "here's what to show while the player catches up," played back over
     /// real frames, never fed back into simulation state.
     pub animations: Vec<AnimationEvent>,
+}
+
+/// A queued write to `ScriptState::pending_globals`/`pending_persistent`
+/// (7.5-1, docs/ember2d-master-plan.md §5.6, R32) — replaces writing
+/// `Dynamic::UNIT` as a "delete this key" sentinel, which made
+/// `set_global("k", ())` (a script legitimately storing unit) silently
+/// indistinguishable from `remove_global("k")`; `apply.rs`'s own apply
+/// loop used to check `v.is_unit()` to tell the two apart, which is
+/// exactly the bug. 7A-1's own plan sketched an enum for precisely this
+/// case ("PersistentOp") but that step ended up needing only a single
+/// bool flag (`ScriptState::pending_persistent_clear_all` — see its own
+/// doc comment) since nothing yet needed a real per-key op; this is the
+/// first thing that does.
+#[derive(Debug, Clone)]
+pub enum PendingWrite {
+    Set(rhai::Dynamic),
+    Remove,
 }
 
 /// One visual event a resolved action emitted. Durations are REAL SECONDS,

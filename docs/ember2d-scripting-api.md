@@ -480,6 +480,11 @@ fn on_update(id, ctx) {
 
 **Sentinels.** `-1` means "no entity". Never `0` — that's the reserved null id.
 
+**Numeric parameters.** Every coordinate, size, or layer-order argument
+accepts either an int or a float literal (Phase 7.5, §6) — write a call's
+numeric literals in one consistent style, though; mixing (`draw_hud(1,
+2.0, ...)`) isn't guaranteed to resolve.
+
 ---
 
 ## 6. What the refactor changes
@@ -502,22 +507,24 @@ fn on_update(id, ctx) {
 | 5.5 | `animate_move`/`animate_flash`/`animate_shake`/`is_animating` (the animation queue, Part 3) | Additive — no existing function's behavior changed |
 | 6 | Collision layers become a bitmask internally (`docs/ember2d-phase6-plan.md` Step 7) | **No** — corrected here from an earlier "Yes" this table carried since before Step 7 actually shipped: `get_collider_layer`/`set_collider_layer`/`get_collider_mask`/`set_collider_mask` and every level file, the editor, and node-graph codegen still speak plain layer-name strings, completely unchanged. The `u32` bitmask is a private, internal representation swap behind those same signatures. |
 | 6 | `get_angle_to`'s `atan2` replaced with a deterministic rational approximation (`docs/ember2d-phase6-plan.md` Step 12, §5.2 H2) | No — same signature, same units (radians), numerically different by up to ~0.01 rad (~0.6°) from the old libm-backed value. See §3's "Spatial queries" note below for why a script converting the result back to a direction via Rhai's own `.cos()`/`.sin()` is a *separate*, still-unresolved determinism hazard this fix does not (and structurally cannot) close. |
+| 7.5 | Step 7.5-1 (docs/ember2d-master-plan.md §5.6, R31/R32): every registered function taking a coordinate, size, or layer-order argument now accepts BOTH Rhai int and float literals (was a strict type match — Rhai never coerces between them for a registered native function, so `draw_hud(1, 2, ...)` used to fail "function not found" against an `i64`-typed signature, and `set_position(id, 5, 5)` failed the same way against an `f64`-typed one) | **No** — purely additive: each affected function gained a same-name overload for the other numeric type, the original signature/behavior unchanged. A script's numeric literals within one call must still be consistently one style (all int or all float), not freely mixed. |
+| 7.5 | Step 7.5-1: `remove_global`/`clear_persistent` no longer alias `set_global`/`set_persistent(key, ())` — both used to signal "delete" by writing `Dynamic::UNIT` into the same pending-write map as a real value, so a script storing unit legitimately (`set_global("k", ())`) was silently deleted instead | Yes — `set_global("k", ())` now actually stores `()` at key `"k"`, readable back via `get_global`/`has_global`, where it used to delete the key instead. |
+| 7.5 | Step 7.5-1: `load_level` is last-wins now (matching `save_game`/`play_music`, which already were) — was first-wins | Yes — a script calling `load_level` more than once in the same pass now loads whichever path it named LAST, not the first. |
 
-**Phase 6 is a zero-API-break phase** — `API_VERSION` stays `6`, unchanged
-since Step 5f. Both rows above are corrections/clarifications, not breaks:
-the collision-layer bitmask never touched a script-facing signature, and the
-`atan2` replacement keeps `get_angle_to`'s exact signature and units, just
-computing the same angle via different (deterministic) arithmetic.
+**Phase 6 is a zero-API-break phase** — `API_VERSION` stayed `6` through
+Step 5f. Phase 7.5 is the next break after it.
 
 `api_version()` was added in Step 3e (deferred from the original Phase 1 plan) —
-it currently returns `6`: `1` was the pre-refactor baseline, `2` covers Phase 2's
+it currently returns `7`: `1` was the pre-refactor baseline, `2` covers Phase 2's
 row above (informational only — nothing script-visible actually changed), `3`
 covers Phase 3's breaking renames (`set_color`/`set_z_order`/`set_animation`),
 `4` covers Step 4g's `get_mouse_world_y` change, `5` covers Step 5e's command
-boundary (`on_input`, `submit`, `command_action`, `command_param`), and `6`
+boundary (`on_input`, `submit`, `command_action`, `command_param`), `6`
 covers Step 5f's turn scheduler (`on_turn`, `act`, `get_turn_number`,
-`get_speed`, `set_speed`, `trigger_turn` removed). Bump it at every future
-"yes" above.
+`get_speed`, `set_speed`, `trigger_turn` removed), and `7` covers Step 7.5-1's
+three rows directly above (uniform int/float typing, `set_global`/
+`set_persistent` unit storage, `load_level` last-wins). Bump it at every
+future "yes" above.
 
 ---
 

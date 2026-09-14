@@ -216,6 +216,10 @@ impl ScriptCtx {
     pub fn set_velocity(&mut self, id: i64, vx: f64, vy: f64) {
         self.inner.borrow_mut().pending_velocities.push((id, vx as f32, vy as f32));
     }
+    /// `i64` overload — same reasoning as `draw_hud_f` above.
+    pub fn set_velocity_i(&mut self, id: i64, vx: i64, vy: i64) {
+        self.set_velocity(id, vx as f64, vy as f64)
+    }
     /// R6 (7A-1): a non-finite position (NaN from a script's own bad math,
     /// e.g. `0.0 / 0.0`) used to flow straight into `Transform.position`,
     /// where it later broke `detect_collisions`'s sort (see that method's
@@ -227,6 +231,11 @@ impl ScriptCtx {
             return;
         }
         self.inner.borrow_mut().pending_positions.push((id, x as f32, y as f32));
+    }
+    /// `i64` overload — same reasoning as `draw_hud_f` above. An `i64` is
+    /// always finite, so this never hits `set_position`'s own NaN guard.
+    pub fn set_position_i(&mut self, id: i64, x: i64, y: i64) {
+        self.set_position(id, x as f64, y as f64)
     }
     pub fn set_glyph(&mut self, id: i64, glyph_str: String) {
         if let Some(ch) = glyph_str.chars().next() {
@@ -292,6 +301,12 @@ impl ScriptCtx {
             String::new(),
         )
     }
+    /// `i64` overload — same reasoning as `draw_hud_f` above. Registered
+    /// under the same Rhai name as `spawn_entity`/`spawn_entity_full_i`
+    /// (arity picks the overload, same as the existing 4-arg/11-arg split).
+    pub fn spawn_entity_i(&mut self, glyph_str: String, x: i64, y: i64, tag: String) -> i64 {
+        self.spawn_entity(glyph_str, x as f64, y as f64, tag)
+    }
 
     /// Spawn an entity with full control over appearance and collider
     /// (defect D10 — `spawn_entity` used to hardcode all of this).
@@ -333,12 +348,35 @@ impl ScriptCtx {
         });
         id as i64
     }
+    /// `i64` overload — same reasoning as `draw_hud_f` above. `z` was
+    /// already `i64` (draw order is already the right type — not cast).
+    #[allow(clippy::too_many_arguments)]
+    pub fn spawn_entity_full_i(
+        &mut self,
+        glyph_str: String,
+        x: i64,
+        y: i64,
+        tag: String,
+        fg: String,
+        bg: String,
+        z: i64,
+        solid: bool,
+        w: i64,
+        h: i64,
+        layer: String,
+    ) -> i64 {
+        self.spawn_entity_full(
+            glyph_str, x as f64, y as f64, tag, fg, bg, z, solid, w as f64, h as f64, layer,
+        )
+    }
 
+    /// R32 (7.5-1, docs/ember2d-master-plan.md §5.6): was `if
+    /// pending_level.is_none() { ... }` — first-wins, inconsistent with
+    /// `save_game`/`play_music` below, which already overwrite
+    /// unconditionally. A script calling `load_level` more than once in
+    /// the same pass now gets the LAST one, matching those two.
     pub fn load_level(&mut self, path: String) {
-        let mut s = self.inner.borrow_mut();
-        if s.pending_level.is_none() {
-            s.pending_level = Some(path);
-        }
+        self.inner.borrow_mut().pending_level = Some(path);
     }
     pub fn log(&mut self, msg: String) {
         self.inner.borrow_mut().pending_logs.push(msg);
@@ -351,6 +389,17 @@ impl ScriptCtx {
             fg: parse_color(&fg),
             bg: parse_color(&bg),
         });
+    }
+    /// `f64` overload (7.5-1, docs/ember2d-master-plan.md §5.6, R31) — Rhai
+    /// dispatches to a registered function by EXACT argument type, with no
+    /// int<->float coercion, so a script writing `draw_hud(1.0, 2.0, ...)`
+    /// (float literals) needs this registered under the same Rhai name as
+    /// the `i64` version above (`registry.rs`), or the call fails to
+    /// resolve at all. Every other coordinate/size/layer-order function in
+    /// this crate gets the same treatment, each with a short comment
+    /// pointing back to this one rather than repeating the full "why."
+    pub fn draw_hud_f(&mut self, x: f64, y: f64, text: String, fg: String, bg: String) {
+        self.draw_hud(x as i64, y as i64, text, fg, bg)
     }
 
     pub fn draw_menu(
@@ -378,6 +427,32 @@ impl ScriptCtx {
             sel_bg: parse_color(&sel_bg),
         });
     }
+    /// `f64` overload — same reasoning as `draw_hud_f` above.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_menu_f(
+        &mut self,
+        x: f64,
+        y: f64,
+        w: f64,
+        options: Array,
+        selected: f64,
+        fg: String,
+        bg: String,
+        sel_fg: String,
+        sel_bg: String,
+    ) {
+        self.draw_menu(
+            x as i64,
+            y as i64,
+            w as i64,
+            options,
+            selected as i64,
+            fg,
+            bg,
+            sel_fg,
+            sel_bg,
+        )
+    }
 
     pub fn draw_panel(
         &mut self,
@@ -399,12 +474,21 @@ impl ScriptCtx {
             bg: parse_color(&bg),
         });
     }
+    /// `f64` overload — same reasoning as `draw_hud_f` above.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_panel_f(&mut self, x: f64, y: f64, w: f64, h: f64, title: String, fg: String, bg: String) {
+        self.draw_panel(x as i64, y as i64, w as i64, h as i64, title, fg, bg)
+    }
 
     pub fn play_sound(&mut self, path: String) {
         self.inner.borrow_mut().pending_sounds.push(path);
     }
     pub fn play_sound_at(&mut self, path: String, x: f64, y: f64) {
         self.inner.borrow_mut().pending_spatial_sounds.push((path, x as f32, y as f32));
+    }
+    /// `i64` overload — same reasoning as `draw_hud_f` above.
+    pub fn play_sound_at_i(&mut self, path: String, x: i64, y: i64) {
+        self.play_sound_at(path, x as f64, y as f64)
     }
     pub fn play_music(&mut self, path: String) {
         self.inner.borrow_mut().pending_music = Some(path);
@@ -422,6 +506,10 @@ impl ScriptCtx {
             glyph,
             fg: fg_col,
         });
+    }
+    /// `i64` overload — same reasoning as `draw_hud_f` above.
+    pub fn emit_particles_i(&mut self, x: i64, y: i64, glyph_str: String, fg: String) {
+        self.emit_particles(x as f64, y as f64, glyph_str, fg)
     }
 
     // Phase 5.5 Part 3's animation-queue methods (animate_move/animate_flash/

@@ -29,6 +29,12 @@ impl ScriptCtx {
         }
         -1
     }
+    /// `i64` overload (7.5-1, docs/ember2d-master-plan.md §5.6, R31) — see
+    /// `api.rs`'s `draw_hud_f` for the full reasoning every coordinate/
+    /// size/layer-order function in this crate gets one of these.
+    pub fn get_entity_at_i(&mut self, x: i64, y: i64) -> i64 {
+        self.get_entity_at(x as f64, y as f64)
+    }
     pub fn is_solid_at(&mut self, x: f64, y: f64) -> bool {
         let s = self.inner.borrow_mut();
         for (&id, &(w, h, solid, _, _, _, _)) in &s.colliders {
@@ -43,6 +49,10 @@ impl ScriptCtx {
         }
         false
     }
+    /// `i64` overload — same reasoning as `get_entity_at_i` above.
+    pub fn is_solid_at_i(&mut self, x: i64, y: i64) -> bool {
+        self.is_solid_at(x as f64, y as f64)
+    }
     pub fn find_entities_in_rect(&mut self, x: f64, y: f64, w: f64, h: f64) -> Array {
         let s = self.inner.borrow_mut();
         let mut found = Vec::new();
@@ -56,6 +66,10 @@ impl ScriptCtx {
             }
         }
         found
+    }
+    /// `i64` overload — same reasoning as `get_entity_at_i` above.
+    pub fn find_entities_in_rect_i(&mut self, x: i64, y: i64, w: i64, h: i64) -> Array {
+        self.find_entities_in_rect(x as f64, y as f64, w as f64, h as f64)
     }
     // Phase 6 Step 12 (docs/ember2d-phase6-plan.md, §5.2 H2): `get_distance`
     // is rewritten from `.powi(2)` to explicit `dx*dx` — not because `powi`
@@ -142,6 +156,10 @@ impl ScriptCtx {
         } else {
             Array::new()
         }
+    }
+    /// `i64` overload — same reasoning as `get_entity_at_i` above.
+    pub fn raycast_i(&mut self, x1: i64, y1: i64, x2: i64, y2: i64, mask: Array) -> Array {
+        self.raycast(x1 as f64, y1 as f64, x2 as f64, y2 as f64, mask)
     }
 
     /// A* pathfinding on the integer grid.
@@ -275,5 +293,9 @@ impl ScriptCtx {
         } else {
             Array::new()
         }
+    }
+    /// `i64` overload — same reasoning as `get_entity_at_i` above.
+    pub fn get_path_i(&mut self, x1: i64, y1: i64, x2: i64, y2: i64, mask: Array) -> Array {
+        self.get_path(x1 as f64, y1 as f64, x2 as f64, y2 as f64, mask)
     }
 }

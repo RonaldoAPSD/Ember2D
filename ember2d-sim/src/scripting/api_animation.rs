@@ -34,6 +34,12 @@ impl ScriptCtx {
             duration: duration as f32,
         });
     }
+    /// `i64` overload (7.5-1, docs/ember2d-master-plan.md §5.6, R31) — see
+    /// `api.rs`'s `draw_hud_f` for the full reasoning every coordinate/
+    /// size/layer-order function in this crate gets one of these.
+    pub fn animate_move_i(&mut self, id: i64, to_x: i64, to_y: i64, duration: i64) {
+        self.animate_move(id, to_x as f64, to_y as f64, duration as f64)
+    }
 
     pub fn animate_flash(&mut self, id: i64, color: String, duration: f64) {
         self.inner.borrow_mut().pending_animations.push(AnimationEvent::Flash {

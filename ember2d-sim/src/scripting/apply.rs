@@ -214,13 +214,22 @@ impl ScriptEngine {
         // `BTreeMap` has no `.drain()` (unlike `HashMap`/`Vec`) — `mem::take`
         // swaps in an empty map and hands back the old one to iterate, same
         // effect as drain-then-clear.
-        let globals_to_apply: Vec<(String, rhai::Dynamic)> =
+        // R32 (7.5-1, docs/ember2d-master-plan.md §5.6): was `if
+        // v.is_unit() { remove } else { insert }` against a raw
+        // `rhai::Dynamic` — indistinguishable from a script legitimately
+        // calling `set_global("k", ())` to store unit, which this same
+        // check silently turned into a delete. `PendingWrite`'s own
+        // `Set`/`Remove` variants carry that distinction explicitly now.
+        let globals_to_apply: Vec<(String, PendingWrite)> =
             std::mem::take(&mut state.pending_globals).into_iter().collect();
         for (k, v) in globals_to_apply {
-            if v.is_unit() {
-                state.globals.remove(&k);
-            } else {
-                state.globals.insert(k, v);
+            match v {
+                PendingWrite::Set(v) => {
+                    state.globals.insert(k, v);
+                }
+                PendingWrite::Remove => {
+                    state.globals.remove(&k);
+                }
             }
         }
 
@@ -233,13 +242,18 @@ impl ScriptEngine {
             state.persistent.clear();
             state.pending_persistent_clear_all = false;
         }
-        let persistent_to_apply: Vec<(String, rhai::Dynamic)> =
+        // R32 (7.5-1, docs/ember2d-master-plan.md §5.6): same
+        // `PendingWrite` fix as `pending_globals` above.
+        let persistent_to_apply: Vec<(String, PendingWrite)> =
             std::mem::take(&mut state.pending_persistent).into_iter().collect();
         for (k, v) in persistent_to_apply {
-            if v.is_unit() {
-                state.persistent.remove(&k);
-            } else {
-                state.persistent.insert(k, v);
+            match v {
+                PendingWrite::Set(v) => {
+                    state.persistent.insert(k, v);
+                }
+                PendingWrite::Remove => {
+                    state.persistent.remove(&k);
+                }
             }
         }
         // Phase 6 Step 9 (docs/ember2d-phase6-plan.md): writes straight into

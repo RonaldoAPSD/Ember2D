@@ -682,3 +682,12 @@ mod timer_tests;
 #[cfg(test)]
 #[path = "safety_tests.rs"]
 mod safety_tests;
+
+// 7.5-1 (docs/ember2d-master-plan.md §5.6): uniform-typing/sentinel
+// regression coverage split into its own sibling file rather than appended
+// to engine_tests.rs — see uniform_typing_tests.rs's own header comment for
+// why (same 750-line reasoning timer_tests.rs's/safety_tests.rs's own
+// header comments give, raised from 600 since their own splits).
+#[cfg(test)]
+#[path = "uniform_typing_tests.rs"]
+mod uniform_typing_tests;

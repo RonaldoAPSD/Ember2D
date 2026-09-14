@@ -20,7 +20,7 @@ use super::types::*;
 impl ScriptCtx {
     // 1. Shared Global State
     pub fn set_global(&mut self, key: String, value: Dynamic) {
-        self.inner.borrow_mut().pending_globals.insert(key, value);
+        self.inner.borrow_mut().pending_globals.insert(key, PendingWrite::Set(value));
     }
     pub fn get_global(&mut self, key: String) -> Dynamic {
         self.inner.borrow_mut().globals.get(&key).cloned().unwrap_or(Dynamic::UNIT)
@@ -28,8 +28,12 @@ impl ScriptCtx {
     pub fn has_global(&mut self, key: String) -> bool {
         self.inner.borrow_mut().globals.contains_key(&key)
     }
+    /// R32 (7.5-1, docs/ember2d-master-plan.md §5.6): queues a real
+    /// `PendingWrite::Remove` now, not `Dynamic::UNIT` — see that type's
+    /// own doc comment for why the old sentinel made this indistinguishable
+    /// from `set_global(key, ())`.
     pub fn remove_global(&mut self, key: String) {
-        self.inner.borrow_mut().pending_globals.insert(key, Dynamic::UNIT);
+        self.inner.borrow_mut().pending_globals.insert(key, PendingWrite::Remove);
     }
 
     // 2. Randomness
@@ -82,6 +86,11 @@ impl ScriptCtx {
     pub fn set_collider_size(&mut self, id: i64, w: f64, h: f64) {
         self.inner.borrow_mut().pending_collider_size.push((id, w as f32, h as f32));
     }
+    /// `i64` overload — see `registry.rs`'s own note on why every
+    /// coordinate/size/layer-order function gets one (7.5-1, R31).
+    pub fn set_collider_size_i(&mut self, id: i64, w: i64, h: i64) {
+        self.set_collider_size(id, w as f64, h as f64)
+    }
     pub fn is_collider_solid(&mut self, id: i64) -> bool {
         self.inner.borrow_mut().colliders.get(&id).map(|c| c.2).unwrap_or(false)
     }
@@ -101,6 +110,10 @@ impl ScriptCtx {
     }
     pub fn set_layer_order(&mut self, id: i64, z: i64) {
         self.inner.borrow_mut().pending_z_order.push((id, z as i32));
+    }
+    /// `f64` overload — same reasoning as `set_collider_size_i` above.
+    pub fn set_layer_order_f(&mut self, id: i64, z: f64) {
+        self.set_layer_order(id, z as i64)
     }
 
     // 5. Mouse Input
@@ -153,6 +166,10 @@ impl ScriptCtx {
     pub fn set_camera(&mut self, x: f64, y: f64) {
         self.inner.borrow_mut().pending_camera = Some(crate::math::Vec2::new(x as f32, y as f32));
     }
+    /// `i64` overload — same reasoning as `set_collider_size_i` above.
+    pub fn set_camera_i(&mut self, x: i64, y: i64) {
+        self.set_camera(x as f64, y as f64)
+    }
     pub fn shake_camera(&mut self, intensity: f64, duration: f64) {
         self.inner.borrow_mut().pending_shake =
             Some(ShakeState { intensity: intensity as f32, duration: duration as f32 });
@@ -160,7 +177,7 @@ impl ScriptCtx {
 
     // 7. Cross-Level Persistence
     pub fn set_persistent(&mut self, key: String, value: Dynamic) {
-        self.inner.borrow_mut().pending_persistent.insert(key, value);
+        self.inner.borrow_mut().pending_persistent.insert(key, PendingWrite::Set(value));
     }
     pub fn get_persistent(&mut self, key: String) -> Dynamic {
         self.inner.borrow_mut().persistent.get(&key).cloned().unwrap_or(Dynamic::UNIT)
@@ -168,8 +185,10 @@ impl ScriptCtx {
     pub fn has_persistent(&mut self, key: String) -> bool {
         self.inner.borrow_mut().persistent.contains_key(&key)
     }
+    /// R32 (7.5-1, docs/ember2d-master-plan.md §5.6): same `PendingWrite`
+    /// fix as `remove_global` above.
     pub fn clear_persistent(&mut self, key: String) {
-        self.inner.borrow_mut().pending_persistent.insert(key, Dynamic::UNIT);
+        self.inner.borrow_mut().pending_persistent.insert(key, PendingWrite::Remove);
     }
     /// R9 (7A-1): this used to `.clear()` `pending_persistent` — the
     /// not-yet-applied write *queue* for this pass, which is almost always
@@ -198,6 +217,10 @@ impl ScriptCtx {
             bg: parse_color(&bg),
         });
     }
+    /// `f64` overload — same reasoning as `set_collider_size_i` above.
+    pub fn draw_box_f(&mut self, x: f64, y: f64, w: f64, h: f64, fg: String, bg: String) {
+        self.draw_box(x as i64, y as i64, w as i64, h as i64, fg, bg)
+    }
     pub fn fill_rect(
         &mut self,
         x: i64,
@@ -218,6 +241,20 @@ impl ScriptCtx {
             fg: parse_color(&fg),
             bg: parse_color(&bg),
         });
+    }
+    /// `f64` overload — same reasoning as `set_collider_size_i` above.
+    #[allow(clippy::too_many_arguments)]
+    pub fn fill_rect_f(
+        &mut self,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        ch_str: String,
+        fg: String,
+        bg: String,
+    ) {
+        self.fill_rect(x as i64, y as i64, w as i64, h as i64, ch_str, fg, bg)
     }
     pub fn clear_hud(&mut self) {
         self.inner.borrow_mut().clear_hud = true;

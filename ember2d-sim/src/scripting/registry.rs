@@ -11,6 +11,22 @@ use rhai::Engine;
 
 use super::api::ScriptCtx;
 
+// 7.5-1 (docs/ember2d-master-plan.md §5.6, R31): Rhai dispatches to a
+// registered function by EXACT argument type — it never coerces between
+// `i64` and `f64` the way a script author might expect from a dynamic
+// language, so a function registered with an `f64` parameter rejects an
+// integer-literal call (`set_position(id, 5, 5)`) with a plain "function
+// not found," and vice versa. Every coordinate/size/layer-order function
+// below is registered TWICE under the same Rhai name — once for its
+// original type, once for a small wrapper (suffixed `_i`/`_f` in
+// `ScriptCtx`'s own Rust name only; the registered Rhai name is identical)
+// that casts every numeric argument to the other type and calls straight
+// through. Rhai's overload resolution picks whichever registration matches
+// the call's actual argument types, the same mechanism `spawn_entity`/
+// `spawn_entity_full` already used to pick an overload by ARITY. A script
+// must still write a single call's numeric literals in ONE consistent
+// style (all int or all float) — this doesn't accept freely mixed types
+// within one call, only either style consistently.
 pub(super) fn register_all(engine: &mut Engine) {
     engine.register_type_with_name::<ScriptCtx>("Ctx");
     engine.register_fn("get_x", ScriptCtx::get_x);
@@ -33,23 +49,32 @@ pub(super) fn register_all(engine: &mut Engine) {
     engine.register_fn("get_delta", ScriptCtx::get_delta);
     engine.register_fn("get_elapsed", ScriptCtx::get_elapsed);
     engine.register_fn("set_velocity", ScriptCtx::set_velocity);
+    engine.register_fn("set_velocity", ScriptCtx::set_velocity_i);
     engine.register_fn("set_position", ScriptCtx::set_position);
+    engine.register_fn("set_position", ScriptCtx::set_position_i);
     engine.register_fn("set_glyph", ScriptCtx::set_glyph);
     engine.register_fn("set_tint", ScriptCtx::set_tint);
     engine.register_fn("set_texture", ScriptCtx::set_texture);
     engine.register_fn("despawn", ScriptCtx::despawn);
     engine.register_fn("spawn_entity", ScriptCtx::spawn_entity);
+    engine.register_fn("spawn_entity", ScriptCtx::spawn_entity_i);
     engine.register_fn("spawn_entity", ScriptCtx::spawn_entity_full);
+    engine.register_fn("spawn_entity", ScriptCtx::spawn_entity_full_i);
     engine.register_fn("load_level", ScriptCtx::load_level);
     engine.register_fn("log", ScriptCtx::log);
     engine.register_fn("draw_hud", ScriptCtx::draw_hud);
+    engine.register_fn("draw_hud", ScriptCtx::draw_hud_f);
     engine.register_fn("draw_menu", ScriptCtx::draw_menu);
+    engine.register_fn("draw_menu", ScriptCtx::draw_menu_f);
     engine.register_fn("draw_panel", ScriptCtx::draw_panel);
+    engine.register_fn("draw_panel", ScriptCtx::draw_panel_f);
     engine.register_fn("play_sound", ScriptCtx::play_sound);
     engine.register_fn("play_sound_at", ScriptCtx::play_sound_at);
+    engine.register_fn("play_sound_at", ScriptCtx::play_sound_at_i);
     engine.register_fn("play_music", ScriptCtx::play_music);
     engine.register_fn("stop_music", ScriptCtx::stop_music);
     engine.register_fn("emit_particles", ScriptCtx::emit_particles);
+    engine.register_fn("emit_particles", ScriptCtx::emit_particles_i);
     engine.register_fn("set_global", ScriptCtx::set_global);
     engine.register_fn("get_global", ScriptCtx::get_global);
     engine.register_fn("has_global", ScriptCtx::has_global);
@@ -59,8 +84,11 @@ pub(super) fn register_all(engine: &mut Engine) {
     engine.register_fn("random_bool", ScriptCtx::random_bool);
     engine.register_fn("random_choice", ScriptCtx::random_choice);
     engine.register_fn("get_entity_at", ScriptCtx::get_entity_at);
+    engine.register_fn("get_entity_at", ScriptCtx::get_entity_at_i);
     engine.register_fn("is_solid_at", ScriptCtx::is_solid_at);
+    engine.register_fn("is_solid_at", ScriptCtx::is_solid_at_i);
     engine.register_fn("find_entities_in_rect", ScriptCtx::find_entities_in_rect);
+    engine.register_fn("find_entities_in_rect", ScriptCtx::find_entities_in_rect_i);
     engine.register_fn("get_distance", ScriptCtx::get_distance);
     engine.register_fn("get_angle_to", ScriptCtx::get_angle_to);
     engine.register_fn("entity_exists", ScriptCtx::entity_exists);
@@ -68,12 +96,14 @@ pub(super) fn register_all(engine: &mut Engine) {
     engine.register_fn("get_collider_w", ScriptCtx::get_collider_w);
     engine.register_fn("get_collider_h", ScriptCtx::get_collider_h);
     engine.register_fn("set_collider_size", ScriptCtx::set_collider_size);
+    engine.register_fn("set_collider_size", ScriptCtx::set_collider_size_i);
     engine.register_fn("is_collider_solid", ScriptCtx::is_collider_solid);
     engine.register_fn("set_collider_solid", ScriptCtx::set_collider_solid);
     engine.register_fn("is_visible", ScriptCtx::is_visible);
     engine.register_fn("set_visible", ScriptCtx::set_visible);
     engine.register_fn("get_layer_order", ScriptCtx::get_layer_order);
     engine.register_fn("set_layer_order", ScriptCtx::set_layer_order);
+    engine.register_fn("set_layer_order", ScriptCtx::set_layer_order_f);
     engine.register_fn("get_mouse_x", ScriptCtx::get_mouse_x);
     engine.register_fn("get_mouse_y", ScriptCtx::get_mouse_y);
     engine.register_fn("mouse_left_pressed", ScriptCtx::mouse_left_pressed);
@@ -85,6 +115,7 @@ pub(super) fn register_all(engine: &mut Engine) {
     engine.register_fn("get_camera_x", ScriptCtx::get_camera_x);
     engine.register_fn("get_camera_y", ScriptCtx::get_camera_y);
     engine.register_fn("set_camera", ScriptCtx::set_camera);
+    engine.register_fn("set_camera", ScriptCtx::set_camera_i);
     engine.register_fn("shake_camera", ScriptCtx::shake_camera);
     engine.register_fn("set_persistent", ScriptCtx::set_persistent);
     engine.register_fn("get_persistent", ScriptCtx::get_persistent);
@@ -92,7 +123,9 @@ pub(super) fn register_all(engine: &mut Engine) {
     engine.register_fn("clear_persistent", ScriptCtx::clear_persistent);
     engine.register_fn("clear_all_persistent", ScriptCtx::clear_all_persistent);
     engine.register_fn("draw_box", ScriptCtx::draw_box);
+    engine.register_fn("draw_box", ScriptCtx::draw_box_f);
     engine.register_fn("fill_rect", ScriptCtx::fill_rect);
+    engine.register_fn("fill_rect", ScriptCtx::fill_rect_f);
     engine.register_fn("clear_hud", ScriptCtx::clear_hud);
     engine.register_fn("save_game", ScriptCtx::save_game);
     engine.register_fn("load_game", ScriptCtx::load_game);
@@ -103,7 +136,9 @@ pub(super) fn register_all(engine: &mut Engine) {
     engine.register_fn("get_collider_mask", ScriptCtx::get_collider_mask);
     engine.register_fn("set_collider_mask", ScriptCtx::set_collider_mask);
     engine.register_fn("raycast", ScriptCtx::raycast);
+    engine.register_fn("raycast", ScriptCtx::raycast_i);
     engine.register_fn("get_path", ScriptCtx::get_path);
+    engine.register_fn("get_path", ScriptCtx::get_path_i);
     engine.register_fn("get_viewport_width", ScriptCtx::get_viewport_width);
     engine.register_fn("get_viewport_height", ScriptCtx::get_viewport_height);
     engine.register_fn("start_timer", ScriptCtx::start_timer);
@@ -151,6 +186,7 @@ pub(super) fn register_all(engine: &mut Engine) {
 
     // Phase 5.5 Part 3: the animation queue (docs/ember2d-phase5.5-plan.md).
     engine.register_fn("animate_move", ScriptCtx::animate_move);
+    engine.register_fn("animate_move", ScriptCtx::animate_move_i);
     engine.register_fn("animate_flash", ScriptCtx::animate_flash);
     engine.register_fn("animate_shake", ScriptCtx::animate_shake);
     engine.register_fn("is_animating", ScriptCtx::is_animating);

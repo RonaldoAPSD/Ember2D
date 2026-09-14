@@ -3331,7 +3331,7 @@ in the API doc's migration section in the same commit.
 
 **Checklist sections at gate:** §11, §12, §13.
 
-#### `[ ]` 7.5-1 — Uniform typing and sentinels (breaking)
+#### `[x]` 7.5-1 — Uniform typing and sentinels (breaking) (`PENDING_HASH`)
 
 - **Why:** R31, R32.
 - **Change:** Every registered function that takes a coordinate, size, or
@@ -3344,6 +3344,67 @@ in the API doc's migration section in the same commit.
 - **Test:** `engine_tests.rs`: `draw_hud(1.0, 2.0, ...)` and `draw_hud(1, 2,
   ...)` both draw; `set_global("k", ())` then `get_global("k")` is `()`.
 - **Scope:** `ember2d-sim`, API doc.
+- **Landed as:** investigated up front to scope precisely which functions
+  "coordinate, size, or layer" actually covers, rather than guessing —
+  ~30 candidates across `api.rs`/`api_ext.rs`/`api_animation.rs`/
+  `api_spatial.rs`; 20 got a same-name alternate-type overload
+  (`draw_hud`/`draw_menu`/`draw_panel`/`draw_box`/`fill_rect`/
+  `set_layer_order` — were `i64`, gained an `_f` `f64` wrapper;
+  `set_position`/`set_velocity`/`spawn_entity`/`spawn_entity_full`/
+  `play_sound_at`/`emit_particles`/`set_camera`/`get_entity_at`/
+  `is_solid_at`/`find_entities_in_rect`/`raycast`/`get_path`/
+  `set_collider_size`/`animate_move` — were `f64`, gained an `_i` `i64`
+  wrapper). **Deviated from "a small macro that coerces":** each wrapper is
+  a 1-3 line hand-written function (e.g. `pub fn set_position_i(&mut self,
+  id: i64, x: i64, y: i64) { self.set_position(id, x as f64, y as f64) }`)
+  rather than a `macro_rules!` — the ~20 signatures are too heterogeneous
+  (mixed `String`/`Array`/`bool` params alongside the numeric ones, some
+  already-correct-type params like `spawn_entity_full`'s `z: i64` that must
+  NOT be re-cast) for one macro to meaningfully reduce over hand-written
+  wrappers without becoming its own maintenance burden; each wrapper is
+  registered under the target's SAME Rhai name in `registry.rs` (which
+  picks the right overload by argument type, the same mechanism
+  `spawn_entity`/`spawn_entity_full` already used to overload by ARITY) —
+  a script must still write one call's numeric literals in ONE consistent
+  style (all int or all float), not freely mixed, documented in
+  `registry.rs`'s own new header comment and `docs/ember2d-scripting-api.md`
+  §5. **`ctx.exists(id)` dropped, not added:** `entity_exists(id)`
+  (`positions.contains_key(&id)`) already does exactly this, found before
+  writing any code — a redundant second name would have been the wrong
+  call, not "additive." **`PendingWrite { Set(Dynamic), Remove }`** (new,
+  `types.rs`) replaces `pending_globals`/`pending_persistent`'s old
+  `Dynamic::UNIT`-means-delete sentinel (`state.rs`, `apply.rs`,
+  `set_global`/`remove_global`/`set_persistent`/`clear_persistent` in
+  `api_ext.rs`) — 7A-1's own plan sketched an enum for this exact case but
+  that step ended up needing only a plain `bool` since nothing yet needed a
+  real op; this is the first thing that does. **`load_level` fixed to
+  last-wins** (`api.rs`) — was `if pending_level.is_none()`, genuinely
+  first-wins, inconsistent with `save_game`/`play_music`, which already
+  overwrote unconditionally; a real behavior change, not just a doc
+  clarification. `API_VERSION` 6→7 (`types.rs`), with a full migration
+  entry in `docs/ember2d-scripting-api.md` §6 (three rows: the typing
+  overloads, the `PendingWrite` fix, `load_level`'s last-wins) and a new
+  §5 "Numeric parameters" convention note. New sibling test file
+  `uniform_typing_tests.rs` (same `#[path]`-split convention
+  `timer_tests.rs`/`safety_tests.rs` already established) — appending to
+  `engine_tests.rs` would have pushed it to 762/750 lines. Regression
+  tests beyond the plan's own two examples: `set_position` accepting int
+  literals (the reverse direction from `draw_hud`), `get_entity_at`
+  accepting int literals (a spot-check beyond `api.rs`, in
+  `api_spatial.rs`), and `load_level`'s last-wins — all 5 confirmed to
+  fail against the pre-fix code (temporarily reverted each fix in turn,
+  ran the test, restored). **Verification.** `cargo build --workspace
+  --bins --examples` clean. `cargo test --workspace`: 386 (was 381), all
+  pass. `cargo clippy --workspace --lib`/`--all-targets` unchanged at
+  43/55 (two new `too_many_arguments` warnings from `draw_panel_f`/
+  `fill_rect_f` fixed with the same `#[allow]` their non-overload siblings
+  already needed). `cargo test -p ember2d --test replay` 3× fresh
+  processes green. `scripts/check.ps1` clean (`CLAUDE.md`'s own quoted
+  `API_VERSION`/registered-function-count updated: 7, 144). Verified live:
+  launched `demos/roguelike/floor1.level`, confirmed the HUD/player/items
+  all still render — the demo scripts' own `draw_hud`/`spawn_entity`/etc.
+  calls (all `i64`/`f64` in their ORIGINAL form) are unaffected by the
+  purely-additive overloads.
 
 #### `[ ]` 7.5-2 — Atomic global/persistent arithmetic
 
