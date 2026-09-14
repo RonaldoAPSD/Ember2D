@@ -180,8 +180,8 @@ start screen's New/Open Project browsers start from.
 | **7B** | Renderer foundation | `[x]` `v0.5.7b` — A.11 |
 | 7C | Editor foundation | `[x]` `v0.5.7c` — A.12 (all 9 steps `[x]`, 7C-9's own §7.1 decision recorded) |
 | 7D | Theme and restyle | `[x]` `v0.5.7d` — A.13 (7D-1/7D-4's own deferred remainder — `themes/ember-pixel` — stays unbuilt by design, not a gap; R88/R89 and the `UI Scale: 1.5x` follow-up landed as part of this same closing pass) |
-| 7E | Editor features | `[ ]` — §5.5 |
-| 7.5 | Scripting completeness | `[ ]` — §5.6 |
+| 7E | Editor features | `[-]` deferred, 2026-09-13 (by user direction) — §5.5. Feature/UX polish (rulers, Inspector 2.0, toasts, command palette, rendering perf, undo audit) rather than refactoring work; revisit as a future update, not blocking the phase sequence below |
+| 7.5 | Scripting completeness | `[ ]` — §5.6, **next up** |
 | 8 | Tilemap, assets, animation authoring | `[ ]` — §5.7 |
 | 9 | Scene and UI layer + RPG demo | `[ ]` — §5.8 |
 | 10 | Networked 2-player | `[ ]` — §5.9 |
@@ -210,7 +210,10 @@ parking-lot note on `WgpuBackend::render`'s zero-instance early return,
 and the two 7D-3 live observations already logged as expected behavior:
 chrome text overlaps at 4× on a small window, and a bigger UI scale
 SHRINKS the viewport (fixed-point-width side panels eat more of a fixed
-window). **Next real work: Phase 7E — Editor features (§5.5).**
+window). **Phase 7E (Editor features) deferred by user direction, same
+day** — feature/UX polish, not refactoring work; its 6 steps stand as
+written in §5.5 for whenever it's picked back up. **Next real work:
+Phase 7.5 — Scripting completeness (§5.6), starting 7.5-1.**
 
 ### 2.3 Baseline numbers (at `v0.5.7d`)
 
@@ -3265,7 +3268,17 @@ how the two shipped themes differ.
 
 ---
 
-### 5.5 `[ ]` Phase 7E — Editor features
+### 5.5 `[-]` Phase 7E — Editor features (deferred, 2026-09-13)
+
+**Deferred by user direction, right after the 7C/7D gate closed**: this
+phase is editor feature/UX work (rulers, a real property-grid Inspector,
+toast notifications, a command palette, rendering perf, an undo audit) —
+"more of an update rather than part of the refactoring," in the user's own
+words, unlike 7.5/8/9/10/11 below, which change what the engine and its
+scripting/data layers can DO. Not dropped, not abandoned — the 6 steps
+below stand as written for whenever this phase gets picked back up; §2.2's
+phase table is the live pointer for whether that's happened yet. Work
+continues at **Phase 7.5** (§5.6) in the meantime.
 
 *(Phase 7 plan Parts 5–6, unchanged in intent, now on the new base.)*
 
