@@ -604,11 +604,22 @@ impl EditorState {
             self.scroll,
             self.active_layer,
             self.erase_size,
-            // R66-D (§3 in the master plan): the exact pixel origin of
-            // `viewport` (this same frame's own content rect), not the
-            // cell-rounded `content_x()`/`content_y()` bridge — see
-            // `draw_status_bar`'s own doc comment.
-            (viewport.x, viewport.y),
+            // R88 (§3 in the master plan): `vl`/`viewport_logical` — the
+            // LOGICAL-pixel conversion of `viewport` via
+            // `self.ui_space.rect_to_logical` (computed just above,
+            // "Converted to LOGICAL pixels" comment) — not the raw
+            // POINTS-space `viewport.x/y` this used to pass. `mouse.pixel_x
+            // /y` (what `draw_status_bar` subtracts this from, chrome.rs)
+            // is logical, per the 7C-9 decision gate the comment there
+            // cites; passing points mixed two different units whenever
+            // `ui_scale != render_scale`, silently scaling the readout by
+            // their ratio — invisible at the common `ui_scale ==
+            // render_scale` case (points and logical coincide there), which
+            // is why this survived undetected. `mouse_to_grid`
+            // (`impl_state/viewport.rs`) already did this conversion
+            // correctly; this call site just wasn't matching it, despite
+            // its own old comment claiming it did.
+            (vl.x, vl.y),
             self.zoom,
         );
 

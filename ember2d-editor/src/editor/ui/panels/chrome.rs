@@ -163,8 +163,13 @@ pub fn draw_status_bar(
     // origin isn't a whole-cell multiple, e.g. after the chrome bars above
     // it grew to `metrics.bar_h`). Recomputed here from the EXACT pixel
     // origin instead, matching `mouse_to_grid`'s own formula
-    // (`impl_state/viewport.rs`) exactly, so the readout can never disagree
-    // with where a click would actually land.
+    // (`impl_state/viewport.rs`) — `canvas_origin_px` MUST already be in
+    // LOGICAL pixels (same space as `mouse.pixel_x/y` below), same as
+    // `mouse_to_grid`'s own `viewport` local (its `rect_to_logical`
+    // result), never the raw POINTS-space `Panel::content_rect` — R88 (§3
+    // in the master plan) was this call site's own caller passing the
+    // latter, which agreed with this formula only by coincidence whenever
+    // `ui_scale == render_scale`.
     let cx = (mouse.pixel_x - canvas_origin_px.0) / CELL_W as f32 / zoom + scroll.0;
     let cy = (mouse.pixel_y - canvas_origin_px.1) / CELL_H as f32 / zoom + scroll.1;
     let pos_str = format!(" ({:3.1},{:3.1})", cx, cy);

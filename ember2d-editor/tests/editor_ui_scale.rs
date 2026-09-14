@@ -182,3 +182,70 @@ fn menu_and_theme_dropdown_clicks_round_trip_when_ui_scale_is_smaller_than_rende
     );
     assert_eq!(h.state.theme().name, "ember-clean");
 }
+
+/// R88 (§3 in the master plan): `draw_status_bar`'s own call site
+/// (`impl_render/mod.rs`) passed the Viewport panel's raw POINTS-space
+/// `content_rect().x/y` as `canvas_origin_px`, but `draw_status_bar`
+/// (`ui/panels/chrome.rs`) subtracts it from `mouse.pixel_x/y` (LOGICAL) and
+/// divides by `CELL_W`/`CELL_H` (logical-pixel constants) — exactly the
+/// points/logical unit mix `mouse_to_grid`'s own doc comment
+/// (`impl_state/viewport.rs`) warns "would silently scale the cursor
+/// position by ui_scale." Invisible whenever `ui_scale == render_scale`
+/// (points and logical coincide there, the harness default and — before
+/// 7D-4 shipped the Theme > UI Scale menu — the only value this editor
+/// ever ran at), which is exactly why it went unnoticed until a user
+/// picked a `Fixed(1)` scale on a real 2x-DPI display and watched the
+/// status bar's own coordinate readout drift away from the tile the
+/// highlighted cursor (and a real click) actually landed on. This test
+/// pins the readout itself, not just click placement (already covered by
+/// `canvas_painting_is_unaffected_by_ui_scale`, which happens to pass even
+/// against the pre-fix code — it never exercised this specific call site).
+#[test]
+fn r88_the_status_bars_coordinate_readout_matches_the_real_hovered_cell_when_ui_scale_is_smaller_than_render_scale(
+) {
+    let mut h = harness_at(2, 1); // the exact ratio (S/R = 0.5) the live bug report reproduced at
+    let (px, py) = canvas_pixel_for_grid(&h, 5, 3); // cell (5,3)'s own center pixel
+    h.move_mouse(px, py);
+    h.start_recording();
+    h.frame();
+
+    let pos_text = h
+        .draw_ops()
+        .iter()
+        .find_map(|op| match op {
+            // The Inspector panel's own "(empty cell)"/tile-position text
+            // also starts with " (" — the status bar's own readout is the
+            // only one that's a bare "(N.N,N.N)" pair, hence the comma
+            // check too.
+            DrawOp::Text { text, .. } if text.starts_with(" (") && text.contains(',') => {
+                Some(text.clone())
+            }
+            _ => None,
+        })
+        .expect("the status bar's own coordinate readout must be drawn");
+
+    let nums: Vec<f32> = pos_text
+        .trim()
+        .trim_start_matches('(')
+        .trim_end_matches(')')
+        .split(',')
+        .map(|s| s.trim().parse().expect("the readout must be two comma-separated numbers"))
+        .collect();
+    // `canvas_pixel_for_grid` targets a cell's own CENTER, so the correct
+    // fractional readout is the cell index plus 0.5 — matching what a real
+    // click at the same pixel would resolve to via `mouse_to_grid`
+    // (floor(5.5) == 5, floor(3.5) == 3).
+    let eps = 0.15; // `{:3.1}` formatting rounds to one decimal place
+    assert!(
+        (nums[0] - 5.5).abs() < eps,
+        "status bar x should read ~5.5 (cell 5's center), got {} from {:?}",
+        nums[0],
+        pos_text
+    );
+    assert!(
+        (nums[1] - 3.5).abs() < eps,
+        "status bar y should read ~3.5 (cell 3's center), got {} from {:?}",
+        nums[1],
+        pos_text
+    );
+}
