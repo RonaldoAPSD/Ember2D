@@ -182,6 +182,9 @@ Only until visual scripting is shelved. Afterwards, confirm old levels with grap
       after resizing the window while in play. Check both demos.
 - [✓] Pause menu: Resume, Back to Editor, Quit — all three render; only
       Resume actually clicked/keyed through this pass (7B gate, 2026-09-07)
+- [ ] Shrink the play window well below the pause panel's own size
+      (~400×220 physical px) and press Esc: the panel draws flush to the
+      top-left, no panic (R86, master plan §3.2)
 - [✓] Tiles spawn with correct solid/trigger/tag/layer/collider layer —
       via `roguelike_level_integrity.rs`/`trigger_collider_layer.rs`
       (automated) plus visual confirmation walls block movement and floor

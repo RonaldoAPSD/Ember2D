@@ -12,7 +12,10 @@
 // `UpdateContext`/the editor are all untouched by it.
 
 mod animation;
+mod pause_menu;
 mod render;
+
+pub use pause_menu::PauseMenuState;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
@@ -61,85 +64,8 @@ pub struct Particle {
     pub life: f32,
 }
 
-// ── PauseMenuState ────────────────────────────────────────────────────────────
-
-pub struct PauseMenuState {
-    options: Vec<String>,
-    selected: usize,
-    pending_transition: Option<Transition>,
-}
-
-impl PauseMenuState {
-    pub fn new() -> Self {
-        Self {
-            options: vec![
-                "Resume".to_string(),
-                "Back to Editor".to_string(),
-                "Quit Game".to_string(),
-            ],
-            selected: 0,
-            pending_transition: None,
-        }
-    }
-}
-
-impl GameState for PauseMenuState {
-    fn update(&mut self, ctx: UpdateContext) {
-        if ctx.input.just_pressed(Key::Up) {
-            self.selected = self.selected.saturating_sub(1);
-        }
-        if ctx.input.just_pressed(Key::Down) {
-            if self.selected + 1 < self.options.len() {
-                self.selected += 1;
-            }
-        }
-
-        if ctx.input.just_pressed(Key::Enter) {
-            match self.selected {
-                0 => self.pending_transition = Some(Transition::Pop),
-                1 => self.pending_transition = Some(Transition::ToEditor),
-                2 => self.pending_transition = Some(Transition::Quit),
-                _ => {}
-            }
-        }
-
-        if ctx.input.just_pressed(Key::Escape) {
-            self.pending_transition = Some(Transition::Pop);
-        }
-    }
-
-    fn render(&mut self, ctx: RenderContext) {
-        let sw = ctx.renderer.width;
-        let sh = ctx.renderer.height;
-        let w = 30;
-        let h = 8;
-        let x = (sw - w) / 2;
-        let y = (sh - h) / 2;
-
-        crate::ui::Panel::new(x, y, w, h)
-            .with_title(" PAUSED ")
-            .with_colors(Color::White, Color::DarkBlue)
-            .draw(ctx.renderer);
-
-        for (i, opt) in self.options.iter().enumerate() {
-            let fg = if i == self.selected { Color::Yellow } else { Color::Grey };
-            let bg = if i == self.selected { Color::DarkGrey } else { Color::DarkBlue };
-            let prefix = if i == self.selected { "> " } else { "  " };
-            ctx.renderer.draw_str(x + 2, y + 2 + i, &format!("{}{}", prefix, opt), fg, bg);
-        }
-    }
-
-    fn take_transition(&mut self) -> Option<Transition> {
-        self.pending_transition.take()
-    }
-
-    /// A small centered panel over the still-visible play screen (R51,
-    /// docs/ember2d-master-plan.md §3.2) — the one state that needs what's
-    /// beneath it drawn.
-    fn is_overlay(&self) -> bool {
-        true
-    }
-}
+// `PauseMenuState` lives in `play/pause_menu.rs` (R86, docs/ember2d-master-
+// plan.md §3.2) — see that file's own header comment.
 
 // ── PlayState ─────────────────────────────────────────────────────────────────
 
