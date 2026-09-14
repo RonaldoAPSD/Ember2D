@@ -3406,7 +3406,7 @@ in the API doc's migration section in the same commit.
   calls (all `i64`/`f64` in their ORIGINAL form) are unaffected by the
   purely-additive overloads.
 
-#### `[x]` 7.5-2 — Atomic global/persistent arithmetic (`PENDING_HASH`)
+#### `[x]` 7.5-2 — Atomic global/persistent arithmetic (`fe75ef6`)
 
 - **Why:** the plan's own §7.4 note and the pattern R31/R32 already
   surfaced in 7.5-1 — a running total accumulated by hand
