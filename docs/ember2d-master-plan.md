@@ -214,7 +214,7 @@ window). **Phase 7E (Editor features) deferred by user direction, same
 day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
 completeness (§5.6) under way: 7.5-1/7.5-2/7.5-3/7.5-4 landed
-(`a3d483e`/`fe75ef6`/`0c1ebb2`/`PENDING_HASH`). Next: 7.5-5 (`set_script`
+(`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`). Next: 7.5-5 (`set_script`
 and `on_load`).**
 
 ### 2.3 Baseline numbers (at `v0.5.7d`)
@@ -3640,7 +3640,7 @@ in the API doc's migration section in the same commit.
   (unchanged, still passing against the new storage) rather than a
   screenshot of a kill.
 
-#### `[x]` 7.5-4 — Data-driven actor stats (`PENDING_HASH`)
+#### `[x]` 7.5-4 — Data-driven actor stats (`d84e821`)
 
 - **Why:** the demo scripts and the RPG feasibility study both show the
   same gap — `enemy_rat.rhai`/`enemy_boss.rhai` are copy-pasted files whose
