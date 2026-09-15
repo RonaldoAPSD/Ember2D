@@ -82,7 +82,16 @@ impl Simulation {
                 world.add_tag(id, Tag::new(&tile.tag));
             }
             if let Some(ref ar) = tile.actor {
-                world.add_actor(id, Actor::ai(ar.speed));
+                let mut actor = Actor::ai(ar.speed);
+                // Step 7.5-4: the authored stats/tint pair live on
+                // `ActorRecord` (level data); copy them onto the runtime
+                // `Actor` here, same as `speed` above but not foldable into
+                // `Actor::ai`'s own constructor without dragging `level`'s
+                // `ActorRecord` type into `components` for no reason.
+                actor.stats = ar.stats.clone();
+                actor.tint_aware = ar.tint_aware;
+                actor.tint_asleep = ar.tint_asleep;
+                world.add_actor(id, actor);
             }
 
             let mut source = String::new();

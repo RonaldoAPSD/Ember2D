@@ -708,3 +708,11 @@ mod atomic_arithmetic_tests;
 #[cfg(test)]
 #[path = "vars_tests.rs"]
 mod vars_tests;
+
+// 7.5-4 (docs/ember2d-master-plan.md §5.6): get_stat/get_tint_aware/
+// get_tint_asleep regression coverage split into its own sibling file —
+// same reasoning uniform_typing_tests.rs's/atomic_arithmetic_tests.rs's/
+// vars_tests.rs's own header comments give for their own splits.
+#[cfg(test)]
+#[path = "actor_stats_tests.rs"]
+mod actor_stats_tests;

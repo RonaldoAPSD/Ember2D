@@ -13085,9 +13085,12 @@
             trigger: false,
             tag: "enemy",
             layer: 1,
-            script: Some("demos/roguelike/scripts/enemy_rat.rhai"),
+            script: Some("demos/roguelike/scripts/enemy.rhai"),
             actor: Some((
                 speed: 100,
+                stats: {"atk": 2.0, "awareness_range": 8.0, "hp": 6.0},
+                tint_aware: Red,
+                tint_asleep: DarkRed,
             )),
         ),
         (
@@ -13618,9 +13621,12 @@
             trigger: false,
             tag: "enemy",
             layer: 1,
-            script: Some("demos/roguelike/scripts/enemy_rat.rhai"),
+            script: Some("demos/roguelike/scripts/enemy.rhai"),
             actor: Some((
                 speed: 100,
+                stats: {"atk": 2.0, "awareness_range": 8.0, "hp": 6.0},
+                tint_aware: Red,
+                tint_asleep: DarkRed,
             )),
         ),
         (
@@ -16097,9 +16103,12 @@
             trigger: false,
             tag: "enemy",
             layer: 1,
-            script: Some("demos/roguelike/scripts/enemy_rat.rhai"),
+            script: Some("demos/roguelike/scripts/enemy.rhai"),
             actor: Some((
                 speed: 100,
+                stats: {"atk": 2.0, "awareness_range": 8.0, "hp": 6.0},
+                tint_aware: Red,
+                tint_asleep: DarkRed,
             )),
         ),
         (

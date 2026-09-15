@@ -76,7 +76,7 @@ fn every_levels_tiles_are_sorted_by_layer_then_y_then_x() {
 fn every_script_and_next_level_path_a_level_references_exists_on_disk() {
     // Unlike every other check in this file, this one resolves paths
     // (`tile.script`/`next_level`) *stored inside* the level data itself,
-    // authored repo-root-relative (e.g. "demos/roguelike/scripts/enemy_rat.rhai")
+    // authored repo-root-relative (e.g. "demos/roguelike/scripts/enemy.rhai")
     // — not just the `LEVELS` constants above, which are already
     // `CARGO_MANIFEST_DIR`-absolute. `cargo test` runs this binary with
     // CWD set to this package's own directory (`ember2d/`), one level
@@ -137,7 +137,7 @@ fn no_cell_in_any_level_has_more_than_one_collider_bearing_tile() {
     // solid || trigger. At most one such tile may occupy a given (x,y)
     // across all layers, or get_entity_at/is_solid_at stop being
     // deterministic — a documented "Engine fact" this refactor's scripts
-    // (enemy_rat.rhai, player.rhai's bump-to-attack) depend on.
+    // (enemy.rhai, player.rhai's bump-to-attack) depend on.
     for path in LEVELS {
         let data = LevelData::load(path).unwrap_or_else(|e| panic!("load {}: {}", path, e));
         let mut seen: HashMap<(i32, i32), u32> = HashMap::new();

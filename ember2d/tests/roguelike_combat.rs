@@ -87,7 +87,7 @@ fn two_adjacent_rats_each_contribute_their_own_damage_in_the_same_resolve() {
     // player.rhai only summed up on turn 2, once that write had had a
     // chance to commit. Enemy scripts now write the player's "hp"
     // persistent value directly from their own `on_turn` (see
-    // enemy_rat.rhai's header comment for why the old indirection is gone),
+    // enemy.rhai's header comment for why the old indirection is gone),
     // and `TurnHarness::turn`'s single round already drains every AI
     // actor's turn — so both adjacent rats land their hit within the SAME
     // round the player takes its turn in.

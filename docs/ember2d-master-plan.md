@@ -213,11 +213,9 @@ SHRINKS the viewport (fixed-point-width side panels eat more of a fixed
 window). **Phase 7E (Editor features) deferred by user direction, same
 day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
-completeness (§5.6) under way: 7.5-1/7.5-2/7.5-3 landed
-(`a3d483e`/`fe75ef6`/`0c1ebb2`). Next: 7.5-4 (data-driven actor
-stats) — note its own plan text assumes 7E-2's inspector "Actor" section,
-which doesn't exist yet (7E deferred); scope that decision the same way
-7.5-3's inspector bullet was scoped before writing code.**
+completeness (§5.6) under way: 7.5-1/7.5-2/7.5-3/7.5-4 landed
+(`a3d483e`/`fe75ef6`/`0c1ebb2`/`PENDING_HASH`). Next: 7.5-5 (`set_script`
+and `on_load`).**
 
 ### 2.3 Baseline numbers (at `v0.5.7d`)
 
@@ -379,6 +377,8 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | **Found live by the user, 2026-09-13 (canvas hover at `ui_scale: 1`)** | | | | |
 | R88 | S1 | `draw_status_bar`'s call site (`impl_render/mod.rs`) passed the Viewport panel's raw POINTS-space `content_rect().x/y` as `canvas_origin_px`, but `draw_status_bar` (`ui/panels/chrome.rs:168-169`) subtracts it from `mouse.pixel_x/y` (LOGICAL pixels, per the 7C-9 decision gate) and divides by `CELL_W`/`CELL_H` — exactly the points/logical unit mix `mouse_to_grid`'s own doc comment (`impl_state/viewport.rs`) warns "would silently scale the cursor position by ui_scale." Invisible whenever `ui_scale == render_scale` (points and logical coincide there — every harness default, and every real session before 7D-4 shipped the Theme > UI Scale menu), so it went unnoticed until a user picked `UI Scale: 1x` on a real 2×-DPI display and the status bar's own coordinate readout drifted away from the tile actually under the cursor (reported live, with a screenshot, then reproduced by launching the real editor and driving the mouse via Win32 `SetCursorPos` — no headless test caught it, since `canvas_painting_is_unaffected_by_ui_scale` already covers the SAME `ui_scale=1, render_scale=2` ratio but only for `mouse_to_grid`'s click path, never this call site). The visible hover HIGHLIGHT and real click placement were both already correct — only the numeric readout was wrong, which is why painting itself was never reported broken | `ember2d-editor/src/editor/impl_render/mod.rs:611`; `ember2d-editor/src/editor/ui/panels/chrome.rs:168-169` | `[x]` (`ed1b224`) — call site now passes `(vl.x, vl.y)` (the already-computed `rect_to_logical` result used for everything else this frame) instead of the raw points `viewport.x/y`. Regression test `r88_the_status_bars_coordinate_readout_matches_the_real_hovered_cell_when_ui_scale_is_smaller_than_render_scale` (`tests/editor_ui_scale.rs`), confirmed to fail against the pre-fix code (read `-1.9` instead of `5.5` for a click centered on grid cell (5,3)). **Verification.** `cargo build --workspace --bins --examples` clean. `cargo test --workspace`: 377 (was 376), all pass. `cargo clippy --workspace --lib`/`--all-targets` unchanged at 43/55. `cargo test -p ember2d --test replay` 3× fresh processes green. `scripts/check.ps1` clean. Verified live a second time after the fix: same repro (window at 0,0, mouse at screen (300,200), `UI Scale: 1x`) now reads `(10.9,3.4)`, matching the highlighted cell, instead of the pre-fix `(3.5,1.5)` |
 | R89 | S2 | `draw_menu_dropdown`'s call site (`impl_render/mod.rs`) had the exact same unit mismatch as R88, in a sibling code path R88's own fix never touched: raw LOGICAL `mouse.pixel_x/y` passed straight into a function comparing it against POINTS-space row rects (`row_rect.contains_point`), so the dropdown's own drawn "hovered" highlight silently drifted at any `ui_scale != render_scale`. Reported live by the user with a screenshot: cursor down near "Close Project" (index 9, `MenuKind::File`'s own list, `ui/menu.rs`) while "Export Game..." (index 5) was drawn highlighted instead. `handle_menu_dropdown_click` (`input/panels/menu_bar.rs`) was never affected — it already converts via `logical_to_pt` — so a real click always landed on the right item; only the visual hint lied about which row that click would hit | `ember2d-editor/src/editor/impl_render/mod.rs:548-549` (pre-fix); `ember2d-editor/src/editor/ui/menu.rs` (`draw_menu_dropdown`'s own `hovered` check) | `[x]` (`99ee94b`) — call site converts via `self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y)` before calling `draw_menu_dropdown`, matching `handle_menu_dropdown_click`'s own conversion exactly. `draw_menu_dropdown` also widened from `()` to `Option<usize>` (the hovered row index), captured into a new `EditorState.menu_hover_item` field (reset every frame, exposed via `hovered_menu_item()`) — before this the hover highlight was a fire-and-forget local inside `ui/menu.rs` with no way for anything outside the draw call to observe it; now it's a real, testable single source of truth, closing the same "two independent implementations that can drift" gap R64/R66/R67 already fixed for other chrome hit-testing. Regression test `r89_menu_dropdown_hover_highlight_matches_the_real_hovered_row_when_ui_scale_is_smaller_than_render_scale` (`tests/editor_ui_scale.rs`), confirmed to fail against the pre-fix code (highlighted row 3 instead of the real row 9). **Verification.** `cargo build --workspace --bins --examples` clean. `cargo test --workspace`: 381 (was 380), all pass. `cargo clippy --workspace --lib`/`--all-targets` unchanged at 43/55. `cargo test -p ember2d --test replay` 3× fresh processes green. `scripts/check.ps1` clean (the new `menu_hover_item` field's doc comment trimmed to a single trailing `//` line to keep `editor/mod.rs` at exactly 750 real lines — no other file this step touched was close to the limit). Verified live a second time after the fix: opened `File`, moved the mouse to "Close Project"'s own row — highlighted correctly, matching the cursor, instead of the pre-fix mismatch |
+| **Found writing 7.5-4 (docs/ember2d-master-plan.md §5.6)** | | | | |
+| R90 | S4 | Adding `ActorRecord::stats`/`tint_aware`/`tint_asleep` (7.5-4) grew `TileRecord` enough that `ember2d-editor`'s undo `Command::PlaceTile { before: Option<TileRecord>, after: TileRecord }` variant now trips clippy's `large_enum_variant` lint (528 bytes vs. `Command`'s other variants) — a new warning (`cargo clippy --workspace --lib`: 43 → 44), not a behavior change. Fixing it properly (`Box`ing the large variant fields) is an `ember2d-editor` change outside 7.5-4's own Scope (`ember2d-sim`, demos, API doc) | `ember2d-editor/src/editor/commands.rs:24` (`Command::PlaceTile`) | `[ ]` unscheduled |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -3640,14 +3640,138 @@ in the API doc's migration section in the same commit.
   (unchanged, still passing against the new storage) rather than a
   screenshot of a kill.
 
-#### `[ ]` 7.5-4 — Data-driven actor stats
+#### `[x]` 7.5-4 — Data-driven actor stats (`PENDING_HASH`)
 
-`TileRecord.actor` (exists since Step 5f) gains `stats: BTreeMap<String,
-f64>` authored in the inspector (7E-2's Actor section). `get_stat(id,
-key)`. `enemy_rat.rhai` and `enemy_boss.rhai` collapse into one
-`enemy.rhai` reading `hp`, `atk`, `awareness_range`, `glyph`, `tint` from
-stats. This is the first real test of "content is data, behaviour is one
-script per role."
+- **Why:** the demo scripts and the RPG feasibility study both show the
+  same gap — `enemy_rat.rhai`/`enemy_boss.rhai` are copy-pasted files whose
+  only real difference is a handful of numbers and colors hardcoded in the
+  script text itself, not authored as data.
+- **Change:** `TileRecord.actor` (exists since Step 5f) gains `stats:
+  BTreeMap<String, f64>`. `get_stat(id, key)`. `enemy_rat.rhai` and
+  `enemy_boss.rhai` collapse into one `enemy.rhai` reading `hp`, `atk`,
+  `awareness_range` from stats.
+- **Test:** a level with `actor.stats` round-trips through RON, and a
+  pre-7.5-4 level (no `stats` field at all) loads with it defaulted empty;
+  `get_stat` returns the authored value, `0.0` for a missing key or a
+  non-actor entity.
+- **Scope:** `ember2d-sim`, `demos/roguelike`, API doc.
+- **Landed as:** two scope decisions made with the user up front, not
+  assumed (AskUserQuestion, before writing any code):
+  1. The plan's own text has `enemy.rhai` reading "`glyph`, `tint`" from
+     `stats` too — impossible as written, since `stats` is numeric-only
+     (`BTreeMap<String, f64>`) and glyph is a `char`, tint a `Color`. No
+     color-lightening helper exists anywhere in the codebase either (and
+     computing one would need transcendental math, forbidden in the sim
+     regardless), so an "aware" tint can't be derived from a single base
+     color. **Decided: tint stays real authored data, just not inside
+     `stats`** — `ActorRecord`/`Actor` gain `tint_aware: Color`/
+     `tint_asleep: Color` as their own fields alongside `stats`, read via
+     two new functions (`get_tint_aware`/`get_tint_asleep`), rather than
+     narrowing scope to numbers-only. Glyph itself was never in question —
+     that's `TileRecord.glyph`, already data, unrelated to this step.
+  2. `awareness_range` is a new concept (the old per-script raycast had no
+     distance limit at all — any unobstructed line of sight of any length
+     woke an enemy), and the plan's own inspector-authoring sub-bullet
+     assumes 7E-2's Actor section, which doesn't exist (7E deferred) — the
+     same gap 7.5-3 hit. **Decided, same way 7.5-3 was scoped:** land the
+     component/API/migration now, author stats via `gen_roguelike.rs` code,
+     leave the inspector authoring surface for whenever 7E resumes.
+
+  **`ActorRecord`** (`level.rs`) gains `stats: BTreeMap<String, f64>`
+  (`#[serde(default)]`) and `tint_aware`/`tint_asleep: Color`
+  (`#[serde(default = "default_tint")]`, `Color::Reset` — a generic,
+  genre-agnostic fallback, not a "rat-flavored" default baked into general
+  engine code) — all three default cleanly for a pre-7.5-4 level, whose
+  `ActorRecord` only ever had `speed`. **`Actor`** (`components/actor.rs`)
+  gets the same three fields as its runtime copy, populated in
+  `simulation/spawn.rs::do_on_start` right after `Actor::ai(ar.speed)`
+  construction — kept as a plain field-copy there rather than threading
+  `level::ActorRecord` into `components` for a constructor `components`
+  has no other reason to know about. This is also why `Actor` is no longer
+  `Copy`: a `BTreeMap` isn't. Checked every `Actor`-copying call site first
+  (only `.controller`, itself still `Copy`, was ever copied out of one) —
+  removing the derive needed no other code changes.
+
+  **`WorldSnapshot`** (`scripting/state.rs`) gains `actor_stats: HashMap<i64,
+  BTreeMap<String, f64>>` and `actor_tints: HashMap<i64, (Color, Color)>`,
+  built the same lookup-only-`HashMap` way `actor_speeds` already is (§4.1
+  allows this: never iterated, only looked up by a known id). `get_stat`/
+  `get_tint_aware`/`get_tint_asleep` (`api.rs`) read them with the same
+  `0.0`/`"Reset"` neutral-default convention every other `get_*` uses
+  (R32, 7.5-1) — a non-actor entity or a missing key never panics, just
+  reads back the neutral value. Registered in `registry.rs` right after
+  `get_speed`/`set_speed`, same step-grouping convention that file already
+  uses.
+
+  **`enemy.rhai`** replaces `enemy_rat.rhai`/`enemy_boss.rhai` (`git rm`),
+  reading `get_stat(id, "hp"/"atk"/"awareness_range")` and
+  `get_tint_aware`/`get_tint_asleep` instead of hardcoded constants —
+  `gen_roguelike.rs`'s `rat()`/`boss()` now author those five values
+  explicitly per role (rat: 6/2/8, `Red`/`DarkRed`; boss: 15/3/10,
+  `Magenta`/`DarkMagenta`). **Compile-time surprise found immediately**:
+  the merged script's `update_awareness` tripped Rhai's max-expression-
+  complexity guard the instant the new distance check was added on top of
+  the existing hp/raycast branching — the exact class of limit
+  `enemy_rat.rhai`'s own comment already flagged for the ORIGINAL
+  function, just pushed over by one more nested `if`. Fixed the same way
+  that comment says the original was avoided: pulled the distance check
+  into its own `in_awareness_range` function, one level of nesting
+  cheaper. Verified by compiling the file directly against a bare `rhai::
+  Engine` before touching anything else, not by guessing.
+  `bench_sim.rs`'s synthetic actor tile updated to match (script path,
+  full `ActorRecord { speed, ..Default::default() }` literal since the old
+  2-field literal no longer compiles, and the same rat stats/tint so the
+  benchmark still exercises a live enemy instead of one whose `get_stat`
+  calls all read `0.0` and despawns itself on the first `on_update`).
+  `demos/roguelike/floor2.level`/`floor3.level` regenerated via `cargo run
+  --example gen_roguelike` (floor1/victory unchanged — no enemy tiles).
+  Five other live cross-references to `enemy_rat.rhai`/`enemy_boss.rhai`
+  by name — ones that actively point a reader at "that file's header
+  comment" for still-current reasoning, not historical illustration —
+  updated to `enemy.rhai` (`play.rs`, `roguelike_combat.rs`,
+  `roguelike_level_integrity.rs` ×2, `turn_animation.rs`); left the ones in
+  `components/vars.rs`/`components/animator.rs` alone, since those are
+  explaining a PAST decision (D17/7.5-3 era) using the file name that was
+  live at the time, not pointing to it as current.
+
+  **New R-row, not this step's job to fix:** growing `TileRecord` (via
+  `ActorRecord`) pushed `ember2d-editor`'s undo `Command::PlaceTile`
+  variant past clippy's `large_enum_variant` threshold — a real new
+  warning (43→44 at `--lib`), but fixing it (`Box`ing the variant) is an
+  `ember2d-editor` change outside this step's Scope. Logged as **R90**
+  (§3.2) rather than fixed or silently ignored.
+
+  New test file `actor_stats_tests.rs` (same `#[path]`-split convention
+  `vars_tests.rs`/`atomic_arithmetic_tests.rs` established) — 5 tests:
+  `get_stat` reads an authored value, a missing key reads `0.0`, a
+  non-actor entity reads `0.0`, `get_tint_aware`/`get_tint_asleep` read the
+  authored colors, and a non-actor entity's tint reads `"Reset"` — the
+  first of these confirmed to fail (reads `0.0` instead of `6.0`) against
+  a deliberately-broken `actor_stats` population, then restored. Two new
+  `level.rs` tests: a pre-7.5-4 `ActorRecord` RON shape still deserializes
+  with `stats`/tint defaulted, and stats/tint round-trip through RON.
+  **Verification.** `cargo build --workspace --bins --examples` clean.
+  `cargo test --workspace`: 408 (was 401: +5 `actor_stats_tests`, +2
+  `level.rs` tests), all pass — including `roguelike_combat.rs`'s existing
+  byte-exact combat/boss/stairs-unlock assertions, unchanged and still
+  green against the new stats-driven numbers (first failed with the
+  un-split `update_awareness`, since the enemy script didn't compile at
+  all — confirmed the merge is otherwise behavior-preserving once fixed).
+  `cargo clippy --workspace --lib`: 43→44 (R90 above, the only new
+  warning, in `ember2d-editor` not `ember2d-sim`); `--all-targets`: 56→57,
+  same single warning. `cargo test -p ember2d --test replay` 3× fresh
+  processes green. `scripts/check.ps1` clean (`CLAUDE.md`'s quoted
+  registered-function count updated 154 → 157: `get_stat`,
+  `get_tint_aware`, `get_tint_asleep`; `API_VERSION` unchanged at 7,
+  purely additive per `docs/ember2d-scripting-api.md` §6's own
+  convention). Verified live: launched `demos/roguelike/floor2.level` and
+  `floor3.level` (screenshots) — rats and the boss all render in their
+  correct `DarkRed`/`DarkMagenta` asleep tint, HUD intact, no script error,
+  no crash. Did not drive the player into raycast/awareness range of a
+  live rat by hand this session (floor2's nearest rat was ~40 cells off in
+  the screenshot) — the awake/chase/attack/kill path is covered instead by
+  `roguelike_combat.rs`'s existing headless tests, all still passing
+  unchanged against the new data-driven numbers.
 
 #### `[ ]` 7.5-5 — `set_script` and `on_load`
 

@@ -8,8 +8,18 @@
 // scheduler still runs (every player unconditionally gets `Local(0)`, see
 // `play/spawn.rs`), but a script with no `on_input`/`on_turn` functions
 // never notices — see `scheduler.rs`'s header comment.
+//
+// `stats`/`tint_aware`/`tint_asleep` (Step 7.5-4, docs/ember2d-master-plan.md
+// §5.6) are the runtime copy of `TileRecord.actor`'s own `ActorRecord`
+// fields — see that type's doc comment (level.rs) for why they exist and
+// why `Color` lives outside `stats`. Their presence is why this struct is
+// no longer `Copy`: a `BTreeMap` isn't.
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+
+use crate::color::Color;
 
 /// Who supplies this actor's commands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,10 +44,26 @@ pub enum Controller {
 /// `set_speed` read and write it for real) so a future non-`Alternating`
 /// scheduling mode doesn't need a level-format migration to start
 /// consulting it.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Actor {
     pub speed: u32,
     pub controller: Controller,
+    /// See `ActorRecord::stats` (level.rs). Empty for the player
+    /// (`Actor::local`) — nothing today reads a local player's own stats
+    /// through this mechanism.
+    #[serde(default)]
+    pub stats: BTreeMap<String, f64>,
+    /// See `ActorRecord::tint_aware`/`tint_asleep` (level.rs).
+    /// `#[serde(default)]` lets a pre-7.5-4 save (this component already
+    /// existed) load with `Color::Reset` — no override — for both.
+    #[serde(default = "default_tint")]
+    pub tint_aware: Color,
+    #[serde(default = "default_tint")]
+    pub tint_asleep: Color,
+}
+
+fn default_tint() -> Color {
+    Color::Reset
 }
 
 impl Actor {
@@ -45,12 +71,26 @@ impl Actor {
     /// of these unconditionally, regardless of the project's
     /// `GameplayLoop`.
     pub fn local(slot: u8) -> Self {
-        Actor { speed: 100, controller: Controller::Local(slot) }
+        Actor {
+            speed: 100,
+            controller: Controller::Local(slot),
+            stats: BTreeMap::new(),
+            tint_aware: Color::Reset,
+            tint_asleep: Color::Reset,
+        }
     }
 
     /// Every authored enemy tile (`rat()`/`boss()` in
-    /// `examples/gen_roguelike.rs`) — see `TileRecord::actor`.
+    /// `examples/gen_roguelike.rs`) — see `TileRecord::actor`. Stats/tint
+    /// default empty/`Reset` here; `simulation/spawn.rs::do_on_start` fills
+    /// them in from the tile's own `ActorRecord` right after construction.
     pub fn ai(speed: u32) -> Self {
-        Actor { speed, controller: Controller::Ai }
+        Actor {
+            speed,
+            controller: Controller::Ai,
+            stats: BTreeMap::new(),
+            tint_aware: Color::Reset,
+            tint_asleep: Color::Reset,
+        }
     }
 }

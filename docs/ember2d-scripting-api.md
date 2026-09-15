@@ -71,7 +71,7 @@ A per-entity value a script needs to remember across calls goes through
 `ctx.set_var`/`get_var`/`has_var`/`remove_var` (Step 7.5-3, docs/ember2d-
 master-plan.md §5.6) — real per-entity component state (`Vars`,
 `components/vars.rs`), automatically cleared when that entity despawns. See
-`demos/roguelike/scripts/enemy_rat.rhai` and `demos/shooter/scripts/
+`demos/roguelike/scripts/enemy.rhai` and `demos/shooter/scripts/
 director.rhai`'s `spawn_enemy`/`resolve_hits` for this in practice. Before
 7.5-3, the only way to fake per-entity scope was `ctx.set_global`/
 `get_global` keyed by string concatenation (`"hp_" + id`) — that
@@ -271,6 +271,20 @@ scheduling functions:
   regardless of speed (only `Alternating` scheduling ships) — but a real,
   honestly-functioning read/write, not a stub, so a future non-`Alternating`
   mode needs no scripting-API change to start consulting it.
+- `get_stat(id, key)` (Step 7.5-4, docs/ember2d-master-plan.md §5.6) — a
+  numeric value authored on this actor's tile via `TileRecord.actor.stats`
+  (a `BTreeMap<String, f64>`, e.g. `"hp"`/`"atk"`/`"awareness_range"`). `0.0`
+  for a missing key or a non-actor entity, same neutral-default convention
+  every other `get_*` uses (R32, 7.5-1) — there's no separate "does this key
+  exist" query, same as `get_global`/`get_var`. What lets `enemy.rhai` be
+  one shared script for both the roguelike's rat and boss instead of one
+  script per role.
+- `get_tint_aware(id)` / `get_tint_asleep(id)` (Step 7.5-4) — the color name
+  string this actor's sprite should wear once aware of the player, and
+  while it's still asleep, authored via `TileRecord.actor.tint_aware`/
+  `tint_asleep`. Kept as their own fields, not `stats` entries, since
+  `stats` is numeric-only and a color isn't. `"Reset"` for a non-actor
+  entity.
 
 This whole boundary is what makes a recorded/transmitted command stream
 (the eventual replay test, Step 5h; lockstep netcode, Phase 9b) fully
@@ -304,8 +318,8 @@ meant several actors acting in one round each paid their own animation's
 duration serially. The gate is per-actor now: a different actor's turn
 resolves immediately regardless of what's still playing, so their
 animations overlap in real time instead of stacking.
-`demos/roguelike/scripts/enemy_rat.rhai` and `enemy_boss.rhai` call `animate_move`
-right alongside their own `set_position`; the player's own movement is
+`demos/roguelike/scripts/enemy.rhai` calls `animate_move`
+right alongside its own `set_position`; the player's own movement is
 deliberately left un-animated, both to avoid adding input latency to
 something that already felt instant, and because it means the player is
 *never* gated by this at all — only an actor that animates itself waits on
@@ -556,6 +570,7 @@ numeric literals in one consistent style, though; mixing (`draw_hud(1,
 | 7.5 | Step 7.5-1: `load_level` is last-wins now (matching `save_game`/`play_music`, which already were) — was first-wins | Yes — a script calling `load_level` more than once in the same pass now loads whichever path it named LAST, not the first. |
 | 7.5 | Step 7.5-2 (docs/ember2d-master-plan.md §5.6): `add_global`/`add_persistent` added, for accumulating a running total without the same-pass read-modify-write hazard every other `set_*` call has | **No** — purely additive: two new functions, nothing existing changed shape or behavior. |
 | 7.5 | Step 7.5-3 (docs/ember2d-master-plan.md §5.6): `set_var`/`get_var`/`has_var`/`remove_var`/`add_var` added — real per-entity state (a new `Vars` component), replacing the `"hp_" + id`-style global-key-concatenation convention | **No** — purely additive: five new functions backed by a new component; every existing function's shape and behavior is unchanged. |
+| 7.5 | Step 7.5-4 (docs/ember2d-master-plan.md §5.6): `get_stat`/`get_tint_aware`/`get_tint_asleep` added — numeric stats and an aware/asleep tint pair authored per actor tile via `TileRecord.actor.stats`/`tint_aware`/`tint_asleep`, letting `demos/roguelike/scripts/enemy.rhai` replace the near-duplicate `enemy_rat.rhai`/`enemy_boss.rhai` | **No** — purely additive: three new functions backed by new `ActorRecord`/`Actor` fields; every existing function's shape and behavior is unchanged. |
 
 **Phase 6 is a zero-API-break phase** — `API_VERSION` stayed `6` through
 Step 5f. Phase 7.5-1 is the next break after it; 7.5-2 and 7.5-3 (the two
@@ -571,8 +586,9 @@ covers Step 5f's turn scheduler (`on_turn`, `act`, `get_turn_number`,
 `get_speed`, `set_speed`, `trigger_turn` removed), and `7` covers Step 7.5-1's
 three rows above it (uniform int/float typing, `set_global`/`set_persistent`
 unit storage, `load_level` last-wins) — Step 7.5-2's `add_global`/
-`add_persistent` row and Step 7.5-3's `set_var`/`get_var`/`has_var`/
-`remove_var`/`add_var` row both shipped after `7` without needing an `8`/`9`,
+`add_persistent` row, Step 7.5-3's `set_var`/`get_var`/`has_var`/
+`remove_var`/`add_var` row, and Step 7.5-4's `get_stat`/`get_tint_aware`/
+`get_tint_asleep` row all shipped after `7` without needing an `8`/`9`/`10`,
 being additive. Bump it at every future "yes" above.
 
 ---

@@ -194,6 +194,13 @@ pub(super) fn register_all(engine: &mut Engine) {
     engine.register_fn("get_speed", ScriptCtx::get_speed);
     engine.register_fn("set_speed", ScriptCtx::set_speed);
 
+    // Step 7.5-4 (docs/ember2d-master-plan.md §5.6): data-driven actor
+    // stats/tint — `TileRecord.actor.stats`/`tint_aware`/`tint_asleep`,
+    // read at runtime so one shared `enemy.rhai` can serve every role.
+    engine.register_fn("get_stat", ScriptCtx::get_stat);
+    engine.register_fn("get_tint_aware", ScriptCtx::get_tint_aware);
+    engine.register_fn("get_tint_asleep", ScriptCtx::get_tint_asleep);
+
     // Phase 5.5 Part 3: the animation queue (docs/ember2d-phase5.5-plan.md).
     engine.register_fn("animate_move", ScriptCtx::animate_move);
     engine.register_fn("animate_move", ScriptCtx::animate_move_i);

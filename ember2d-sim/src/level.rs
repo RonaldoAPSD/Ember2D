@@ -43,6 +43,7 @@
 
 use crate::color::Color;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 
 // ── TileRecord ────────────────────────────────────────────────────────────────
@@ -145,7 +146,10 @@ pub struct TileRecord {
     /// implicitly `Controller::Local(0)` at speed 100, added unconditionally
     /// in `play/spawn.rs` regardless of what any tile authors. Only
     /// `Controller::Ai` is ever authored this way; `Local`/`Remote` are
-    /// assigned by the engine, never by level data.
+    /// assigned by the engine, never by level data. `ActorRecord` also
+    /// carries this role's numeric `stats` and aware/asleep `tint` pair
+    /// (Step 7.5-4) — what lets `demos/roguelike/scripts/enemy.rhai` be one
+    /// shared script instead of one per role.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actor: Option<ActorRecord>,
 }
@@ -164,15 +168,48 @@ fn is_false(b: &bool) -> bool {
 pub struct ActorRecord {
     #[serde(default = "default_actor_speed")]
     pub speed: u32,
+    /// Numeric gameplay stats authored per role (Step 7.5-4, docs/ember2d-
+    /// master-plan.md §5.6) — e.g. `"hp"`, `"atk"`, `"awareness_range"`.
+    /// Read at runtime via `ctx.get_stat`; keys are whatever the tile's own
+    /// script agrees to look for, not engine-defined. `#[serde(default)]`
+    /// lets a pre-7.5-4 level (every `ActorRecord` before this step only
+    /// ever had `speed`) load with an empty map, same as any other new
+    /// component field this project has added.
+    #[serde(default)]
+    pub stats: BTreeMap<String, f64>,
+    /// The tint this actor's sprite should wear once aware of the player,
+    /// and while it's still asleep (Step 7.5-4) — kept OUT of `stats`
+    /// deliberately: `stats` is numeric-only, and a `Color` isn't. Lets a
+    /// single shared `enemy.rhai` pick its own colors from data instead of
+    /// every role needing its own copy of the script just to hardcode a
+    /// different pair of `set_tint` colors.
+    #[serde(default = "default_tint")]
+    pub tint_aware: Color,
+    #[serde(default = "default_tint")]
+    pub tint_asleep: Color,
 }
 
 fn default_actor_speed() -> u32 {
     100
 }
 
+/// `Color::Reset` (no override) — a generic, genre-agnostic fallback for an
+/// actor tile that predates Step 7.5-4 and never authored a tint pair.
+/// Every enemy tile `gen_roguelike.rs` generates sets both fields
+/// explicitly; this default only matters for a level saved before this
+/// step existed.
+fn default_tint() -> Color {
+    Color::Reset
+}
+
 impl Default for ActorRecord {
     fn default() -> Self {
-        ActorRecord { speed: default_actor_speed() }
+        ActorRecord {
+            speed: default_actor_speed(),
+            stats: BTreeMap::new(),
+            tint_aware: default_tint(),
+            tint_asleep: default_tint(),
+        }
     }
 }
 
@@ -544,5 +581,33 @@ mod tests {
             LevelData::load(path.to_str().unwrap()).expect("an older-format level must still load");
         assert_eq!(level.collision_layers, vec!["solid".to_string()], "a version-2 level predates collision_layers entirely — it must default to the one layer name pre-Step-7 levels actually used");
         let _ = std::fs::remove_file(&path);
+    }
+
+    // ── Tests: Step 7.5-4 (docs/ember2d-master-plan.md §5.6) ────────────────
+
+    #[test]
+    fn a_pre_7_5_4_actor_record_loads_with_stats_and_tint_defaulted() {
+        // Every `ActorRecord` written before this step only ever had `speed`.
+        let ar: ActorRecord =
+            ron::de::from_str("(speed: 100)").expect("old ActorRecord shape must still deserialize");
+        assert!(ar.stats.is_empty(), "a pre-7.5-4 record has no stats to default from");
+        assert_eq!(ar.tint_aware, Color::Reset, "no tint authored yet must mean no override");
+        assert_eq!(ar.tint_asleep, Color::Reset);
+    }
+
+    #[test]
+    fn an_actor_records_stats_and_tint_round_trip_through_ron() {
+        let mut ar = ActorRecord::default();
+        ar.stats.insert("hp".to_string(), 6.0);
+        ar.stats.insert("atk".to_string(), 2.0);
+        ar.tint_aware = Color::Red;
+        ar.tint_asleep = Color::DarkRed;
+
+        let text = ron::ser::to_string(&ar).expect("serialize ActorRecord");
+        let back: ActorRecord = ron::de::from_str(&text).expect("deserialize ActorRecord");
+        assert_eq!(back.stats.get("hp"), Some(&6.0));
+        assert_eq!(back.stats.get("atk"), Some(&2.0));
+        assert_eq!(back.tint_aware, Color::Red);
+        assert_eq!(back.tint_asleep, Color::DarkRed);
     }
 }

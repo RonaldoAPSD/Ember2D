@@ -102,7 +102,7 @@ fn alloc_snapshot() -> (usize, usize) {
 // docs/ember2d-phase6-plan.md's research numbers) so the collision phase's
 // cost scales realistically, not just the entity count.
 //
-// Actor tiles reuse the real `demos/roguelike/scripts/enemy_rat.rhai` and the
+// Actor tiles reuse the real `demos/roguelike/scripts/enemy.rhai` and the
 // player uses the real `demos/roguelike/scripts/player.rhai` — this measures
 // actual script-execution cost, not a stand-in. Paths are CWD-relative
 // (`resolve_exit_path` checks `Path::new(next).exists()` against CWD first),
@@ -147,8 +147,18 @@ fn synth_level(n_tiles: usize, n_actors: usize, seed: u64) -> LevelData {
             tile.solid = true;
             tile.collider_layer = "solid".to_string();
             tile.tag = "enemy".to_string();
-            tile.script = Some("demos/roguelike/scripts/enemy_rat.rhai".to_string());
-            tile.actor = Some(ActorRecord { speed: 100 });
+            tile.script = Some("demos/roguelike/scripts/enemy.rhai".to_string());
+            // Step 7.5-4: enemy.rhai reads its numbers from `stats`, not
+            // hardcoded constants — mirror gen_roguelike.rs's real rat()
+            // values so this still exercises a live, undying-on-turn-0
+            // enemy rather than one whose `get_stat` calls all read 0.
+            let mut ar = ActorRecord { speed: 100, ..Default::default() };
+            ar.stats.insert("hp".to_string(), 6.0);
+            ar.stats.insert("atk".to_string(), 2.0);
+            ar.stats.insert("awareness_range".to_string(), 8.0);
+            ar.tint_aware = Color::Red;
+            ar.tint_asleep = Color::DarkRed;
+            tile.actor = Some(ar);
         }
     }
 

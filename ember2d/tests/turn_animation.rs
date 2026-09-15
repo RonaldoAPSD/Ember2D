@@ -257,7 +257,7 @@ fn two_actors_animations_overlap_instead_of_stacking() {
     // D20: an AI actor's own animation must not hold up the PLAYER's next
     // turn — only the AI actor's own next turn should wait on it. The
     // player submits "tick" unconditionally and never animates (matching
-    // enemy_rat.rhai's real player.rhai counterpart); the AI actor queues a
+    // enemy.rhai's real player.rhai counterpart); the AI actor queues a
     // 10-frame animation every turn it takes. Under the old whole-queue gate
     // this test's own final assertions would fail: the player's turn count
     // would stay stuck at 1 while the AI's animation drains, instead of

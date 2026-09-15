@@ -111,6 +111,17 @@ pub struct WorldSnapshot {
     /// honestly-functioning read, not a stub, so a future non-`Alternating`
     /// mode that does consult it needs no scripting-API change.
     pub(super) actor_speeds: HashMap<i64, u32>,
+    /// Read-only per-entity `Actor::stats` snapshot (Step 7.5-4, docs/ember2d-
+    /// master-plan.md §5.6) backing `ctx.get_stat` — lookup-only, like
+    /// `actor_speeds` immediately above, so a `HashMap` here doesn't violate
+    /// the sim's no-`HashMap`-iteration invariant (§4.1). Only entities with
+    /// a non-empty `stats` map get an entry.
+    pub(super) actor_stats: HashMap<i64, BTreeMap<String, f64>>,
+    /// Read-only per-entity aware/asleep tint pair backing
+    /// `ctx.get_tint_aware`/`get_tint_asleep` (Step 7.5-4) — see
+    /// `Actor::tint_aware`/`tint_asleep`'s own doc comment for why these
+    /// live outside `stats`. Lookup-only, same as `actor_speeds`.
+    pub(super) actor_tints: HashMap<i64, (Color, Color)>,
     /// Read-only per-entity `Vars` snapshot (Step 7.5-3, docs/ember2d-
     /// master-plan.md §5.6) backing `ctx.get_var`/`has_var` — frozen at the
     /// start of the pass, same as every other field here, so a `set_var`
@@ -191,8 +202,15 @@ impl WorldSnapshot {
             );
         }
         let mut actor_speeds = HashMap::with_capacity(world.actors.len());
+        let mut actor_stats = HashMap::new();
+        let mut actor_tints = HashMap::with_capacity(world.actors.len());
         for (id, actor) in &world.actors {
-            actor_speeds.insert(*id as i64, actor.speed);
+            let eid = *id as i64;
+            actor_speeds.insert(eid, actor.speed);
+            if !actor.stats.is_empty() {
+                actor_stats.insert(eid, actor.stats.clone());
+            }
+            actor_tints.insert(eid, (actor.tint_aware, actor.tint_asleep));
         }
         for (id, tag) in &world.tags {
             let eid = *id as i64;
@@ -237,6 +255,8 @@ impl WorldSnapshot {
             animator_frames,
             clip_finished,
             actor_speeds,
+            actor_stats,
+            actor_tints,
             vars,
             layers: layers.clone(),
         }

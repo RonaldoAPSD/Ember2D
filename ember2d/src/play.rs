@@ -420,7 +420,7 @@ impl GameState for PlayState {
         // *now* at the front still animating" is exactly "has THIS actor's
         // own most recent animation finished," never anyone else's. The
         // player's own movement is deliberately never animated (see
-        // `enemy_rat.rhai`'s header comment), so the player is never gated
+        // `enemy.rhai`'s header comment), so the player is never gated
         // by this at all — turn resolution resumes the instant it's
         // genuinely the player's turn again, not after a fixed animation
         // tax paid on enemies' behalf.

@@ -39,8 +39,11 @@ use ember2d::prelude::*;
 const PLAYER_SCRIPT: &str = "demos/roguelike/scripts/player.rhai";
 const PICKUP_SCRIPT: &str = "demos/roguelike/scripts/pickup.rhai";
 const STAIRS_SCRIPT: &str = "demos/roguelike/scripts/stairs.rhai";
-const ENEMY_RAT_SCRIPT: &str = "demos/roguelike/scripts/enemy_rat.rhai";
-const ENEMY_BOSS_SCRIPT: &str = "demos/roguelike/scripts/enemy_boss.rhai";
+// Step 7.5-4 (docs/ember2d-master-plan.md §5.6): rat and boss share ONE
+// script now — the numbers that used to make them separate files (hp, atk,
+// awareness range, tint) are authored as data on each tile's own
+// `ActorRecord` (`rat()`/`boss()` below) instead.
+const ENEMY_SCRIPT: &str = "demos/roguelike/scripts/enemy.rhai";
 const VICTORY_SCRIPT: &str = "demos/roguelike/scripts/victory.rhai";
 
 // Fixed per floor so every run of this generator — and every play of the
@@ -174,32 +177,57 @@ fn stairs(x: i32, y: i32, next_level: &str) -> TileRecord {
     t
 }
 
-/// An enemy_rat.rhai-driven rat. Solid (not a trigger): `Collider::new`
+/// An enemy.rhai-driven rat. Solid (not a trigger): `Collider::new`
 /// hardcodes `solid: true` for the player regardless of `PlayerRecord.solid`
 /// (a noted engine fact in the Phase 4 plan file), so a solid rat collider
 /// is what lets `is_solid_at` block both the player's and another rat's
 /// movement into it — no separate `get_entity_at` check needed on either
 /// side. `player.rhai`'s own bump-to-attack path finds it via
 /// `get_entity_at` + `has_tag(_, "enemy")` regardless of the solid flag.
+///
+/// hp/atk/awareness_range (Step 7.5-4) are authored here as `stats`, not
+/// hardcoded in a per-role copy of the script — `tint_aware`/`tint_asleep`
+/// carry the sprite's own Red/DarkRed pair (previously hardcoded in
+/// enemy_rat.rhai's `on_update`) the same way.
 fn rat(x: i32, y: i32) -> TileRecord {
     let mut t = TileRecord::new(x, y, 1, 'r', Color::Red, Color::Reset, true, false, "enemy");
-    t.script = Some(ENEMY_RAT_SCRIPT.to_string());
+    t.script = Some(ENEMY_SCRIPT.to_string());
     // Step 5f: an Ai actor, so TurnScheduler gives it a turn each round —
     // see level.rs's TileRecord::actor.
-    t.actor = Some(ActorRecord::default());
+    let mut actor = ActorRecord::default();
+    actor.stats.insert("hp".to_string(), 6.0);
+    actor.stats.insert("atk".to_string(), 2.0);
+    actor.stats.insert("awareness_range".to_string(), 8.0);
+    actor.tint_aware = Color::Red;
+    actor.tint_asleep = Color::DarkRed;
+    t.actor = Some(actor);
     t
 }
 
-/// An enemy_boss.rhai-driven boss — floor 3's finale. Same solid-collider
+/// An enemy.rhai-driven boss — floor 3's finale. Same solid-collider
 /// reasoning as `rat()` above. Tagged "boss", not "enemy": stairs.rhai
 /// already locks any level's stairs while `ctx.count_by_tag("boss") > 0`,
 /// so placing this tile is the entire boss-gate mechanism.
+///
+/// Bigger health pool (15 hp vs a rat's 6), slightly harder-hitting (3 dmg
+/// vs a rat's 2, matching the player's own per-hit damage), and a longer
+/// awareness range (10 vs a rat's 8) — a boss should notice the player from
+/// further off. Deliberately an attrition check, not a damage race: with
+/// these numbers a full-hp player wins a straight toe-to-toe fight with
+/// room to spare (confirmed by hand, back when these numbers were hardcoded
+/// in enemy_boss.rhai — a 4-dmg boss very nearly killed the player first).
 fn boss(x: i32, y: i32) -> TileRecord {
     let mut t =
         TileRecord::new(x, y, 1, 'B', Color::DarkMagenta, Color::Reset, true, false, "boss");
-    t.script = Some(ENEMY_BOSS_SCRIPT.to_string());
+    t.script = Some(ENEMY_SCRIPT.to_string());
     // Step 5f: an Ai actor, same as rat() above.
-    t.actor = Some(ActorRecord::default());
+    let mut actor = ActorRecord::default();
+    actor.stats.insert("hp".to_string(), 15.0);
+    actor.stats.insert("atk".to_string(), 3.0);
+    actor.stats.insert("awareness_range".to_string(), 10.0);
+    actor.tint_aware = Color::Magenta;
+    actor.tint_asleep = Color::DarkMagenta;
+    t.actor = Some(actor);
     t
 }
 

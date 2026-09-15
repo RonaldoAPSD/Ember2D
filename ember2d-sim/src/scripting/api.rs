@@ -2,6 +2,7 @@
 
 use super::state::ScriptState;
 use super::types::*;
+use crate::color::Color;
 use crate::command::Command;
 use rand::rngs::SmallRng;
 use rhai::{Array, Dynamic};
@@ -195,6 +196,38 @@ impl ScriptCtx {
     }
     pub fn set_speed(&mut self, id: i64, n: f64) {
         self.inner.borrow_mut().pending_speed.push((id, n.max(0.0) as u32));
+    }
+
+    /// A numeric stat authored on this actor's tile via `TileRecord.actor.
+    /// stats` (Step 7.5-4, docs/ember2d-master-plan.md §5.6) — e.g.
+    /// `ctx.get_stat(id, "hp")`. `0.0` for a missing key or a non-actor
+    /// entity, matching every other `get_*` neutral-value convention
+    /// (R32, 7.5-1) — there is no separate "does this key exist" query,
+    /// same as `get_global`/`get_var`.
+    pub fn get_stat(&mut self, id: i64, key: String) -> f64 {
+        self.inner
+            .borrow_mut()
+            .actor_stats
+            .get(&id)
+            .and_then(|stats| stats.get(&key))
+            .copied()
+            .unwrap_or(0.0)
+    }
+
+    /// The tint this actor's sprite should wear once aware of the player /
+    /// while it's still asleep (Step 7.5-4) — authored per-tile via
+    /// `TileRecord.actor.tint_aware`/`tint_asleep`, kept out of `stats`
+    /// because a `Color` isn't numeric. `"Reset"` (no override) for a
+    /// non-actor entity, same neutral-default convention as `get_stat`.
+    pub fn get_tint_aware(&mut self, id: i64) -> String {
+        let inner = self.inner.borrow_mut();
+        color_to_name(inner.actor_tints.get(&id).map(|&(aware, _)| aware).unwrap_or(Color::Reset))
+    }
+    pub fn get_tint_asleep(&mut self, id: i64) -> String {
+        let inner = self.inner.borrow_mut();
+        color_to_name(
+            inner.actor_tints.get(&id).map(|&(_, asleep)| asleep).unwrap_or(Color::Reset),
+        )
     }
 
     pub fn get_spawn_point(&mut self, name: String) -> Array {
