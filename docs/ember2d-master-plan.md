@@ -4241,6 +4241,13 @@ or delete; never let this grow past a screen.
   cleared by a one-time `cargo fmt --all` commit, 2026-09-13, same shape
   as 7A-9 — see §2.3's rustfmt row and R87 (§3.2) for the one file that
   pass pushed over 750 lines.
+- Rhai's default max-expression-complexity guard trips easily when merging
+  scripts that each independently stayed under it — 7.5-4's `enemy.rhai`
+  merge needed one more function split than either source script alone
+  did (§5.6, 7.5-4's own "Landed as" note). 7.5-5's own plan text shrinks
+  the shooter director by folding its bullet/enemy blocks into per-entity
+  scripts — worth compiling early rather than assuming a merge that looks
+  small will fit.
 
 ---
 
