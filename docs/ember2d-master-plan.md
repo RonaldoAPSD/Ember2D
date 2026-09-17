@@ -214,7 +214,7 @@ window). **Phase 7E (Editor features) deferred by user direction, same
 day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
 completeness (§5.6) under way: 7.5-1 through 7.5-7 landed
-(`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`b1964af`/`PENDING_HASH`).
+(`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`b1964af`/`83d598a`).
 Next: 7.5-8 (timers, D22). Two things still owed from 7.5-5/7.5-6, both
 flagged in their own "Landed as" notes: neither demo has been launched
 live this session (no windowed/GPU sandbox available to this agent) — a
@@ -4028,7 +4028,7 @@ in the API doc's migration section in the same commit.
   been launched to confirm the roguelike still plays normally with `Actor`
   now carrying one more field.
 
-#### `[x]` 7.5-7 — Animation and turn model completeness (`PENDING_HASH`)
+#### `[x]` 7.5-7 — Animation and turn model completeness (`83d598a`)
 
 - **Why:** R33 — `is_animating(id)` always returned `false`, not because
   nothing could run mid-animation (D20 already made that gate per-actor)
