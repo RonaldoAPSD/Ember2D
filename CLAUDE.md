@@ -150,7 +150,7 @@ The simulation must be reproducible — replay, save/load, and 2-player netcode 
 `main` is trunk at `v0.5.7d`. All work happens on the `claude` branch.
 
 **The authoritative status is `docs/ember2d-master-plan.md` §2 (phase table, baseline numbers)
-and §3 (the one defect register, D1–D22 + R1–R90 + E1–E6, each with a status marker and the
+and §3 (the one defect register, D1–D22 + R1–R92 + E1–E6, each with a status marker and the
 step that fixes it).** Read §2 before starting any work — this section is deliberately not a
 second copy of it (R36, master plan §3.2: this exact paragraph used to fall out of sync with
 the tree and did): don't restate phase/step progress here, keep this section a pointer.

@@ -4862,7 +4862,17 @@ or delete; never let this grow past a screen.
   Only `--lib` counts have been tracked step-to-step through 7C; worth an
   explicit `--all-targets` re-baseline at the 7C gate so this doesn't keep
   drifting unnoticed. (Tracked step-to-step all through 7D-2 instead —
-  currently 73, i.e. improved, not drifted further.)
+  currently 73, i.e. improved, not drifted further.) **Superseded by 7.5-9's
+  `ember2d-sim/clippy.toml`** (`disallowed-methods`/`disallowed-types`),
+  which makes raw totals incomparable to anything pre-7.5-9 — R91/R92 track
+  the real, categorized gap that lint surfaced. As of 7.5-11 (`923c045`),
+  `--all-targets` reports 218 total (was 227 at 7.5-9's own close,
+  `59bdc3a`) — a genuine before/after message diff (not just the count)
+  confirms zero new warnings across every file 7.5-10/7.5-11 touched, and
+  three pre-existing ones fixed as side effects (a `too_many_arguments` on
+  `lifecycle.rs` dropped below threshold once `PassArgs` landed, an
+  `or_insert_with` nit in a test deleted along with the dead `scopes` map,
+  and `AudioEngine` gaining a `Default` impl).
 - `Renderer.ui_font`/`ui_font_kind`/`ui_font_px` (7B-5's `EMBER_UI_FONT`
   debug toggle, `renderer/font/mod.rs`) is now largely redundant: every
   editor panel draws its OWN text through the theme's font directly
