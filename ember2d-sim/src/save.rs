@@ -83,6 +83,15 @@ impl SaveState {
     }
 
     /// Save the state to a file.
+    ///
+    /// Step 7.5-9 (docs/ember2d-master-plan.md §5.6): exempted from
+    /// `clippy.toml`'s `disallowed-methods` — this and `load_from_file`
+    /// below are the save format's real, permanent load/save entry points,
+    /// called only between simulation runs (`ember2d-app`'s save/load
+    /// menu), never reachable mid-step from a running `Simulation`, the
+    /// actual hazard that lint exists to catch — same exemption
+    /// `level.rs`'s `save`/`load` already document.
+    #[allow(clippy::disallowed_methods)]
     pub fn save_to_file(&self, path: &str) -> Result<(), String> {
         let ron = self.to_ron()?;
         fs::write(path, ron).map_err(|e| e.to_string())
@@ -94,6 +103,7 @@ impl SaveState {
     }
 
     /// Load a state from a file.
+    #[allow(clippy::disallowed_methods)]
     pub fn load_from_file(path: &str) -> Result<Self, String> {
         let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
         Self::from_ron(&content)

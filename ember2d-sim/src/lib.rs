@@ -41,6 +41,19 @@
 // this crate too, defeating the split, or a real redesign those two states
 // don't need).
 
+// Step 7.5-9 (docs/ember2d-master-plan.md §5.6): machine-enforced twin of
+// CLAUDE.md's Determinism section — `clippy.toml` (this crate's own,
+// sibling to Cargo.toml) supplies the actual disallow-lists; this is what
+// turns them from inert configuration into a real `cargo clippy` warning.
+// `warn`, not `deny`: a hard `deny` would fail a plain `cargo build` too
+// (rustc still parses the attribute even without clippy actually running
+// this crate's lints), which would make every consumer's ordinary build
+// depend on clippy being installed. Lookup-only `HashMap`/`HashSet` use
+// (CLAUDE.md's own carve-out — iteration order never observed) silences
+// this per site with `#[allow(clippy::disallowed_types)]` and a comment,
+// same convention the sim's `BTreeMap` doc comments already established.
+#![warn(clippy::disallowed_methods, clippy::disallowed_types)]
+
 pub mod color;
 pub mod command;
 pub mod components;
@@ -48,6 +61,7 @@ pub mod event;
 pub mod graph;
 pub mod layers;
 pub mod level;
+pub mod level_source;
 pub mod math;
 pub mod save;
 pub mod scheduler;

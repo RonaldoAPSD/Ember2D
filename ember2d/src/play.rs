@@ -152,7 +152,14 @@ const PLAYSTATE_RNG_SEED_OFFSET: u64 = 0x9E3779B97F4A7C15; // splitmix64's golde
 const RENDER_RNG_SEED_OFFSET: u64 = 0x2545F4914F6CDD1D;
 
 impl PlayState {
-    fn new_with_sim(sim: Simulation, seed: u64) -> Self {
+    fn new_with_sim(mut sim: Simulation, seed: u64) -> Self {
+        // Step 7.5-9 (docs/ember2d-master-plan.md §5.6, R17 fix): every
+        // real `PlayState` gets a working, disk-backed `LevelSource`
+        // unconditionally — `Simulation`'s own default (`NullLevelSource`)
+        // does no I/O at all, which is correct for `ember2d-sim` in
+        // isolation but wrong for an actual running game, which needs
+        // level transitions and node-graph tiles to really resolve.
+        sim.set_level_source(Box::new(crate::level_source::FsLevelSource));
         PlayState {
             fps: 0.0,
             show_debug: false,

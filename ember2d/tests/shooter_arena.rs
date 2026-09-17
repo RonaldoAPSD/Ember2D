@@ -56,6 +56,12 @@ impl RealtimeHarness {
         let mut world = World::new();
         let mut persistent = BTreeMap::new();
         let mut sim = Simulation::new(data);
+        // Step 7.5-9 (docs/ember2d-master-plan.md §5.6, R17 fix): before
+        // `on_start` — see `ember2d/tests/common/mod.rs`'s `TurnHarness::load`
+        // for why (every shipped script path must resolve as "already
+        // exists from CWD," which needs a real, working `LevelSource`, not
+        // `Simulation`'s own no-op default).
+        sim.set_level_source(Box::new(ember2d::level_source::FsLevelSource));
         sim.on_start(&mut world, 80, 24, &mut persistent);
         RealtimeHarness { world, sim, persistent, elapsed: 0.0, logs: Vec::new() }
     }

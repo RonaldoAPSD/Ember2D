@@ -1,0 +1,27 @@
+# ember2d-sim/clippy.toml — Step 7.5-9 (docs/ember2d-master-plan.md §5.6):
+# machine-enforced twin of CLAUDE.md's Determinism section, so a future
+# violation fails `cargo clippy` immediately instead of waiting for
+# `scripts/check.ps1`/`check.sh`'s own grep-based scan (or nobody) to catch
+# it. Paired with `#![deny(clippy::disallowed_methods, clippy::disallowed_types)]`
+# in lib.rs — that attribute is what turns these lists from inert
+# configuration into an actual build failure.
+
+disallowed-methods = [
+    { path = "std::fs::read_to_string", reason = "ember2d-sim must never touch a filesystem directly — route through Simulation's own LevelSource (level_source.rs)" },
+    { path = "std::fs::write", reason = "ember2d-sim must never touch a filesystem directly — route through Simulation's own LevelSource (level_source.rs)" },
+    { path = "std::fs::read", reason = "ember2d-sim must never touch a filesystem directly — route through Simulation's own LevelSource (level_source.rs)" },
+    { path = "std::fs::metadata", reason = "ember2d-sim must never touch a filesystem directly — route through Simulation's own LevelSource (level_source.rs)" },
+    { path = "std::fs::remove_file", reason = "ember2d-sim must never touch a filesystem directly — route through Simulation's own LevelSource (level_source.rs)" },
+    { path = "std::path::Path::exists", reason = "ember2d-sim must never touch a filesystem directly — route through LevelSource::exists (level_source.rs)" },
+    { path = "std::time::Instant::now", reason = "wall-clock time in the sim breaks replay determinism across machines — derive elapsed time from step count instead (see Simulation::step_count)" },
+    { path = "std::time::SystemTime::now", reason = "wall-clock time in the sim breaks replay determinism across machines — derive elapsed time from step count instead (see Simulation::step_count)" },
+]
+
+# HashMap/HashSet iteration order varies between processes — CLAUDE.md's
+# Determinism section requires BTreeMap/BTreeSet (or a lookup-only HashMap
+# with a `#[allow]` and a comment explaining why iteration order is never
+# observed there, e.g. WorldSnapshot's velocities/parents/glyphs maps).
+disallowed-types = [
+    { path = "std::collections::HashMap", reason = "iteration order varies between processes — use BTreeMap, or #[allow(clippy::disallowed_types)] with a comment if this use is genuinely lookup-only" },
+    { path = "std::collections::HashSet", reason = "iteration order varies between processes — use BTreeSet, or #[allow(clippy::disallowed_types)] with a comment if this use is genuinely lookup-only" },
+]

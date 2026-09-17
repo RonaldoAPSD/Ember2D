@@ -1,5 +1,6 @@
 // world.rs — The game world: entity management and component storage.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 
 use crate::components::{Actor, Animator, Collider, Script, Sprite, Tag, Transform, Vars};
@@ -10,6 +11,22 @@ use serde::{Deserialize, Serialize};
 
 /// An entity is just a unique integer ID.
 pub type EntityId = u64;
+
+/// A structured warning `World` records about its own state, instead of
+/// `eprintln!`-ing directly — Step 7.5-9 (docs/ember2d-master-plan.md §5.6,
+/// R41 fix: `get_global_position`'s hierarchy-cycle bail-out used to print
+/// straight to stderr, forbidden inside `ember2d-sim` by CLAUDE.md's
+/// Determinism section). Drained into `StepOutcome::diagnostics`
+/// (simulation.rs) once per `step`/`late_step`/`on_start` call, the same
+/// "accumulate now, drain later" shape `ScriptEngine.pending_hud_draws`
+/// already uses. A separate type from `scripting::types::LogEntry` rather
+/// than reusing it: `world.rs` sits BELOW `scripting` in this crate's own
+/// layering (scripting depends on world, not the reverse), so importing a
+/// scripting-side type here would invert that.
+#[derive(Debug, Clone)]
+pub struct Diagnostic {
+    pub message: String,
+}
 
 /// The game world: holds all entities and their component data.
 ///
@@ -73,6 +90,16 @@ pub struct World {
     /// if every entity's `Vars` were empty.
     #[serde(default)]
     pub vars: BTreeMap<EntityId, Vars>,
+    /// Step 7.5-9 (R41 fix, see `Diagnostic`'s own doc comment above) — a
+    /// `RefCell`, not a plain `Vec`, specifically so `get_global_position`
+    /// (a pure `&self` query every existing caller relies on staying
+    /// read-only) can still record one without becoming `&mut self` and
+    /// breaking every call site that borrows `World` immutably alongside
+    /// it (`WorldSnapshot::build`, several `ScriptCtx` methods). Never part
+    /// of a save — `#[serde(skip)]` — these are ephemeral, this-step-only
+    /// warnings, not world state.
+    #[serde(skip)]
+    pub diagnostics: RefCell<Vec<Diagnostic>>,
 }
 
 impl World {
@@ -88,6 +115,7 @@ impl World {
             animators: BTreeMap::new(),
             actors: BTreeMap::new(),
             vars: BTreeMap::new(),
+            diagnostics: RefCell::new(Vec::new()),
         }
     }
 
@@ -100,6 +128,30 @@ impl World {
     }
 
     pub fn despawn(&mut self, id: EntityId) {
+        // Step 7.5-9 (docs/ember2d-master-plan.md §5.6): a child of `id`
+        // used to keep `tf.parent == Some(id)` forever after this call —
+        // a dangling reference to a dead entity, not just visually wrong
+        // (its position math would silently stop counting the dead
+        // parent's own contribution the instant `id`'s own `Transform` is
+        // removed below) but a real hazard if entity ids are ever reused.
+        // Computed BEFORE `id`'s own `Transform` is removed, so each
+        // child's current world position — needed to keep it from visually
+        // jumping the instant its parent's own contribution disappears —
+        // still resolves correctly through the chain that includes `id`.
+        let children: Vec<EntityId> = self
+            .transforms
+            .iter()
+            .filter(|(_, tf)| tf.parent == Some(id))
+            .map(|(&child, _)| child)
+            .collect();
+        for child in children {
+            let world_pos = self.get_global_position(child);
+            if let Some(tf) = self.transforms.get_mut(&child) {
+                tf.parent = None;
+                tf.position = world_pos;
+            }
+        }
+
         self.transforms.remove(&id);
         self.sprites.remove(&id);
         self.colliders.remove(&id);
@@ -160,6 +212,12 @@ impl World {
     // ── Hierarchy ─────────────────────────────────────────────────────────
 
     /// Get the world-space position of an entity by traversing up its parent chain.
+    ///
+    /// The depth-100 bail-out below is a safety net, not the real fix —
+    /// `set_parent` (below) rejects a cycle-creating reparent up front as
+    /// of Step 7.5-9, so nothing reachable through the sanctioned API can
+    /// build one anymore. This only still fires for a cycle baked directly
+    /// into raw save/level data by hand, bypassing `set_parent` entirely.
     pub fn get_global_position(&self, id: EntityId) -> Vec2 {
         let mut pos = Vec2::ZERO;
         let mut current_id = Some(id);
@@ -174,7 +232,11 @@ impl World {
             }
             depth += 1;
             if depth > 100 {
-                eprintln!("WARN: entity hierarchy cycle detected for entity {}", id);
+                // Step 7.5-9 (R41 fix): a `Diagnostic`, not `eprintln!` —
+                // see that type's own doc comment above for why.
+                self.diagnostics.borrow_mut().push(Diagnostic {
+                    message: format!("entity hierarchy cycle detected for entity {id}"),
+                });
                 break;
             }
         }
@@ -184,12 +246,40 @@ impl World {
     /// Set the parent of an entity.
     /// If `keep_world_position` is true, the local position is adjusted so the
     /// entity doesn't jump in world space.
+    /// Step 7.5-9 (docs/ember2d-master-plan.md §5.6): rejects a reparent
+    /// that would create a cycle, as a no-op — same convention every other
+    /// setter here uses for an invalid request, rather than letting
+    /// `get_global_position`'s own depth-100 safety net catch it later.
+    /// Checked by walking UP from the proposed `parent`; if `id` itself
+    /// ever appears, this assignment would close a loop. The `depth > 100`
+    /// cap mirrors `get_global_position`'s own — this walk is over the
+    /// SAME chain that function bails out of, so it needs the identical
+    /// bound to stay safe against a cycle that already exists in the data
+    /// (bypassing this very check, e.g. hand-edited save/level content).
     pub fn set_parent(
         &mut self,
         id: EntityId,
         parent: Option<EntityId>,
         keep_world_position: bool,
     ) {
+        if let Some(p) = parent {
+            if p == id {
+                return;
+            }
+            let mut current = Some(p);
+            let mut depth = 0;
+            while let Some(cid) = current {
+                if cid == id {
+                    return;
+                }
+                current = self.transforms.get(&cid).and_then(|tf| tf.parent);
+                depth += 1;
+                if depth > 100 {
+                    break;
+                }
+            }
+        }
+
         let (parent_id, new_pos) = if keep_world_position {
             let current_global = self.get_global_position(id);
             let new_parent_global =
@@ -464,189 +554,9 @@ impl World {
     }
 }
 
+// Tests split into world_tests.rs (Step 7.5-9, docs/ember2d-master-plan.md
+// §5.6) — see that file's own header comment for why, once this file
+// crossed CLAUDE.md's 750-line limit.
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::components::Animator;
-
-    #[test]
-    fn a_world_with_animators_round_trips_through_ron() {
-        let mut world = World::new();
-        let id = world.spawn();
-        world.animators.insert(id, Animator::new("flicker"));
-
-        let ron = ron::to_string(&world).expect("World must serialize");
-        let restored: World = ron::from_str(&ron).expect("World must deserialize");
-        assert_eq!(restored.animators.get(&id).map(|a| a.clip.as_str()), Some("flicker"));
-    }
-
-    #[test]
-    fn a_saved_world_from_before_the_animators_store_existed_still_loads() {
-        // Step 3c added `animators` to an already-shipped serialized type;
-        // #[serde(default)] is what keeps an old save (missing the field
-        // entirely) loading instead of erroring out.
-        let pre_step_3c_ron =
-            "(next_id:1,transforms:{},sprites:{},colliders:{},tags:{},scripts:{})";
-        let restored: World = ron::from_str(pre_step_3c_ron)
-            .expect("a World RON with no `animators` key must still deserialize");
-        assert!(restored.animators.is_empty());
-    }
-
-    #[test]
-    fn a_world_with_vars_round_trips_through_ron() {
-        let mut world = World::new();
-        let id = world.spawn();
-        world.vars.insert(
-            id,
-            Vars { values: BTreeMap::from([("hp".to_string(), rhai::Dynamic::from(6_i64))]) },
-        );
-
-        let ron = ron::to_string(&world).expect("World must serialize");
-        let restored: World = ron::from_str(&ron).expect("World must deserialize");
-        assert_eq!(
-            restored.vars.get(&id).and_then(|v| v.values.get("hp")).and_then(|d| d.as_int().ok()),
-            Some(6)
-        );
-    }
-
-    #[test]
-    fn a_saved_world_from_before_the_vars_store_existed_still_loads() {
-        // Step 7.5-3 added `vars` to an already-shipped serialized type;
-        // #[serde(default)] is what keeps an old save (missing the field
-        // entirely) loading instead of erroring out — same convention
-        // `animators`'s own test above pins.
-        let pre_step_7_5_3_ron = "(next_id:1,transforms:{},sprites:{},colliders:{},tags:{},\
-             scripts:{},animators:{},actors:{})";
-        let restored: World = ron::from_str(pre_step_7_5_3_ron)
-            .expect("a World RON with no `vars` key must still deserialize");
-        assert!(restored.vars.is_empty());
-    }
-
-    #[test]
-    fn despawn_removes_the_entitys_animator() {
-        let mut world = World::new();
-        let id = world.spawn();
-        world.animators.insert(id, Animator::new("flicker"));
-        world.despawn(id);
-        assert!(
-            !world.animators.contains_key(&id),
-            "despawn must clean up the animators store like every other component store"
-        );
-    }
-
-    #[test]
-    fn despawn_removes_the_entitys_actor() {
-        let mut world = World::new();
-        let id = world.spawn();
-        world.add_actor(id, crate::components::Actor::ai(100));
-        world.despawn(id);
-        assert!(
-            !world.actors.contains_key(&id),
-            "despawn must clean up the actors store like every other component store"
-        );
-    }
-
-    #[test]
-    fn despawn_removes_the_entitys_vars() {
-        let mut world = World::new();
-        let id = world.spawn();
-        world.add_vars(id, Vars::default());
-        world.despawn(id);
-        assert!(
-            !world.vars.contains_key(&id),
-            "despawn must clean up the vars store like every other component store"
-        );
-    }
-
-    // ── Tests: Step 5b deterministic iteration (docs/ember2d-phase5-plan.md
-    // §5.2 H1) — component stores are BTreeMap, not HashMap, specifically so
-    // iteration order is a property of the type and can't regress back to
-    // HashMap's per-process randomness by accident. ─────────────────────────
-
-    #[test]
-    fn component_store_iteration_is_sorted_by_entity_id_regardless_of_insertion_order() {
-        let mut world = World::new();
-        // Insert out of order — a HashMap would happily accept this and
-        // still iterate in its own (unspecified, per-process-random) order;
-        // a BTreeMap must always yield ascending key order regardless.
-        let ids: Vec<EntityId> = [30u64, 10, 20].iter().map(|&x| x).collect();
-        for &id in &ids {
-            world.transforms.insert(id, crate::components::Transform::new(0.0, 0.0));
-            world.colliders.insert(id, crate::components::Collider::unit());
-            world.tags.insert(id, crate::components::Tag::new("thing"));
-        }
-
-        let observed: Vec<EntityId> = world.transforms.keys().copied().collect();
-        assert_eq!(
-            observed,
-            vec![10, 20, 30],
-            "transforms must iterate in ascending EntityId order"
-        );
-        let observed: Vec<EntityId> = world.colliders.keys().copied().collect();
-        assert_eq!(
-            observed,
-            vec![10, 20, 30],
-            "colliders must iterate in ascending EntityId order"
-        );
-        let observed: Vec<EntityId> = world.tags.keys().copied().collect();
-        assert_eq!(observed, vec![10, 20, 30], "tags must iterate in ascending EntityId order");
-    }
-
-    #[test]
-    fn find_by_tag_deterministically_returns_the_lowest_id_when_multiple_entities_share_a_tag() {
-        let mut world = World::new();
-        // Insert the higher id first — if find_by_tag were still driven by
-        // HashMap iteration order, insertion order (or process hash state)
-        // could change which one comes back.
-        world.tags.insert(50, crate::components::Tag::new("enemy"));
-        world.tags.insert(5, crate::components::Tag::new("enemy"));
-        world.tags.insert(25, crate::components::Tag::new("enemy"));
-        assert_eq!(
-            world.find_by_tag("enemy"),
-            Some(5),
-            "find_by_tag must deterministically return the lowest EntityId sharing the tag"
-        );
-    }
-
-    #[test]
-    fn entity_ids_is_sorted_and_deduplicated_across_stores() {
-        let mut world = World::new();
-        world.transforms.insert(3, crate::components::Transform::new(0.0, 0.0));
-        world.sprites.insert(1, crate::components::Sprite::simple('@', crate::color::Color::White));
-        world.colliders.insert(2, crate::components::Collider::unit());
-        // 3 appears in both transforms and tags — entity_ids must not list it twice.
-        world.tags.insert(3, crate::components::Tag::new("dup"));
-
-        assert_eq!(world.entity_ids(), vec![1, 2, 3]);
-    }
-
-    #[test]
-    fn entity_ids_includes_entities_whose_only_component_is_a_script_animator_or_actor() {
-        // Phase 6 Step 11 (docs/ember2d-phase6-plan.md): entity_ids() used
-        // to union only transforms/sprites/colliders/tags — an entity with
-        // nothing but a Script, Animator, or Actor component was silently
-        // invisible to it. Pins the fix directly rather than trusting the
-        // union list by inspection alone.
-        let mut world = World::new();
-        let script_only = world.spawn();
-        world.add_script(script_only, crate::components::Script::new("x.rhai"));
-        let animator_only = world.spawn();
-        world.add_animator(animator_only, crate::components::Animator::new("clip"));
-        let actor_only = world.spawn();
-        world.add_actor(actor_only, crate::components::Actor::ai(100));
-        let vars_only = world.spawn();
-        world.add_vars(vars_only, Vars::default());
-
-        let ids = world.entity_ids();
-        assert!(
-            ids.contains(&script_only),
-            "an entity with only a Script component must be listed"
-        );
-        assert!(
-            ids.contains(&animator_only),
-            "an entity with only an Animator component must be listed"
-        );
-        assert!(ids.contains(&actor_only), "an entity with only an Actor component must be listed");
-        assert!(ids.contains(&vars_only), "an entity with only a Vars component must be listed");
-    }
-}
+#[path = "world_tests.rs"]
+mod tests;

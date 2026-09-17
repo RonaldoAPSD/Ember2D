@@ -38,7 +38,13 @@ impl EditorState {
 
             let mut source = node_graph::generate_graph(&graph);
             if let Some(ref path) = tile.script {
-                let full = resolve_exit_path(path, &self.save_path);
+                // Step 7.5-9 (docs/ember2d-master-plan.md §5.6): `resolve_exit_path`
+                // now takes its own `exists` check as an injected closure
+                // rather than calling `Path::exists` internally (that was
+                // real filesystem access inside `ember2d-sim`, R17) — this
+                // editor call site is allowed real fs access already
+                // (CLAUDE.md), so it just passes one directly.
+                let full = resolve_exit_path(path, &self.save_path, &|p| Path::new(p).exists());
                 if let Ok(existing) = std::fs::read_to_string(&full) {
                     source.push('\n');
                     source.push_str(&existing);

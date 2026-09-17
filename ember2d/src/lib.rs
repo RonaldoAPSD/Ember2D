@@ -20,6 +20,7 @@ pub mod camera;
 pub mod engine;
 pub mod gamepad;
 pub mod input;
+pub mod level_source;
 pub mod mouse;
 pub mod play;
 pub mod press_buffer;

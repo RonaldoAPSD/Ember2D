@@ -234,7 +234,7 @@ filtering entirely; `false` by default.
 ### Hierarchy
 `get_parent(id)` · `set_parent(id,parent)` · `set_parent_keep_world(id,parent)` · `get_world_x(id)` · `get_world_y(id)`
 
-Pass `-1` as parent to detach. Cycle guard at depth 100.
+Pass `-1` as parent to detach. `set_parent` rejects a reparent that would create a cycle as a no-op (Step 7.5-9, docs/ember2d-master-plan.md §5.6) — checked up front, not discovered later; `get_global_position`'s own depth-100 walk still exists underneath as a safety net for a cycle that bypasses `set_parent` entirely (hand-edited save/level data), which is now the only way one can still occur. `despawn(id)` also clears every child's own `parent` link (rather than leaving it pointing at a dead id), preserving each child's current world position so it doesn't visually jump.
 
 ### Input
 `is_held(key)` · `just_pressed(key)` — lowercase names (`"w"`, `"space"`, `"escape"`, `"left"`).

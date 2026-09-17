@@ -61,13 +61,11 @@ function Test-IsCommentLine($line) {
 }
 
 # 2a. eprintln! - real call sites only (eprintln! followed by an open
-# paren, not a doc comment discussing the rule). ALLOWLISTED: R41
-# (world.rs:142, docs/ember2d-master-plan.md section 3.2) - already
-# tracked, scheduled for 7.5-9; don't let this check regress to "always
-# red" over a known, deferred issue.
-$eprintlnAllowlist = @("world.rs")
+# paren, not a doc comment discussing the rule). R41 fixed at 7.5-9
+# (docs/ember2d-master-plan.md section 5.6): world.rs now records a
+# Diagnostic (World::diagnostics) instead of eprintln!-ing directly - no
+# allowlist needed anymore, scan every file.
 foreach ($file in $simRsFiles) {
-    if ($eprintlnAllowlist -contains $file.Name) { continue }
     $hits = Select-String -Path $file.FullName -Pattern "eprintln!\("
     foreach ($hit in $hits) {
         if (Test-IsCommentLine $hit.Line) { continue }
@@ -75,20 +73,19 @@ foreach ($file in $simRsFiles) {
     }
 }
 
-# 2b. Filesystem access - std::fs:: calls or Path::...exists() checks.
-# ALLOWLISTED: R17 (simulation.rs's resolve_exit_path, simulation/spawn.rs's
-# node-graph script combine, docs/ember2d-master-plan.md section 3.2) -
-# already tracked, scheduled for 7.5-9. NOT checked at all: level.rs/save.rs's
-# own LevelData::load/save and SaveState::load_from_file/save_to_file -
-# those ARE the file format's real load/save entry points, callable only
-# between simulation runs, not the "filesystem access reachable from a
-# running step" hazard R17 is actually about. A blanket "no std::fs
-# anywhere in ember2d-sim" reading of CLAUDE.md's rule would make loading a
-# level at all forbidden, which was never the intent.
-$fsAllowlist = @("simulation.rs", "spawn.rs")
+# 2b. Filesystem access - std::fs:: calls or Path::...exists() checks. R17
+# fixed at 7.5-9: simulation.rs/spawn.rs now route every file access
+# through Simulation's own LevelSource trait instead of calling std::fs/
+# Path::exists directly - no allowlist needed for them anymore.
+# level.rs/save.rs's own LevelData::load/save and
+# SaveState::load_from_file/save_to_file stay excluded from this scan
+# permanently (not an R17 remnant): those ARE the file format's real
+# load/save entry points, never reachable mid-step from a running
+# simulation, which is the actual hazard this check exists to catch. A
+# blanket "no std::fs anywhere in ember2d-sim" reading of CLAUDE.md's rule
+# would make loading a level at all forbidden, which was never the intent.
 $fsCheckFiles = $simRsFiles | Where-Object { $_.Name -ne "level.rs" -and $_.Name -ne "save.rs" }
 foreach ($file in $fsCheckFiles) {
-    if ($fsAllowlist -contains $file.Name) { continue }
     $hits = Select-String -Path $file.FullName -Pattern "std::fs::|\.exists\(\)"
     foreach ($hit in $hits) {
         if (Test-IsCommentLine $hit.Line) { continue }

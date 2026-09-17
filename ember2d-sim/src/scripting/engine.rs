@@ -172,6 +172,18 @@ impl ScriptEngine {
         }
     }
 
+    // Step 7.5-9 (docs/ember2d-master-plan.md §5.6): `fs::metadata` below
+    // is a pre-existing, dev-time-only use (recording a script's own
+    // mtime for `check_hot_reload`'s later comparison) — out of THIS
+    // step's scope, which is level/exit-path resolution (`LevelSource`,
+    // level_source.rs), not script compilation. `compile_file` two lines
+    // up ALSO reads the script file, via `rhai`'s own internal
+    // `std::fs::read_to_string` — invisible to clippy's `disallowed-
+    // methods` (it fires on code in THIS crate, not inside a dependency)
+    // and not something this crate could intercept without replacing
+    // `rhai::Engine::compile_file` entirely. Not fixed here; flagged as a
+    // real gap, not silently ignored.
+    #[allow(clippy::disallowed_methods)]
     pub fn compile(&mut self, path: &str, log: &mut Vec<LogEntry>) -> bool {
         if self.ast_cache.contains_key(path) {
             return true;
@@ -527,6 +539,9 @@ impl ScriptEngine {
     // `lifecycle.rs` already established. Pure relocation, no behavior
     // change.
 
+    // Step 7.5-9: same pre-existing, dev-time-only `fs::metadata` exemption
+    // `compile`'s own doc comment above explains.
+    #[allow(clippy::disallowed_methods)]
     fn check_hot_reload(&mut self, world: &World, log: &mut Vec<LogEntry>) {
         // Phase 6 Step 6: `__script_<id>` keys are synthetic — a node
         // graph's generated Rhai source, cached via `compile_str` under

@@ -48,13 +48,18 @@ check_pattern() {
     done
 }
 
-# 2a. eprintln! - ALLOWLISTED: R41 (world.rs:142, already tracked, 7.5-9).
-check_pattern 'eprintln!\(' "new eprintln! in ember2d-sim (forbidden - CLAUDE.md Determinism)" "world.rs"
+# 2a. eprintln! - R41 fixed at 7.5-9 (docs/ember2d-master-plan.md §5.6):
+# world.rs now records a Diagnostic (World::diagnostics) instead of
+# eprintln!-ing directly. No allowlist needed anymore - scan every file.
+check_pattern 'eprintln!\(' "new eprintln! in ember2d-sim (forbidden - CLAUDE.md Determinism)"
 
-# 2b. Filesystem access - ALLOWLISTED: R17 (simulation.rs, spawn.rs;
-# already tracked, 7.5-9). level.rs/save.rs's own load/save entry points
-# are the file format's real load/save, not the "reachable from a running
-# step" hazard R17 is about - excluded from the scan entirely, below.
+# 2b. Filesystem access - R17 fixed at 7.5-9: simulation.rs/spawn.rs now
+# route every file access through Simulation's own LevelSource trait
+# instead of calling std::fs/Path::exists directly - no allowlist needed
+# for them anymore. level.rs/save.rs's own load/save entry points stay
+# excluded from this scan permanently (not an R17 remnant): they ARE the
+# file format's real load/save, never reachable mid-step from a running
+# simulation, which is the actual hazard this check exists to catch.
 sim_files_no_io_entry=()
 for f in "${sim_files[@]}"; do
     b="$(basename "$f")"
@@ -64,7 +69,7 @@ for f in "${sim_files[@]}"; do
 done
 sim_files_saved=("${sim_files[@]}")
 sim_files=("${sim_files_no_io_entry[@]}")
-check_pattern 'std::fs::|\.exists\(\)' "new filesystem access in ember2d-sim (forbidden - CLAUDE.md Determinism)" "simulation.rs" "spawn.rs"
+check_pattern 'std::fs::|\.exists\(\)' "new filesystem access in ember2d-sim (forbidden - CLAUDE.md Determinism)"
 sim_files=("${sim_files_saved[@]}")
 
 # 2c. Instant::now() / SystemTime::now() - wall-clock time.

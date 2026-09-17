@@ -258,6 +258,10 @@ fn a_saved_and_loaded_session_still_transitions_when_the_player_steps_onto_the_s
         restored.turn_number,
         restored.scheduler,
     );
+    // Step 7.5-9 (docs/ember2d-master-plan.md §5.6, R17 fix): this test's
+    // whole point is a REAL level transition off the stairs below — needs
+    // a working `LevelSource`, not `Simulation`'s own no-op default.
+    loaded_sim.set_level_source(Box::new(ember2d::level_source::FsLevelSource));
     loaded_sim.on_start(
         &mut loaded_world,
         h.viewport_width,

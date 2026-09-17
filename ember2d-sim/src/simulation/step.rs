@@ -15,14 +15,16 @@ use std::collections::{BTreeMap, HashMap};
 use crate::command::Command;
 use crate::components::Controller;
 use crate::event::EventBus;
-use crate::level::LevelData;
 use crate::math::Vec2;
 use crate::save::SaveState;
 use crate::scheduler::{TurnModel, ALTERNATING_COST};
 use crate::scripting::{LogEntry, ScriptUpdateResult, WorldSnapshot};
 use crate::world::{EntityId, World};
 
-use super::{actor_has_physics, is_local_player, resolve_exit_path, Simulation, StepInput, StepOutcome};
+use super::{
+    actor_has_physics, drain_diagnostics_into, is_local_player, resolve_exit_path, Simulation,
+    StepInput, StepOutcome,
+};
 
 impl Simulation {
     /// One simulation step: advance animators, run `on_input` for whichever
@@ -170,6 +172,7 @@ impl Simulation {
             }
         }
 
+        drain_diagnostics_into(world, &mut logs);
         outcome.logs = logs;
         outcome
     }
@@ -323,8 +326,9 @@ impl Simulation {
             let locked = world.colliders.get(&other).map(|c| c.locked).unwrap_or(false);
             if let Some(path) = self.exit_targets.get(&other).cloned() {
                 if !locked {
-                    let full_path = resolve_exit_path(&path, &self.level.path);
-                    match LevelData::load(&full_path) {
+                    let full_path =
+                        resolve_exit_path(&path, &self.level.path, &|p| self.level_source_exists(p));
+                    match self.level_source.load_level(&full_path) {
                         Ok(next) => {
                             outcome.pending_level = Some(next);
                         }
@@ -352,6 +356,7 @@ impl Simulation {
             (viewport_w, viewport_h),
         );
         self.apply_script_result(world, res, persistent, &mut logs, &mut outcome);
+        drain_diagnostics_into(world, &mut logs);
         outcome.logs = logs;
         outcome
     }
@@ -395,8 +400,8 @@ impl Simulation {
             self.scheduler.remove(id);
         }
         if let Some(level_path) = res.pending_level {
-            let full = resolve_exit_path(&level_path, &self.level.path);
-            match LevelData::load(&full) {
+            let full = resolve_exit_path(&level_path, &self.level.path, &|p| self.level_source_exists(p));
+            match self.level_source.load_level(&full) {
                 Ok(next) => {
                     outcome.pending_level = Some(next);
                 }

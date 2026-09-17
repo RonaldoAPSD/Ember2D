@@ -77,6 +77,13 @@ impl TurnHarness {
         let mut world = World::new();
         let mut persistent = BTreeMap::new();
         let mut sim = Simulation::new(data);
+        // Step 7.5-9 (docs/ember2d-master-plan.md §5.6, R17 fix): set
+        // BEFORE `on_start` — `do_on_start` resolves every tile's texture/
+        // script path through this, and every shipped demo script uses a
+        // repo-root-relative path that must resolve as "already exists
+        // from CWD" or every one of them silently resolves wrong (joined
+        // against the level's own directory instead of used as-is).
+        sim.set_level_source(Box::new(ember2d::level_source::FsLevelSource));
         let (viewport_width, viewport_height) = (80, 24);
         sim.on_start(&mut world, viewport_width, viewport_height, &mut persistent);
 
@@ -104,6 +111,9 @@ impl TurnHarness {
         let mut persistent = save.persistent;
         let mut sim =
             Simulation::from_save(data, save.globals, save.clips, save.turn_number, save.scheduler);
+        // Step 7.5-9: see `load`'s own matching comment above for why this
+        // must happen before `on_start`.
+        sim.set_level_source(Box::new(ember2d::level_source::FsLevelSource));
         let (viewport_width, viewport_height) = (80, 24);
         sim.on_start(&mut world, viewport_width, viewport_height, &mut persistent);
 

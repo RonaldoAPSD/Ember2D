@@ -56,7 +56,7 @@ impl Simulation {
             let z = tile.layer as i32 * 10;
             let mut sprite = Sprite::new(tile.glyph, tile.fg, tile.bg, z);
             if let Some(ref path) = tile.texture {
-                let full = resolve_exit_path(path, &self.level.path);
+                let full = resolve_exit_path(path, &self.level.path, &|p| self.level_source_exists(p));
                 sprite = sprite.with_texture(full);
             }
             world.add_sprite(id, sprite);
@@ -103,8 +103,8 @@ impl Simulation {
             }
             if !source.is_empty() {
                 if let Some(ref path) = tile.script {
-                    let full = resolve_exit_path(path, &self.level.path);
-                    if let Ok(file_src) = std::fs::read_to_string(&full) {
+                    let full = resolve_exit_path(path, &self.level.path, &|p| self.level_source_exists(p));
+                    if let Ok(file_src) = self.level_source.read_to_string(&full) {
                         source.push('\n');
                         source.push_str(&file_src);
                     }
@@ -117,7 +117,7 @@ impl Simulation {
                 }
                 world.add_script(id, Script::new(&key));
             } else if let Some(script_path) = &tile.script {
-                let full = resolve_exit_path(script_path, &self.level.path);
+                let full = resolve_exit_path(script_path, &self.level.path, &|p| self.level_source_exists(p));
                 world.add_script(id, Script::new(&full));
                 if self.script_engine.compile(&full, logs) {
                     scripts_ok += 1;
@@ -138,7 +138,7 @@ impl Simulation {
         let pr = &self.level.player;
         let mut p_sprite = Sprite::new(pr.glyph, pr.fg, pr.bg, pr.layer);
         if let Some(ref path) = pr.texture {
-            let full = resolve_exit_path(path, &self.level.path);
+            let full = resolve_exit_path(path, &self.level.path, &|p| self.level_source_exists(p));
             p_sprite = p_sprite.with_texture(full);
         }
         world.add_sprite(player, p_sprite);
@@ -150,7 +150,7 @@ impl Simulation {
         world.add_actor(player, Actor::local(0));
 
         if let Some(ref script_path) = pr.script.clone() {
-            let full = resolve_exit_path(script_path, &self.level.path);
+            let full = resolve_exit_path(script_path, &self.level.path, &|p| self.level_source_exists(p));
             world.add_script(player, Script::new(&full));
             if self.script_engine.compile(&full, logs) {
                 scripts_ok += 1;

@@ -497,6 +497,14 @@ impl LevelData {
     ///
     /// `Box<dyn std::error::Error>` lets us return either a ron error or an
     /// io::Error without choosing a single error type up front.
+    ///
+    /// Step 7.5-9 (docs/ember2d-master-plan.md §5.6): exempted from
+    /// `clippy.toml`'s `disallowed-methods` — this and `load` below ARE the
+    /// level format's real, permanent load/save entry points, never
+    /// reachable mid-step from a running `Simulation` (which routes
+    /// everything else through `LevelSource`, level_source.rs), the actual
+    /// hazard that lint exists to catch.
+    #[allow(clippy::disallowed_methods)]
     pub fn save(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
         // PrettyConfig controls the RON output formatting.
         // depth_limit controls indentation depth; new_line controls line endings.
@@ -516,6 +524,10 @@ impl LevelData {
     /// Returns an error if:
     ///   - The file doesn't exist or can't be read
     ///   - The RON content is malformed or doesn't match LevelData's structure
+    ///
+    /// Step 7.5-9: exempted from `clippy.toml`'s `disallowed-methods` —
+    /// see `save`'s own doc comment immediately above for why.
+    #[allow(clippy::disallowed_methods)]
     pub fn load(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         // Read the entire file into a String.
         let content = fs::read_to_string(path)?;

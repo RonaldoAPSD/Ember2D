@@ -213,19 +213,19 @@ SHRINKS the viewport (fixed-point-width side panels eat more of a fixed
 window). **Phase 7E (Editor features) deferred by user direction, same
 day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
-completeness (§5.6) under way: 7.5-1 through 7.5-8 landed
+completeness (§5.6) under way: 7.5-1 through 7.5-9 landed
 (`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`b1964af`/`83d598a`/
-`aff65d4`). Next: 7.5-9 (sim boundary lints and `LevelSource`). Two
-things still owed from 7.5-5/7.5-6, both
-flagged in their own "Landed as" notes: neither demo has been launched
-live this session (no windowed/GPU sandbox available to this agent) — a
-real playtest of both, not just the headless suite, is still worth doing;
-and the shooter's `director.rhai` still hand-rolls its own enemy
-wall-slide (7.5-6 deliberately scoped shooter enemies out of engine-side
-solid resolution — see that step's own note for why). No project ships
-with `TurnModel::Energy`/`ActionCost` yet (7.5-7) — both are new, opt-in,
-tested only headlessly; a real tactical-RPG-style level exercising either
-live is still owed whenever Phase 9 gets there.**
+`aff65d4`/`PENDING_HASH`). Next: 7.5-10 (scripting engine internals). Three
+things still owed, each flagged in its own step's "Landed as" note:
+neither demo has been launched live this session (no windowed/GPU sandbox
+available to this agent) — a real playtest of both, not just the headless
+suite, is still worth doing; the shooter's `director.rhai` still
+hand-rolls its own enemy wall-slide (7.5-6 deliberately scoped shooter
+enemies out of engine-side solid resolution); no project ships with
+`TurnModel::Energy`/`ActionCost` yet (7.5-7, both new and opt-in); and R91
+(§3.2, 7.5-9) — 67 pre-existing lookup-only `HashMap`/`HashSet` sites still
+need their own `#[allow(clippy::disallowed_types)]` annotation now that
+`ember2d-sim/clippy.toml` actually checks for it.**
 
 ### 2.3 Baseline numbers (at `v0.5.7d`)
 
@@ -389,6 +389,8 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R89 | S2 | `draw_menu_dropdown`'s call site (`impl_render/mod.rs`) had the exact same unit mismatch as R88, in a sibling code path R88's own fix never touched: raw LOGICAL `mouse.pixel_x/y` passed straight into a function comparing it against POINTS-space row rects (`row_rect.contains_point`), so the dropdown's own drawn "hovered" highlight silently drifted at any `ui_scale != render_scale`. Reported live by the user with a screenshot: cursor down near "Close Project" (index 9, `MenuKind::File`'s own list, `ui/menu.rs`) while "Export Game..." (index 5) was drawn highlighted instead. `handle_menu_dropdown_click` (`input/panels/menu_bar.rs`) was never affected — it already converts via `logical_to_pt` — so a real click always landed on the right item; only the visual hint lied about which row that click would hit | `ember2d-editor/src/editor/impl_render/mod.rs:548-549` (pre-fix); `ember2d-editor/src/editor/ui/menu.rs` (`draw_menu_dropdown`'s own `hovered` check) | `[x]` (`99ee94b`) — call site converts via `self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y)` before calling `draw_menu_dropdown`, matching `handle_menu_dropdown_click`'s own conversion exactly. `draw_menu_dropdown` also widened from `()` to `Option<usize>` (the hovered row index), captured into a new `EditorState.menu_hover_item` field (reset every frame, exposed via `hovered_menu_item()`) — before this the hover highlight was a fire-and-forget local inside `ui/menu.rs` with no way for anything outside the draw call to observe it; now it's a real, testable single source of truth, closing the same "two independent implementations that can drift" gap R64/R66/R67 already fixed for other chrome hit-testing. Regression test `r89_menu_dropdown_hover_highlight_matches_the_real_hovered_row_when_ui_scale_is_smaller_than_render_scale` (`tests/editor_ui_scale.rs`), confirmed to fail against the pre-fix code (highlighted row 3 instead of the real row 9). **Verification.** `cargo build --workspace --bins --examples` clean. `cargo test --workspace`: 381 (was 380), all pass. `cargo clippy --workspace --lib`/`--all-targets` unchanged at 43/55. `cargo test -p ember2d --test replay` 3× fresh processes green. `scripts/check.ps1` clean (the new `menu_hover_item` field's doc comment trimmed to a single trailing `//` line to keep `editor/mod.rs` at exactly 750 real lines — no other file this step touched was close to the limit). Verified live a second time after the fix: opened `File`, moved the mouse to "Close Project"'s own row — highlighted correctly, matching the cursor, instead of the pre-fix mismatch |
 | **Found writing 7.5-4 (docs/ember2d-master-plan.md §5.6)** | | | | |
 | R90 | S4 | Adding `ActorRecord::stats`/`tint_aware`/`tint_asleep` (7.5-4) grew `TileRecord` enough that `ember2d-editor`'s undo `Command::PlaceTile { before: Option<TileRecord>, after: TileRecord }` variant now trips clippy's `large_enum_variant` lint (528 bytes vs. `Command`'s other variants) — a new warning (`cargo clippy --workspace --lib`: 43 → 44), not a behavior change. Fixing it properly (`Box`ing the large variant fields) is an `ember2d-editor` change outside 7.5-4's own Scope (`ember2d-sim`, demos, API doc) | `ember2d-editor/src/editor/commands.rs:24` (`Command::PlaceTile`) | `[ ]` unscheduled |
+| **Found writing 7.5-9 (docs/ember2d-master-plan.md §5.6)** | | | | |
+| R91 | S4 | `ember2d-sim/clippy.toml`'s new `disallowed-types` lint (`HashMap`/`HashSet`, `#![warn(...)]` in lib.rs) surfaces 67 unique pre-existing sites once actually turned on — every one already a deliberate lookup-only use per CLAUDE.md's own carve-out (`WorldSnapshot`'s velocities/parents/glyphs/etc., `ScriptEngine`'s scopes/mod_times/disabled_scripts, the graph codegen module, `layers.rs`, and others), none newly introduced by 7.5-9 itself (verified: none of this step's own new code — `level_source.rs`, `World::diagnostics` — adds a HashMap/HashSet at all). Not a correctness bug (nothing here is order-sensitive; each one already has its own "lookup-only" reasoning in a nearby doc comment, just not yet the formal `#[allow(clippy::disallowed_types)]` annotation clippy now expects) — a mechanical annotation pass across ~12 files, large enough on its own to warrant its own step rather than folding into 7.5-9's already-substantial diff (LevelSource, Diagnostic, set_parent/despawn, the world.rs/world_tests.rs split) | `ember2d-sim/src/scripting/state.rs` (the largest concentration, ~35 sites), `world.rs`, `simulation.rs`, `simulation/step.rs`, `scripting/engine.rs`, `scripting/collisions.rs`, `scripting/api_spatial.rs`, `command.rs`, `layers.rs`, `graph/codegen.rs`, `graph/mod.rs` | `[ ]` unscheduled |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -4161,17 +4163,125 @@ in the API doc's migration section in the same commit.
   calls these three functions, so there is no live scenario this step's
   fix would even change the behavior of today.
 
-#### `[ ]` 7.5-9 — Sim boundary lints and `LevelSource`
+#### `[x]` 7.5-9 — Sim boundary lints and `LevelSource` (`PENDING_HASH`)
 
-`ember2d-sim/clippy.toml` with `disallowed-methods` for `std::fs::*`,
-`Path::exists`, `Instant::now`, `SystemTime::now`, `eprintln`, and
-`disallowed-types` for `HashMap`/`HashSet` (allow-listed per lookup-only
-site). `Simulation` gets `level_source: Box<dyn LevelSource>` (`fn
-load(&self, path) -> Result<LevelData>`, `fn exists`); `ember2d` supplies
-the filesystem implementation, tests supply an in-memory one. Diagnostics
-that were `eprintln!` become `StepOutcome.diagnostics: Vec<Diagnostic>`.
-`get_global_position`'s cycle bail-out becomes a `Diagnostic` and
-`set_parent` rejects cycles up front. `despawn` clears children's `parent`.
+- **Why:** R17 (`simulation.rs`'s `resolve_exit_path`, `simulation/spawn.rs`'s
+  node-graph script combine) and R41 (`world.rs`'s hierarchy-cycle
+  `eprintln!`) were real filesystem/console violations of CLAUDE.md's
+  Determinism section, allow-listed in `scripts/check.ps1`/`check.sh`
+  specifically so this step could fix them instead of the allowlist
+  becoming permanent. Separately, an entity hierarchy had no cycle
+  prevention at all (only a depth-100 bail-out after the fact) and
+  `despawn` left children pointing at a dead parent id forever.
+- **Change:** `Simulation` gets `level_source: Box<dyn LevelSource>`
+  (`exists`/`read_to_string`/`load_level`); `ember2d`'s `FsLevelSource` is
+  the real disk-backed implementation, `Simulation`'s own default
+  (`NullLevelSource`) does zero I/O. `World::diagnostics` (a `RefCell<Vec<
+  Diagnostic>>`) replaces the `eprintln!`, drained into the existing `logs`/
+  `LogEntry` pipeline every `step`/`late_step`/`on_start` call.
+  `set_parent` rejects a cycle-creating reparent up front; `despawn` clears
+  every child's own parent link, preserving its world position.
+- **Test:** `world_tests.rs`'s 5 new tests (direct/indirect/self-parent
+  cycle rejection, despawn clearing a child's parent, the Diagnostic
+  surfacing for a cycle that bypasses `set_parent`); `ember2d/tests/
+  level_source.rs` (a level transition succeeds with a working
+  `LevelSource` configured, fails closed with the default).
+- **Scope:** `ember2d-sim`, `ember2d`, `ember2d-editor`, `scripts/check.ps1`/
+  `check.sh`, both docs.
+- **Landed as:** one scope decision made without a user question this
+  time, but worth stating plainly: the plan's own text says
+  `StepOutcome.diagnostics: Vec<Diagnostic>`, a new field nothing
+  downstream would read yet. Landed instead as a drain into the EXISTING
+  `logs`/`LogEntry` pipeline (`Simulation`'s own new `drain_diagnostics_
+  into` helper) — `world.rs` still defines its own `Diagnostic` type
+  (it sits BELOW `scripting` in this crate's layering, so it can't build a
+  `LogEntry` directly), but the conversion happens one level up, in
+  `simulation.rs`/`simulation/step.rs`, which already have both types in
+  scope. Chose this over a parallel, unwired `StepOutcome.diagnostics`
+  field specifically so the fix is immediately visible in the editor
+  console (`PlayState.script_log`'s existing surfacing) instead of dead
+  data waiting for a future step to wire up display for it.
+
+  **`resolve_exit_path`** (simulation.rs) — its own `Path::new(next).exists()`
+  became an injected `exists: &dyn Fn(&str) -> bool` parameter rather than
+  taking a full `LevelSource` object: this function is also called from
+  `ember2d-editor` (`graph_sidecars.rs`, via the existing `ember2d::play`
+  re-export), which is allowed real fs access already and has no reason to
+  learn about a sim-side trait just to pass one through — it now passes
+  `&|p| Path::new(p).exists()` directly. Every `ember2d-sim`-internal
+  caller (5 in `spawn.rs`, 2 in `step.rs`) passes `&|p|
+  self.level_source_exists(p)` instead, a small forwarding method added
+  specifically so the closure's own capture stays disjoint from the
+  `&self.level.path` argument the same call always also borrows.
+
+  **A wider blast radius than R17's own two files suggested:** any test
+  that constructs a `Simulation` directly (bypassing `PlayState`, which
+  wires up `FsLevelSource` unconditionally in `new_with_sim`) and relies on
+  a REAL script/texture/exit path resolving correctly needed the same
+  wiring by hand — `ember2d/tests/common/mod.rs`'s `TurnHarness` (used by
+  most of this crate's own test suite, including the R7 stairs-transition
+  tests in `save_load_globals.rs`) and `shooter_arena.rs`'s
+  `RealtimeHarness` both call `sim.set_level_source(Box::new(FsLevelSource))`
+  now, BEFORE `on_start` — every shipped demo script uses a repo-root-
+  relative path that must resolve as "already exists from CWD," which
+  needs a working `LevelSource` in place before `do_on_start` ever runs.
+  Confirmed by running the full suite before AND after this wiring: every
+  one of these tests would have silently resolved every script path wrong
+  (joined against the level's own directory instead of used as-is) without
+  it — caught immediately by the existing test suite, not discovered live.
+
+  **`ember2d-sim/clippy.toml`** landed with a real, if partial, wiring:
+  `#![warn(clippy::disallowed_methods, clippy::disallowed_types)]` in
+  lib.rs (a `warn`, not `deny` — a hard `deny` would fail a plain `cargo
+  build` too, since rustc still parses the attribute without clippy
+  actually running this crate's lints). `disallowed-methods` immediately
+  found two GENUINE gaps `check.ps1`/`check.sh`'s own text-based grep had
+  always missed: `scripting/engine.rs`'s `compile`/`check_hot_reload` call
+  `fs::metadata` via the short `use std::fs;` alias, which never matches a
+  literal `std::fs::` grep pattern — clippy catches it because it resolves
+  by PATH, not source text. Both are pre-existing, dev-time-only hot-reload
+  machinery, explicitly out of this step's own scope (level/exit-path
+  resolution, not script compilation) — `#[allow]`ed with a comment
+  explaining why, not silently left unannotated. `level.rs`'s `save`/`load`
+  and `save.rs`'s `save_to_file`/`load_from_file` — the file formats' own
+  real, permanent load/save entry points, already excluded from
+  `check.ps1`/`check.sh`'s own scan — got the same `#[allow]` treatment for
+  the same reason, closing out that exemption's story for good instead of
+  leaving it as 4 more unannotated warnings.
+
+  **`disallowed-types` surfaced 67 pre-existing HashMap/HashSet sites**
+  (`scripting/state.rs` alone has ~35 — every one of `WorldSnapshot`'s own
+  lookup-only maps), none of them newly introduced by this step and none
+  of them a real determinism bug — every one already has its own
+  "lookup-only" reasoning in a nearby doc comment per CLAUDE.md's existing
+  carve-out, just not yet the formal `#[allow(clippy::disallowed_types)]`
+  annotation clippy now expects. Annotating all 67 in the same diff as
+  everything else this step already did (`LevelSource`, `Diagnostic`,
+  `set_parent`/`despawn`, the `world.rs`/`world_tests.rs` split) would have
+  more than doubled this step's own size for a purely mechanical pass with
+  no behavior change — logged as **R91** (§3.2) instead of done here or
+  silently skipped.
+
+  **File-size fallout:** `world.rs` was at 742/750 lines before this step's
+  own `Diagnostic`/`set_parent`/`despawn` additions, which would have
+  pushed it over. Its `#[cfg(test)] mod tests` (186 lines, unrelated to
+  this step until its own new tests needed to land somewhere) moved to a
+  new `world_tests.rs`, same `#[path]`-split pattern the scripting module
+  already uses repeatedly — `world.rs` is now 562 lines.
+
+  **Verification.** `cargo build --workspace --bins --examples` clean.
+  `cargo test --workspace`: 435 (was 428: +5 `world_tests.rs`, +2
+  `level_source.rs`), all pass — including every `TurnHarness`-driven test
+  (`roguelike_combat.rs`, `save_load_globals.rs`'s R7 stairs tests,
+  `replay.rs` 3× fresh processes) unaffected by the `LevelSource` rewiring.
+  `scripts/check.sh`/`check.ps1` both updated (R17/R41's allowlists
+  removed — the checks now scan every file again, not just the
+  historically-excused ones) and both pass clean; `doc-check.ps1`'s own
+  numbers (function count 162, `API_VERSION` 7, `LEVEL_FORMAT_VERSION` 3)
+  unchanged and still match. `CLAUDE.md` unchanged (no new Rhai-facing
+  function this step). **Not verified live** — same sandbox limitation
+  every step since 7.5-5 has recorded; a live save/load and a live level
+  transition on both demos is still owed.
 
 #### `[ ]` 7.5-10 — Scripting engine internals
 

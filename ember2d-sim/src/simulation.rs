@@ -51,6 +51,7 @@ use crate::command::{Command, GamepadSnapshot, InputSnapshot, MouseSnapshot};
 use crate::components::{AnimationClip, Controller};
 use crate::layers::LayerRegistry;
 use crate::level::LevelData;
+use crate::level_source::{LevelSource, NullLevelSource};
 use crate::math::Vec2;
 use crate::save::SaveState;
 use crate::scheduler::{TurnModel, TurnScheduler};
@@ -65,16 +66,47 @@ use crate::world::{EntityId, World};
 // now. `ember2d::play` keeps a `pub use` re-export so
 // `ember2d-editor/src/editor/impl_state.rs`'s existing
 // `use ember2d::play::resolve_exit_path` import is untouched.
-pub fn resolve_exit_path(next: &str, current_level_path: &str) -> String {
+//
+// Step 7.5-9 (docs/ember2d-master-plan.md §5.6, R17 fix): `exists` used to
+// be a bare `Path::new(next).exists()` — real filesystem access inside
+// `ember2d-sim`, reachable from every step that resolves a script/texture/
+// exit path. Now an injected closure instead: every `ember2d-sim`-internal
+// caller passes `&|p| self.level_source.exists(p)` (routing through
+// `Simulation`'s own `LevelSource`, never touching `std::fs` itself), and
+// `ember2d-editor`'s own call site (`graph_sidecars.rs`, allowed real fs
+// access — it isn't `ember2d-sim`) passes a plain `Path::new(p).exists()`
+// closure directly. Neither side needs to know about the other's own
+// notion of "exists."
+pub fn resolve_exit_path(
+    next: &str,
+    current_level_path: &str,
+    exists: &dyn Fn(&str) -> bool,
+) -> String {
     if Path::new(next).is_absolute() || current_level_path.is_empty() {
         return next.to_string();
     }
-    if Path::new(next).exists() {
+    if exists(next) {
         return next.to_string();
     }
     match Path::new(current_level_path).parent() {
         Some(dir) if dir != Path::new("") => dir.join(next).to_string_lossy().into_owned(),
         _ => next.to_string(),
+    }
+}
+
+/// Step 7.5-9 (docs/ember2d-master-plan.md §5.6, R41 fix): folds whatever
+/// `World::diagnostics` accumulated this call (e.g. `get_global_position`'s
+/// hierarchy-cycle safety net) into the same `logs` a `step`/`late_step`/
+/// `on_start` call already returns — reusing the existing `LogEntry`
+/// pipeline (already surfaced through the editor console) rather than
+/// adding a second, unwired reporting channel nothing downstream reads yet.
+/// `world.rs` itself can't build a `LogEntry` directly (it sits BELOW
+/// `scripting` in this crate's own layering), so the conversion happens
+/// here, one level up, at every call site that already has both types in
+/// scope.
+fn drain_diagnostics_into(world: &World, logs: &mut Vec<LogEntry>) {
+    for d in world.diagnostics.borrow_mut().drain(..) {
+        logs.push(LogEntry::warn(d.message));
     }
 }
 
@@ -250,6 +282,13 @@ pub struct Simulation {
     /// or `LevelData` — it's a project-level setting, not per-run state,
     /// same category as `pixels_per_unit`.
     turn_model: TurnModel,
+    /// Step 7.5-9 (docs/ember2d-master-plan.md §5.6, R17 fix): the one
+    /// seam through which this `Simulation` can ever touch a file — see
+    /// `LevelSource`'s own doc comment (level_source.rs) for why the
+    /// default is a working-nothing `NullLevelSource`, not real disk
+    /// access, and `set_level_source`'s own doc comment for who's expected
+    /// to override it.
+    level_source: Box<dyn LevelSource>,
 }
 
 impl Simulation {
@@ -271,7 +310,39 @@ impl Simulation {
             pending_scheduler: Vec::new(),
             layers,
             turn_model: TurnModel::default(),
+            level_source: Box::new(NullLevelSource),
         }
+    }
+
+    /// Sets what `LevelSource` a level transition or a node-graph tile's
+    /// script-source combine reads through — a setter, not a constructor
+    /// parameter, same reasoning `set_turn_model`/`set_pixels_per_unit`
+    /// give: `Simulation::new`/`from_save` take only a `LevelData`/
+    /// `SaveState`. Unlike those two, though, this ISN'T an optional
+    /// per-project override — a real game always needs a working one
+    /// (`ember2d::play::PlayState` wires up its own `FsLevelSource`
+    /// unconditionally, in `new_with_sim`), and a test that exercises
+    /// level transitions needs to supply its own (`ember2d/tests/
+    /// common/mod.rs`'s `TurnHarness` does the same). Every OTHER test —
+    /// the majority, which never touches a level transition or a
+    /// node-graph tile — needs nothing here at all; `NullLevelSource`'s
+    /// own "reports not found" behavior is exactly what those tests
+    /// already expect from a level exit that was never meant to resolve
+    /// (e.g. `actor_physics.rs`'s deliberately-bogus `"unused.level"`).
+    pub fn set_level_source(&mut self, source: Box<dyn LevelSource>) {
+        self.level_source = source;
+    }
+
+    /// A small forwarding helper so `resolve_exit_path`'s injected `exists`
+    /// closure (`&|p| self.level_source_exists(p)`, used at every internal
+    /// call site in `simulation/spawn.rs`/`simulation/step.rs`) borrows
+    /// only this one method's own `&self.level_source` field, not `self`
+    /// as a whole — the same call always also borrows `&self.level.path`
+    /// as `resolve_exit_path`'s other argument, and keeping the closure's
+    /// own capture disjoint from that avoids relying on the compiler to
+    /// work it out from a longer inline expression.
+    fn level_source_exists(&self, path: &str) -> bool {
+        self.level_source.exists(path)
     }
 
     /// Sets which `TurnModel` `run_actor_turn`'s own cost fallback uses —
@@ -498,6 +569,7 @@ impl Simulation {
             let mut outcome = StepOutcome::default();
             self.apply_script_result(world, res, persistent, &mut logs, &mut outcome);
         }
+        drain_diagnostics_into(world, &mut logs);
         logs
     }
 
