@@ -215,7 +215,7 @@ day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
 completeness (§5.6) under way: 7.5-1 through 7.5-8 landed
 (`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`b1964af`/`83d598a`/
-`PENDING_HASH`). Next: 7.5-9 (sim boundary lints and `LevelSource`). Two
+`aff65d4`). Next: 7.5-9 (sim boundary lints and `LevelSource`). Two
 things still owed from 7.5-5/7.5-6, both
 flagged in their own "Landed as" notes: neither demo has been launched
 live this session (no windowed/GPU sandbox available to this agent) — a
@@ -4109,7 +4109,7 @@ in the API doc's migration section in the same commit.
   recorded (no windowed/GPU environment available to this agent this
   session).
 
-#### `[x]` 7.5-8 — Timers (D22) (`PENDING_HASH`)
+#### `[x]` 7.5-8 — Timers (D22) (`aff65d4`)
 
 - **Why:** `timer_done`'s storage was one `f64` overloaded four ways by sign
   and magnitude, and `cancel_timer`'s "cancelled" value and `timer_done`'s
