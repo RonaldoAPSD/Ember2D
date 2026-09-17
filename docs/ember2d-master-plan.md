@@ -213,9 +213,10 @@ SHRINKS the viewport (fixed-point-width side panels eat more of a fixed
 window). **Phase 7E (Editor features) deferred by user direction, same
 day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
-completeness (§5.6) under way: 7.5-1 through 7.5-7 landed
-(`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`b1964af`/`83d598a`).
-Next: 7.5-8 (timers, D22). Two things still owed from 7.5-5/7.5-6, both
+completeness (§5.6) under way: 7.5-1 through 7.5-8 landed
+(`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`b1964af`/`83d598a`/
+`PENDING_HASH`). Next: 7.5-9 (sim boundary lints and `LevelSource`). Two
+things still owed from 7.5-5/7.5-6, both
 flagged in their own "Landed as" notes: neither demo has been launched
 live this session (no windowed/GPU sandbox available to this agent) — a
 real playtest of both, not just the headless suite, is still worth doing;
@@ -280,7 +281,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | D19 | S2 | Keypress dropped during enemy animation | `play.rs` | `[x]` Phase 6 |
 | D20 | S2 | Animations stacked serially into input freeze | `play.rs` | `[x]` Phase 6 |
 | D21 | S3 | `check_hot_reload` syscall per script per step | `scripting/engine.rs` | `[x]` Phase 6 Step 6 |
-| D22 | S3 | Cancelled and just-fired timers share a sentinel | `api.rs`, `apply.rs:119-128` | `[ ]` → **7.5-8** |
+| D22 | S3 | Cancelled and just-fired timers share a sentinel | `api.rs`, `apply.rs:119-128` | `[x]` 7.5-8 — `TimerState`/`TimerWrite` enums replace the float sentinel; `Cancelled`/`Consumed` are now distinct terminal states |
 
 ### 3.2 Review defects (R-series, found 2026-09-06)
 
@@ -4108,11 +4109,57 @@ in the API doc's migration section in the same commit.
   recorded (no windowed/GPU environment available to this agent this
   session).
 
-#### `[ ]` 7.5-8 — Timers (D22)
+#### `[x]` 7.5-8 — Timers (D22) (`PENDING_HASH`)
 
-Distinct `TimerState { Running(f32), Fired, Cancelled, Consumed }` replaces
-the float sentinel. `timer_done` returns `true` exactly once. Test in
-`timer_tests.rs`.
+- **Why:** `timer_done`'s storage was one `f64` overloaded four ways by sign
+  and magnitude, and `cancel_timer`'s "cancelled" value and `timer_done`'s
+  own "just consumed" value were the SAME number (`-1.0`) — so a cancelled
+  timer still reported `done` on the next check, and a fired timer kept
+  reporting `done` forever instead of exactly once (D22).
+- **Change:** `TimerState { Running(f32), Fired, Cancelled, Consumed }`
+  (`scripting/types.rs`) replaces the float; `TimerWrite { Start, Cancel,
+  Consume }` is its write-queue counterpart. `timer_done` reads `true` only
+  for `Fired`, queuing a transition to `Consumed`; `cancel_timer` moves
+  straight to `Cancelled`, a dead end distinct from `Consumed`.
+- **Test:** `timer_tests.rs`'s two new tests —
+  `timer_done_returns_true_exactly_once_not_forever` and
+  `cancel_timer_prevents_timer_done_from_ever_firing` — plus the three
+  pre-existing tests updated to seed `TimerState::Running` instead of a
+  raw float.
+- **Scope:** `ember2d-sim`, docs.
+- **Landed as:** no scope decision needed — a self-contained type swap with
+  no shipped script (`demos/roguelike/`, `demos/shooter/`) calling
+  `start_timer`/`timer_done`/`cancel_timer` at all, so nothing outside
+  `ember2d-sim` needed to change. `TimerState`/`TimerWrite` live in
+  `scripting/types.rs` alongside `PendingWrite` (same "a real enum instead
+  of an overloaded sentinel" shape, same file). `ScriptEngine.timers` and
+  `ScriptState.timers`/`pending_timers` change type but not structure — the
+  round-trip through `mem::take`/`apply_ctx` that already existed for the
+  old float map is unchanged, just carrying a richer value now. Decay
+  (`run_scripts`, engine.rs) now only touches `Running` timers, transitioning
+  one to `Fired` the instant it crosses zero, instead of decrementing every
+  stored value unconditionally and letting `timer_done` reinterpret negative
+  numbers after the fact.
+
+  **File-size fallout, again:** `engine.rs` crossed 750 lines a second time
+  (the D22 doc comments this step added were what pushed it over, not new
+  logic volume). `run_collisions` — the on_collide dispatch pass, ~100
+  self-contained lines untouched by this step's own changes — moved to a
+  new `collisions.rs`, same second-`impl ScriptEngine`-in-a-sibling-file
+  pattern `apply.rs`/`lifecycle.rs` already established twice. `engine.rs`
+  is now 663 lines, with real headroom for whatever 7.5-9 through 7.5-13
+  still need to add to it.
+
+  **Verification.** `cargo build --workspace --bins --examples` clean.
+  `cargo test --workspace`: 428 (was 426: +2 timer tests), all pass.
+  `scripts/check.sh` clean (file-size limit, including the `collisions.rs`
+  split). `CLAUDE.md`'s registered-function count unchanged at 162 — no new
+  Rhai-facing function, `start_timer`/`timer_done`/`cancel_timer`'s own
+  signatures didn't change, only their internal representation.
+  `API_VERSION` unchanged at 7. **Not verified live** — same sandbox
+  limitation the last three steps' own notes recorded; no shipped demo
+  calls these three functions, so there is no live scenario this step's
+  fix would even change the behavior of today.
 
 #### `[ ]` 7.5-9 — Sim boundary lints and `LevelSource`
 

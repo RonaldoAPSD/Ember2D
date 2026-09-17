@@ -126,6 +126,61 @@ pub enum PendingWrite {
     Remove,
 }
 
+/// A named timer's real state — Step 7.5-8 (docs/ember2d-master-plan.md
+/// §5.6, D22 fix). Used to be a single `f64` in `ScriptEngine.timers`,
+/// overloaded to mean four different things by its sign and magnitude:
+/// `> 0.0` running, `<= 0.0 && > -500.0` fired-but-not-yet-consumed, and
+/// `-1.0` doing double duty for BOTH "cancelled" and "just consumed"
+/// (`apply.rs`'s old apply loop collapsed a fresh `-999.0` "consumed"
+/// write down to the same `-1.0` a `cancel_timer` call produced, on the
+/// theory that both meant "not running anymore"). That collapse is
+/// D22 itself: once `timer_done` fired once, its own state became
+/// bit-for-bit identical to a cancelled timer, so a SECOND `timer_done`
+/// call read the survivor's `-1.0` and fired `true` all over again —
+/// "exactly once" was never actually true — and a script that legitimately
+/// cancelled a timer had no way to tell that apart from one that had just
+/// fired, either. A real enum removes the ambiguity structurally: each
+/// state means exactly one thing, and there's no shared representation
+/// left for two different states to collide into.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TimerState {
+    /// Counting down; the `f32` is real seconds remaining. Ticked once per
+    /// real step (`run_scripts`, engine.rs) by `sim_dt` — `start_timer`'s
+    /// own duration argument is what seeds this.
+    Running(f32),
+    /// Crossed zero this or a previous step; `timer_done` hasn't been
+    /// called since. `timer_done` reads this, returns `true`, and queues a
+    /// transition to `Consumed` — the one and only way OUT of this state,
+    /// so `timer_done` can only ever see it and return `true` once.
+    Fired,
+    /// `cancel_timer` was called — a stable dead end distinct from both
+    /// `Fired` and `Consumed`. `timer_done` reads `false` here, same as
+    /// `Consumed`, but a script that wants to tell "I cancelled this" apart
+    /// from "this already fired and I already consumed it" now can, since
+    /// the states are no longer the same value.
+    Cancelled,
+    /// `timer_done` already returned `true` for this timer once and won't
+    /// again until `start_timer` re-seeds it fresh.
+    Consumed,
+}
+
+/// `ctx.start_timer`/`cancel_timer`/`timer_done`'s own write queue — the
+/// three ways a script can move a timer forward. Kept separate from
+/// `TimerState` itself (rather than pushing a raw `TimerState` onto the
+/// queue and having `apply_ctx` insert it verbatim) so `apply_ctx` has one
+/// obvious place per variant to decide what the transition actually means,
+/// matching `PendingWrite`'s own `Set`/`Remove` split immediately above.
+#[derive(Debug, Clone, Copy)]
+pub enum TimerWrite {
+    /// `start_timer(name, duration)` — always overwrites whatever state
+    /// (if any) `name` was already in, same as it always has.
+    Start(f32),
+    Cancel,
+    /// `timer_done`'s own transition once it reads `Fired` and reports
+    /// `true` — never written by anything a script calls directly.
+    Consume,
+}
+
 /// One visual event a resolved action emitted. Durations are REAL SECONDS,
 /// with no relationship to simulation time — a 100-cost turn may animate
 /// for 0.1s or 1.0s with identical game consequences, since the state this

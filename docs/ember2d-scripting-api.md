@@ -505,19 +505,19 @@ engine-owned state now, not smuggled through each entity's Rhai `Scope` as
 > `set_persistent`/`get_persistent` yourself (e.g. `ctx.get_elapsed()` plus a
 > duration) instead of relying on `start_timer`.
 
-> **`timer_done` is not quite "true once, then consumes itself."** Corrected
-> in Step 9, since tracing the exact sentinel path found it isn't: a
-> cancelled timer (`cancel_timer`) and a just-fired one both resolve to the
-> same internal storage value, which is itself still within the range
-> `timer_done`'s own guard treats as "done" — so the very next check after
-> either event reports `true` again, and keeps doing so until enough real
-> simulation steps decay it past that range (roughly 8 minutes at 60
-> steps/second). Logged as **D22** (docs/ember2d-refactor-plan.md §3), not
-> fixed — no shipped script (`demos/roguelike/`, `demos/shooter/`) calls any of these
-> three functions today, so nothing observable is broken by it. Don't rely
-> on a single `timer_done` check being the last one that ever returns `true`
-> for a given name; a script that cares should track its own "already
-> handled this" flag alongside it.
+> **`timer_done` really is "true once, then consumes itself"** (Step 7.5-8,
+> docs/ember2d-master-plan.md §5.6, D22 fix). Storage is a real
+> `TimerState { Running(f32), Fired, Cancelled, Consumed }` enum now, not a
+> single float doing quadruple duty by sign and magnitude — the old bug was
+> that a cancelled timer and a just-fired-and-consumed one both collapsed to
+> the same stored sentinel (`-1.0`), which was itself still inside the range
+> `timer_done`'s own guard treated as "done," so the check after either
+> event reported `true` again and kept doing so until enough real steps
+> decayed it out of range (roughly 8 minutes at 60 steps/second). Each state
+> now means exactly one thing: `timer_done` reads `true` only for `Fired`,
+> transitions it to `Consumed` in the same call, and `cancel_timer` moves a
+> timer straight to `Cancelled` — a stable dead end `timer_done` always
+> reads as `false`, distinct from `Consumed`.
 
 ### Randomness
 `random_int(min,max)` inclusive · `random_float()` · `random_bool(chance)` · `random_choice(array)`

@@ -18,13 +18,13 @@
 // itself from `on_start`/`start_timer` plumbing that isn't what this step
 // changed.
 //
-// Deliberately NOT tested here: `cancel_timer` "preventing" `timer_done` from
-// firing. It doesn't, today — see D22 (docs/ember2d-refactor-plan.md §3),
-// logged (not fixed) as part of this step: `cancel_timer` and a just-consumed
-// timer both resolve to the same -1.0 sentinel, which is itself still within
-// `timer_done`'s own `val <= 0.0 && val > -500.0` "done" range. A test
-// asserting cancellation prevents firing would simply be wrong about current
-// behavior, not a useful regression guard.
+// Step 7.5-8 (docs/ember2d-master-plan.md §5.6) fixed D22 (a cancelled
+// timer and a just-consumed one used to collapse to the same -1.0 sentinel,
+// so `cancel_timer` never actually prevented `timer_done` from firing, and
+// `timer_done` itself kept reporting `true` forever after its first real
+// fire instead of exactly once) — `timer_done_returns_true_exactly_once`
+// and `cancel_timer_prevents_timer_done_from_ever_firing` below are the
+// regression tests that fix would have needed and never had.
 
 use super::*;
 use crate::components::Script;
@@ -67,7 +67,7 @@ fn a_timer_reports_done_only_once_decay_carries_it_to_zero_or_below() {
     // not exactly on a step boundary, so the first call leaves it positive
     // and the second reliably carries it negative, with no floating-point
     // near-zero ambiguity.
-    engine.timers.entry(entity).or_default().insert("t".to_string(), 1.5 / 60.0);
+    engine.timers.entry(entity).or_default().insert("t".to_string(), TimerState::Running(1.5 / 60.0));
 
     let mut persistent = BTreeMap::new();
     let snapshot1 = Rc::new(WorldSnapshot::build(&world, &engine.layers));
@@ -139,7 +139,7 @@ fn despawn_removes_the_entitys_timers() {
     let mut world = World::new();
     let entity = world.spawn();
     world.add_script(entity, Script::new(&path));
-    engine.timers.entry(entity).or_default().insert("t".to_string(), 5.0);
+    engine.timers.entry(entity).or_default().insert("t".to_string(), TimerState::Running(5.0));
 
     let mut persistent = BTreeMap::new();
     let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers));
@@ -194,8 +194,8 @@ fn hot_reload_clears_only_the_reloaded_scripts_entities_timers() {
     world.add_script(entity_a, Script::new(&path_a));
     world.add_script(entity_b, Script::new(&path_b));
 
-    engine.timers.entry(entity_a).or_default().insert("t".to_string(), 5.0);
-    engine.timers.entry(entity_b).or_default().insert("t".to_string(), 5.0);
+    engine.timers.entry(entity_a).or_default().insert("t".to_string(), TimerState::Running(5.0));
+    engine.timers.entry(entity_b).or_default().insert("t".to_string(), TimerState::Running(5.0));
 
     engine.mod_times.insert(path_a.clone(), std::time::SystemTime::UNIX_EPOCH);
     engine.check_hot_reload(&world, &mut log);
@@ -211,4 +211,124 @@ fn hot_reload_clears_only_the_reloaded_scripts_entities_timers() {
 
     let _ = std::fs::remove_file(&script_a);
     let _ = std::fs::remove_file(&script_b);
+}
+
+/// The core D22 regression: before this step, `timer_done`'s first `true`
+/// rewrote storage to the same `-1.0` `cancel_timer` used, which was still
+/// inside its own "done" range — so a SECOND check after the first fire
+/// read `true` again, forever, not "exactly once" as documented. Seeds
+/// `Fired` directly (skipping decay, which `a_timer_reports_done_only_once_
+/// decay_carries_it_to_zero_or_below` above already covers) so this test
+/// isolates the fire -> consume -> stays-consumed transition itself.
+#[test]
+fn timer_done_returns_true_exactly_once_not_forever() {
+    let mut script = test_temp_dir();
+    script.push("ember2d_test_timer_exactly_once.rhai");
+    std::fs::write(
+        &script,
+        r#"fn on_update(id, ctx) { ctx.set_global("done", ctx.timer_done("t")); }"#,
+    )
+    .unwrap();
+    let path = script.to_string_lossy().to_string();
+
+    let mut engine = ScriptEngine::new(42, test_layers());
+    let mut log = Vec::new();
+    assert!(engine.compile(&path, &mut log));
+
+    let mut world = World::new();
+    let entity = world.spawn();
+    world.add_script(entity, Script::new(&path));
+    engine.timers.entry(entity).or_default().insert("t".to_string(), TimerState::Fired);
+
+    let run = |engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<LogEntry>| {
+        let snapshot = Rc::new(WorldSnapshot::build(world, &engine.layers));
+        engine
+            .run_scripts(
+                world,
+                snapshot,
+                log,
+                1.0 / 60.0,
+                0.0,
+                crate::command::InputSnapshot::default(),
+                crate::command::MouseSnapshot::default(),
+                crate::command::GamepadSnapshot::default(),
+                &[],
+                BTreeMap::new(),
+                BTreeMap::new(),
+                &mut BTreeMap::new(),
+                crate::math::Vec2::ZERO,
+                BTreeMap::new(),
+                0,
+                (80, 24),
+                &[],
+            )
+            .globals
+            .get("done")
+            .and_then(|d| d.as_bool().ok())
+    };
+
+    assert_eq!(run(&mut engine, &mut world, &mut log), Some(true), "must report done on first check");
+    assert_eq!(
+        run(&mut engine, &mut world, &mut log),
+        Some(false),
+        "D22: must NOT report done again on a second check — the pre-7.5-8 sentinel bug made \
+         this read true forever"
+    );
+    let _ = std::fs::remove_file(&script);
+}
+
+/// The other half of D22: `cancel_timer` must actually stop `timer_done`
+/// from ever firing, not just delay it — before this step the two states
+/// were the same stored value, so cancelling did nothing observable.
+#[test]
+fn cancel_timer_prevents_timer_done_from_ever_firing() {
+    let mut script = test_temp_dir();
+    script.push("ember2d_test_timer_cancel.rhai");
+    std::fs::write(
+        &script,
+        r#"fn on_update(id, ctx) { ctx.set_global("done", ctx.timer_done("t")); }"#,
+    )
+    .unwrap();
+    let path = script.to_string_lossy().to_string();
+
+    let mut engine = ScriptEngine::new(42, test_layers());
+    let mut log = Vec::new();
+    assert!(engine.compile(&path, &mut log));
+
+    let mut world = World::new();
+    let entity = world.spawn();
+    world.add_script(entity, Script::new(&path));
+    // Seeded as already-cancelled, same as `cancel_timer` would leave it —
+    // decay (a separate concern, covered above) never touches a
+    // `Cancelled` timer either, so this is equivalent to starting it and
+    // cancelling it before it could ever fire.
+    engine.timers.entry(entity).or_default().insert("t".to_string(), TimerState::Cancelled);
+
+    let mut persistent = BTreeMap::new();
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers));
+    let result = engine.run_scripts(
+        &mut world,
+        snapshot,
+        &mut log,
+        1.0 / 60.0,
+        0.0,
+        crate::command::InputSnapshot::default(),
+        crate::command::MouseSnapshot::default(),
+        crate::command::GamepadSnapshot::default(),
+        &[],
+        BTreeMap::new(),
+        BTreeMap::new(),
+        &mut persistent,
+        crate::math::Vec2::ZERO,
+        BTreeMap::new(),
+        0,
+        (80, 24),
+        &[],
+    );
+    assert_eq!(
+        result.globals.get("done").and_then(|d| d.as_bool().ok()),
+        Some(false),
+        "D22: a cancelled timer must never report done"
+    );
+    let _ = std::fs::remove_file(&script);
 }

@@ -380,7 +380,10 @@ pub(super) struct ScriptState {
     pub(super) pending_collider_layer: Vec<(i64, String)>,
     pub(super) pending_collider_locked: Vec<(i64, bool)>,
     pub(super) pending_collider_mask: Vec<(i64, Vec<String>)>,
-    pub(super) pending_timers: Vec<(crate::world::EntityId, String, f64)>,
+    /// `ctx.start_timer`/`cancel_timer`/`timer_done`'s write queue — Step
+    /// 7.5-8 (D22 fix): `TimerWrite`, not a raw `f64` sentinel. See that
+    /// type's own doc comment (types.rs) for the ambiguity it replaces.
+    pub(super) pending_timers: Vec<(crate::world::EntityId, String, TimerWrite)>,
     /// `ctx.set_var`/`remove_var`'s write queue (Step 7.5-3) — `(entity id,
     /// key, write)`. Applied in `apply_ctx` directly onto `World::vars`,
     /// guarded against a nonexistent entity the same way `pending_tags`
@@ -397,7 +400,7 @@ pub(super) struct ScriptState {
     /// (Step 3), just entirely internal to `ScriptEngine` rather than
     /// surfacing through `ScriptUpdateResult`. `BTreeMap` outer and inner,
     /// matching `ScriptEngine.timers`'s own doc comment for why.
-    pub(super) timers: BTreeMap<crate::world::EntityId, BTreeMap<String, f64>>,
+    pub(super) timers: BTreeMap<crate::world::EntityId, BTreeMap<String, TimerState>>,
     /// `ctx.submit()`'s write queue (Step 5e, docs/ember2d-phase5-plan.md)
     /// — meaningful only from `on_input`; see `commands`'s own doc comment
     /// for the read side.

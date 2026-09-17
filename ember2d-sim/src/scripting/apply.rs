@@ -299,30 +299,31 @@ impl ScriptEngine {
         // `state.timers` (which holds everything `mem::take`n out of
         // `self.timers` at the top of whichever `run_*` method built this
         // pass — see that field's own doc comment) instead of a `__timer_`-
-        // prefixed `Scope` variable. Sentinel handling is unchanged from
-        // before this step: `duration < -900.0` is `timer_done`'s own
-        // "just consumed" marker (-999.0, see `ScriptCtx::timer_done`),
-        // which resets storage to -1.0 — the same value `cancel_timer`
-        // writes directly. **Logged, not fixed, as D22** (docs/ember2d-refactor-plan.md
-        // §3): a cancelled timer and a just-fired one are therefore
-        // indistinguishable in storage, and `timer_done`'s own
-        // `val <= 0.0 && val > -500.0` guard reads -1.0 as "done" again on
-        // every subsequent check — not "once" as documented — until enough
-        // real steps decay it past -500.0 (roughly 8 minutes at 60 steps/s).
-        // Collected into an owned `Vec` first, same reason
-        // `globals_to_apply`/`persistent_to_apply` above are: `state` is a
-        // `RefCell` `RefMut`, so `state.pending_timers.drain(..)` and
-        // `state.timers.entry(...)` can't be live at once — the borrow
-        // checker can't see the two fields are disjoint through the
-        // `DerefMut` boundary the way it can for a plain struct.
-        let pending_timers: Vec<(EntityId, String, f64)> =
+        // prefixed `Scope` variable. Step 7.5-8 (D22 fix): each `TimerWrite`
+        // variant is now its own real transition instead of a magic-number
+        // sentinel — see `TimerState`'s own doc comment (types.rs) for the
+        // ambiguity this replaces (a cancelled timer and a just-consumed one
+        // used to collapse to the same stored value). Collected into an
+        // owned `Vec` first, same reason `globals_to_apply`/
+        // `persistent_to_apply` above are: `state` is a `RefCell` `RefMut`,
+        // so `state.pending_timers.drain(..)` and `state.timers.entry(...)`
+        // can't be live at once — the borrow checker can't see the two
+        // fields are disjoint through the `DerefMut` boundary the way it
+        // can for a plain struct.
+        let pending_timers: Vec<(EntityId, String, TimerWrite)> =
             std::mem::take(&mut state.pending_timers);
-        for (id, name, duration) in pending_timers {
+        for (id, name, write) in pending_timers {
             let entry = state.timers.entry(id).or_default();
-            if duration < -900.0 {
-                entry.insert(name, -1.0);
-            } else {
-                entry.insert(name, duration);
+            match write {
+                TimerWrite::Start(duration) => {
+                    entry.insert(name, TimerState::Running(duration));
+                }
+                TimerWrite::Cancel => {
+                    entry.insert(name, TimerState::Cancelled);
+                }
+                TimerWrite::Consume => {
+                    entry.insert(name, TimerState::Consumed);
+                }
             }
         }
         // Step 5e: unlike `globals`/`persistent`, commands don't merge with

@@ -5,6 +5,7 @@ mod api_animation;
 mod api_ext;
 mod api_spatial;
 mod apply;
+mod collisions;
 mod engine;
 mod lifecycle;
 mod registry;

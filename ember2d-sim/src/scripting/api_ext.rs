@@ -347,25 +347,32 @@ impl ScriptCtx {
     // raycast/get_path moved to api_spatial.rs (Phase 6 Step 2,
     // docs/ember2d-phase6-plan.md) — see that file's own header comment.
 
-    // 9. Timers
+    // 9. Timers (Step 7.5-8, docs/ember2d-master-plan.md §5.6, D22 fix —
+    // `TimerState`/`TimerWrite` replace the old float sentinel; see
+    // `TimerState`'s own doc comment, scripting/types.rs, for why)
     pub fn start_timer(&mut self, name: String, duration: f64) {
         if self.entity_id != -1 {
             self.inner.borrow_mut().pending_timers.push((
                 self.entity_id as crate::world::EntityId,
                 name,
-                duration,
+                TimerWrite::Start(duration as f32),
             ));
         }
     }
+    /// Reads `true` exactly once per `start_timer` call — `Fired` is the
+    /// only state this ever reports `true` for, and reporting it queues an
+    /// immediate transition to `Consumed`, so no later call can read
+    /// `Fired` again until a fresh `start_timer` re-seeds it.
     pub fn timer_done(&mut self, name: String) -> bool {
         let mut s = self.inner.borrow_mut();
         if let Some(entity_timers) = s.timers.get(&(self.entity_id as crate::world::EntityId)) {
-            if let Some(&val) = entity_timers.get(&name) {
-                if val <= 0.0 && val > -500.0 {
-                    // Mark for removal/consumed by setting to a special value
-                    s.pending_timers.push((self.entity_id as crate::world::EntityId, name, -999.0));
-                    return true;
-                }
+            if entity_timers.get(&name) == Some(&TimerState::Fired) {
+                s.pending_timers.push((
+                    self.entity_id as crate::world::EntityId,
+                    name,
+                    TimerWrite::Consume,
+                ));
+                return true;
             }
         }
         false
@@ -375,7 +382,7 @@ impl ScriptCtx {
             self.inner.borrow_mut().pending_timers.push((
                 self.entity_id as crate::world::EntityId,
                 name,
-                -1.0f64,
+                TimerWrite::Cancel,
             ));
         }
     }
