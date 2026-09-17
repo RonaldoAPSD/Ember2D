@@ -22,6 +22,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use crate::audio::AudioEngine;
 use crate::engine::{GameState, UpdateContext};
 use crate::gamepad::GamepadState;
 use crate::input::InputManager;
@@ -74,6 +75,7 @@ pub fn step(
     gamepad: &mut GamepadState,
     events: &mut EventBus,
     persistent: &mut BTreeMap<String, rhai::Dynamic>,
+    audio: &mut AudioEngine,
     // Phase 6 Step 10 (docs/ember2d-phase6-plan.md): caller-owned (`Engine`
     // holds this across frames), instead of this function allocating a fresh
     // `HashMap` every single call via `World::snapshot_positions()` — at
@@ -120,6 +122,7 @@ pub fn step(
         viewport_width,
         viewport_height,
         persistent: &mut *persistent,
+        audio: &mut *audio,
     });
 
     let run_late_phase = !should_quit && (!gate_late_phase_on_turn || turn_triggered);
@@ -154,6 +157,7 @@ pub fn step(
             viewport_width,
             viewport_height,
             persistent: &mut *persistent,
+            audio: &mut *audio,
         });
     }
 

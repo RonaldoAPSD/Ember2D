@@ -213,20 +213,22 @@ SHRINKS the viewport (fixed-point-width side panels eat more of a fixed
 window). **Phase 7E (Editor features) deferred by user direction, same
 day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
-completeness (§5.6) under way: 7.5-1 through 7.5-10 landed
+completeness (§5.6) under way: 7.5-1 through 7.5-11 landed
 (`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`b1964af`/`83d598a`/
-`aff65d4`/`57de3c2`/`1d965f1`). Next: 7.5-11 (audio). Four things still
-owed, each flagged in its own step's "Landed as" note: neither demo has
-been launched live this session (no windowed/GPU sandbox available to this
-agent) — a real playtest of both, not just the headless suite, is still
-worth doing; the shooter's `director.rhai` still hand-rolls its own enemy
-wall-slide (7.5-6 deliberately scoped shooter enemies out of engine-side
-solid resolution); no project ships with `TurnModel::Energy`/`ActionCost`
-yet (7.5-7, both new and opt-in); and R91/R92 (§3.2, 7.5-9/7.5-10) — the
-~66 remaining pre-existing lookup-only `HashMap`/`HashSet` sites still
-need their own `#[allow(clippy::disallowed_types)]` annotation, and the
-per-step spatial index + collider-layer `Rc<str>` pair 7.5-10 deferred are
-both unscheduled.**
+`aff65d4`/`57de3c2`/`1d965f1`/`PENDING_HASH`). Next: 7.5-12 (node-graph
+codegen hardening). Four things still owed, each flagged in its own step's
+"Landed as" note: neither demo has been launched live this session (no
+windowed/GPU sandbox available to this agent) — a real playtest of both,
+not just the headless suite, is still worth doing (7.5-11 in particular
+still needs a live check that music actually survives a floor transition
+and that spatial-sound panning sounds right); the shooter's `director.rhai`
+still hand-rolls its own enemy wall-slide (7.5-6 deliberately scoped
+shooter enemies out of engine-side solid resolution); no project ships
+with `TurnModel::Energy`/`ActionCost` yet (7.5-7, both new and opt-in); and
+R91/R92 (§3.2, 7.5-9/7.5-10) — the ~66 remaining pre-existing lookup-only
+`HashMap`/`HashSet` sites still need their own `#[allow(clippy::
+disallowed_types)]` annotation, and the per-step spatial index +
+collider-layer `Rc<str>` pair 7.5-10 deferred are both unscheduled.**
 
 ### 2.3 Baseline numbers (at `v0.5.7d`)
 
@@ -322,7 +324,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R27 | S3 | `draw_text_px` clones the 4 MB atlas `Texture` per call | `renderer/mod.rs:270` | `[x]` 7B-3 — only clones real pixel data when `dirty` or not yet GPU-resident (`WgpuBackend::has_texture`); every other call passes a lightweight placeholder instead |
 | R28 | S3 | Bottom world row never drawn (culled for a HUD bar removed in Phase 4) | `play/render.rs:106-108` | `[x]` 7B-4 — removed the trailing `.saturating_sub(1)` on `height` in `in_viewport`; confirmed visually (floor2 screenshot, bottom wall/floor row now renders through to the HUD text row) and via a new regression test |
 | R29 | S3 | `request_adapter`/`request_device` `.expect` → panic with no message on unsupported GPU | `renderer/mod.rs:84, 93` | `[ ]` → 7B-1 |
-| R30 | S3 | Audio: decode from disk on every `play_sound`; new `AudioEngine` per level kills music | `audio.rs:38, 51`; `play.rs:203` | `[ ]` → 7.5-11 |
+| R30 | S3 | Audio: decode from disk on every `play_sound`; new `AudioEngine` per level kills music | `audio.rs:38, 51`; `play.rs:203` | `[x]` 7.5-11 — `AudioEngine` moved to `Engine` (one device stream for the app's lifetime, threaded via `UpdateContext::audio`); `play_sound`/`play_music` now decode through a per-path `StaticSoundData` cache instead of the filesystem on every call; `play_music` is idempotent by path so a still-alive device is actually observable across a level transition |
 | **API and docs** | | | | |
 | R31 | S2 | i64/f64 dispatch trap: `draw_hud(x, y, ..)` with float `x` fails "function not found"; only `submit` coerces | `api.rs` throughout | `[ ]` → 7.5-1 |
 | R32 | S3 | Sentinel inconsistency (`-1` vs `0.0` vs `[]`; `()` tombstone means scripts can't store unit) | `api.rs` | `[ ]` → 7.5-1 |
@@ -4397,13 +4399,87 @@ these numbers are a baseline for future comparison, not a before/after for
 this step's own change. **Not verified live** — same sandbox limitation
 every step since 7.5-5 has recorded.
 
-#### `[ ]` 7.5-11 — Audio
+#### `[x]` 7.5-11 — Audio (`PENDING_HASH`)
 
-`AudioEngine` moves from `PlayState` to `Engine` (one device stream for the
-app's lifetime; music survives level transitions). Decoded `StaticSoundData`
-cache keyed by path. `play_sound_at` gains stereo panning from the camera's
-horizontal offset (presentation-only). `music_started` global in the
-roguelike is deleted.
+**Why.** R30: `AudioEngine` lived on `PlayState`, which `ember2d-app/src/
+app.rs`'s `Transition::ToPlay` handling destroys and rebuilds on every
+level transition (`engine.pop_state()`, then a brand-new `PlayState`) —
+so the real device stream closed and reopened on every floor change,
+killing whatever music was playing and paying a device re-init cost even
+between two floors that wanted the exact same track. Separately,
+`play_sound`/`play_music` called `StaticSoundData::from_file` — a real
+disk read plus decode — on every single call, including a sound effect
+fired every step.
+
+**Change.**
+- `AudioEngine` moved from `PlayState` to `Engine` (`ember2d/src/
+  engine.rs`), threaded down to whichever `GameState` is running via a new
+  `UpdateContext::audio: &mut AudioEngine` field — `sim.rs`'s `step`
+  free function (shared by `Engine::run` and, for `EditorState`, the
+  editor's own test harness) gained a matching `audio: &mut AudioEngine`
+  parameter, constructing both `UpdateContext`s with it. `PlayState` no
+  longer owns one at all; `flush_audio` (its own drain-and-forward method)
+  now takes `&mut AudioEngine` as a parameter instead of reading `self.audio`.
+- `AudioEngine::play_sound`/`play_music` decode through a new `load_cached`
+  helper (`HashMap<String, StaticSoundData>`, keyed by path) instead of
+  hitting the filesystem every call — `StaticSoundData` is cheap to clone
+  (its own doc comment: "the audio data is shared among all clones," an
+  `Arc<[Frame]>` underneath), so every play after the first is a clone plus
+  independent per-call `settings` (volume/panning), not a re-decode.
+- `play_music` is now a no-op when asked to (re)start the track already
+  playing (`current_music_path`, set as soon as a path is asked for —
+  before checking device/file availability, so a script asking for a bad
+  path logs the failure once, not every call). This is what actually makes
+  "the device survives a transition" observable: `player.rhai`'s `on_start`
+  calling `ctx.play_music("music.ogg")` unconditionally on every floor no
+  longer restarts an already-playing identical track from the beginning
+  just because a new level loaded.
+- `AudioEngine::play_sound` gained a `pan: f64` parameter (-1.0 hard left,
+  0.0 center, 1.0 hard right, via kira's `Panning`); `PlayState::flush_audio`
+  computes it for `ctx.play_sound_at` calls from the same camera-relative
+  `dx` its pre-existing distance falloff already used, sharing `max_dist`
+  so a sound at the edge of audible range also reaches full pan. Plain
+  `ctx.play_sound` calls pass `0.0` (centered) — unchanged sound.
+- `demos/roguelike/scripts/victory.rhai`'s `music_started`-guarded lazy-init
+  (`ctx.play_music` inside `on_update`, from before 7.5-5 gave scripts a
+  real `on_start` hook) moved into a proper `on_start`, matching
+  `player.rhai`'s own established pattern — the global no longer exists
+  anywhere in the roguelike.
+
+**Test.** `ember2d/src/audio.rs` gained its own `#[cfg(test)] mod tests`
+(none existed before): `play_music_with_the_same_path_twice_is_a_no_op`,
+`play_music_with_a_different_path_switches_tracks`,
+`stop_music_clears_the_current_track_so_the_same_path_restarts_it` — all
+against nonexistent `"*.ogg"` paths and reading the private
+`current_music_path` field directly (same-module test), so they're
+deterministic whether or not the machine running them has a real audio
+device (the idempotence check runs, and is checked, before `self.manager`
+is ever consulted). Every other call site gaining the new `UpdateContext::
+audio`/`sim::step` parameter (`ember2d/tests/turn_animation.rs` ×2 helpers,
+`ember2d/tests/save_load_globals.rs`, `ember2d/src/play/tests.rs` ×3,
+`ember2d-editor/tests/common/mod.rs`) needed a locally-constructed
+`AudioEngine::new()` purely to satisfy the new signature — none of those
+tests exercise audio itself.
+
+**Scope.** `ember2d/src/audio.rs`, `engine.rs`, `sim.rs`, `play.rs`;
+`ember2d/tests/turn_animation.rs`, `save_load_globals.rs`, `src/play/
+tests.rs`; `ember2d-editor/tests/common/mod.rs`; `demos/roguelike/scripts/
+victory.rhai`; `docs/ember2d-scripting-api.md` (Effects and audio section).
+
+**Landed as:** `PENDING_HASH`. Full workspace build clean (`cargo build
+--workspace --bins --examples`). `cargo test --workspace`: 438 (was 435:
++3 new `audio.rs` tests), all pass. `cargo clippy --workspace --lib
+--all-targets`: no new warnings from any file this step touched (the one
+warning inside `audio.rs`'s diff, `let _ = handle.stop(...)`'s unit
+binding, is pre-existing, unchanged text from before this step). `scripts/
+check.sh`/`check.ps1` both clean; `doc-check.ps1`'s numbers (function count
+162, `API_VERSION` 7, `LEVEL_FORMAT_VERSION` 3) unchanged — no Rhai-facing
+function signature changed (`play_sound`/`play_sound_at`/`play_music`'s
+script-visible arity is exactly what it was; only `AudioEngine`'s internal
+Rust API gained parameters). **Not verified live** — same sandbox
+limitation every step since 7.5-5 has recorded; whether music actually
+survives a real floor transition, and whether spatial-sound panning sounds
+correct, both still need a live playtest.
 
 #### `[ ]` 7.5-12 — Node-graph codegen hardening
 

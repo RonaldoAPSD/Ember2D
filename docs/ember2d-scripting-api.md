@@ -537,7 +537,21 @@ engine-owned state now, not smuggled through each entity's Rhai `Scope` as
 Screen space, in cells. Cleared each frame.
 
 ### Effects and audio
-`emit_particles(x,y,glyph,fg)` · `play_sound(path)` · `play_sound_at(path,x,y)` (volume falls off to 20 units) · `play_music(path)` · `stop_music()`
+`emit_particles(x,y,glyph,fg)` · `play_sound(path)` · `play_sound_at(path,x,y)` (volume falls off to 20 units, stereo pans left/right with the camera's horizontal offset) · `play_music(path)` (a no-op if `path` is already the current track — see the note below) · `stop_music()`
+
+> **Step 7.5-11** (docs/ember2d-master-plan.md §5.6, R30): the audio device
+> stream now survives level transitions (it used to live on the per-level
+> play state, so every transition reopened it and killed any playing
+> music). `play_music` calling itself a no-op when `path` matches the
+> already-playing track is what that survival actually buys a script: an
+> `on_start` that unconditionally calls `ctx.play_music("theme.ogg")` on
+> every level — the natural way to author "make sure this track is
+> playing" — now keeps the SAME track running seamlessly across a
+> transition into another level that wants the same music, instead of
+> restarting it from the beginning every time. Call `stop_music()` first if
+> a script genuinely needs to restart the current track from the top.
+> Sound/music files are also decoded once and cached by path now, not
+> re-read from disk on every `play_sound`/`play_music` call.
 
 ### Flow
 `load_level(path)` · `save_game(path)` · `load_game(path)` · `log(msg)` · `get_delta()` · `get_elapsed()` · `get_spawn_point(name)` → `[x,y]` or `[]` · `get_viewport_width()` · `get_viewport_height()` · `api_version()` → int, this API's breaking-change generation (see §6)

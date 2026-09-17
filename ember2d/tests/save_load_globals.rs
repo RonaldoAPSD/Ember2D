@@ -14,6 +14,7 @@
 // writes are unconditional, e.g. enemy_rat.rhai's own hp lazy-init, and
 // re-running it would reset every enemy back to full health).
 
+use ember2d::audio::AudioEngine;
 use ember2d::prelude::*;
 use ember2d_sim::simulation::Simulation;
 use std::collections::{BTreeMap, HashMap};
@@ -63,6 +64,7 @@ fn a_scripts_set_global_survives_a_real_ron_round_trip_through_save_and_load() {
     let prev_positions: HashMap<EntityId, Vec2> = HashMap::new();
     let mut quit = false;
     let mut turn_triggered = false;
+    let mut audio = AudioEngine::new();
     play.update(UpdateContext {
         world: &mut world,
         input: &mut input,
@@ -78,6 +80,7 @@ fn a_scripts_set_global_survives_a_real_ron_round_trip_through_save_and_load() {
         viewport_width: 10,
         viewport_height: 10,
         persistent: &mut persistent,
+        audio: &mut audio,
     });
 
     let key = format!("hp_{}", rat_id);

@@ -86,7 +86,12 @@ pub struct PlayState {
     /// struct is presentation.
     sim: Simulation,
     pending_transition: Option<Transition>,
-    audio: AudioEngine,
+    // `audio: AudioEngine` used to live here — Step 7.5-11 (docs/ember2d-
+    // master-plan.md §5.6, R30) moved it onto `Engine` instead, so it
+    // survives this exact struct being destroyed and recreated on every
+    // level transition. `flush_audio` (below) now takes it as a borrowed
+    // parameter, sourced from `UpdateContext::audio` — see that field's own
+    // doc comment (engine.rs) and `audio.rs`'s header comment for why.
     script_log: Vec<LogEntry>,
     pub camera_override: Option<Vec2>,
     pub shake_state: Option<ShakeState>,
@@ -165,7 +170,6 @@ impl PlayState {
             show_debug: false,
             sim,
             pending_transition: None,
-            audio: AudioEngine::new(),
             script_log: Vec::new(),
             camera_override: None,
             shake_state: None,
@@ -284,11 +288,20 @@ impl PlayState {
         self.script_log.extend(outcome.logs);
     }
 
-    fn flush_audio(&mut self) {
+    /// `audio` is `Engine`'s own long-lived `AudioEngine` (Step 7.5-11,
+    /// docs/ember2d-master-plan.md §5.6, R30), passed in via
+    /// `UpdateContext::audio` rather than owned here — see that field's own
+    /// doc comment for why.
+    fn flush_audio(&mut self, audio: &mut AudioEngine) {
         let reqs = self.sim.take_audio_requests();
         for path in reqs.sounds {
-            self.audio.play_sound(&path, 1.0);
+            audio.play_sound(&path, 1.0, 0.0);
         }
+        // Step 7.5-11: stereo pan from the camera's horizontal offset, on
+        // top of the pre-existing distance falloff — both presentation-only
+        // (a script's `play_sound_at` call carries a world position, never
+        // read back), sharing the same `max_dist` so a sound at the edge of
+        // audible range also reaches full hard-left/hard-right.
         let cam_pos = self.camera.position;
         let max_dist = 20.0f32;
         for (path, x, y) in reqs.spatial_sounds {
@@ -297,14 +310,15 @@ impl PlayState {
             let dist = (dx * dx + dy * dy).sqrt();
             let volume = (1.0 - (dist / max_dist)).clamp(0.0, 1.0);
             if volume > 0.01 {
-                self.audio.play_sound(&path, volume as f64);
+                let pan = (dx / max_dist).clamp(-1.0, 1.0);
+                audio.play_sound(&path, volume as f64, pan as f64);
             }
         }
         if reqs.stop_music {
-            self.audio.stop_music();
+            audio.stop_music();
         }
         if let Some(path) = reqs.music {
-            self.audio.play_music(&path);
+            audio.play_music(&path);
         }
     }
 
@@ -345,6 +359,7 @@ impl GameState for PlayState {
             viewport_height,
             turn_triggered,
             persistent,
+            audio,
             ..
         } = ctx;
 
@@ -530,7 +545,7 @@ impl GameState for PlayState {
             p.life -= frame_delta_time;
             p.life > 0.0
         });
-        self.flush_audio();
+        self.flush_audio(audio);
     }
 
     fn late_update(&mut self, ctx: UpdateContext) {
@@ -543,6 +558,7 @@ impl GameState for PlayState {
             viewport_width,
             viewport_height,
             persistent,
+            audio,
             ..
         } = ctx;
         let sim_elapsed = self.sim.step_count() as f32 * delta_time;
@@ -564,7 +580,7 @@ impl GameState for PlayState {
             persistent,
         );
         self.apply_outcome(outcome);
-        self.flush_audio();
+        self.flush_audio(audio);
     }
 
     fn render(&mut self, ctx: RenderContext) {

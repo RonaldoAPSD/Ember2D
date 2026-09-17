@@ -40,6 +40,7 @@
 // binary happens to use.
 #![allow(dead_code)]
 
+use ember2d::audio::AudioEngine;
 use ember2d::gamepad::GamepadState;
 use ember2d::input::{InputManager, Key};
 use ember2d::mouse::{MouseButton, MouseState};
@@ -96,6 +97,13 @@ pub struct EditorHarness {
     events: EventBus,
     persistent: BTreeMap<String, rhai::Dynamic>,
     prev_positions: HashMap<EntityId, Vec2>,
+    /// Step 7.5-11 (docs/ember2d-master-plan.md §5.6, R30): `ember2d::sim::
+    /// step` now takes `Engine`'s own long-lived `AudioEngine` rather than
+    /// `PlayState` owning one — this harness drives `EditorState` (never
+    /// audio-producing) through the same function, so one constructed once
+    /// here (not per `end_frame` call) is purely a signature requirement,
+    /// not a real audio need.
+    audio: AudioEngine,
     elapsed: f32,
     /// The `NullRenderer`'s reported render/OS display scale (7D-3, master
     /// plan §5.4) — `(2, 1.0)` by default: `UiScaleChoice::Auto` (every
@@ -167,6 +175,7 @@ impl EditorHarness {
             events: EventBus::new(),
             persistent: BTreeMap::new(),
             prev_positions: HashMap::new(),
+            audio: AudioEngine::new(),
             elapsed: 0.0,
             display,
             pixel_w: PIXEL_W,
@@ -238,6 +247,7 @@ impl EditorHarness {
             &mut self.gamepad,
             &mut self.events,
             &mut self.persistent,
+            &mut self.audio,
             &mut self.prev_positions,
             FRAME_DT,
             FRAME_DT,

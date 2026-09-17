@@ -194,6 +194,7 @@ fn collide_player_with_exit(
     let mut quit = false;
     let mut turn_triggered = false;
     let mut persistent: BTreeMap<String, rhai::Dynamic> = BTreeMap::new();
+    let mut audio = AudioEngine::new();
 
     play.late_update(UpdateContext {
         world,
@@ -210,6 +211,7 @@ fn collide_player_with_exit(
         viewport_width: 20,
         viewport_height: 10,
         persistent: &mut persistent,
+        audio: &mut audio,
     });
 
     play.take_transition()
@@ -504,6 +506,7 @@ fn script_camera_origin_uses_the_full_viewport_now_that_the_hud_bars_are_gone() 
     let prev_positions: HashMap<EntityId, Vec2> = HashMap::new();
     let mut quit = false;
     let mut turn_triggered = false;
+    let mut audio = AudioEngine::new();
 
     play.update(UpdateContext {
         world: &mut world,
@@ -520,6 +523,7 @@ fn script_camera_origin_uses_the_full_viewport_now_that_the_hud_bars_are_gone() 
         viewport_width: 40,
         viewport_height: 20,
         persistent: &mut persistent,
+        audio: &mut audio,
     });
 
     // The formula, by hand: game_h = viewport_height = 20 (Step 4g — no
@@ -617,6 +621,7 @@ fn get_elapsed_derives_from_step_count_not_the_wall_clock_value_passed_in() {
 
     const SIM_DT: f32 = 1.0 / 60.0; // mirrors engine.rs's own SIM_DT
     let steps = 5;
+    let mut audio = AudioEngine::new();
     for i in 0..steps {
         let mut input = InputManager::new();
         let mouse = MouseState::new();
@@ -641,6 +646,7 @@ fn get_elapsed_derives_from_step_count_not_the_wall_clock_value_passed_in() {
             viewport_width: 10,
             viewport_height: 10,
             persistent: &mut persistent,
+            audio: &mut audio,
         });
     }
 

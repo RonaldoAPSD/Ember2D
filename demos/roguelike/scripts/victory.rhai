@@ -39,12 +39,21 @@ fn on_turn(id, ctx) {
     }
 }
 
-fn on_update(id, ctx) {
-    if !ctx.has_global("music_started") {
-        ctx.play_music("demos/roguelike/audio/victory.ogg");
-        ctx.set_global("music_started", true);
-    }
+/// Runs exactly once, only on this level's fresh spawn (Step 7.5-5) — starts
+/// the victory music. Used to be lazy-init inside on_update, guarded by a
+/// "music_started" global, back when on_start wasn't reliably available;
+/// see player.rhai's own on_start for the matching pattern. Step 7.5-11
+/// (docs/ember2d-master-plan.md §5.6, R30) made `ctx.play_music` a no-op
+/// when asked to restart the track already playing, which is what makes
+/// calling it unconditionally from on_start safe even across a level
+/// transition that keeps the SAME track going — not needed here (this is
+/// a different track from every other level's), but the same convention
+/// player.rhai's own on_start already established.
+fn on_start(id, ctx) {
+    ctx.play_music("demos/roguelike/audio/victory.ogg");
+}
 
+fn on_update(id, ctx) {
     // player.rhai's own on_update always runs before this level even loads
     // (the transition happens on stairs.rhai's on_collide, itself gated
     // behind player.rhai having already lazy-inited these fields), so a

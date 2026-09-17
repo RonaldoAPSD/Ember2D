@@ -8,6 +8,7 @@ use winit::event_loop::EventLoop;
 use winit::keyboard::ModifiersState;
 use winit::platform::pump_events::EventLoopExtPumpEvents;
 
+use crate::audio::AudioEngine;
 use crate::gamepad::GamepadState;
 use crate::input::InputManager;
 use crate::mouse::MouseState;
@@ -96,6 +97,14 @@ pub struct UpdateContext<'a> {
     pub viewport_width: usize,
     pub viewport_height: usize,
     pub persistent: &'a mut BTreeMap<String, rhai::Dynamic>,
+    /// `Engine`'s own `AudioEngine` (Step 7.5-11, docs/ember2d-master-
+    /// plan.md §5.6, R30) — one device stream for the app's entire
+    /// lifetime, not recreated every time a `GameState` like `PlayState`
+    /// is (a level transition destroys and rebuilds it). Borrowed, not
+    /// owned, for the same reason `world`/`input`/every other field here
+    /// is: `Engine` keeps it across frames; a `GameState` only gets it for
+    /// the duration of one `update`/`late_update` call.
+    pub audio: &'a mut AudioEngine,
 }
 
 impl<'a> UpdateContext<'a> {
@@ -192,6 +201,13 @@ pub struct Engine {
     pub mouse: MouseState,
     pub gamepad: GamepadState,
     pub events: EventBus,
+    /// Step 7.5-11 (docs/ember2d-master-plan.md §5.6, R30): moved here from
+    /// `PlayState` so the underlying device stream survives a level
+    /// transition (which destroys and recreates `PlayState` entirely) —
+    /// see `audio.rs`'s own header comment for the full reasoning. Threaded
+    /// into whichever `GameState` is running via `UpdateContext::audio`
+    /// (`sim::step`'s two construction sites).
+    pub audio: AudioEngine,
     pub width: usize,
     pub height: usize,
     /// `BTreeMap`, not `HashMap` (Step 5b, docs/ember2d-phase5-plan.md) — see
@@ -255,6 +271,7 @@ impl Engine {
             mouse: MouseState::new(),
             gamepad: GamepadState::new(),
             events: EventBus::new(),
+            audio: AudioEngine::new(),
             width,
             height,
             persistent: BTreeMap::new(),
@@ -403,6 +420,7 @@ impl Engine {
                             &mut self.gamepad,
                             &mut self.events,
                             &mut self.persistent,
+                            &mut self.audio,
                             &mut self.prev_positions_buf,
                             SIM_DT,
                             SIM_DT,
@@ -470,6 +488,7 @@ impl Engine {
                         &mut self.gamepad,
                         &mut self.events,
                         &mut self.persistent,
+                        &mut self.audio,
                         &mut self.prev_positions_buf,
                         SIM_DT,
                         delta_time,

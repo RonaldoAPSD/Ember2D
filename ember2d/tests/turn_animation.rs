@@ -18,6 +18,7 @@
 // is D20's own regression test — it needs a SECOND actor to tell the two
 // gating strategies apart at all.
 
+use ember2d::audio::AudioEngine;
 use ember2d::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 
@@ -25,7 +26,12 @@ mod common;
 
 const FRAME_DT: f32 = 1.0 / 60.0;
 
-fn step(play: &mut PlayState, world: &mut World, persistent: &mut BTreeMap<String, rhai::Dynamic>) {
+fn step(
+    play: &mut PlayState,
+    world: &mut World,
+    persistent: &mut BTreeMap<String, rhai::Dynamic>,
+    audio: &mut AudioEngine,
+) {
     let mut input = InputManager::new();
     let mouse = MouseState::new();
     let gamepad = GamepadState::new();
@@ -48,6 +54,7 @@ fn step(play: &mut PlayState, world: &mut World, persistent: &mut BTreeMap<Strin
         viewport_width: 20,
         viewport_height: 10,
         persistent,
+        audio,
     });
 }
 
@@ -70,6 +77,7 @@ fn play_frame(
     world: &mut World,
     input: &mut InputManager,
     persistent: &mut BTreeMap<String, rhai::Dynamic>,
+    audio: &mut AudioEngine,
 ) {
     input.consume_step();
     let mouse = MouseState::new();
@@ -93,6 +101,7 @@ fn play_frame(
         viewport_width: 20,
         viewport_height: 10,
         persistent,
+        audio,
     });
     input.decay(FRAME_DT);
 }
@@ -136,6 +145,7 @@ fn a_key_pressed_while_an_animation_plays_is_not_lost() {
     let mut events = EventBus::new();
     let mut persistent: BTreeMap<String, rhai::Dynamic> = BTreeMap::new();
     play.on_start(&mut world, &mut events, 20, 10, &mut persistent);
+    let mut audio = AudioEngine::new();
     let player_id = world.find_by_tag("player").expect("player should have spawned");
     let start = world.get_global_position(player_id);
 
@@ -144,7 +154,7 @@ fn a_key_pressed_while_an_animation_plays_is_not_lost() {
     // Frame 1: press "d" — resolves the first move and queues a 5-frame
     // animation.
     input.handle_pressed(Key::D);
-    play_frame(&mut play, &mut world, &mut input, &mut persistent);
+    play_frame(&mut play, &mut world, &mut input, &mut persistent, &mut audio);
     input.handle_released(Key::D);
     assert_eq!(
         world.get_global_position(player_id),
@@ -158,12 +168,12 @@ fn a_key_pressed_while_an_animation_plays_is_not_lost() {
     // without ever being read, since `update` takes the animation-blocked
     // branch and never used to look at input there at all.
     input.handle_pressed(Key::D);
-    play_frame(&mut play, &mut world, &mut input, &mut persistent);
+    play_frame(&mut play, &mut world, &mut input, &mut persistent, &mut audio);
     input.handle_released(Key::D);
 
     // Frames 3-7: drain the remaining animation with no further input.
     for _ in 0..5 {
-        play_frame(&mut play, &mut world, &mut input, &mut persistent);
+        play_frame(&mut play, &mut world, &mut input, &mut persistent, &mut audio);
     }
 
     // The frame-2 press must have survived and been honored once stepping
@@ -217,8 +227,9 @@ fn the_scheduler_waits_for_the_animation_queue_to_drain_before_the_next_turn() {
     let mut events = EventBus::new();
     let mut persistent: BTreeMap<String, rhai::Dynamic> = BTreeMap::new();
     play.on_start(&mut world, &mut events, 20, 10, &mut persistent);
+    let mut audio = AudioEngine::new();
 
-    step(&mut play, &mut world, &mut persistent);
+    step(&mut play, &mut world, &mut persistent, &mut audio);
     assert_eq!(
         turns(&persistent),
         1,
@@ -227,8 +238,8 @@ fn the_scheduler_waits_for_the_animation_queue_to_drain_before_the_next_turn() {
 
     // Comfortably inside the 5-frame window — no further turn may resolve
     // while that animation is still draining.
-    step(&mut play, &mut world, &mut persistent);
-    step(&mut play, &mut world, &mut persistent);
+    step(&mut play, &mut world, &mut persistent, &mut audio);
+    step(&mut play, &mut world, &mut persistent, &mut audio);
     assert_eq!(
         turns(&persistent),
         1,
@@ -241,7 +252,7 @@ fn the_scheduler_waits_for_the_animation_queue_to_drain_before_the_next_turn() {
     // here just as readily as a bug that never resumed would show turns
     // stuck at 1).
     for _ in 0..6 {
-        step(&mut play, &mut world, &mut persistent);
+        step(&mut play, &mut world, &mut persistent, &mut audio);
     }
     assert_eq!(
         turns(&persistent),
@@ -306,6 +317,7 @@ fn two_actors_animations_overlap_instead_of_stacking() {
     let mut events = EventBus::new();
     let mut persistent: BTreeMap<String, rhai::Dynamic> = BTreeMap::new();
     play.on_start(&mut world, &mut events, 20, 10, &mut persistent);
+    let mut audio = AudioEngine::new();
 
     fn ai_turns(play: &PlayState) -> i64 {
         play.globals().get("ai_turns").and_then(|d| d.as_int().ok()).unwrap_or(0)
@@ -313,12 +325,12 @@ fn two_actors_animations_overlap_instead_of_stacking() {
 
     // Step 1: player's turn (never blocked — it has no animation of its own,
     // and the scheduler starts with the local actor first).
-    step(&mut play, &mut world, &mut persistent);
+    step(&mut play, &mut world, &mut persistent, &mut audio);
     assert_eq!(turns(&persistent), 1, "the player's first turn must resolve immediately");
     assert_eq!(ai_turns(&play), 0, "the AI hasn't had a turn yet");
 
     // Step 2: the AI's turn — resolves and queues its 10-frame animation.
-    step(&mut play, &mut world, &mut persistent);
+    step(&mut play, &mut world, &mut persistent, &mut audio);
     assert_eq!(
         ai_turns(&play),
         1,
@@ -329,7 +341,7 @@ fn two_actors_animations_overlap_instead_of_stacking() {
     // be blocked (the AI's animation from step 2 is still draining) and
     // `turns` would stay at 1. Under D20's per-actor gate the player is
     // never blocked by an animation that isn't its own.
-    step(&mut play, &mut world, &mut persistent);
+    step(&mut play, &mut world, &mut persistent, &mut audio);
     assert_eq!(
         turns(&persistent),
         2,
@@ -341,7 +353,7 @@ fn two_actors_animations_overlap_instead_of_stacking() {
     // one) — it must NOT get a second turn yet. This is the safety
     // invariant D20 must preserve: an actor can't receive a new animation
     // before its previous one finishes.
-    step(&mut play, &mut world, &mut persistent);
+    step(&mut play, &mut world, &mut persistent, &mut audio);
     assert_eq!(
         ai_turns(&play),
         1,
@@ -351,7 +363,7 @@ fn two_actors_animations_overlap_instead_of_stacking() {
     // Drain well past the 10-frame window, stepping throughout so the
     // now-unblocked AI actually gets to act again.
     for _ in 0..12 {
-        step(&mut play, &mut world, &mut persistent);
+        step(&mut play, &mut world, &mut persistent, &mut audio);
     }
     assert_eq!(ai_turns(&play), 2, "the AI's turn must resume once its own animation finishes");
 
