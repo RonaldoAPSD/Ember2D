@@ -55,7 +55,7 @@ use crate::level_source::{LevelSource, NullLevelSource};
 use crate::math::Vec2;
 use crate::save::SaveState;
 use crate::scheduler::{TurnModel, TurnScheduler};
-use crate::scripting::{HudDraw, LogEntry, ScriptEngine, ShakeState};
+use crate::scripting::{HudDraw, LogEntry, PassArgs, ScriptEngine, ShakeState};
 use crate::world::{EntityId, World};
 
 // ── Path resolution ─────────────────────────────────────────────────────────
@@ -554,12 +554,21 @@ impl Simulation {
             let res = self.script_engine.run_on_load_all(
                 world,
                 &mut logs,
-                &self.level.extra_spawns,
-                globals,
-                clips,
                 persistent,
-                Vec2::new(cam_x, cam_y),
-                (viewport_w, viewport_h),
+                PassArgs {
+                    delta_time: 0.0,
+                    elapsed: 0.0,
+                    input: InputSnapshot::default(),
+                    mouse: MouseSnapshot::default(),
+                    gamepad: GamepadSnapshot::default(),
+                    spawns: &self.level.extra_spawns,
+                    globals,
+                    clips,
+                    camera_pos: Vec2::new(cam_x, cam_y),
+                    commands: BTreeMap::new(),
+                    turn_number: 0,
+                    viewport_size: (viewport_w, viewport_h),
+                },
             );
             // Same as `do_on_start`'s own call: `on_start`/`on_load`'s
             // return type is a plain `Vec<LogEntry>`, not a `StepOutcome` —

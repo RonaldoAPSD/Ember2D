@@ -213,19 +213,20 @@ SHRINKS the viewport (fixed-point-width side panels eat more of a fixed
 window). **Phase 7E (Editor features) deferred by user direction, same
 day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
-completeness (§5.6) under way: 7.5-1 through 7.5-9 landed
+completeness (§5.6) under way: 7.5-1 through 7.5-10 landed
 (`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`b1964af`/`83d598a`/
-`aff65d4`/`57de3c2`). Next: 7.5-10 (scripting engine internals). Three
-things still owed, each flagged in its own step's "Landed as" note:
-neither demo has been launched live this session (no windowed/GPU sandbox
-available to this agent) — a real playtest of both, not just the headless
-suite, is still worth doing; the shooter's `director.rhai` still
-hand-rolls its own enemy wall-slide (7.5-6 deliberately scoped shooter
-enemies out of engine-side solid resolution); no project ships with
-`TurnModel::Energy`/`ActionCost` yet (7.5-7, both new and opt-in); and R91
-(§3.2, 7.5-9) — 67 pre-existing lookup-only `HashMap`/`HashSet` sites still
-need their own `#[allow(clippy::disallowed_types)]` annotation now that
-`ember2d-sim/clippy.toml` actually checks for it.**
+`aff65d4`/`57de3c2`/`PENDING_HASH`). Next: 7.5-11 (audio). Four things still
+owed, each flagged in its own step's "Landed as" note: neither demo has
+been launched live this session (no windowed/GPU sandbox available to this
+agent) — a real playtest of both, not just the headless suite, is still
+worth doing; the shooter's `director.rhai` still hand-rolls its own enemy
+wall-slide (7.5-6 deliberately scoped shooter enemies out of engine-side
+solid resolution); no project ships with `TurnModel::Energy`/`ActionCost`
+yet (7.5-7, both new and opt-in); and R91/R92 (§3.2, 7.5-9/7.5-10) — the
+~66 remaining pre-existing lookup-only `HashMap`/`HashSet` sites still
+need their own `#[allow(clippy::disallowed_types)]` annotation, and the
+per-step spatial index + collider-layer `Rc<str>` pair 7.5-10 deferred are
+both unscheduled.**
 
 ### 2.3 Baseline numbers (at `v0.5.7d`)
 
@@ -313,7 +314,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R20 | S2 | `TilePalette::current()` indexes `[0]`; empty or out-of-range `selected` from a loaded palette panics | `palette.rs:284`; `text.rs:53, 84`; `input/mod.rs:75, 111` | `[x]` 7A-2 — invariant enforced at `TilePalette::load` (reject empty tiles, clamp `selected`); `current()` itself unchanged, see 7A-2's "Landed as" note |
 | **Renderer / engine** | | | | |
 | R21 | S2 | Non-integer cell projection: cells stretched unless window is an exact cell multiple; `scale_factor()` width-only; HiDPI mis-sized | `renderer/mod.rs:523-546` (`try_handle_resize`), `renderer/mod.rs:190-192` (`scale_factor`) — locations shifted after 7B-1; original `engine.rs:246`/`backend.rs:328` cites are stale | `[x]` 7B-2 — `compute_layout` floor-divides and letterboxes instead of stretching; `scale` is now DPI-derived (`window.scale_factor().round().max(1.0)`, was a fixed constant); `ScreenMapping` (`origin_px`, per-axis `cell_px`) replaces the width-only `scale_factor()`, consumed by a real wgpu viewport (backend.rs) and by `MouseState::handle_move` |
-| R22 | S4 | `scopes` map is dead state (rhai rewinds scope; timers moved off it) yet maintained by hot-reload and despawn | `scripting/engine.rs` | `[ ]` → 7.5-10 |
+| R22 | S4 | `scopes` map is dead state (rhai rewinds scope; timers moved off it) yet maintained by hot-reload and despawn | `scripting/engine.rs` | `[x]` 7.5-10 — deleted entirely, confirmed dead by reading rhai 1.24's own `call_fn`/`CallFnOptions` source (default `rewind_scope: true`); every `call_fn` call site now takes a throwaway `Scope::new()` via the new `call_lifecycle_fn` helper |
 | R23 | S3 | Frame pacing double-throttles (Fifo vsync + `thread::sleep` to 60) | `engine.rs:389-392` | `[x]` 7B-4 — the tail-of-loop `thread::sleep(FRAME_DURATION - frame_elapsed)` and its now-unused `TARGET_FPS`/`FRAME_DURATION` constants are gone; `wgpu::PresentMode::Fifo` (renderer/mod.rs) is the sole pacing mechanism now |
 | R24 | S3 | Key repeat inconsistent: `repeat` flag ignored; letters repeat into text buffer, editing keys never repeat; Ctrl+S pushes "s" | `engine.rs:226-243` | `[x]` 7B-4 — `PressBuffer::handle_repeat`/`is_repeating` (new `repeating: HashSet<K>`, separate from `pending`/`consumed`) fed from `KeyEvent::repeat` in `EventPump`; script editor's Up/Down/Left/Right/Tab/Enter/Backspace now check `is_repeating` alongside `just_pressed`; `text_buffer` pushes gated on `!ModifiersState::control_key() && !super_key()` (new `Engine::modifiers` field, updated on `WindowEvent::ModifiersChanged`) so Ctrl+S no longer leaks an "s" |
 | R25 | S3 | `GamepadState::poll` ignores `Disconnected`; held buttons stick | `gamepad.rs:131-159` | `[x]` 7B-4 — `EventType::Disconnected` now calls the new `PressBuffer::retain` to drop every held/pending/consumed/just-released/repeating entry for that `gamepad_id`, plus clears its `axes` entries |
@@ -390,7 +391,9 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | **Found writing 7.5-4 (docs/ember2d-master-plan.md §5.6)** | | | | |
 | R90 | S4 | Adding `ActorRecord::stats`/`tint_aware`/`tint_asleep` (7.5-4) grew `TileRecord` enough that `ember2d-editor`'s undo `Command::PlaceTile { before: Option<TileRecord>, after: TileRecord }` variant now trips clippy's `large_enum_variant` lint (528 bytes vs. `Command`'s other variants) — a new warning (`cargo clippy --workspace --lib`: 43 → 44), not a behavior change. Fixing it properly (`Box`ing the large variant fields) is an `ember2d-editor` change outside 7.5-4's own Scope (`ember2d-sim`, demos, API doc) | `ember2d-editor/src/editor/commands.rs:24` (`Command::PlaceTile`) | `[ ]` unscheduled |
 | **Found writing 7.5-9 (docs/ember2d-master-plan.md §5.6)** | | | | |
-| R91 | S4 | `ember2d-sim/clippy.toml`'s new `disallowed-types` lint (`HashMap`/`HashSet`, `#![warn(...)]` in lib.rs) surfaces 67 unique pre-existing sites once actually turned on — every one already a deliberate lookup-only use per CLAUDE.md's own carve-out (`WorldSnapshot`'s velocities/parents/glyphs/etc., `ScriptEngine`'s scopes/mod_times/disabled_scripts, the graph codegen module, `layers.rs`, and others), none newly introduced by 7.5-9 itself (verified: none of this step's own new code — `level_source.rs`, `World::diagnostics` — adds a HashMap/HashSet at all). Not a correctness bug (nothing here is order-sensitive; each one already has its own "lookup-only" reasoning in a nearby doc comment, just not yet the formal `#[allow(clippy::disallowed_types)]` annotation clippy now expects) — a mechanical annotation pass across ~12 files, large enough on its own to warrant its own step rather than folding into 7.5-9's already-substantial diff (LevelSource, Diagnostic, set_parent/despawn, the world.rs/world_tests.rs split) | `ember2d-sim/src/scripting/state.rs` (the largest concentration, ~35 sites), `world.rs`, `simulation.rs`, `simulation/step.rs`, `scripting/engine.rs`, `scripting/collisions.rs`, `scripting/api_spatial.rs`, `command.rs`, `layers.rs`, `graph/codegen.rs`, `graph/mod.rs` | `[ ]` unscheduled |
+| R91 | S4 | `ember2d-sim/clippy.toml`'s new `disallowed-types` lint (`HashMap`/`HashSet`, `#![warn(...)]` in lib.rs) surfaces 67 unique pre-existing sites once actually turned on — every one already a deliberate lookup-only use per CLAUDE.md's own carve-out (`WorldSnapshot`'s velocities/parents/glyphs/etc., `ScriptEngine`'s mod_times/disabled_scripts, the graph codegen module, `layers.rs`, and others), none newly introduced by 7.5-9 itself (verified: none of this step's own new code — `level_source.rs`, `World::diagnostics` — adds a HashMap/HashSet at all). Not a correctness bug (nothing here is order-sensitive; each one already has its own "lookup-only" reasoning in a nearby doc comment, just not yet the formal `#[allow(clippy::disallowed_types)]` annotation clippy now expects) — a mechanical annotation pass across ~12 files, large enough on its own to warrant its own step rather than folding into 7.5-9's already-substantial diff (LevelSource, Diagnostic, set_parent/despawn, the world.rs/world_tests.rs split). 7.5-10 deleted `ScriptEngine.scopes` (R22) — one of the ~67 sites — without annotating it, so this count is now ~66; still unscheduled | `ember2d-sim/src/scripting/state.rs` (the largest concentration, ~35 sites), `world.rs`, `simulation.rs`, `simulation/step.rs`, `scripting/engine.rs`, `scripting/collisions.rs`, `scripting/api_spatial.rs`, `command.rs`, `layers.rs`, `graph/codegen.rs`, `graph/mod.rs` | `[ ]` unscheduled |
+| **Found writing 7.5-10 (docs/ember2d-master-plan.md §5.6)** | | | | |
+| R92 | S4 | 7.5-10's own plan text bundled two more things that turned out to need deferring: (1) it says `run_collisions` should "reuse the step snapshot instead of rebuilding" — but `run_collisions` builds its snapshot AFTER `late_step` calls `resolve_solid_collision`, deliberately (see `collisions.rs`'s own comment, Phase 6 Step 5), while `step()`'s own shared snapshot is built BEFORE that resolution; sharing it as the plan text asks would hand `on_collide` scripts stale, pre-resolution positions — a real regression, not a style choice, so this sub-item was skipped rather than implemented as written (user decision, 7.5-10). (2) `WorldSnapshot` storing collider `layer`/`mask` as `Rc<str>`/`Rc<[Rc<str>]>` "like tags" only pays for itself the way `tags` does if the same `Rc` is shared into more than one map (`tags`/`tag_to_id`/`tag_to_ids`) — collider layer/mask are written into exactly one map today, and `Collider`'s own fields (`components/collider.rs`) are plain `String`/`Vec<String>`, so retyping just the snapshot's copy would still allocate once per collider per step, identical cost to today, while adding a `.to_string()` conversion at every `get_collider_layer`/`get_collider_mask` call. Both of these were coupled in the plan's own text to the per-step spatial index (`get_entity_at`/`is_solid_at`/`raycast`/`get_path` sharing a sorted-by-x index with the broad phase) — a genuine, measurement-driven performance project the user chose to defer as its own future step rather than rush alongside 7.5-10's cleanup half; revisit both together once that index exists | `scripting/collisions.rs`, `scripting/state.rs` (`WorldSnapshot.colliders`) | `[ ]` unscheduled |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -4283,16 +4286,116 @@ in the API doc's migration section in the same commit.
   every step since 7.5-5 has recorded; a live save/load and a live level
   transition on both demos is still owed.
 
-#### `[ ]` 7.5-10 — Scripting engine internals
+#### `[x]` 7.5-10 — Scripting engine internals (`PENDING_HASH`)
 
-Delete the dead `scopes` map (R22). `PassArgs` struct replaces the 11–16
-positional arguments on the five `run_*` methods; the five copy-pasted
-`call_fn` error blocks become one helper. `WorldSnapshot` stores collider
-`layer`/`mask` as `Rc<str>`/`Rc<[Rc<str>]>` like tags. `from_snapshot` stops
-rebuilding `extra_spawns`. `run_collisions` reuses the step snapshot instead
-of rebuilding. Spatial queries (`get_entity_at`, `is_solid_at`, `raycast`,
-`get_path`) use a per-step sorted-by-x index shared with the broad phase.
-Measure with `bench_sim`; record.
+**Why.** R22: `ScriptEngine.scopes` (a per-entity `rhai::Scope` map) was
+still being maintained by `check_hot_reload` and `apply_ctx`'s despawn
+cleanup years after Step 9 moved timers off it — but nothing had ever
+verified it was actually load-bearing for anything else. Separately, the
+five `run_*` methods (`run_on_start_all`/`run_on_load_all`/`run_on_input`/
+`run_on_turn`/`run_scripts`) had each grown to 15-17 positional parameters
+one field at a time since Phase 5, with five near-identical `call_fn`
+error-handling blocks copy-pasted across three files, and every one of
+them rebuilt an identical `extra_spawns` `HashMap` from the same static
+level data on every single call.
+
+**Change.**
+- Deleted `ScriptEngine.scopes` entirely, after confirming from rhai
+  1.24.0's own `call_fn`/`CallFnOptions` source that its default
+  `rewind_scope: true` truncates the `Scope` back to its pre-call length
+  after every call — so nothing a script's own top-level `let` or a called
+  function's locals ever wrote into it survived past that same call. The
+  map was provably dead, not just suspiciously idle. `call_lifecycle_fn`
+  (new helper, `engine.rs`) now takes a fresh throwaway `Scope::new()` per
+  call instead.
+- `call_lifecycle_fn` also replaces the five copy-pasted `call_fn` +
+  `is_missing_optional_fn` + disable-on-error blocks (`run_on_start_all`,
+  `run_on_load_all`, `run_on_input`, `run_on_turn`, `run_scripts`'s two —
+  on_start and on_update — and `run_collisions`'s on_collide) with one
+  method, parameterized by the function name to call, the label to log
+  errors under (on_update's has historically been "Runtime", not
+  "on_update" — preserved), and the Rhai argument tuple (generic over
+  `impl rhai::FuncArgs`, since `on_collide`'s `(id, other_id, ctx)` differs
+  from every other lifecycle function's `(id, ctx)`).
+- New `PassArgs<'a>` struct (`state.rs`) replaces the shared tail of every
+  `run_*` method's own parameter list — `delta_time`/`elapsed`/`input`/
+  `mouse`/`gamepad`/`spawns`/`globals`/`clips`/`camera_pos`/`commands`/
+  `turn_number`/`viewport_size` — and is also what `ScriptState::from_world`/
+  `from_snapshot` themselves now take, so both the outer `run_*` signatures
+  and the inner constructors shrank together. `run_scripts` went from 16
+  positional parameters to 6 (`world`, `snapshot`, `log`, `persistent`,
+  `args`, `animating`); `run_on_start_all`/`run_on_load_all`/
+  `run_collisions` from 8-11 down to 4-5. `run_on_input`/`run_on_turn` keep
+  `#[allow(clippy::too_many_arguments)]` at 7 real parameters (`actor_id`
+  is a genuinely separate concept from pass-wide `PassArgs`, not folded in
+  for its own sake). `persistent`/`world`/`snapshot`/`log` stay their own
+  parameters — see `PassArgs`'s own doc comment for why folding
+  `persistent` in particular wouldn't express its `&mut`-in/read-back-out
+  contract as cleanly.
+- `extra_spawns` moved from a per-`ScriptState` `HashMap` (rebuilt from
+  the same static `Vec<(String,f32,f32)>` on every `from_snapshot` call —
+  up to 3× a step across on_input/on_update/on_turn, since each built its
+  own `ScriptState`) onto `WorldSnapshot` itself, built once per snapshot
+  and shared by the same `Rc::clone` every other snapshot field already
+  relies on. `ctx.get_spawn_point` (api.rs) needed no change — it already
+  read `self.inner.borrow_mut().extra_spawns`, which now resolves through
+  `ScriptState`'s existing `Deref<Target = WorldSnapshot>` instead of a
+  field on `ScriptState` directly.
+- Two sub-items from this step's own original plan text were deliberately
+  **not** done — see R92 for the full reasoning: `run_collisions` reusing
+  `step()`'s own pre-resolution snapshot would hand `on_collide` scripts
+  stale positions (a real regression, not a style choice), and retyping
+  `WorldSnapshot`'s collider `layer`/`mask` to `Rc<str>`/`Rc<[Rc<str>]>`
+  only pays for itself once a per-step spatial index shares that same
+  allocation across multiple maps the way `tags` does — both deferred to
+  a future step alongside that index, by explicit user decision (4-option
+  `AskUserQuestion`, this step).
+
+**Test.** `get_spawn_point_resolves_through_the_snapshots_extra_spawns`
+(new, `engine_tests.rs`) — pins `ctx.get_spawn_point` still resolving a
+named spawn point's coordinates through the new `WorldSnapshot`-owned
+`extra_spawns` and the `Deref` path that replaces the old per-`ScriptState`
+field. `hot_reload_clears_only_the_reloaded_scripts_entities` (the old
+D8/R22 test keyed on `engine.scopes`) was removed rather than rewritten —
+`timer_tests.rs`'s `hot_reload_clears_only_the_reloaded_scripts_entities_
+timers` (added at Step 9) already exercises the identical scenario against
+`self.timers`, the field that inherited every observable behavior `scopes`
+used to have.
+
+**Scope.** `ember2d-sim/src/scripting/engine.rs`, `lifecycle.rs`,
+`collisions.rs`, `apply.rs`, `state.rs`, `mod.rs`; `ember2d-sim/src/
+simulation.rs`, `simulation/step.rs`, `simulation/spawn.rs`;
+`ember2d-sim/examples/bench_sim.rs`; every `scripting/*_tests.rs` file that
+calls `run_scripts`/`WorldSnapshot::build` directly (9 files, ~23 call
+sites, all mechanical — no test's actual assertions changed).
+`docs/ember2d-master-plan.md` (R22 closed, R91's site count corrected, new
+R92 for the two deferred sub-items).
+
+**Landed as:** `PENDING_HASH`. Full workspace build clean (`cargo build
+--workspace --bins --examples`). `cargo test --workspace`: 435 (unchanged
+from 7.5-9's own count: +1 new `get_spawn_point_resolves_through_the_
+snapshots_extra_spawns`, -1 the removed scopes-based D8 test — net zero,
+but real coverage moved from a dead field to a live one), all pass. `cargo clippy -p
+ember2d-sim --lib --tests`: no new warnings — `run_on_input`/`run_on_turn`
+kept their `#[allow(clippy::too_many_arguments)]` (8 with `self`, one over
+the default threshold), every other warning is pre-existing (R91's
+HashMap/HashSet sites, R38-class too-many-arguments on unrelated methods
+this step didn't touch). `scripts/check.sh`/`check.ps1` both clean;
+`doc-check.ps1`'s numbers (function count 162, `API_VERSION` 7,
+`LEVEL_FORMAT_VERSION` 3) unchanged — no Rhai-facing function added,
+removed, or renamed this step. `bench_sim --release` run to record a
+baseline per this step's own "measure; record" instruction: synthetic
+n=500/2000/5000/10000 at p50 0.480/1.758/4.288/7.881ms per step
+(`WorldSnapshot::build` alone: 0.323/1.294/3.143/5.733ms), shipped
+`floor1`/`floor2`/`floor3` at p50 0.355/1.302/0.774ms. Caveat: `bench_sim`'s
+own phase-timing harness benchmarks `WorldSnapshot::build`/
+`detect_collisions` as standalone primitives, once per iteration — it
+doesn't isolate the `extra_spawns` fix's actual effect (eliminating up to
+2 redundant per-step rebuilds across on_input/on_update/on_turn, now
+folded into the one `WorldSnapshot::build` call already being timed), so
+these numbers are a baseline for future comparison, not a before/after for
+this step's own change. **Not verified live** — same sandbox limitation
+every step since 7.5-5 has recorded.
 
 #### `[ ]` 7.5-11 — Audio
 

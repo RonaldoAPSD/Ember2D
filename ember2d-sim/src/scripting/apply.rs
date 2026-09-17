@@ -371,12 +371,10 @@ impl ScriptEngine {
         drop(state);
         for id in despawn_ids {
             world.despawn(id as EntityId);
-            self.scopes.remove(&(id as EntityId));
-            // Step 9: mirrors the scope cleanup above — a despawned entity's
-            // stale timer would otherwise leak forever (harmless, since ids
-            // never get reused within a level, but still dead weight; see
-            // `check_hot_reload`'s matching cleanup for the other lifecycle
-            // event that must clear this).
+            // Step 9: a despawned entity's stale timer would otherwise leak
+            // forever (harmless, since ids never get reused within a level,
+            // but still dead weight; see `check_hot_reload`'s matching
+            // cleanup for the other lifecycle event that must clear this).
             self.timers.remove(&(id as EntityId));
         }
         result

@@ -287,7 +287,7 @@ fn bench_phases(world: &World, layers: &LayerRegistry, n_iters: usize) {
     for _ in 0..n_iters {
         let w = world.clone();
         let start = Instant::now();
-        let _snap = WorldSnapshot::build(&w, layers);
+        let _snap = WorldSnapshot::build(&w, layers, &[]);
         snapshot_times.push(start.elapsed());
     }
     snapshot_times.sort();

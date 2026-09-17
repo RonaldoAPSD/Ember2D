@@ -67,6 +67,23 @@ pub struct WorldSnapshot {
     /// snapshotted collider's own mask — the pairwise mask test lives in
     /// `World::detect_collisions`, against `World`'s real `Collider`s
     /// directly, not this snapshot.
+    ///
+    /// Still `String`/`Vec<String>`, not `Rc<str>`/`Rc<[Rc<str>]>` — Step
+    /// 7.5-10 (docs/ember2d-master-plan.md §5.6) considered and deliberately
+    /// skipped this: `tags`'s own `Rc<str>` (below) pays for itself because
+    /// ONE allocation there is shared, by cheap `Rc::clone`, into three
+    /// different maps (`tags`/`tag_to_id`/`tag_to_ids`); `layer`/`mask` are
+    /// written into exactly one map (this one), and `Collider`'s own fields
+    /// (`components/collider.rs`) are themselves `String`/`Vec<String>`, not
+    /// `Rc`-backed — so switching this field's TYPE alone would still
+    /// allocate exactly once per collider per step, identical cost to
+    /// today, while adding a `.to_string()` conversion at every
+    /// `get_collider_layer`/`get_collider_mask` read site (`api_ext.rs`) to
+    /// hand Rhai a `String` back. The master plan's own text pairs this
+    /// line item with a per-step layer/spatial index (deferred at this same
+    /// step, see 7.5-10's "Landed as" note) that WOULD share one `Rc` across
+    /// several maps the way `tags` does — worth revisiting once that index
+    /// exists, not before.
     pub(super) colliders: BTreeMap<i64, (f32, f32, bool, String, Vec<String>, bool, u32)>,
     /// This snapshot's own copy of the level's layer name<->bit table
     /// (Phase 6 Step 7) — what `raycast`/`get_path` fold their incoming
@@ -131,10 +148,25 @@ pub struct WorldSnapshot {
     /// has no entry here — `get_var` treats that the same as an entry with
     /// no matching key.
     pub(super) vars: BTreeMap<i64, BTreeMap<String, rhai::Dynamic>>,
+    /// Named spawn points from the level's own `extra_spawns` — backs
+    /// `ctx.get_spawn_point`. Built once here, not once per `ScriptState`
+    /// (Step 7.5-10, docs/ember2d-master-plan.md §5.6): the level's spawn
+    /// list never changes mid-play, but every `run_*` method used to
+    /// rebuild this same `HashMap` from scratch every single call —
+    /// `run_on_input`/`run_scripts`/`run_on_turn` alone meant up to 3
+    /// redundant rebuilds of the identical map every step, on top of
+    /// whatever `run_collisions` added on a collision-heavy step. Now built
+    /// once per `WorldSnapshot`, shared via the same `Rc::clone` every
+    /// other field here already relies on.
+    pub(super) extra_spawns: HashMap<String, (f32, f32)>,
 }
 
 impl WorldSnapshot {
-    pub fn build(world: &World, layers: &crate::layers::LayerRegistry) -> Self {
+    pub fn build(
+        world: &World,
+        layers: &crate::layers::LayerRegistry,
+        spawns: &[(String, f32, f32)],
+    ) -> Self {
         // Phase 6 Step 4 (docs/ember2d-phase6-plan.md): pre-sized against
         // `World`'s own store lengths rather than growing by reallocation —
         // every one of these maps ends up with at most that many entries
@@ -239,6 +271,9 @@ impl WorldSnapshot {
             vars.insert(*id as i64, v.values.clone());
         }
 
+        let extra_spawns: HashMap<String, (f32, f32)> =
+            spawns.iter().map(|(name, x, y)| (name.clone(), (*x, *y))).collect();
+
         WorldSnapshot {
             positions,
             velocities,
@@ -259,6 +294,7 @@ impl WorldSnapshot {
             actor_tints,
             vars,
             layers: layers.clone(),
+            extra_spawns,
         }
     }
 }
@@ -279,7 +315,12 @@ pub(super) struct ScriptState {
     /// introduced the sim-safe `InputSnapshot` type — see that type's own
     /// doc comment (command.rs) for why raw input is now this shape.
     pub(super) input: InputSnapshot,
-    pub(super) extra_spawns: HashMap<String, (f32, f32)>,
+    // `extra_spawns` used to live here, rebuilt on every `ScriptState`
+    // construction — Step 7.5-10 (docs/ember2d-master-plan.md §5.6) moved it
+    // onto `WorldSnapshot` instead (see that field's own doc comment), built
+    // once per step and shared the same way every other snapshot field is.
+    // `self.extra_spawns` (api.rs's `get_spawn_point`) still resolves —
+    // `ScriptState` derefs to `WorldSnapshot`.
     pub(super) mouse_pos: (f32, f32),
     pub(super) mouse_held: (bool, bool),
     pub(super) mouse_pressed: (bool, bool),
@@ -438,49 +479,59 @@ impl std::ops::Deref for ScriptState {
     }
 }
 
+/// The thirteen fields every `ScriptState` constructor below needs beyond
+/// `world`/`snapshot`/`persistent` — introduced at Step 7.5-10 (docs/
+/// ember2d-master-plan.md §5.6) to replace the positional-argument lists
+/// `from_world`/`from_snapshot`, and every `run_*` method in `engine.rs`/
+/// `lifecycle.rs`/`collisions.rs` that calls them, had each accumulated one
+/// field at a time as this crate grew (`input`/`mouse`/`gamepad` in Phase 5,
+/// `commands`/`turn_number` in Step 5f, `viewport_size` later still). Two
+/// same-typed positional arguments in a row (`delta_time`/`elapsed`, both
+/// `f32`) is exactly the shape a call site can transpose and have the
+/// compiler say nothing — named struct fields can't be. `persistent` is
+/// deliberately NOT a field here: every caller takes it as `&mut` and reads
+/// it back out after the call (`std::mem::take` on the way in, restored via
+/// `ScriptUpdateResult::persistent` on the way out), which a struct field
+/// consumed by value can't express as cleanly. `spawns`/`animating` (the
+/// latter lives on the `run_*` methods that take it directly, not here —
+/// see `ScriptState.animating`'s own doc comment for why `run_on_start_all`/
+/// `run_on_load_all`/`run_collisions` never populate it) are borrowed, not
+/// owned, hence the lifetime. `pub`, not `pub(super)` — unlike `ScriptState`
+/// itself, this is built by every `run_*` method's own caller
+/// (`simulation.rs`/`simulation/step.rs`/`simulation/spawn.rs`, outside
+/// `scripting` entirely), not just from within this module.
+pub struct PassArgs<'a> {
+    pub delta_time: f32,
+    pub elapsed: f32,
+    pub input: InputSnapshot,
+    pub mouse: MouseSnapshot,
+    pub gamepad: GamepadSnapshot,
+    pub spawns: &'a [(String, f32, f32)],
+    pub globals: BTreeMap<String, rhai::Dynamic>,
+    pub clips: BTreeMap<String, AnimationClip>,
+    pub camera_pos: crate::math::Vec2,
+    pub commands: BTreeMap<i64, Command>,
+    pub turn_number: i64,
+    pub viewport_size: (usize, usize),
+}
+
 impl ScriptState {
     /// Convenience wrapper for callers that don't (or can't easily) share a
-    /// `WorldSnapshot` across multiple passes — `run_on_start_all` and
-    /// `run_collisions` in `scripting/engine.rs`, called far less often
-    /// than every real step, so a fresh rebuild each time doesn't matter
-    /// the way it did for `on_input`/`on_update`/`on_turn` (see
-    /// `WorldSnapshot`'s own doc comment). Frequent callers should build a
-    /// `WorldSnapshot` once and call `from_snapshot` instead.
-    #[allow(clippy::too_many_arguments)]
+    /// `WorldSnapshot` across multiple passes — `run_on_start_all`/
+    /// `run_on_load_all` (`scripting/lifecycle.rs`) and `run_collisions`
+    /// (`scripting/collisions.rs`), called far less often than every real
+    /// step, so a fresh rebuild each time doesn't matter the way it did for
+    /// `on_input`/`on_update`/`on_turn` (see `WorldSnapshot`'s own doc
+    /// comment). Frequent callers should build a `WorldSnapshot` once and
+    /// call `from_snapshot` instead.
     pub(super) fn from_world(
         world: &World,
         layers: &crate::layers::LayerRegistry,
-        delta_time: f32,
-        elapsed: f32,
-        input: InputSnapshot,
-        mouse: MouseSnapshot,
-        gamepad: GamepadSnapshot,
-        spawns: &[(String, f32, f32)],
-        globals: BTreeMap<String, rhai::Dynamic>,
-        clips: BTreeMap<String, AnimationClip>,
         persistent: BTreeMap<String, rhai::Dynamic>,
-        camera_pos: crate::math::Vec2,
-        commands: BTreeMap<i64, Command>,
-        turn_number: i64,
-        viewport_size: (usize, usize),
+        args: PassArgs,
     ) -> Self {
-        Self::from_snapshot(
-            Rc::new(WorldSnapshot::build(world, layers)),
-            world.next_id,
-            delta_time,
-            elapsed,
-            input,
-            mouse,
-            gamepad,
-            spawns,
-            globals,
-            clips,
-            persistent,
-            camera_pos,
-            commands,
-            turn_number,
-            viewport_size,
-        )
+        let snapshot = Rc::new(WorldSnapshot::build(world, layers, args.spawns));
+        Self::from_snapshot(snapshot, world.next_id, persistent, args)
     }
 
     /// The frequent-caller path: `snapshot` was already built once this
@@ -489,32 +540,36 @@ impl ScriptState {
     /// is still read fresh from `World` (not the frozen snapshot) since
     /// `apply_ctx` updates `world.next_id` directly and a later pass this
     /// same step must see any spawn an earlier one made.
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn from_snapshot(
         snapshot: Rc<WorldSnapshot>,
         next_spawn_id: crate::world::EntityId,
-        delta_time: f32,
-        elapsed: f32,
-        input: InputSnapshot,
-        mouse: MouseSnapshot,
-        gamepad: GamepadSnapshot,
-        spawns: &[(String, f32, f32)],
-        globals: BTreeMap<String, rhai::Dynamic>,
-        clips: BTreeMap<String, AnimationClip>,
         persistent: BTreeMap<String, rhai::Dynamic>,
-        camera_pos: crate::math::Vec2,
-        commands: BTreeMap<i64, Command>,
-        turn_number: i64,
-        viewport_size: (usize, usize),
+        args: PassArgs,
     ) -> Self {
+        // `spawns` deliberately unused here — `extra_spawns` is now built
+        // once inside `WorldSnapshot::build` (see that field's own doc
+        // comment) and read back through `ScriptState`'s `Deref`, not
+        // rebuilt per pass. `..` drops `spawns` along with `args`'s other
+        // now-consumed fields.
+        let PassArgs {
+            delta_time,
+            elapsed,
+            input,
+            mouse,
+            gamepad,
+            globals,
+            clips,
+            camera_pos,
+            commands,
+            turn_number,
+            viewport_size,
+            ..
+        } = args;
         let mouse_pos = mouse.cell;
         let mouse_held = mouse.held;
         let mouse_pressed = mouse.pressed;
         let GamepadSnapshot { held: gamepad_held, pressed: gamepad_pressed, axes: gamepad_axes } =
             gamepad;
-
-        let extra_spawns: HashMap<String, (f32, f32)> =
-            spawns.iter().map(|(name, x, y)| (name.clone(), (*x, *y))).collect();
 
         ScriptState {
             snapshot,
@@ -522,7 +577,6 @@ impl ScriptState {
             elapsed,
             next_spawn_id,
             input,
-            extra_spawns,
             mouse_pos,
             mouse_held,
             mouse_pressed,

@@ -12,13 +12,13 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use crate::command::Command;
+use crate::command::{Command, GamepadSnapshot, InputSnapshot, MouseSnapshot};
 use crate::components::Controller;
 use crate::event::EventBus;
 use crate::math::Vec2;
 use crate::save::SaveState;
 use crate::scheduler::{TurnModel, ALTERNATING_COST};
-use crate::scripting::{LogEntry, ScriptUpdateResult, WorldSnapshot};
+use crate::scripting::{LogEntry, PassArgs, ScriptUpdateResult, WorldSnapshot};
 use crate::world::{EntityId, World};
 
 use super::{
@@ -74,7 +74,8 @@ impl Simulation {
         // Built once per step, shared (via cheap `Rc::clone`) across
         // on_input/on_update/on_turn below — see `WorldSnapshot`'s own doc
         // comment (scripting/state.rs) for the perf regression this fixes.
-        let world_snapshot = std::rc::Rc::new(WorldSnapshot::build(world, &self.layers));
+        let world_snapshot =
+            std::rc::Rc::new(WorldSnapshot::build(world, &self.layers, &self.level.extra_spawns));
 
         let front = self.scheduler.peek();
         let is_local = front
@@ -92,18 +93,21 @@ impl Simulation {
                     world_snapshot.clone(),
                     &mut logs,
                     front,
-                    sim_dt,
-                    elapsed,
-                    input_snapshot.clone(),
-                    mouse_snapshot,
-                    gamepad_snapshot.clone(),
-                    &self.level.extra_spawns,
-                    globals,
-                    clips,
                     persistent,
-                    camera_origin,
-                    self.turn_number,
-                    (viewport_w, viewport_h),
+                    PassArgs {
+                        delta_time: sim_dt,
+                        elapsed,
+                        input: input_snapshot.clone(),
+                        mouse: mouse_snapshot,
+                        gamepad: gamepad_snapshot.clone(),
+                        spawns: &self.level.extra_spawns,
+                        globals,
+                        clips,
+                        camera_pos: camera_origin,
+                        commands: BTreeMap::new(),
+                        turn_number: self.turn_number,
+                        viewport_size: (viewport_w, viewport_h),
+                    },
                     animating,
                 );
                 self.apply_script_result(world, input_res, persistent, &mut logs, &mut outcome);
@@ -132,19 +136,21 @@ impl Simulation {
             world,
             world_snapshot.clone(),
             &mut logs,
-            sim_dt,
-            elapsed,
-            input_snapshot.clone(),
-            mouse_snapshot,
-            gamepad_snapshot.clone(),
-            &self.level.extra_spawns,
-            globals,
-            clips,
             persistent,
-            camera_origin,
-            turn_commands.clone(),
-            self.turn_number,
-            (viewport_w, viewport_h),
+            PassArgs {
+                delta_time: sim_dt,
+                elapsed,
+                input: input_snapshot.clone(),
+                mouse: mouse_snapshot,
+                gamepad: gamepad_snapshot.clone(),
+                spawns: &self.level.extra_spawns,
+                globals,
+                clips,
+                camera_pos: camera_origin,
+                commands: turn_commands.clone(),
+                turn_number: self.turn_number,
+                viewport_size: (viewport_w, viewport_h),
+            },
             animating,
         );
         self.apply_script_result(world, res, persistent, &mut logs, &mut outcome);
@@ -211,16 +217,21 @@ impl Simulation {
             snapshot,
             logs,
             actor,
-            sim_dt,
-            elapsed,
-            &self.level.extra_spawns,
-            globals,
-            clips,
             persistent,
-            camera_origin,
-            commands,
-            self.turn_number,
-            (viewport_w, viewport_h),
+            PassArgs {
+                delta_time: sim_dt,
+                elapsed,
+                input: InputSnapshot::default(),
+                mouse: MouseSnapshot::default(),
+                gamepad: GamepadSnapshot::default(),
+                spawns: &self.level.extra_spawns,
+                globals,
+                clips,
+                camera_pos: camera_origin,
+                commands,
+                turn_number: self.turn_number,
+                viewport_size: (viewport_w, viewport_h),
+            },
             animating,
         );
         let act_cost = res.act_cost;
@@ -346,14 +357,21 @@ impl Simulation {
             world,
             &all_pairs,
             &mut logs,
-            sim_dt,
-            elapsed,
-            &self.level.extra_spawns,
-            globals,
-            clips,
             persistent,
-            camera_origin,
-            (viewport_w, viewport_h),
+            PassArgs {
+                delta_time: sim_dt,
+                elapsed,
+                input: InputSnapshot::default(),
+                mouse: MouseSnapshot::default(),
+                gamepad: GamepadSnapshot::default(),
+                spawns: &self.level.extra_spawns,
+                globals,
+                clips,
+                camera_pos: camera_origin,
+                commands: BTreeMap::new(),
+                turn_number: 0,
+                viewport_size: (viewport_w, viewport_h),
+            },
         );
         self.apply_script_result(world, res, persistent, &mut logs, &mut outcome);
         drain_diagnostics_into(world, &mut logs);

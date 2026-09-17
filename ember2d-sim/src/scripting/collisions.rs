@@ -8,30 +8,21 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use crate::command::{GamepadSnapshot, InputSnapshot, MouseSnapshot};
-use crate::components::AnimationClip;
 use crate::world::{EntityId, World};
 
 use super::api::ScriptCtx;
 use super::engine::ScriptEngine;
-use super::state::ScriptState;
+use super::state::{PassArgs, ScriptState};
 use super::types::*;
 
 impl ScriptEngine {
-    #[allow(clippy::too_many_arguments)]
     pub fn run_collisions(
         &mut self,
         world: &mut World,
         pairs: &[(EntityId, EntityId)],
         log: &mut Vec<LogEntry>,
-        delta_time: f32,
-        elapsed: f32,
-        spawns: &[(String, f32, f32)],
-        globals: BTreeMap<String, rhai::Dynamic>,
-        clips: BTreeMap<String, AnimationClip>,
         persistent: &mut BTreeMap<String, rhai::Dynamic>,
-        camera_pos: crate::math::Vec2,
-        viewport_size: (usize, usize),
+        args: PassArgs,
     ) -> ScriptUpdateResult {
         let scripted_paths: HashMap<EntityId, String> =
             world.scripts.iter().map(|(id, s)| (*id, s.path.clone())).collect();
@@ -68,8 +59,8 @@ impl ScriptEngine {
                 pending_level: None,
                 pending_save: None,
                 pending_load: None,
-                globals,
-                clips,
+                globals: args.globals,
+                clips: args.clips,
                 persistent: std::mem::take(persistent),
                 camera_override: None,
                 shake_state: None,
@@ -82,43 +73,18 @@ impl ScriptEngine {
             };
         }
 
-        let mut ctx_state = ScriptState::from_world(
-            world,
-            &self.layers,
-            delta_time,
-            elapsed,
-            InputSnapshot::default(),
-            MouseSnapshot::default(),
-            GamepadSnapshot::default(),
-            spawns,
-            globals,
-            clips,
-            std::mem::take(persistent),
-            camera_pos,
-            BTreeMap::new(),
-            0,
-            viewport_size,
-        );
+        let mut ctx_state = ScriptState::from_world(world, &self.layers, std::mem::take(persistent), args);
         ctx_state.timers = std::mem::take(&mut self.timers);
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         for (entity_id, other_id, path) in calls {
-            if self.disabled_scripts.contains(&path) {
-                continue;
-            }
-            let Some(ast) = self.ast_cache.get(&path) else { continue };
-            let scope = self.scopes.entry(entity_id as EntityId).or_default();
             let entity_ctx = ctx.with_entity(entity_id);
-            if let Err(e) = self.engine.call_fn::<()>(
-                scope,
-                ast,
+            self.call_lifecycle_fn(
+                &path,
+                "on_collide",
                 "on_collide",
                 (entity_id, other_id, entity_ctx),
-            ) {
-                if !Self::is_missing_optional_fn(&e, "on_collide") {
-                    log.push(LogEntry::error(format!("on_collide '{}': {}", path, e)));
-                    self.disabled_scripts.insert(path.clone());
-                }
-            }
+                log,
+            );
         }
         self.apply_ctx(ctx, world, log)
     }

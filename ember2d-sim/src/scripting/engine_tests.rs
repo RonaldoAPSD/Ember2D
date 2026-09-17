@@ -71,55 +71,18 @@ fn different_seeds_produce_different_random_sequences() {
     assert_ne!(seq_a, seq_b, "different seeds should not produce the same sequence");
 }
 
-#[test]
-fn hot_reload_clears_only_the_reloaded_scripts_entities() {
-    let mut script_a = test_temp_dir();
-    script_a.push("ember2d_test_hot_reload_a.rhai");
-    std::fs::write(&script_a, "fn on_update(id, ctx) {}\n").unwrap();
-
-    let mut script_b = test_temp_dir();
-    script_b.push("ember2d_test_hot_reload_b.rhai");
-    std::fs::write(&script_b, "fn on_update(id, ctx) {}\n").unwrap();
-
-    let path_a = script_a.to_string_lossy().to_string();
-    let path_b = script_b.to_string_lossy().to_string();
-
-    let mut engine = ScriptEngine::new(42, test_layers());
-    let mut log = Vec::new();
-    assert!(engine.compile(&path_a, &mut log));
-    assert!(engine.compile(&path_b, &mut log));
-
-    let mut world = World::new();
-    let entity_a = world.spawn();
-    let entity_b = world.spawn();
-    world.add_script(entity_a, Script::new(&path_a));
-    world.add_script(entity_b, Script::new(&path_b));
-
-    // Seed both entities' scopes with a marker, as if a script had set a
-    // persistent `let` (or a timer via __timer_*) on a previous call.
-    engine.scopes.entry(entity_a).or_insert_with(Scope::new).set_value("marker", true);
-    engine.scopes.entry(entity_b).or_insert_with(Scope::new).set_value("marker", true);
-
-    // Force script A to look stale without needing to race filesystem
-    // mtime resolution — an artificially ancient recorded mtime is
-    // guaranteed older than the file's real one.
-    engine.mod_times.insert(path_a.clone(), std::time::SystemTime::UNIX_EPOCH);
-
-    engine.check_hot_reload(&world, &mut log);
-
-    assert!(
-        !engine.scopes.contains_key(&entity_a),
-        "the reloaded script's entity must get a fresh scope"
-    );
-    assert_eq!(
-        engine.scopes.get(&entity_b).and_then(|s| s.get_value::<bool>("marker")),
-        Some(true),
-        "an unrelated entity's scope must survive another script's hot-reload"
-    );
-
-    let _ = std::fs::remove_file(&script_a);
-    let _ = std::fs::remove_file(&script_b);
-}
+// hot_reload_clears_only_the_reloaded_scripts_entities (D8's original
+// regression test) used to seed `engine.scopes` with a marker and assert
+// only the reloaded script's entity lost it. Step 7.5-10 (docs/ember2d-
+// master-plan.md §5.6, R22) deleted `ScriptEngine.scopes` entirely — it was
+// dead state (see `ScriptEngine.layers`'s field doc comment, engine.rs) — so
+// the only remaining observable half of D8's fix is the identical selective
+// clear on `self.timers`, already covered by `timer_tests.rs`'s
+// `hot_reload_clears_only_the_reloaded_scripts_entities_timers`, added at
+// Step 9 when timers first moved off the scope they used to be smuggled
+// through. Removed rather than rewritten: that test already exercises the
+// exact same scenario byte-for-byte, just against `timers` instead of the
+// `Scope` this crate no longer has.
 
 // ── Test: Phase 6 Step 6 — check_hot_reload throttled to once every
 // HOT_RELOAD_CHECK_INTERVAL calls to run_scripts (docs/ember2d-phase6-plan.md) ──
@@ -169,24 +132,26 @@ fn check_hot_reload_only_runs_once_every_throttle_interval() {
 
 fn run_scripts_once(engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<LogEntry>) {
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(world, &engine.layers));
+    let snapshot = Rc::new(WorldSnapshot::build(world, &engine.layers, &[]));
     engine.run_scripts(
         world,
         snapshot,
         log,
-        1.0 / 60.0,
-        0.0,
-        crate::command::InputSnapshot::default(),
-        crate::command::MouseSnapshot::default(),
-        crate::command::GamepadSnapshot::default(),
-        &[],
-        BTreeMap::new(),
-        BTreeMap::new(),
         &mut persistent,
-        crate::math::Vec2::ZERO,
-        BTreeMap::new(),
-        0,
-        (80, 24),
+        PassArgs {
+            delta_time: 1.0 / 60.0,
+            elapsed: 0.0,
+            input: crate::command::InputSnapshot::default(),
+            mouse: crate::command::MouseSnapshot::default(),
+            gamepad: crate::command::GamepadSnapshot::default(),
+            spawns: &[],
+            globals: BTreeMap::new(),
+            clips: BTreeMap::new(),
+            camera_pos: crate::math::Vec2::ZERO,
+            commands: BTreeMap::new(),
+            turn_number: 0,
+            viewport_size: (80, 24),
+        },
         &[],
     );
 }
@@ -598,24 +563,26 @@ fn clip_finished_reports_true_for_entities_whose_animator_just_finished_this_tic
     world.animators.insert(entity, animator);
 
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers));
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
     let result = engine.run_scripts(
         &mut world,
         snapshot,
         &mut log,
-        1.0 / 60.0,
-        0.0,
-        crate::command::InputSnapshot::default(),
-        crate::command::MouseSnapshot::default(),
-        crate::command::GamepadSnapshot::default(),
-        &[],
-        BTreeMap::new(),
-        BTreeMap::new(),
         &mut persistent,
-        crate::math::Vec2::ZERO,
-        BTreeMap::new(),
-        0,
-        (80, 24),
+        PassArgs {
+            delta_time: 1.0 / 60.0,
+            elapsed: 0.0,
+            input: crate::command::InputSnapshot::default(),
+            mouse: crate::command::MouseSnapshot::default(),
+            gamepad: crate::command::GamepadSnapshot::default(),
+            spawns: &[],
+            globals: BTreeMap::new(),
+            clips: BTreeMap::new(),
+            camera_pos: crate::math::Vec2::ZERO,
+            commands: BTreeMap::new(),
+            turn_number: 0,
+            viewport_size: (80, 24),
+        },
         &[],
     );
 
@@ -659,24 +626,26 @@ fn run_source_reporting_is_animating(
 
     let animating_ids: Vec<EntityId> = if animating_is_self { vec![driver] } else { vec![driver + 1] };
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers));
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
     let result = engine.run_scripts(
         &mut world,
         snapshot,
         &mut log,
-        1.0 / 60.0,
-        0.0,
-        crate::command::InputSnapshot::default(),
-        crate::command::MouseSnapshot::default(),
-        crate::command::GamepadSnapshot::default(),
-        &[],
-        BTreeMap::new(),
-        BTreeMap::new(),
         &mut persistent,
-        crate::math::Vec2::ZERO,
-        BTreeMap::new(),
-        0,
-        (80, 24),
+        PassArgs {
+            delta_time: 1.0 / 60.0,
+            elapsed: 0.0,
+            input: crate::command::InputSnapshot::default(),
+            mouse: crate::command::MouseSnapshot::default(),
+            gamepad: crate::command::GamepadSnapshot::default(),
+            spawns: &[],
+            globals: BTreeMap::new(),
+            clips: BTreeMap::new(),
+            camera_pos: crate::math::Vec2::ZERO,
+            commands: BTreeMap::new(),
+            turn_number: 0,
+            viewport_size: (80, 24),
+        },
         &animating_ids,
     );
     let _ = std::fs::remove_file(&script);
@@ -705,4 +674,64 @@ fn is_animating_is_false_for_an_id_not_in_the_animating_list() {
         Some(false),
         "is_animating must read false for an id NOT in the caller's own animating list"
     );
+}
+
+// ── Test: 7.5-10 (docs/ember2d-master-plan.md §5.6) — `extra_spawns` moved
+// onto `WorldSnapshot`, built once per step instead of once per `run_*`
+// call — this pins that `ctx.get_spawn_point` still resolves correctly
+// through the new `ScriptState` -> `WorldSnapshot` `Deref` path. ──────────
+
+#[test]
+fn get_spawn_point_resolves_through_the_snapshots_extra_spawns() {
+    let mut script = test_temp_dir();
+    script.push("ember2d_test_get_spawn_point.rhai");
+    std::fs::write(
+        &script,
+        r#"
+        fn on_update(id, ctx) {
+            let p = ctx.get_spawn_point("start");
+            ctx.set_global("x", p[0]);
+            ctx.set_global("y", p[1]);
+        }
+    "#,
+    )
+    .unwrap();
+    let path = script.to_string_lossy().to_string();
+
+    let mut engine = ScriptEngine::new(42, test_layers());
+    let mut log = Vec::new();
+    assert!(engine.compile(&path, &mut log));
+
+    let mut world = World::new();
+    let entity = world.spawn();
+    world.add_script(entity, Script::new(&path));
+
+    let mut persistent = BTreeMap::new();
+    let spawns = vec![("start".to_string(), 3.0_f32, 4.0_f32)];
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &spawns));
+    let result = engine.run_scripts(
+        &mut world,
+        snapshot,
+        &mut log,
+        &mut persistent,
+        PassArgs {
+            delta_time: 1.0 / 60.0,
+            elapsed: 0.0,
+            input: crate::command::InputSnapshot::default(),
+            mouse: crate::command::MouseSnapshot::default(),
+            gamepad: crate::command::GamepadSnapshot::default(),
+            spawns: &spawns,
+            globals: BTreeMap::new(),
+            clips: BTreeMap::new(),
+            camera_pos: crate::math::Vec2::ZERO,
+            commands: BTreeMap::new(),
+            turn_number: 0,
+            viewport_size: (80, 24),
+        },
+        &[],
+    );
+    assert!(log.is_empty(), "unexpected script log: {:?}", log);
+    assert_eq!(result.globals.get("x").and_then(|d| d.as_float().ok()), Some(3.0));
+    assert_eq!(result.globals.get("y").and_then(|d| d.as_float().ok()), Some(4.0));
+    let _ = std::fs::remove_file(&script);
 }

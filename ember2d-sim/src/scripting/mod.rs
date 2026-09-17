@@ -20,3 +20,9 @@ pub use types::*;
 // step and share it across `on_input`/`on_update`/`on_turn` (Step 5f's
 // performance fix; see that type's own doc comment in scripting/state.rs).
 pub use state::WorldSnapshot;
+// `PassArgs` (Step 7.5-10, docs/ember2d-master-plan.md §5.6) is what every
+// `run_*` method on `ScriptEngine` (re-exported via `engine::*` above) takes
+// in place of its old 11-17 positional arguments — callers outside this
+// module (`simulation.rs`, `simulation/step.rs`, `simulation/spawn.rs`)
+// need to be able to construct one.
+pub use state::PassArgs;

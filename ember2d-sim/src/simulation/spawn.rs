@@ -21,9 +21,10 @@
 
 use std::collections::BTreeMap;
 
+use crate::command::{GamepadSnapshot, InputSnapshot, MouseSnapshot};
 use crate::components::{Actor, Collider, Script, Sprite, Tag, Transform};
 use crate::math::Vec2;
-use crate::scripting::LogEntry;
+use crate::scripting::{LogEntry, PassArgs};
 use crate::world::World;
 
 use super::{resolve_exit_path, Simulation, StepOutcome};
@@ -191,12 +192,21 @@ impl Simulation {
         let res = self.script_engine.run_on_start_all(
             world,
             logs,
-            &self.level.extra_spawns,
-            globals,
-            clips,
             persistent,
-            Vec2::new(cam_x, cam_y),
-            (viewport_w, viewport_h),
+            PassArgs {
+                delta_time: 0.0,
+                elapsed: 0.0,
+                input: InputSnapshot::default(),
+                mouse: MouseSnapshot::default(),
+                gamepad: GamepadSnapshot::default(),
+                spawns: &self.level.extra_spawns,
+                globals,
+                clips,
+                camera_pos: Vec2::new(cam_x, cam_y),
+                commands: BTreeMap::new(),
+                turn_number: 0,
+                viewport_size: (viewport_w, viewport_h),
+            },
         );
         let mut outcome = StepOutcome::default();
         self.apply_script_result(world, res, persistent, logs, &mut outcome);

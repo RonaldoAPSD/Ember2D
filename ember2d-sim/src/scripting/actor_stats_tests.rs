@@ -45,24 +45,26 @@ fn run_source_with_actor(
     world.add_actor(driver, actor);
 
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers));
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
     let result = engine.run_scripts(
         &mut world,
         snapshot,
         &mut log,
-        1.0 / 60.0,
-        0.0,
-        crate::command::InputSnapshot::default(),
-        crate::command::MouseSnapshot::default(),
-        crate::command::GamepadSnapshot::default(),
-        &[],
-        BTreeMap::new(),
-        BTreeMap::new(),
         &mut persistent,
-        crate::math::Vec2::ZERO,
-        BTreeMap::new(),
-        0,
-        (80, 24),
+        PassArgs {
+            delta_time: 1.0 / 60.0,
+            elapsed: 0.0,
+            input: crate::command::InputSnapshot::default(),
+            mouse: crate::command::MouseSnapshot::default(),
+            gamepad: crate::command::GamepadSnapshot::default(),
+            spawns: &[],
+            globals: BTreeMap::new(),
+            clips: BTreeMap::new(),
+            camera_pos: crate::math::Vec2::ZERO,
+            commands: BTreeMap::new(),
+            turn_number: 0,
+            viewport_size: (80, 24),
+        },
         &[],
     );
     let _ = std::fs::remove_file(&script);
@@ -129,24 +131,26 @@ fn get_stat_on_a_non_actor_entity_returns_zero() {
     // Deliberately no `world.add_actor` — this entity has no Actor at all.
 
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers));
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
     let result = engine.run_scripts(
         &mut world,
         snapshot,
         &mut log,
-        1.0 / 60.0,
-        0.0,
-        crate::command::InputSnapshot::default(),
-        crate::command::MouseSnapshot::default(),
-        crate::command::GamepadSnapshot::default(),
-        &[],
-        BTreeMap::new(),
-        BTreeMap::new(),
         &mut persistent,
-        crate::math::Vec2::ZERO,
-        BTreeMap::new(),
-        0,
-        (80, 24),
+        PassArgs {
+            delta_time: 1.0 / 60.0,
+            elapsed: 0.0,
+            input: crate::command::InputSnapshot::default(),
+            mouse: crate::command::MouseSnapshot::default(),
+            gamepad: crate::command::GamepadSnapshot::default(),
+            spawns: &[],
+            globals: BTreeMap::new(),
+            clips: BTreeMap::new(),
+            camera_pos: crate::math::Vec2::ZERO,
+            commands: BTreeMap::new(),
+            turn_number: 0,
+            viewport_size: (80, 24),
+        },
         &[],
     );
     let _ = std::fs::remove_file(&script);
@@ -205,24 +209,26 @@ fn get_tint_on_a_non_actor_entity_returns_reset() {
     world.add_script(driver, Script::new(&path));
 
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers));
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
     let result = engine.run_scripts(
         &mut world,
         snapshot,
         &mut log,
-        1.0 / 60.0,
-        0.0,
-        crate::command::InputSnapshot::default(),
-        crate::command::MouseSnapshot::default(),
-        crate::command::GamepadSnapshot::default(),
-        &[],
-        BTreeMap::new(),
-        BTreeMap::new(),
         &mut persistent,
-        crate::math::Vec2::ZERO,
-        BTreeMap::new(),
-        0,
-        (80, 24),
+        PassArgs {
+            delta_time: 1.0 / 60.0,
+            elapsed: 0.0,
+            input: crate::command::InputSnapshot::default(),
+            mouse: crate::command::MouseSnapshot::default(),
+            gamepad: crate::command::GamepadSnapshot::default(),
+            spawns: &[],
+            globals: BTreeMap::new(),
+            clips: BTreeMap::new(),
+            camera_pos: crate::math::Vec2::ZERO,
+            commands: BTreeMap::new(),
+            turn_number: 0,
+            viewport_size: (80, 24),
+        },
         &[],
     );
     let _ = std::fs::remove_file(&script);

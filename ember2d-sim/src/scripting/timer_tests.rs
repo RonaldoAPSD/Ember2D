@@ -70,24 +70,26 @@ fn a_timer_reports_done_only_once_decay_carries_it_to_zero_or_below() {
     engine.timers.entry(entity).or_default().insert("t".to_string(), TimerState::Running(1.5 / 60.0));
 
     let mut persistent = BTreeMap::new();
-    let snapshot1 = Rc::new(WorldSnapshot::build(&world, &engine.layers));
+    let snapshot1 = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
     let r1 = engine.run_scripts(
         &mut world,
         snapshot1,
         &mut log,
-        1.0 / 60.0,
-        0.0,
-        crate::command::InputSnapshot::default(),
-        crate::command::MouseSnapshot::default(),
-        crate::command::GamepadSnapshot::default(),
-        &[],
-        BTreeMap::new(),
-        BTreeMap::new(),
         &mut persistent,
-        crate::math::Vec2::ZERO,
-        BTreeMap::new(),
-        0,
-        (80, 24),
+        PassArgs {
+            delta_time: 1.0 / 60.0,
+            elapsed: 0.0,
+            input: crate::command::InputSnapshot::default(),
+            mouse: crate::command::MouseSnapshot::default(),
+            gamepad: crate::command::GamepadSnapshot::default(),
+            spawns: &[],
+            globals: BTreeMap::new(),
+            clips: BTreeMap::new(),
+            camera_pos: crate::math::Vec2::ZERO,
+            commands: BTreeMap::new(),
+            turn_number: 0,
+            viewport_size: (80, 24),
+        },
         &[],
     );
     assert_eq!(
@@ -96,24 +98,26 @@ fn a_timer_reports_done_only_once_decay_carries_it_to_zero_or_below() {
         "must not report done before decay carries it past zero"
     );
 
-    let snapshot2 = Rc::new(WorldSnapshot::build(&world, &engine.layers));
+    let snapshot2 = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
     let r2 = engine.run_scripts(
         &mut world,
         snapshot2,
         &mut log,
-        1.0 / 60.0,
-        0.0,
-        crate::command::InputSnapshot::default(),
-        crate::command::MouseSnapshot::default(),
-        crate::command::GamepadSnapshot::default(),
-        &[],
-        BTreeMap::new(),
-        BTreeMap::new(),
         &mut persistent,
-        crate::math::Vec2::ZERO,
-        BTreeMap::new(),
-        0,
-        (80, 24),
+        PassArgs {
+            delta_time: 1.0 / 60.0,
+            elapsed: 0.0,
+            input: crate::command::InputSnapshot::default(),
+            mouse: crate::command::MouseSnapshot::default(),
+            gamepad: crate::command::GamepadSnapshot::default(),
+            spawns: &[],
+            globals: BTreeMap::new(),
+            clips: BTreeMap::new(),
+            camera_pos: crate::math::Vec2::ZERO,
+            commands: BTreeMap::new(),
+            turn_number: 0,
+            viewport_size: (80, 24),
+        },
         &[],
     );
     assert_eq!(
@@ -142,30 +146,32 @@ fn despawn_removes_the_entitys_timers() {
     engine.timers.entry(entity).or_default().insert("t".to_string(), TimerState::Running(5.0));
 
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers));
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
     engine.run_scripts(
         &mut world,
         snapshot,
         &mut log,
-        1.0 / 60.0,
-        0.0,
-        crate::command::InputSnapshot::default(),
-        crate::command::MouseSnapshot::default(),
-        crate::command::GamepadSnapshot::default(),
-        &[],
-        BTreeMap::new(),
-        BTreeMap::new(),
         &mut persistent,
-        crate::math::Vec2::ZERO,
-        BTreeMap::new(),
-        0,
-        (80, 24),
+        PassArgs {
+            delta_time: 1.0 / 60.0,
+            elapsed: 0.0,
+            input: crate::command::InputSnapshot::default(),
+            mouse: crate::command::MouseSnapshot::default(),
+            gamepad: crate::command::GamepadSnapshot::default(),
+            spawns: &[],
+            globals: BTreeMap::new(),
+            clips: BTreeMap::new(),
+            camera_pos: crate::math::Vec2::ZERO,
+            commands: BTreeMap::new(),
+            turn_number: 0,
+            viewport_size: (80, 24),
+        },
         &[],
     );
 
     assert!(
         !engine.timers.contains_key(&entity),
-        "a despawned entity's timers must not leak forever (mirrors the existing scopes cleanup)"
+        "a despawned entity's timers must not leak forever"
     );
     let _ = std::fs::remove_file(&script);
 }
@@ -241,25 +247,27 @@ fn timer_done_returns_true_exactly_once_not_forever() {
     engine.timers.entry(entity).or_default().insert("t".to_string(), TimerState::Fired);
 
     let run = |engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<LogEntry>| {
-        let snapshot = Rc::new(WorldSnapshot::build(world, &engine.layers));
+        let snapshot = Rc::new(WorldSnapshot::build(world, &engine.layers, &[]));
         engine
             .run_scripts(
                 world,
                 snapshot,
                 log,
-                1.0 / 60.0,
-                0.0,
-                crate::command::InputSnapshot::default(),
-                crate::command::MouseSnapshot::default(),
-                crate::command::GamepadSnapshot::default(),
-                &[],
-                BTreeMap::new(),
-                BTreeMap::new(),
                 &mut BTreeMap::new(),
-                crate::math::Vec2::ZERO,
-                BTreeMap::new(),
-                0,
-                (80, 24),
+                PassArgs {
+                    delta_time: 1.0 / 60.0,
+                    elapsed: 0.0,
+                    input: crate::command::InputSnapshot::default(),
+                    mouse: crate::command::MouseSnapshot::default(),
+                    gamepad: crate::command::GamepadSnapshot::default(),
+                    spawns: &[],
+                    globals: BTreeMap::new(),
+                    clips: BTreeMap::new(),
+                    camera_pos: crate::math::Vec2::ZERO,
+                    commands: BTreeMap::new(),
+                    turn_number: 0,
+                    viewport_size: (80, 24),
+                },
                 &[],
             )
             .globals
@@ -305,24 +313,26 @@ fn cancel_timer_prevents_timer_done_from_ever_firing() {
     engine.timers.entry(entity).or_default().insert("t".to_string(), TimerState::Cancelled);
 
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers));
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
     let result = engine.run_scripts(
         &mut world,
         snapshot,
         &mut log,
-        1.0 / 60.0,
-        0.0,
-        crate::command::InputSnapshot::default(),
-        crate::command::MouseSnapshot::default(),
-        crate::command::GamepadSnapshot::default(),
-        &[],
-        BTreeMap::new(),
-        BTreeMap::new(),
         &mut persistent,
-        crate::math::Vec2::ZERO,
-        BTreeMap::new(),
-        0,
-        (80, 24),
+        PassArgs {
+            delta_time: 1.0 / 60.0,
+            elapsed: 0.0,
+            input: crate::command::InputSnapshot::default(),
+            mouse: crate::command::MouseSnapshot::default(),
+            gamepad: crate::command::GamepadSnapshot::default(),
+            spawns: &[],
+            globals: BTreeMap::new(),
+            clips: BTreeMap::new(),
+            camera_pos: crate::math::Vec2::ZERO,
+            commands: BTreeMap::new(),
+            turn_number: 0,
+            viewport_size: (80, 24),
+        },
         &[],
     );
     assert_eq!(

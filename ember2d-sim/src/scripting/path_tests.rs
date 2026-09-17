@@ -24,24 +24,26 @@ fn run_scripts_once(
     log: &mut Vec<LogEntry>,
 ) -> ScriptUpdateResult {
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(world, &engine.layers));
+    let snapshot = Rc::new(WorldSnapshot::build(world, &engine.layers, &[]));
     engine.run_scripts(
         world,
         snapshot,
         log,
-        1.0 / 60.0,
-        0.0,
-        crate::command::InputSnapshot::default(),
-        crate::command::MouseSnapshot::default(),
-        crate::command::GamepadSnapshot::default(),
-        &[],
-        BTreeMap::new(),
-        BTreeMap::new(),
         &mut persistent,
-        crate::math::Vec2::ZERO,
-        BTreeMap::new(),
-        0,
-        (80, 24),
+        PassArgs {
+            delta_time: 1.0 / 60.0,
+            elapsed: 0.0,
+            input: crate::command::InputSnapshot::default(),
+            mouse: crate::command::MouseSnapshot::default(),
+            gamepad: crate::command::GamepadSnapshot::default(),
+            spawns: &[],
+            globals: BTreeMap::new(),
+            clips: BTreeMap::new(),
+            camera_pos: crate::math::Vec2::ZERO,
+            commands: BTreeMap::new(),
+            turn_number: 0,
+            viewport_size: (80, 24),
+        },
         &[],
     )
 }

@@ -7,8 +7,6 @@ use std::fs;
 use std::rc::Rc;
 use std::time::SystemTime;
 
-use crate::command::{Command, GamepadSnapshot, InputSnapshot, MouseSnapshot};
-use crate::components::AnimationClip;
 use crate::world::{EntityId, World};
 
 use super::api::ScriptCtx;
@@ -18,7 +16,7 @@ use super::types::*;
 // ScriptCtx) lives in state.rs, a sibling module declared in
 // scripting/mod.rs (not here) since api.rs needs it too — see that file's
 // header comment for why it was split out of engine.rs.
-use super::state::{ScriptState, WorldSnapshot};
+use super::state::{PassArgs, ScriptState, WorldSnapshot};
 
 /// How often `run_scripts` actually invokes `check_hot_reload`, in calls
 /// (one call per simulation step — see `run_scripts`'s own call site).
@@ -36,16 +34,12 @@ const HOT_RELOAD_CHECK_INTERVAL: u32 = 30;
 
 pub struct ScriptEngine {
     /// `pub(super)` (not private) since `lifecycle.rs`'s `run_on_start_all`/
-    /// `run_on_load_all` — a second `impl ScriptEngine` block in a sibling
-    /// file, Step 7.5-5 — call `call_fn` on it directly, same reasoning
-    /// `scopes` below already gives for its own bump.
+    /// `run_on_load_all` and `collisions.rs`'s `run_collisions` — second
+    /// `impl ScriptEngine` blocks in sibling files, Steps 7.5-5/7.5-8 — call
+    /// `call_lifecycle_fn` on it directly.
     pub(super) engine: Engine,
     /// `pub(super)`, same reasoning as `engine` immediately above.
     pub(super) ast_cache: HashMap<String, AST>,
-    /// `pub(super)` (not private) since `apply.rs`'s `apply_ctx` — a second
-    /// `impl ScriptEngine` block in a sibling file, Phase 6 Step 2 — reads
-    /// and removes entries directly (timer write-back, despawn cleanup).
-    pub(super) scopes: HashMap<EntityId, Scope<'static>>,
     mod_times: HashMap<String, SystemTime>,
     /// Script paths that threw a runtime error and are no longer called —
     /// defect D9: previously an error only suppressed its own log message
@@ -69,14 +63,22 @@ pub struct ScriptEngine {
     /// `LevelData.collision_layers`, passed in here at construction) rather
     /// than this being a shared reference — see `Simulation::layers`'s own
     /// doc comment for why. `pub(super)` (not private), same reasoning as
-    /// `scopes` above: `apply.rs`'s `apply_ctx` — a second `impl
+    /// `engine` above: `apply.rs`'s `apply_ctx` — a second `impl
     /// ScriptEngine` block in a sibling file — reads it directly.
     pub(super) layers: crate::layers::LayerRegistry,
     /// Phase 6 Step 9 (docs/ember2d-phase6-plan.md): per-entity timer values,
     /// now plain engine-owned state instead of being smuggled through each
     /// entity's Rhai `Scope` as `__timer_<name>` variables scanned out by
     /// string-prefix every single script pass (five near-identical scan
-    /// blocks, one per `run_*` method below, all deleted by this step).
+    /// blocks, one per `run_*` method below, all deleted by that step —
+    /// and the per-entity `Scope` map itself followed them into deletion at
+    /// Step 7.5-10, R22: `rhai::Engine::call_fn`'s default `CallFnOptions`
+    /// rewinds the `Scope` it's given after every call, so nothing a script
+    /// declared into it — global `let`, or a called function's own locals —
+    /// ever survived past that same call. The map was dead weight
+    /// masquerading as per-entity persistence from the moment this crate's
+    /// real persistence primitives (`globals`/`persistent`/`Vars`/this field)
+    /// existed to replace whatever it once did.
     /// `BTreeMap`, not `HashMap` — matches this crate's blanket "no HashMap
     /// iteration in sim code" rule (CLAUDE.md's Determinism section) even
     /// though nothing here iterates it in an order-sensitive way today;
@@ -95,7 +97,7 @@ pub struct ScriptEngine {
     /// (Step 7.5-5, docs/ember2d-master-plan.md §5.6) — drained by the next
     /// `run_scripts` call, which calls each one's `on_start` before this
     /// step's own `on_update` pass runs for it. `pub(super)`, same
-    /// reasoning as `scopes`/`layers`/`timers` above: `apply.rs`'s
+    /// reasoning as `layers`/`timers` above: `apply.rs`'s
     /// `apply_ctx` pushes onto it directly. A plain `Vec`, not a `BTreeSet`
     /// — `set_script` twice on the same entity in one pass (unusual, but
     /// not guarded against) should call `on_start` twice next step, same
@@ -140,7 +142,6 @@ impl ScriptEngine {
         ScriptEngine {
             engine,
             ast_cache: HashMap::new(),
-            scopes: HashMap::new(),
             mod_times: HashMap::new(),
             disabled_scripts: HashSet::new(),
             rng: Rc::new(RefCell::new(rand::rngs::SmallRng::seed_from_u64(seed))),
@@ -234,6 +235,45 @@ impl ScriptEngine {
         matches!(err, rhai::EvalAltResult::ErrorFunctionNotFound(sig, _) if sig.as_str() == fn_name)
     }
 
+    /// Calls `fn_name` on the script at `path`, applying every call site's
+    /// identical error handling: a genuinely missing optional lifecycle
+    /// function (`is_missing_optional_fn`) is skipped silently; any other
+    /// error logs under `log_label` and disables the script (D9). Step
+    /// 7.5-10 (docs/ember2d-master-plan.md §5.6, R22) replaces five
+    /// near-identical `call_fn` blocks that used to differ only in the
+    /// label they logged under (`on_update`'s is historically "Runtime",
+    /// not "on_update" — preserved here via the separate `log_label`
+    /// parameter) and the argument tuple they passed (`on_collide`'s
+    /// `(id, other_id, ctx)` vs. every other lifecycle function's plain
+    /// `(id, ctx)`, which is why `args` is generic rather than a fixed
+    /// tuple). Takes a fresh, throwaway `Scope::new()` per call rather than
+    /// a stored per-entity one — seeded by the same discovery that deleted
+    /// `ScriptEngine.scopes` (see `layers`'s field doc comment above): a
+    /// `Scope` passed to `call_fn` never keeps anything written into it
+    /// past that same call anyway, since rhai's default `CallFnOptions`
+    /// rewinds it on the way out, so persisting one across calls bought
+    /// nothing.
+    pub(super) fn call_lifecycle_fn(
+        &mut self,
+        path: &str,
+        fn_name: &str,
+        log_label: &str,
+        args: impl rhai::FuncArgs,
+        log: &mut Vec<LogEntry>,
+    ) {
+        if self.disabled_scripts.contains(path) {
+            return;
+        }
+        let Some(ast) = self.ast_cache.get(path) else { return };
+        let mut scope = Scope::new();
+        if let Err(e) = self.engine.call_fn::<()>(&mut scope, ast, fn_name, args) {
+            if !Self::is_missing_optional_fn(&e, fn_name) {
+                log.push(LogEntry::error(format!("{} '{}': {}", log_label, path, e)));
+                self.disabled_scripts.insert(path.to_string());
+            }
+        }
+    }
+
     // run_on_start_all/run_on_load_all moved to lifecycle.rs (Step 7.5-5,
     // docs/ember2d-master-plan.md §5.6) — this file was over CLAUDE.md's
     // 750-line hard limit once `run_on_load_all` (7.5-5's own addition)
@@ -264,59 +304,25 @@ impl ScriptEngine {
         snapshot: Rc<WorldSnapshot>,
         log: &mut Vec<LogEntry>,
         actor_id: EntityId,
-        delta_time: f32,
-        elapsed: f32,
-        input: InputSnapshot,
-        mouse: MouseSnapshot,
-        gamepad: GamepadSnapshot,
-        spawns: &[(String, f32, f32)],
-        globals: BTreeMap<String, rhai::Dynamic>,
-        clips: BTreeMap<String, AnimationClip>,
         persistent: &mut BTreeMap<String, rhai::Dynamic>,
-        camera_pos: crate::math::Vec2,
-        turn_number: i64,
-        viewport_size: (usize, usize),
+        args: PassArgs,
         animating: &[EntityId],
     ) -> ScriptUpdateResult {
         let path = world.scripts.get(&actor_id).map(|s| s.path.clone());
-        let mut ctx_state = ScriptState::from_snapshot(
-            snapshot,
-            world.next_id,
-            delta_time,
-            elapsed,
-            input,
-            mouse,
-            gamepad,
-            spawns,
-            globals,
-            clips,
-            std::mem::take(persistent),
-            camera_pos,
-            BTreeMap::new(),
-            turn_number,
-            viewport_size,
-        );
+        let mut ctx_state =
+            ScriptState::from_snapshot(snapshot, world.next_id, std::mem::take(persistent), args);
         ctx_state.timers = std::mem::take(&mut self.timers);
         ctx_state.animating = animating.iter().map(|&id| id as i64).collect(); // 7.5-7
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         if let Some(path) = path {
-            if !self.disabled_scripts.contains(&path) {
-                if let Some(ast) = self.ast_cache.get(&path) {
-                    let scope = self.scopes.entry(actor_id).or_default();
-                    let entity_ctx = ctx.with_entity(actor_id as i64);
-                    if let Err(e) = self.engine.call_fn::<()>(
-                        scope,
-                        ast,
-                        "on_input",
-                        (actor_id as i64, entity_ctx),
-                    ) {
-                        if !Self::is_missing_optional_fn(&e, "on_input") {
-                            log.push(LogEntry::error(format!("on_input '{}': {}", path, e)));
-                            self.disabled_scripts.insert(path.clone());
-                        }
-                    }
-                }
-            }
+            let entity_ctx = ctx.with_entity(actor_id as i64);
+            self.call_lifecycle_fn(
+                &path,
+                "on_input",
+                "on_input",
+                (actor_id as i64, entity_ctx),
+                log,
+            );
         }
         self.apply_ctx(ctx, world, log)
     }
@@ -336,62 +342,23 @@ impl ScriptEngine {
         snapshot: Rc<WorldSnapshot>,
         log: &mut Vec<LogEntry>,
         actor_id: EntityId,
-        delta_time: f32,
-        elapsed: f32,
-        spawns: &[(String, f32, f32)],
-        globals: BTreeMap<String, rhai::Dynamic>,
-        clips: BTreeMap<String, AnimationClip>,
         persistent: &mut BTreeMap<String, rhai::Dynamic>,
-        camera_pos: crate::math::Vec2,
-        commands: BTreeMap<i64, Command>,
-        turn_number: i64,
-        viewport_size: (usize, usize),
+        args: PassArgs,
         animating: &[EntityId],
     ) -> ScriptUpdateResult {
         let path = world.scripts.get(&actor_id).map(|s| s.path.clone());
-        let mut ctx_state = ScriptState::from_snapshot(
-            snapshot,
-            world.next_id,
-            delta_time,
-            elapsed,
-            InputSnapshot::default(),
-            MouseSnapshot::default(),
-            GamepadSnapshot::default(),
-            spawns,
-            globals,
-            clips,
-            std::mem::take(persistent),
-            camera_pos,
-            commands,
-            turn_number,
-            viewport_size,
-        );
+        let mut ctx_state =
+            ScriptState::from_snapshot(snapshot, world.next_id, std::mem::take(persistent), args);
         ctx_state.timers = std::mem::take(&mut self.timers);
         ctx_state.animating = animating.iter().map(|&id| id as i64).collect();
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         if let Some(path) = path {
-            if !self.disabled_scripts.contains(&path) {
-                if let Some(ast) = self.ast_cache.get(&path) {
-                    let scope = self.scopes.entry(actor_id).or_default();
-                    let entity_ctx = ctx.with_entity(actor_id as i64);
-                    if let Err(e) = self.engine.call_fn::<()>(
-                        scope,
-                        ast,
-                        "on_turn",
-                        (actor_id as i64, entity_ctx),
-                    ) {
-                        if !Self::is_missing_optional_fn(&e, "on_turn") {
-                            log.push(LogEntry::error(format!("on_turn '{}': {}", path, e)));
-                            self.disabled_scripts.insert(path.clone());
-                        }
-                    }
-                }
-            }
+            let entity_ctx = ctx.with_entity(actor_id as i64);
+            self.call_lifecycle_fn(&path, "on_turn", "on_turn", (actor_id as i64, entity_ctx), log);
         }
         self.apply_ctx(ctx, world, log)
     }
 
-    #[allow(clippy::too_many_arguments)]
     // Phase 6 Step 3 (docs/ember2d-phase6-plan.md): dropped the `_events:
     // &mut EventBus` parameter — it was never read (the leading underscore
     // already said so), so every caller had to allocate a throwaway
@@ -403,21 +370,11 @@ impl ScriptEngine {
         world: &mut World,
         snapshot: Rc<WorldSnapshot>,
         log: &mut Vec<LogEntry>,
-        delta_time: f32,
-        elapsed: f32,
-        input: InputSnapshot,
-        mouse: MouseSnapshot,
-        gamepad: GamepadSnapshot,
-        spawns: &[(String, f32, f32)],
-        globals: BTreeMap<String, rhai::Dynamic>,
-        clips: BTreeMap<String, AnimationClip>,
         persistent: &mut BTreeMap<String, rhai::Dynamic>,
-        camera_pos: crate::math::Vec2,
-        commands: BTreeMap<i64, Command>,
-        turn_number: i64,
-        viewport_size: (usize, usize),
+        args: PassArgs,
         animating: &[EntityId],
     ) -> ScriptUpdateResult {
+        let delta_time = args.delta_time;
         // Phase 6 Step 6: throttled here, at the one call site (`run_scripts`
         // runs exactly once per simulation step), rather than inside
         // `check_hot_reload` itself — that function's own unit test
@@ -441,23 +398,8 @@ impl ScriptEngine {
         // instead means a skipped pass just leaves last frame's draws
         // rendering unchanged.
         self.pending_hud_draws.clear();
-        let mut ctx_state = ScriptState::from_snapshot(
-            snapshot,
-            world.next_id,
-            delta_time,
-            elapsed,
-            input,
-            mouse,
-            gamepad,
-            spawns,
-            globals,
-            clips,
-            std::mem::take(persistent),
-            camera_pos,
-            commands,
-            turn_number,
-            viewport_size,
-        );
+        let mut ctx_state =
+            ScriptState::from_snapshot(snapshot, world.next_id, std::mem::take(persistent), args);
         ctx_state.timers = std::mem::take(&mut self.timers);
         ctx_state.animating = animating.iter().map(|&id| id as i64).collect();
         // Decay happens exactly once per real step, here — `run_scripts` is
@@ -498,36 +440,18 @@ impl ScriptEngine {
             let Some(path) = world.scripts.get(&entity_id).map(|s| s.path.clone()) else {
                 continue;
             };
-            if self.disabled_scripts.contains(&path) {
-                continue;
-            }
-            let Some(ast) = self.ast_cache.get(&path) else { continue };
-            let scope = self.scopes.entry(entity_id).or_default();
             let entity_ctx = ctx.with_entity(entity_id as i64);
-            if let Err(e) =
-                self.engine.call_fn::<()>(scope, ast, "on_start", (entity_id as i64, entity_ctx))
-            {
-                if !Self::is_missing_optional_fn(&e, "on_start") {
-                    log.push(LogEntry::error(format!("on_start '{}': {}", path, e)));
-                    self.disabled_scripts.insert(path.clone());
-                }
-            }
+            self.call_lifecycle_fn(
+                &path,
+                "on_start",
+                "on_start",
+                (entity_id as i64, entity_ctx),
+                log,
+            );
         }
         for (entity_id, path) in scripted {
-            if self.disabled_scripts.contains(&path) {
-                continue;
-            }
-            let Some(ast) = self.ast_cache.get(&path) else { continue };
-            let scope = self.scopes.entry(entity_id as EntityId).or_default();
             let entity_ctx = ctx.with_entity(entity_id);
-            if let Err(e) =
-                self.engine.call_fn::<()>(scope, ast, "on_update", (entity_id, entity_ctx))
-            {
-                if !Self::is_missing_optional_fn(&e, "on_update") {
-                    log.push(LogEntry::error(format!("Runtime '{}': {}", path, e)));
-                    self.disabled_scripts.insert(path.clone());
-                }
-            }
+            self.call_lifecycle_fn(&path, "on_update", "Runtime", (entity_id, entity_ctx), log);
         }
         self.apply_ctx(ctx, world, log)
     }
@@ -564,11 +488,14 @@ impl ScriptEngine {
                         // it re-enables here rather than staying dead forever.
                         self.disabled_scripts.remove(&path);
                         // Defect D8: this used to be `self.scopes.clear()`,
-                        // wiping every entity's persistent `let` state (and,
-                        // before Step 9, its `__timer_*` vars too) whenever
+                        // wiping every entity's `__timer_*` scope vars (Step
+                        // 9 moved those into `self.timers` below; the
+                        // `Scope` itself was later found to be dead state
+                        // entirely and deleted, Step 7.5-10 R22 — see
+                        // `ScriptEngine.layers`'s field doc comment) whenever
                         // ANY script reloaded — not just entities running the
-                        // script that changed. Only those entities need a
-                        // fresh scope; everyone else's state must survive
+                        // script that changed. Only those entities' timers
+                        // need clearing; everyone else's must survive
                         // untouched.
                         let affected: Vec<EntityId> = world
                             .scripts
@@ -576,15 +503,12 @@ impl ScriptEngine {
                             .filter(|(_, s)| s.path == path)
                             .map(|(&id, _)| id)
                             .collect();
-                        // Phase 6 Step 9 (docs/ember2d-phase6-plan.md): timers
-                        // now live in `self.timers`, not the scope being
-                        // dropped here — must be cleaned up in lockstep with
-                        // it, or a reloaded script's entity inherits a stale
+                        // Phase 6 Step 9 (docs/ember2d-phase6-plan.md): a
+                        // reloaded script's entity must not inherit a stale
                         // timer from before the reload (the same leak-on-
                         // despawn hazard `apply_ctx`'s despawn loop already
                         // guards against, here on the hot-reload path instead).
                         for id in affected {
-                            self.scopes.remove(&id);
                             self.timers.remove(&id);
                         }
                         log.push(LogEntry::info(format!("Hot-reloaded: {}", path)));

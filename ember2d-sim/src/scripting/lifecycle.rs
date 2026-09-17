@@ -8,13 +8,11 @@
 
 use std::collections::BTreeMap;
 
-use crate::command::{GamepadSnapshot, InputSnapshot, MouseSnapshot};
-use crate::components::AnimationClip;
-use crate::world::{EntityId, World};
+use crate::world::World;
 
 use super::api::ScriptCtx;
 use super::engine::ScriptEngine;
-use super::state::ScriptState;
+use super::state::{PassArgs, ScriptState};
 use super::types::*;
 
 impl ScriptEngine {
@@ -32,49 +30,18 @@ impl ScriptEngine {
         &mut self,
         world: &mut World,
         log: &mut Vec<LogEntry>,
-        extra_spawns: &[(String, f32, f32)],
-        globals: BTreeMap<String, rhai::Dynamic>,
-        clips: BTreeMap<String, AnimationClip>,
         persistent: &mut BTreeMap<String, rhai::Dynamic>,
-        camera_pos: crate::math::Vec2,
-        viewport_size: (usize, usize),
+        args: PassArgs,
     ) -> ScriptUpdateResult {
         let scripted: Vec<(i64, String)> =
             world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
-        let mut ctx_state = ScriptState::from_world(
-            world,
-            &self.layers,
-            0.0,
-            0.0,
-            InputSnapshot::default(),
-            MouseSnapshot::default(),
-            GamepadSnapshot::default(),
-            extra_spawns,
-            globals,
-            clips,
-            std::mem::take(persistent),
-            camera_pos,
-            BTreeMap::new(),
-            0,
-            viewport_size,
-        );
+        let mut ctx_state =
+            ScriptState::from_world(world, &self.layers, std::mem::take(persistent), args);
         ctx_state.timers = std::mem::take(&mut self.timers);
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         for (entity_id, path) in &scripted {
-            if self.disabled_scripts.contains(path) {
-                continue;
-            }
-            let Some(ast) = self.ast_cache.get(path) else { continue };
-            let scope = self.scopes.entry(*entity_id as EntityId).or_default();
             let entity_ctx = ctx.with_entity(*entity_id);
-            if let Err(e) =
-                self.engine.call_fn::<()>(scope, ast, "on_start", (*entity_id, entity_ctx))
-            {
-                if !Self::is_missing_optional_fn(&e, "on_start") {
-                    log.push(LogEntry::error(format!("on_start '{}': {}", path, e)));
-                    self.disabled_scripts.insert(path.clone());
-                }
-            }
+            self.call_lifecycle_fn(path, "on_start", "on_start", (*entity_id, entity_ctx), log);
         }
         self.apply_ctx(ctx, world, log)
     }
@@ -97,49 +64,18 @@ impl ScriptEngine {
         &mut self,
         world: &mut World,
         log: &mut Vec<LogEntry>,
-        extra_spawns: &[(String, f32, f32)],
-        globals: BTreeMap<String, rhai::Dynamic>,
-        clips: BTreeMap<String, AnimationClip>,
         persistent: &mut BTreeMap<String, rhai::Dynamic>,
-        camera_pos: crate::math::Vec2,
-        viewport_size: (usize, usize),
+        args: PassArgs,
     ) -> ScriptUpdateResult {
         let scripted: Vec<(i64, String)> =
             world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
-        let mut ctx_state = ScriptState::from_world(
-            world,
-            &self.layers,
-            0.0,
-            0.0,
-            InputSnapshot::default(),
-            MouseSnapshot::default(),
-            GamepadSnapshot::default(),
-            extra_spawns,
-            globals,
-            clips,
-            std::mem::take(persistent),
-            camera_pos,
-            BTreeMap::new(),
-            0,
-            viewport_size,
-        );
+        let mut ctx_state =
+            ScriptState::from_world(world, &self.layers, std::mem::take(persistent), args);
         ctx_state.timers = std::mem::take(&mut self.timers);
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         for (entity_id, path) in &scripted {
-            if self.disabled_scripts.contains(path) {
-                continue;
-            }
-            let Some(ast) = self.ast_cache.get(path) else { continue };
-            let scope = self.scopes.entry(*entity_id as EntityId).or_default();
             let entity_ctx = ctx.with_entity(*entity_id);
-            if let Err(e) =
-                self.engine.call_fn::<()>(scope, ast, "on_load", (*entity_id, entity_ctx))
-            {
-                if !Self::is_missing_optional_fn(&e, "on_load") {
-                    log.push(LogEntry::error(format!("on_load '{}': {}", path, e)));
-                    self.disabled_scripts.insert(path.clone());
-                }
-            }
+            self.call_lifecycle_fn(path, "on_load", "on_load", (*entity_id, entity_ctx), log);
         }
         self.apply_ctx(ctx, world, log)
     }
