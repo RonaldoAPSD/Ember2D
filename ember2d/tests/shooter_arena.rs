@@ -86,6 +86,7 @@ impl RealtimeHarness {
                 mouse,
                 gamepad: &GamepadSnapshot::default(),
                 external_commands: &[],
+                animating: &[],
                 camera_origin: Vec2::ZERO,
                 sim_dt: DT,
                 elapsed: self.elapsed,

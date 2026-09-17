@@ -63,6 +63,7 @@ fn run_source_with_actor(
         BTreeMap::new(),
         0,
         (80, 24),
+        &[],
     );
     let _ = std::fs::remove_file(&script);
     (result, log)
@@ -146,6 +147,7 @@ fn get_stat_on_a_non_actor_entity_returns_zero() {
         BTreeMap::new(),
         0,
         (80, 24),
+        &[],
     );
     let _ = std::fs::remove_file(&script);
     assert!(log.is_empty(), "unexpected script log: {:?}", log);
@@ -221,6 +223,7 @@ fn get_tint_on_a_non_actor_entity_returns_reset() {
         BTreeMap::new(),
         0,
         (80, 24),
+        &[],
     );
     let _ = std::fs::remove_file(&script);
     assert!(log.is_empty(), "unexpected script log: {:?}", log);

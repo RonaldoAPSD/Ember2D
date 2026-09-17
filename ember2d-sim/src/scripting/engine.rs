@@ -262,6 +262,7 @@ impl ScriptEngine {
         camera_pos: crate::math::Vec2,
         turn_number: i64,
         viewport_size: (usize, usize),
+        animating: &[EntityId],
     ) -> ScriptUpdateResult {
         let path = world.scripts.get(&actor_id).map(|s| s.path.clone());
         let mut ctx_state = ScriptState::from_snapshot(
@@ -282,6 +283,7 @@ impl ScriptEngine {
             viewport_size,
         );
         ctx_state.timers = std::mem::take(&mut self.timers);
+        ctx_state.animating = animating.iter().map(|&id| id as i64).collect(); // 7.5-7
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         if let Some(path) = path {
             if !self.disabled_scripts.contains(&path) {
@@ -330,6 +332,7 @@ impl ScriptEngine {
         commands: BTreeMap<i64, Command>,
         turn_number: i64,
         viewport_size: (usize, usize),
+        animating: &[EntityId],
     ) -> ScriptUpdateResult {
         let path = world.scripts.get(&actor_id).map(|s| s.path.clone());
         let mut ctx_state = ScriptState::from_snapshot(
@@ -350,6 +353,7 @@ impl ScriptEngine {
             viewport_size,
         );
         ctx_state.timers = std::mem::take(&mut self.timers);
+        ctx_state.animating = animating.iter().map(|&id| id as i64).collect();
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         if let Some(path) = path {
             if !self.disabled_scripts.contains(&path) {
@@ -398,6 +402,7 @@ impl ScriptEngine {
         commands: BTreeMap<i64, Command>,
         turn_number: i64,
         viewport_size: (usize, usize),
+        animating: &[EntityId],
     ) -> ScriptUpdateResult {
         // Phase 6 Step 6: throttled here, at the one call site (`run_scripts`
         // runs exactly once per simulation step), rather than inside
@@ -440,6 +445,7 @@ impl ScriptEngine {
             viewport_size,
         );
         ctx_state.timers = std::mem::take(&mut self.timers);
+        ctx_state.animating = animating.iter().map(|&id| id as i64).collect();
         // Decay happens exactly once per real step, here — `run_scripts` is
         // the one call site the engine's own `update()` invokes unconditionally
         // (see `check_hot_reload`'s throttle comment above for the same

@@ -187,6 +187,7 @@ fn run_scripts_once(engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<
         BTreeMap::new(),
         0,
         (80, 24),
+        &[],
     );
 }
 
@@ -615,8 +616,93 @@ fn clip_finished_reports_true_for_entities_whose_animator_just_finished_this_tic
         BTreeMap::new(),
         0,
         (80, 24),
+        &[],
     );
 
     assert_eq!(result.globals.get("finished").and_then(|d| d.as_bool().ok()), Some(true));
     let _ = std::fs::remove_file(&script);
+}
+
+// ── Tests: 7.5-7 (docs/ember2d-master-plan.md §5.6) — is_animating tells
+// the truth now, plumbed via StepInput/ScriptState::animating ────────────
+
+/// Runs a single-entity script that reports `ctx.is_animating(id)` into the
+/// "animating" global — `animating_is_self: true` puts the driver's own id
+/// in the caller's `animating` list, `false` puts a different id in it (the
+/// driver itself is never animating either way), so the two tests below
+/// exercise both sides of the membership check with one shared helper.
+fn run_source_reporting_is_animating(
+    name: &str,
+    animating_is_self: bool,
+) -> (Option<bool>, Vec<LogEntry>) {
+    let mut script = test_temp_dir();
+    script.push(format!("ember2d_test_is_animating_{}.rhai", name));
+    std::fs::write(
+        &script,
+        r#"
+        fn on_update(id, ctx) {
+            ctx.set_global("animating", ctx.is_animating(id));
+        }
+    "#,
+    )
+    .unwrap();
+    let path = script.to_string_lossy().to_string();
+
+    let mut engine = ScriptEngine::new(42, test_layers());
+    let mut log = Vec::new();
+    assert!(engine.compile(&path, &mut log));
+
+    let mut world = World::new();
+    let driver = world.spawn();
+    world.add_transform(driver, Transform::new(0.0, 0.0));
+    world.add_script(driver, Script::new(&path));
+
+    let animating_ids: Vec<EntityId> = if animating_is_self { vec![driver] } else { vec![driver + 1] };
+    let mut persistent = BTreeMap::new();
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers));
+    let result = engine.run_scripts(
+        &mut world,
+        snapshot,
+        &mut log,
+        1.0 / 60.0,
+        0.0,
+        crate::command::InputSnapshot::default(),
+        crate::command::MouseSnapshot::default(),
+        crate::command::GamepadSnapshot::default(),
+        &[],
+        BTreeMap::new(),
+        BTreeMap::new(),
+        &mut persistent,
+        crate::math::Vec2::ZERO,
+        BTreeMap::new(),
+        0,
+        (80, 24),
+        &animating_ids,
+    );
+    let _ = std::fs::remove_file(&script);
+    (result.globals.get("animating").and_then(|d| d.as_bool().ok()), log)
+}
+
+#[test]
+fn is_animating_is_true_for_an_id_in_the_animating_list() {
+    let (animating, log) = run_source_reporting_is_animating("true", true);
+    assert!(log.is_empty(), "unexpected script log: {:?}", log);
+    assert_eq!(
+        animating,
+        Some(true),
+        "is_animating must read true for an id the caller's own animating list names"
+    );
+}
+
+#[test]
+fn is_animating_is_false_for_an_id_not_in_the_animating_list() {
+    // A DIFFERENT entity id is animating, not this script's own — proves
+    // `is_animating` checks real membership, not "the list is non-empty."
+    let (animating, log) = run_source_reporting_is_animating("false", false);
+    assert!(log.is_empty(), "unexpected script log: {:?}", log);
+    assert_eq!(
+        animating,
+        Some(false),
+        "is_animating must read false for an id NOT in the caller's own animating list"
+    );
 }

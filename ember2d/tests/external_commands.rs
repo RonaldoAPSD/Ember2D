@@ -37,7 +37,7 @@ fn an_externally_supplied_command_resolves_a_turn_with_no_key_ever_pressed() {
     let empty_input = InputSnapshot::default();
     let mouse = MouseSnapshot::default();
     let gamepad = GamepadSnapshot::default();
-    let external = [Command { actor: player, action: "move".to_string(), params: vec![0.0, -1.0] }];
+    let external = [Command { actor: player, action: "move".to_string(), params: vec![0.0, -1.0], cost: None }];
 
     let outcome = h.sim.step(
         &mut h.world,
@@ -46,6 +46,7 @@ fn an_externally_supplied_command_resolves_a_turn_with_no_key_ever_pressed() {
             mouse,
             gamepad: &gamepad,
             external_commands: &external,
+            animating: &[],
             camera_origin: Vec2::ZERO,
             sim_dt: 1.0 / 60.0,
             elapsed: h.elapsed,
@@ -80,7 +81,7 @@ fn an_external_command_for_an_actor_not_awaiting_input_is_silently_ignored_this_
     let mouse = MouseSnapshot::default();
     let gamepad = GamepadSnapshot::default();
     let external =
-        [Command { actor: bogus_actor, action: "move".to_string(), params: vec![0.0, -1.0] }];
+        [Command { actor: bogus_actor, action: "move".to_string(), params: vec![0.0, -1.0], cost: None }];
 
     let outcome = h.sim.step(
         &mut h.world,
@@ -89,6 +90,7 @@ fn an_external_command_for_an_actor_not_awaiting_input_is_silently_ignored_this_
             mouse,
             gamepad: &gamepad,
             external_commands: &external,
+            animating: &[],
             camera_origin: Vec2::ZERO,
             sim_dt: 1.0 / 60.0,
             elapsed: h.elapsed,

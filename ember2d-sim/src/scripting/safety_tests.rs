@@ -55,6 +55,7 @@ fn run_scripts_once(engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<
         BTreeMap::new(),
         0,
         (80, 24),
+        &[],
     );
 }
 
@@ -313,6 +314,7 @@ fn clear_all_persistent_empties_a_populated_store() {
         BTreeMap::new(),
         0,
         (80, 24),
+        &[],
     );
     globals = result.globals;
     persistent = result.persistent;
@@ -338,6 +340,7 @@ fn clear_all_persistent_empties_a_populated_store() {
         BTreeMap::new(),
         0,
         (80, 24),
+        &[],
     );
     persistent = result.persistent;
     assert!(persistent.is_empty(), "clear_all_persistent must empty the real store");

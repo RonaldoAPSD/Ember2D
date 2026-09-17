@@ -191,6 +191,10 @@ pub(super) fn register_all(engine: &mut Engine) {
     // `command_param` read back whatever the entity's own `on_input`
     // pass queued for it, once `on_update` runs.
     engine.register_fn("submit", ScriptCtx::submit);
+    // 7.5-6 already added a 6-arg get_path overload this same way; this is
+    // the same arity-overload mechanism for submit's own optional cost
+    // (Step 7.5-7, docs/ember2d-master-plan.md §5.6).
+    engine.register_fn("submit", ScriptCtx::submit_with_cost);
     engine.register_fn("command_action", ScriptCtx::command_action);
     engine.register_fn("command_param", ScriptCtx::command_param);
 

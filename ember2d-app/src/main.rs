@@ -50,6 +50,7 @@ fn main() -> io::Result<()> {
             // and only takes effect once the editor actually enters play mode.
             let mut play_gameplay_loop = GameplayLoop::RealTime;
             let mut pixels_per_unit = project::default_pixels_per_unit();
+            let mut turn_model = TurnModel::default();
             if let Ok(proj) = ProjectData::load(&project_dir.to_string_lossy()) {
                 if proj.visual_style == VisualStyle::Sprites2D {
                     engine.renderer.set_sprite_mode(true);
@@ -58,6 +59,7 @@ fn main() -> io::Result<()> {
                 }
                 play_gameplay_loop = proj.gameplay_loop;
                 pixels_per_unit = proj.pixels_per_unit;
+                turn_model = proj.turn_model;
                 editor.project_name = Some(proj.name);
             }
             // R45 (7A-12, docs/ember2d-master-plan.md §5.1): without this,
@@ -67,7 +69,7 @@ fn main() -> io::Result<()> {
             if !path.is_empty() {
                 editor.open_project_folder(project_dir.to_string_lossy().into_owned());
             }
-            run_editor_app(&mut engine, editor, play_gameplay_loop, pixels_per_unit)?;
+            run_editor_app(&mut engine, editor, play_gameplay_loop, pixels_per_unit, turn_model)?;
         } else if !path.is_empty() {
             let data = match LevelData::load(&path) {
                 Ok(d) => d,
@@ -78,6 +80,7 @@ fn main() -> io::Result<()> {
             };
             let project_dir = Path::new(&path).parent().unwrap_or(Path::new("."));
             let mut pixels_per_unit = project::default_pixels_per_unit();
+            let mut turn_model = TurnModel::default();
             if let Ok(proj) = ProjectData::load(&project_dir.to_string_lossy()) {
                 if proj.visual_style == VisualStyle::Sprites2D {
                     engine.renderer.set_sprite_mode(true);
@@ -86,8 +89,9 @@ fn main() -> io::Result<()> {
                 }
                 engine.gameplay_loop = proj.gameplay_loop;
                 pixels_per_unit = proj.pixels_per_unit;
+                turn_model = proj.turn_model;
             }
-            run_play_app(&mut engine, data, pixels_per_unit)?;
+            run_play_app(&mut engine, data, pixels_per_unit, turn_model)?;
         } else {
             print_usage();
         }
@@ -110,6 +114,7 @@ fn main() -> io::Result<()> {
                             editor.project_folder.clone().unwrap_or_else(|| ".".to_string());
                         let mut play_gameplay_loop = GameplayLoop::RealTime;
                         let mut pixels_per_unit = project::default_pixels_per_unit();
+                        let mut turn_model = TurnModel::default();
                         if let Ok(proj) = ProjectData::load(&folder) {
                             if proj.visual_style == VisualStyle::Sprites2D {
                                 engine.renderer.set_sprite_mode(true);
@@ -118,12 +123,14 @@ fn main() -> io::Result<()> {
                             }
                             play_gameplay_loop = proj.gameplay_loop;
                             pixels_per_unit = proj.pixels_per_unit;
+                            turn_model = proj.turn_model;
                         }
                         if !run_editor_app(
                             &mut engine,
                             editor,
                             play_gameplay_loop,
                             pixels_per_unit,
+                            turn_model,
                         )? {
                             break;
                         } // Quit from editor

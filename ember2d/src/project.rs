@@ -75,6 +75,16 @@ pub struct ProjectData {
     /// world unit — the same footprint a glyph would.
     #[serde(default = "default_pixels_per_unit")]
     pub pixels_per_unit: f32,
+
+    /// Step 7.5-7 (docs/ember2d-master-plan.md §5.6): which `TurnModel`
+    /// `Simulation::run_actor_turn`'s cost fallback uses when a script
+    /// doesn't call `ctx.act(cost)` itself — see that type's own doc
+    /// comment (`ember2d_sim::scheduler`). `#[serde(default)]` (not a named
+    /// default fn — `TurnModel` derives its own `Default`, `Alternating`)
+    /// reads `Alternating` for every pre-7.5-7 `project.ron`, matching the
+    /// only behavior that ever existed before this step.
+    #[serde(default)]
+    pub turn_model: ember2d_sim::scheduler::TurnModel,
 }
 
 fn default_visual_style() -> VisualStyle {
@@ -122,6 +132,7 @@ impl ProjectData {
             gameplay_loop,
             start_level: Some("main.level".to_string()),
             pixels_per_unit: default_pixels_per_unit(),
+            turn_model: ember2d_sim::scheduler::TurnModel::default(),
         }
     }
 

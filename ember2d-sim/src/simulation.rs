@@ -53,7 +53,7 @@ use crate::layers::LayerRegistry;
 use crate::level::LevelData;
 use crate::math::Vec2;
 use crate::save::SaveState;
-use crate::scheduler::TurnScheduler;
+use crate::scheduler::{TurnModel, TurnScheduler};
 use crate::scripting::{HudDraw, LogEntry, ScriptEngine, ShakeState};
 use crate::world::{EntityId, World};
 
@@ -130,6 +130,18 @@ pub struct StepInput<'a> {
     /// Correct for `TurnModel::Alternating`; `Declared` and netcode will
     /// want a queue per actor, so revisit here rather than at the call site.
     pub external_commands: &'a [Command],
+    /// Step 7.5-7 (docs/ember2d-master-plan.md §5.6): entity ids
+    /// `ember2d::play::PlayState`'s own presentation-side animation queue
+    /// currently has an in-flight `PlayingAnimation` for, this real step —
+    /// what `ctx.is_animating(id)` (scripting/api_animation.rs) reads.
+    /// `Simulation` doesn't own that queue (it's presentation state, same
+    /// reasoning `camera_origin` below gives), so the caller hands in a
+    /// snapshot of it each step, same shape `external_commands` already
+    /// uses. A borrowed slice, not an owned `Vec` — `PlayState::update`
+    /// already has `self.animations` alive for the whole call, so nothing
+    /// here needs its own allocation. Empty for every caller that has no
+    /// animation queue of its own (every test harness, `bench_sim`).
+    pub animating: &'a [EntityId],
     /// Caller-supplied — `Simulation` does not own the presentation
     /// `Camera` (that stays in `ember2d::play::PlayState`).
     pub camera_origin: Vec2,
@@ -229,6 +241,15 @@ pub struct Simulation {
     /// every `WorldSnapshot`/`ScriptState` constructor would touch far more
     /// signatures for no real benefit — the registry is at most 31 entries.
     layers: LayerRegistry,
+    /// Step 7.5-7 (docs/ember2d-master-plan.md §5.6): which formula
+    /// `run_actor_turn` (simulation/step.rs) falls back to for a turn's
+    /// cost when a script doesn't call `ctx.act(cost)` itself — see
+    /// `TurnModel`'s own doc comment (scheduler.rs). Defaults to
+    /// `TurnModel::Alternating` (unchanged pre-7.5-7 behavior for every
+    /// project that never calls `set_turn_model`); not part of `SaveState`
+    /// or `LevelData` — it's a project-level setting, not per-run state,
+    /// same category as `pixels_per_unit`.
+    turn_model: TurnModel,
 }
 
 impl Simulation {
@@ -249,7 +270,21 @@ impl Simulation {
             is_loading_save: false,
             pending_scheduler: Vec::new(),
             layers,
+            turn_model: TurnModel::default(),
         }
+    }
+
+    /// Sets which `TurnModel` `run_actor_turn`'s own cost fallback uses —
+    /// a setter, not a constructor parameter, same reasoning
+    /// `set_pixels_per_unit`'s own doc comment gives (`ember2d::play::
+    /// PlayState`): `Simulation::new`/`from_save` take only a `LevelData`/
+    /// `SaveState`, never a `ProjectData`, and threading one through would
+    /// touch every constructor call site for a project-level setting that
+    /// changes rarely. Called once, right after construction, by whichever
+    /// caller has the owning `ProjectData` in scope
+    /// (`ember2d::play::PlayState::set_turn_model` forwards here).
+    pub fn set_turn_model(&mut self, model: TurnModel) {
+        self.turn_model = model;
     }
 
     /// `globals`/`clips` come from a loaded `SaveState` — defect D17 fix

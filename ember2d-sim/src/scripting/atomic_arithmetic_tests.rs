@@ -99,6 +99,7 @@ fn run_source_with_result_full(
         BTreeMap::new(),
         0,
         (80, 24),
+        &[],
     );
     let _ = std::fs::remove_file(&script);
     (result, log)

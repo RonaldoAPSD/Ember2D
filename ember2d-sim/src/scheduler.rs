@@ -21,6 +21,8 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::components::Controller;
 use crate::world::EntityId;
 
@@ -30,6 +32,53 @@ use crate::world::EntityId;
 /// ships today. `Actor::speed` doesn't factor into this yet — see that
 /// field's own doc comment.
 pub const ALTERNATING_COST: u64 = 100;
+
+/// Which formula decides how much a turn "costs" (how far `TurnScheduler`
+/// pushes an actor's own due time back) when a script's own `ctx.act(cost)`
+/// doesn't explicitly say — Step 7.5-7 (docs/ember2d-master-plan.md §5.6)
+/// wires up the `Energy`/`ActionCost` half of the original refactor plan's
+/// own sketch (docs/archive/ember2d-refactor-plan.md: `enum TurnModel {
+/// Alternating, Energy, ActionCost, Declared }`), minus `Declared` — that
+/// variant is Phase 9's netcode concern (lockstep command exchange), not a
+/// local-scheduling policy, and doesn't belong here until that phase
+/// actually needs it.
+///
+/// A project selects one via `ProjectData::turn_model` (`ember2d::project`);
+/// `Simulation::set_turn_model` is how that reaches `Simulation` (mirrors
+/// `PlayState::set_pixels_per_unit`'s own threading — see that method's own
+/// doc comment for why a setter, not a constructor parameter, since
+/// `PlayState::from_level`/`from_save` take only a `LevelData`/`SaveState`,
+/// never a `ProjectData`). Regardless of model, `ctx.act(cost)` always wins
+/// when a script calls it — this only decides the FALLBACK when it doesn't
+/// (see `Simulation::run_actor_turn`'s own cost computation,
+/// simulation/step.rs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum TurnModel {
+    /// Every turn costs `ALTERNATING_COST` (100), regardless of `Actor::speed`
+    /// or the command being acted on — the only model that ever shipped
+    /// before this step, and still the default (`#[default]`) so every
+    /// pre-7.5-7 project keeps its exact current behavior unless it opts
+    /// into one of the other two.
+    #[default]
+    Alternating,
+    /// Cost scales inversely with `Actor::speed`: `ALTERNATING_COST * 100 /
+    /// speed`, so a speed-200 actor's due time advances half as far per
+    /// turn as a speed-100 actor's — it comes back up again twice as
+    /// often. The classic "the faster creature acts more often" turn
+    /// order a Pokemon-style battle needs (docs/archive/ember2d-rpg-demo-
+    /// feasibility.md §2.8), with no script-side bookkeeping required:
+    /// an `Actor` that never calls `ctx.act()` at all (every roguelike
+    /// enemy today, `demos/roguelike/scripts/enemy.rhai`) already gets
+    /// this for free the moment a project selects it.
+    Energy,
+    /// Cost comes from the command itself: `Command.cost` (set via
+    /// `ctx.submit`'s 4-argument overload, docs/ember2d-scripting-api.md)
+    /// if the currently-resolving actor has one queued, else
+    /// `ALTERNATING_COST`. Lets the ACTION chosen (a heavy attack costing
+    /// more than a quick jab) drive turn order instead of the actor's own
+    /// fixed speed.
+    ActionCost,
+}
 
 /// Local actors sort before Ai/Remote at an equal due time. Without this, a
 /// level whose enemies happen to have lower `EntityId`s than the player —

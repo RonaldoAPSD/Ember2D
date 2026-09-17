@@ -20,6 +20,7 @@ pub fn run_editor_app(
     editor: EditorState,
     play_gameplay_loop: GameplayLoop,
     pixels_per_unit: f32,
+    turn_model: TurnModel,
 ) -> io::Result<bool> {
     engine.gameplay_loop = GameplayLoop::RealTime;
     engine.push_state(Box::new(editor));
@@ -60,6 +61,7 @@ pub fn run_editor_app(
                         PlayState::from_level(level_data.clone(), engine.persistent.clone())
                     };
                     play.set_pixels_per_unit(pixels_per_unit);
+                    play.set_turn_model(turn_model);
                     engine.push_state(Box::new(play));
 
                     match engine.run()? {
@@ -148,6 +150,7 @@ pub fn run_play_app(
     engine: &mut Engine,
     mut data: LevelData,
     pixels_per_unit: f32,
+    turn_model: TurnModel,
 ) -> io::Result<()> {
     let mut pending_save: Option<SaveState> = None;
     loop {
@@ -179,6 +182,7 @@ pub fn run_play_app(
             PlayState::from_level(data.clone(), engine.persistent.clone())
         };
         play.set_pixels_per_unit(pixels_per_unit);
+        play.set_turn_model(turn_model);
         engine.push_state(Box::new(play));
 
         match engine.run()? {

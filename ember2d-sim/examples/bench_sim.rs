@@ -214,6 +214,7 @@ fn run_steps(
                 mouse,
                 gamepad: &gamepad,
                 external_commands: &[],
+                animating: &[],
                 camera_origin: Vec2::ZERO,
                 sim_dt: BENCH_DT,
                 elapsed: i as f32 * BENCH_DT,

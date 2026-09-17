@@ -213,15 +213,18 @@ SHRINKS the viewport (fixed-point-width side panels eat more of a fixed
 window). **Phase 7E (Editor features) deferred by user direction, same
 day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
-completeness (§5.6) under way: 7.5-1 through 7.5-6 landed
-(`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`b1964af`). Next:
-7.5-7 (animation and turn model completeness). Two things still owed from
-7.5-5/7.5-6, both flagged in their own "Landed as" notes: neither demo has
-been launched live this session (no windowed/GPU sandbox available to this
-agent) — a real playtest of both, not just the headless suite, is still
-worth doing; and the shooter's `director.rhai` still hand-rolls its own
-enemy wall-slide (7.5-6 deliberately scoped shooter enemies out of engine-
-side solid resolution — see that step's own note for why).**
+completeness (§5.6) under way: 7.5-1 through 7.5-7 landed
+(`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`b1964af`/`PENDING_HASH`).
+Next: 7.5-8 (timers, D22). Two things still owed from 7.5-5/7.5-6, both
+flagged in their own "Landed as" notes: neither demo has been launched
+live this session (no windowed/GPU sandbox available to this agent) — a
+real playtest of both, not just the headless suite, is still worth doing;
+and the shooter's `director.rhai` still hand-rolls its own enemy
+wall-slide (7.5-6 deliberately scoped shooter enemies out of engine-side
+solid resolution — see that step's own note for why). No project ships
+with `TurnModel::Energy`/`ActionCost` yet (7.5-7) — both are new, opt-in,
+tested only headlessly; a real tactical-RPG-style level exercising either
+live is still owed whenever Phase 9 gets there.**
 
 ### 2.3 Baseline numbers (at `v0.5.7d`)
 
@@ -321,7 +324,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | **API and docs** | | | | |
 | R31 | S2 | i64/f64 dispatch trap: `draw_hud(x, y, ..)` with float `x` fails "function not found"; only `submit` coerces | `api.rs` throughout | `[ ]` → 7.5-1 |
 | R32 | S3 | Sentinel inconsistency (`-1` vs `0.0` vs `[]`; `()` tombstone means scripts can't store unit) | `api.rs` | `[ ]` → 7.5-1 |
-| R33 | S3 | `is_animating` always `false` | `api_animation.rs:63` | `[ ]` → 7.5-7 |
+| R33 | S3 | `is_animating` always `false` | `api_animation.rs:63` | `[x]` 7.5-7 — `StepInput::animating` plumbs `PlayState.animations`' entity ids through to `ScriptState`; `is_animating` checks real membership now |
 | R34 | S2 | Node-graph codegen: no string escaping (code injection), no cycle guard (stack overflow), untyped `"0.0"` defaults, block-scoped `let` | `graph/codegen.rs:30, 40, 55, 138-146, 224, 249` | `[ ]` → 7.5-12 |
 | R35 | S3 | `is_collider_locked`/`set_collider_locked` and the 11-arg `spawn_entity` registered but undocumented; API doc says D3/D9 unfixed and timers are scope variables | `ember2d-scripting-api.md` | `[x]` 7A-6 — both documented; D3/D9 marked fixed; §2's "Per-entity scope" timer example rewritten to match Step 9 (nothing writes into scope between calls anymore, R22) |
 | R36 | S3 | HANDOFF/CLAUDE.md/checklist/index.html contradict the tree (test counts, format version, Phase 7 status, CI) | `docs/`, `index.html` | `[x]` 7A-6 — `index.html` already gone (pre-session); CLAUDE.md's format version/function count fixed and its "Current State" narrative replaced with a pointer to §2; checklist's test-count header and §14's defect table replaced with pointers; CI text (§15/§17) deliberately left for 7A-7 per this step's own Change list |
@@ -4025,13 +4028,85 @@ in the API doc's migration section in the same commit.
   been launched to confirm the roguelike still plays normally with `Actor`
   now carrying one more field.
 
-#### `[ ]` 7.5-7 — Animation and turn model completeness
+#### `[x]` 7.5-7 — Animation and turn model completeness (`PENDING_HASH`)
 
-`is_animating(id)` returns the truth (whether `PlayState`'s queue holds an
-animation for `id`; plumbed via `StepInput`). `TurnModel::Energy` and
-`ActionCost` wired: `Actor.speed` becomes live, `Command.cost` is honoured,
-project setting selects the model. Regression test: a speed-200 actor acts
-twice per speed-100 actor's turn.
+- **Why:** R33 — `is_animating(id)` always returned `false`, not because
+  nothing could run mid-animation (D20 already made that gate per-actor)
+  but because `ember2d-sim` had no visibility into `PlayState.animations`
+  at all. Separately, `docs/archive/ember2d-refactor-plan.md` sketched
+  `TurnModel::{Alternating, Energy, ActionCost, Declared}` back at Phase 5,
+  but only `Alternating` was ever wired up — `Actor::speed` was a real,
+  read/write-able field with zero effect on turn order (docs/archive/
+  ember2d-rpg-demo-feasibility.md §2.8, the exact gap a Pokemon-style
+  speed-order battle needs closed).
+- **Change:** `StepInput` gains `animating: &[EntityId]`, threaded into
+  `ScriptState` for the three passes that see a real `StepInput`
+  (`on_input`/`on_update`/`on_turn`); `is_animating` checks real
+  membership. `TurnModel` (`ember2d-sim::scheduler`, `Alternating` default)
+  gains `Energy` (cost scales inversely with `Actor::speed`) and
+  `ActionCost` (cost comes from `Command.cost`, set via `submit`'s new
+  4-argument overload); `ProjectData::turn_model` selects it,
+  `Simulation::set_turn_model`/`PlayState::set_turn_model` thread it in
+  the same way `pixels_per_unit` already does. `Declared` (Phase 9's
+  netcode concern) deliberately stays unimplemented — not this step's job.
+- **Test:** `engine_tests.rs`'s two new `is_animating_*` tests (true for an
+  id the caller's own list names, false otherwise). `ember2d/tests/
+  turn_model.rs`: a speed-200 AI actor acts ~2x as often as a speed-100 one
+  under `Energy`; a cost-20 command lets its actor act ~10x as often as a
+  cost-200 one under `ActionCost`; `Alternating` (the untouched default)
+  still gives both actors identical turn rates regardless of speed.
+- **Scope:** `ember2d-sim`, `ember2d`, `ember2d-app`, both docs.
+- **Landed as:** no user decision point this step — both halves turned out
+  to be purely additive once investigated (see the two "found while
+  implementing" notes below), so nothing needed a scope call the way
+  7.5-5's/7.5-6's own decisions did.
+
+  **`is_animating` plumbing:** `WorldSnapshot::build` was NOT the insertion
+  point — it has ~20 call sites across every scripting test file, and
+  threading a new parameter through all of them for one feature would have
+  been a wildly disproportionate diff. Landed instead as a NEW
+  `ScriptState::animating: Vec<i64>` field (mirrors `pending_on_start`'s
+  own "set directly, not via the constructor" pattern from 7.5-5),
+  populated by `run_on_input`/`run_on_turn`/`run_scripts` (engine.rs) from
+  a new trailing `animating: &[EntityId]` parameter each already had room
+  for under their existing `#[allow(clippy::too_many_arguments)]` — 10
+  call sites across `step.rs` and 9 test files needed a one-line `&[]` (or
+  the real list, for `play.rs`'s own `PlayState::update`) added, each
+  mechanical. `run_on_start_all`/`run_on_load_all`/`run_collisions` were
+  deliberately left untouched (always empty via `ScriptState`'s own
+  default): nothing can be mid-animation before a level has even started
+  stepping, and `run_collisions` runs from `late_step`, which never
+  receives a `StepInput` of its own to read one from in the first place.
+
+  **A real subtlety found designing the `TurnModel` regression tests, not
+  left in production code:** `do_on_start` always spawns a `Local(0)`
+  player and `rebuild_scheduler` always inserts it into `TurnScheduler`
+  regardless of whether the level "needs" one. An unscripted `Local`
+  actor's turn is NEVER consumed (a script must call `ctx.act` for a Local
+  actor's turn to count at all — the existing "a wall bump costs nothing"
+  rule), and `Simulation::step` only even attempts a Local actor's
+  `on_turn` once it already has a queued command (`!is_local ||
+  has_command`) — so a level with two bare AI actors and an untouched
+  player would leave the player parked at the scheduler's front FOREVER,
+  starving both AI actors completely (confirmed live: both turn counts
+  read exactly 0 before this was understood). `turn_model.rs`'s own tests
+  give the player a trivial `on_turn` script that calls `ctx.act(1000000.0)`
+  and feed it an external "wait" command every step so that script actually
+  gets to run once — after which its due time is far too high to ever
+  compete again. Not a defect in the engine (a real project's player always
+  has a real `on_input`-driven script), just a real trap for headless
+  AI-only test levels, documented in the test file's own header so a future
+  session doesn't have to rediscover it by hand.
+
+  **Verification.** `cargo build --workspace --bins --examples` clean.
+  `cargo test --workspace`: 426 (was 421: +2 `is_animating` tests, +3
+  `turn_model.rs`), all pass. `scripts/check.sh` clean. `CLAUDE.md`'s
+  registered-function count updated 161 → 162 (`submit`'s 4-arg overload —
+  `get_path_diag`/`get_path_diag_i`/`reachable_within` were 7.5-6's own,
+  already counted); `API_VERSION` unchanged at 7, purely additive.
+  **Not verified live** — same sandbox limitation 7.5-5's/7.5-6's own notes
+  recorded (no windowed/GPU environment available to this agent this
+  session).
 
 #### `[ ]` 7.5-8 — Timers (D22)
 

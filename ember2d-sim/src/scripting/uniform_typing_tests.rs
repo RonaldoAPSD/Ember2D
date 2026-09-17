@@ -47,6 +47,7 @@ fn run_scripts_once(engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<
         BTreeMap::new(),
         0,
         (80, 24),
+        &[],
     );
 }
 
@@ -108,6 +109,7 @@ fn run_source_with_result(name: &str, source: &str) -> (World, ScriptUpdateResul
         BTreeMap::new(),
         0,
         (80, 24),
+        &[],
     );
     let _ = std::fs::remove_file(&script);
     (world, result, log)

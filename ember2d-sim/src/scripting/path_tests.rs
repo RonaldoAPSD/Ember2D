@@ -42,6 +42,7 @@ fn run_scripts_once(
         BTreeMap::new(),
         0,
         (80, 24),
+        &[],
     )
 }
 

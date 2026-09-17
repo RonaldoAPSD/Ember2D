@@ -410,6 +410,22 @@ pub(super) struct ScriptState {
     /// (Phase 5.5 Part 3, docs/ember2d-phase5.5-plan.md) — drained into
     /// `ScriptUpdateResult::animations`, same shape as `pending_particles`.
     pub(super) pending_animations: Vec<AnimationEvent>,
+    /// Step 7.5-7 (docs/ember2d-master-plan.md §5.6): entity ids
+    /// `ember2d::play::PlayState`'s own animation queue has an in-flight
+    /// `PlayingAnimation` for, this real step — read-only, what
+    /// `ctx.is_animating(id)` (scripting/api_animation.rs) checks
+    /// membership against. Always empty unless the caller sets it — only
+    /// `run_scripts`/`run_on_input`/`run_on_turn` (engine.rs), the three
+    /// passes `Simulation::step` actually drives from a real `StepInput`,
+    /// ever populate it; `run_on_start_all`/`run_on_load_all`/
+    /// `run_collisions` leave it at this default, correctly, since nothing
+    /// can be mid-animation before a level has even started stepping (the
+    /// former two) or has a `StepInput` of its own to read one from (the
+    /// latter, called from `late_step`, not `step`). A plain `Vec`, not a
+    /// `HashSet` — never more than a handful of entities animate at once,
+    /// so a linear `.contains()` scan in `is_animating` is simpler than
+    /// justifying a set for it.
+    pub(super) animating: Vec<i64>,
 }
 
 impl std::ops::Deref for ScriptState {
@@ -563,6 +579,7 @@ impl ScriptState {
             pending_act_cost: None,
             pending_speed: Vec::new(),
             pending_animations: Vec::new(),
+            animating: Vec::new(),
         }
     }
 

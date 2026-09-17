@@ -144,6 +144,28 @@ impl ScriptCtx {
     /// in a script's `submit` call, so both are coerced to `f64` here
     /// rather than making every caller write `.0`.
     pub fn submit(&mut self, actor_id: i64, action: String, params: Array) {
+        self.submit_with_cost_opt(actor_id, action, params, None);
+    }
+
+    /// Step 7.5-7 (docs/ember2d-master-plan.md §5.6): `submit` with an
+    /// explicit turn cost — `TurnModel::ActionCost`'s write side. A
+    /// 4-argument overload under the same Rhai name as `submit` above
+    /// (arity-overload, same mechanism `spawn_entity`'s own multi-arity
+    /// registration uses), rather than a required 4th parameter on
+    /// `submit` itself, so every existing 3-argument call keeps compiling
+    /// unchanged. Registered as `submit` in `registry.rs`, not under this
+    /// Rust name.
+    pub fn submit_with_cost(&mut self, actor_id: i64, action: String, params: Array, cost: f64) {
+        self.submit_with_cost_opt(actor_id, action, params, Some(cost));
+    }
+
+    fn submit_with_cost_opt(
+        &mut self,
+        actor_id: i64,
+        action: String,
+        params: Array,
+        cost: Option<f64>,
+    ) {
         let params: Vec<f64> = params
             .into_iter()
             .filter_map(|d| d.as_float().ok().or_else(|| d.as_int().ok().map(|i| i as f64)))
@@ -152,6 +174,7 @@ impl ScriptCtx {
             actor: actor_id as crate::world::EntityId,
             action,
             params,
+            cost,
         });
     }
 

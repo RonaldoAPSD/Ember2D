@@ -18,7 +18,7 @@ use crate::event::EventBus;
 use crate::level::LevelData;
 use crate::math::Vec2;
 use crate::save::SaveState;
-use crate::scheduler::ALTERNATING_COST;
+use crate::scheduler::{TurnModel, ALTERNATING_COST};
 use crate::scripting::{LogEntry, ScriptUpdateResult, WorldSnapshot};
 use crate::world::{EntityId, World};
 
@@ -44,6 +44,7 @@ impl Simulation {
             mouse: mouse_snapshot,
             gamepad: gamepad_snapshot,
             external_commands,
+            animating,
             camera_origin,
             sim_dt,
             elapsed,
@@ -101,6 +102,7 @@ impl Simulation {
                     camera_origin,
                     self.turn_number,
                     (viewport_w, viewport_h),
+                    animating,
                 );
                 self.apply_script_result(world, input_res, persistent, &mut logs, &mut outcome);
             }
@@ -141,6 +143,7 @@ impl Simulation {
             turn_commands.clone(),
             self.turn_number,
             (viewport_w, viewport_h),
+            animating,
         );
         self.apply_script_result(world, res, persistent, &mut logs, &mut outcome);
 
@@ -160,6 +163,7 @@ impl Simulation {
                     camera_origin,
                     viewport_w,
                     viewport_h,
+                    animating,
                     &mut logs,
                     &mut outcome,
                 );
@@ -187,9 +191,16 @@ impl Simulation {
         camera_origin: Vec2,
         viewport_w: usize,
         viewport_h: usize,
+        animating: &[EntityId],
         logs: &mut Vec<LogEntry>,
         outcome: &mut StepOutcome,
     ) {
+        // Step 7.5-7 (docs/ember2d-master-plan.md §5.6): captured before
+        // `commands` moves into `run_on_turn` below — `TurnModel::ActionCost`'s
+        // own fallback (see the cost computation further down) needs this
+        // actor's own queued command cost, if it set one.
+        let command_cost = commands.get(&(actor as i64)).and_then(|c| c.cost);
+
         let globals = std::mem::take(&mut self.globals);
         let clips = std::mem::take(&mut self.clips);
         let res = self.script_engine.run_on_turn(
@@ -207,6 +218,7 @@ impl Simulation {
             commands,
             self.turn_number,
             (viewport_w, viewport_h),
+            animating,
         );
         let act_cost = res.act_cost;
         self.apply_script_result(world, res, persistent, logs, outcome);
@@ -221,7 +233,20 @@ impl Simulation {
         if consumed && self.scheduler.peek() == Some(actor) {
             let controller =
                 world.actors.get(&actor).map(|a| a.controller).unwrap_or(Controller::Ai);
-            let cost = act_cost.unwrap_or(ALTERNATING_COST as f64).max(1.0) as u64;
+            // Step 7.5-7: `ctx.act(cost)` always wins when a script calls
+            // it (unchanged); this is only the FALLBACK when it doesn't —
+            // see `TurnModel`'s own doc comment (scheduler.rs) for what
+            // each model means.
+            let model_default = match self.turn_model {
+                TurnModel::Alternating => ALTERNATING_COST as f64,
+                TurnModel::Energy => {
+                    let speed =
+                        world.actors.get(&actor).map(|a| a.speed).unwrap_or(100).max(1);
+                    ALTERNATING_COST as f64 * 100.0 / speed as f64
+                }
+                TurnModel::ActionCost => command_cost.unwrap_or(ALTERNATING_COST as f64),
+            };
+            let cost = act_cost.unwrap_or(model_default).max(1.0) as u64;
             self.scheduler.advance(actor, controller, cost);
             outcome.turn_triggered = true;
             if is_local {

@@ -34,6 +34,14 @@ pub struct Command {
     pub actor: EntityId,
     pub action: String,
     pub params: Vec<f64>,
+    /// This command's own turn cost — Step 7.5-7 (docs/ember2d-master-
+    /// plan.md §5.6), `TurnModel::ActionCost`'s read side: `ctx.submit`'s
+    /// 4-argument overload sets this; the 3-argument one leaves it `None`.
+    /// Only consulted at all when the project's own `TurnModel` is
+    /// `ActionCost` — every other model ignores it entirely, same as it
+    /// always has (this field is new; every existing `submit` call that
+    /// never set one keeps costing `ALTERNATING_COST`, unchanged).
+    pub cost: Option<f64>,
 }
 
 /// Which key names are held/just-pressed this step, with no winit or `Key`

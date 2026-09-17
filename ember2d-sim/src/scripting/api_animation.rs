@@ -56,17 +56,23 @@ impl ScriptCtx {
         });
     }
 
-    /// Always `false` under the current design: the scheduler blocks ALL
-    /// stepping while any animation is draining
-    /// (docs/ember2d-phase5.5-plan.md Part 3 — "the scheduler waits for the
-    /// queue to drain before resolving the next turn"), so no script can
-    /// ever run *while* an animation is still in flight — by the time any
-    /// script executes again, everything queued before it has already
-    /// finished playing. Registered now, honestly returning a real (if
-    /// currently constant) answer rather than erroring, so a future
-    /// per-entity (rather than whole-queue) animation gate can make this
-    /// meaningful without a scripting-API change.
-    pub fn is_animating(&mut self, _id: i64) -> bool {
-        false
+    /// Step 7.5-7 (docs/ember2d-master-plan.md §5.6): whether `id` has an
+    /// in-flight `PlayingAnimation` in `ember2d::play::PlayState`'s own
+    /// queue this real step — see `ScriptState::animating`'s own doc
+    /// comment (state.rs) for exactly which passes populate it.
+    ///
+    /// This used to be permanently `false`: `PlayState::update` skips
+    /// calling `Simulation::step` at all while the SCHEDULER'S FRONT actor
+    /// is still animating (docs/ember2d-phase5.5-plan.md Part 3), so no
+    /// script could ever observe that ONE entity's animation in progress —
+    /// by the time any script ran again, it had already finished. That
+    /// gate is (and stays) per-actor, though, not whole-queue: a step can
+    /// still run normally while a DIFFERENT entity's animation lingers in
+    /// the queue (an enemy whose `animate_move` outlives its own turn,
+    /// say), and `is_animating` can genuinely answer `true` for THAT
+    /// entity from any other script that asks — the case this always
+    /// honestly could have covered, once the real membership data existed.
+    pub fn is_animating(&mut self, id: i64) -> bool {
+        self.inner.borrow_mut().animating.contains(&id)
     }
 }

@@ -88,6 +88,7 @@ fn a_timer_reports_done_only_once_decay_carries_it_to_zero_or_below() {
         BTreeMap::new(),
         0,
         (80, 24),
+        &[],
     );
     assert_eq!(
         r1.globals.get("done").and_then(|d| d.as_bool().ok()),
@@ -113,6 +114,7 @@ fn a_timer_reports_done_only_once_decay_carries_it_to_zero_or_below() {
         BTreeMap::new(),
         0,
         (80, 24),
+        &[],
     );
     assert_eq!(
         r2.globals.get("done").and_then(|d| d.as_bool().ok()),
@@ -158,6 +160,7 @@ fn despawn_removes_the_entitys_timers() {
         BTreeMap::new(),
         0,
         (80, 24),
+        &[],
     );
 
     assert!(

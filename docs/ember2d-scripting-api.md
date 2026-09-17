@@ -267,6 +267,11 @@ fn on_input(id, ctx) {
 - `submit(actor_id, action, params)` — queues a `Command` for `actor_id`.
   `action` is a name your own scripts choose and interpret; the engine
   never looks inside it. Meaningful only inside `on_input`.
+- `submit(actor_id, action, params, cost)` (Step 7.5-7, docs/ember2d-
+  master-plan.md §5.6) — same as above, plus a turn cost the command
+  itself carries. Only ever read back by `TurnModel::ActionCost` (see
+  below); every other model ignores it, so calling this instead of the
+  3-argument form is harmless under `Alternating`/`Energy`.
 - `command_action()` → the calling entity's command's action this step, or
   `""` if none was submitted.
 - `command_param(i)` → the `i`-th param (`f64`), or `0.0` if there's no
@@ -289,22 +294,45 @@ whichever single actor is currently due — an AI actor's turn always, a
 `Local` actor's only once `on_input` has queued something for it. Turn
 scheduling functions:
 - `act(cost)` — marks this `on_turn` call as having consumed a turn, at
-  `cost` energy (100 is a normal turn under today's `Alternating`-only
-  scheduling — see `scheduler.rs`'s `ALTERNATING_COST`). Replaces the
-  removed `ctx.trigger_turn()`. For a `Local` actor, **not** calling this
-  is how a rejected action (a wall bump, an empty-handed quaff) costs
-  nothing — the same actor is asked again next step instead of the turn
-  advancing. An AI actor's turn always counts whether or not it calls this
-  (a sleeping monster still "used" its turn doing nothing — unconditionally
-  skipping the advance for AI would wedge the scheduler on it forever).
+  `cost` energy. **Always wins over whatever the project's `TurnModel`
+  would otherwise pick** (see below) — this is the one universal override,
+  in every model. Replaces the removed `ctx.trigger_turn()`. For a `Local`
+  actor, **not** calling this is how a rejected action (a wall bump, an
+  empty-handed quaff) costs nothing — the same actor is asked again next
+  step instead of the turn advancing. An AI actor's turn always counts
+  whether or not it calls this (a sleeping monster still "used" its turn
+  doing nothing — unconditionally skipping the advance for AI would wedge
+  the scheduler on it forever).
 - `get_turn_number()` → how many turns the local player has completed so
   far this level. Engine-tracked (not a script global), so unlike the old
   "turn" global this has no same-pass deferred-write lag to guard against.
-- `get_speed(id)` / `set_speed(id, n)` — an actor's `Actor::speed`.
-  Vestigial today: `TurnScheduler` charges every actor the same flat cost
-  regardless of speed (only `Alternating` scheduling ships) — but a real,
-  honestly-functioning read/write, not a stub, so a future non-`Alternating`
-  mode needs no scripting-API change to start consulting it.
+- `get_speed(id)` / `set_speed(id, n)` — an actor's `Actor::speed`. Live
+  under `TurnModel::Energy` (Step 7.5-7, docs/ember2d-master-plan.md §5.6)
+  — see `TurnModel` below — and a real, honestly-functioning read/write
+  regardless of model, so switching a project's `TurnModel` needs no
+  scripting-API change on either side.
+
+**`TurnModel` (Step 7.5-7): what `act`'s cost defaults to when a script
+doesn't call it at all.** A project selects one via `ProjectData::turn_model`
+(`project.ron`); it never needs a scripting-API call of its own — a script
+only ever sees its effect through `act`'s own fallback and, for
+`ActionCost`, through `submit`'s 4-argument overload above.
+- `Alternating` (the default, and the only model that ever shipped before
+  this step) — every turn costs `ALTERNATING_COST` (100) regardless of
+  `Actor::speed` or the command acted on. Every pre-7.5-7 project keeps
+  this exact behavior unless it opts into one of the other two.
+- `Energy` — cost scales inversely with `Actor::speed`:
+  `ALTERNATING_COST * 100 / speed`. A speed-200 actor's turn costs half a
+  speed-100 actor's, so it comes back up to act again twice as often — the
+  classic "the faster creature acts more often" order a Pokemon-style
+  battle needs. No script-side bookkeeping required: an actor that never
+  calls `act` at all (every `demos/roguelike/scripts/enemy.rhai` enemy
+  today) already gets this for free the moment a project selects `Energy`.
+- `ActionCost` — cost comes from the currently-resolving actor's own
+  `Command.cost`, set via `submit`'s 4-argument overload, if it queued one
+  this round; `ALTERNATING_COST` otherwise. Lets the ACTION an actor
+  chooses (a heavy attack costing more than a quick jab) drive turn order
+  instead of a fixed per-actor speed.
 - `get_stat(id, key)` (Step 7.5-4, docs/ember2d-master-plan.md §5.6) — a
   numeric value authored on this actor's tile via `TileRecord.actor.stats`
   (a `BTreeMap<String, f64>`, e.g. `"hp"`/`"atk"`/`"awareness_range"`). `0.0`
@@ -359,19 +387,25 @@ something that already felt instant, and because it means the player is
 *never* gated by this at all — only an actor that animates itself waits on
 its own animation.
 
-`is_animating(id)` always returns `false` today, but not for the reason an
-earlier version of this doc gave (that nothing scripted could run at all
-while any animation was in flight — no longer true after D20). The real
-reason: this function is registered in `ember2d-sim`, which by design has
-no visibility into `PlayState.animations` — that queue is presentation
-state, owned entirely by the `ember2d` crate, and the sim/presentation
-split this engine maintains means the sim can't see it regardless of how
-fine-grained the gate is. It's registered now, not stubbed out or left
-erroring, so a future revision that threads a per-entity "is animating"
-flag back into the sim's own snapshot could make it meaningful without a
-further scripting-API change — but that's a real design question (what
-should own that state, and does it belong in `WorldSnapshot`), not a small
-fix.
+`is_animating(id)` tells the truth now (Step 7.5-7, docs/ember2d-master-
+plan.md §5.6): whether `id` has an in-flight `PlayingAnimation` in
+`ember2d::play::PlayState`'s own queue this real step. It used to always
+return `false` — not because nothing scripted could run while an animation
+was in flight (D20 already made the gate per-actor, so that was never the
+real reason even before this step), but because the function is registered
+in `ember2d-sim`, which by design has no visibility into
+`PlayState.animations` — presentation state, owned entirely by the
+`ember2d` crate. `PlayState::update` now hands a snapshot of which entity
+ids are currently animating in through `StepInput::animating` each real
+step, the same way it already threads in `external_commands`; `Simulation`
+carries it into `ScriptState` for whichever passes actually see a
+`StepInput` (`on_input`/`on_update`/`on_turn` — not `on_start`/`on_load`,
+which run before any animation could exist, and not `on_collide`, which
+runs from `late_step`, no `StepInput` of its own). A script can therefore
+ask about ANY entity, not just itself — an enemy whose `animate_move`
+outlives its own turn is a `true` for everyone else's `is_animating` call
+on it in the meantime, even though the scheduler-front gate above only
+ever waited on that one entity's own next turn.
 
 In realtime mode these still work the same way, but are usually
 unnecessary — movement there is typically already continuous via velocity,

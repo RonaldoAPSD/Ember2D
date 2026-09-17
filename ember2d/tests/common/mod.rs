@@ -142,6 +142,7 @@ impl TurnHarness {
                 mouse,
                 gamepad: &gamepad,
                 external_commands: &[],
+                animating: &[],
                 camera_origin: Vec2::ZERO,
                 sim_dt: HARNESS_DT,
                 elapsed: self.elapsed,

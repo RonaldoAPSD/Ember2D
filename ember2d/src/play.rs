@@ -208,6 +208,15 @@ impl PlayState {
         self.pixels_per_unit = value;
     }
 
+    /// Override the default `TurnModel` (`Alternating`) with the owning
+    /// project's actual setting — Step 7.5-7 (docs/ember2d-master-plan.md
+    /// §5.6). Same reasoning as `set_pixels_per_unit` immediately above:
+    /// a setter, not a constructor parameter, since `PlayState::from_level`/
+    /// `from_save` never see a `ProjectData`; optional for the same reason.
+    pub fn set_turn_model(&mut self, model: ember2d_sim::scheduler::TurnModel) {
+        self.sim.set_turn_model(model);
+    }
+
     /// Forwarding accessors onto the owned `Simulation` — kept public
     /// because `tests/save_load_globals.rs` (an external integration test
     /// using only `ember2d::prelude`) reads a script-set global directly to
@@ -478,6 +487,12 @@ impl GameState for PlayState {
             // `Simulation`, not something `PlayState` itself ever needs to feed.
             // R16 (7A-5): step_count is read before this call.
             let sim_elapsed = self.sim.step_count() as f32 * delta_time;
+            // Step 7.5-7 (docs/ember2d-master-plan.md §5.6): what
+            // `ctx.is_animating(id)` reads — see `StepInput::animating`'s
+            // own doc comment (simulation.rs) for why this crosses the
+            // sim/presentation boundary as a borrowed snapshot rather than
+            // `Simulation` owning the queue itself.
+            let animating: Vec<EntityId> = self.animations.iter().map(|a| a.entity).collect();
             let outcome = self.sim.step(
                 world,
                 StepInput {
@@ -485,6 +500,7 @@ impl GameState for PlayState {
                     mouse: mouse_snapshot,
                     gamepad: &gamepad_snapshot,
                     external_commands: &[],
+                    animating: &animating,
                     camera_origin,
                     sim_dt: delta_time,
                     elapsed: sim_elapsed,
