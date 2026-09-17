@@ -214,7 +214,7 @@ window). **Phase 7E (Editor features) deferred by user direction, same
 day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
 completeness (§5.6) under way: 7.5-1 through 7.5-6 landed
-(`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`PENDING_HASH`). Next:
+(`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`b1964af`). Next:
 7.5-7 (animation and turn model completeness). Two things still owed from
 7.5-5/7.5-6, both flagged in their own "Landed as" notes: neither demo has
 been launched live this session (no windowed/GPU sandbox available to this
@@ -3934,7 +3934,7 @@ in the API doc's migration section in the same commit.
   is treated as fully closed the way CLAUDE.md's UI/feature-testing rule
   asks for.
 
-#### `[x]` 7.5-6 — Engine-side solid resolution for all actors (`PENDING_HASH`)
+#### `[x]` 7.5-6 — Engine-side solid resolution for all actors (`b1964af`)
 
 - **Why:** `late_step`'s solid-collision resolution (`resolve_solid_
   collision`) only ever ran for the local player (`is_local_player`) — any
