@@ -215,7 +215,7 @@ day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
 completeness (§5.6) under way: 7.5-1 through 7.5-11 landed
 (`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`b1964af`/`83d598a`/
-`aff65d4`/`57de3c2`/`1d965f1`/`PENDING_HASH`). Next: 7.5-12 (node-graph
+`aff65d4`/`57de3c2`/`1d965f1`/`26e3e82`). Next: 7.5-12 (node-graph
 codegen hardening). Four things still owed, each flagged in its own step's
 "Landed as" note: neither demo has been launched live this session (no
 windowed/GPU sandbox available to this agent) — a real playtest of both,
@@ -4399,7 +4399,7 @@ these numbers are a baseline for future comparison, not a before/after for
 this step's own change. **Not verified live** — same sandbox limitation
 every step since 7.5-5 has recorded.
 
-#### `[x]` 7.5-11 — Audio (`PENDING_HASH`)
+#### `[x]` 7.5-11 — Audio (`26e3e82`)
 
 **Why.** R30: `AudioEngine` lived on `PlayState`, which `ember2d-app/src/
 app.rs`'s `Transition::ToPlay` handling destroys and rebuilds on every
@@ -4466,7 +4466,7 @@ tests exercise audio itself.
 tests.rs`; `ember2d-editor/tests/common/mod.rs`; `demos/roguelike/scripts/
 victory.rhai`; `docs/ember2d-scripting-api.md` (Effects and audio section).
 
-**Landed as:** `PENDING_HASH`. Full workspace build clean (`cargo build
+**Landed as:** `26e3e82`. Full workspace build clean (`cargo build
 --workspace --bins --examples`). `cargo test --workspace`: 438 (was 435:
 +3 new `audio.rs` tests), all pass. `cargo clippy --workspace --lib
 --all-targets`: no new warnings from any file this step touched (the one
