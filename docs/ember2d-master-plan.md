@@ -214,7 +214,7 @@ window). **Phase 7E (Editor features) deferred by user direction, same
 day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
 completeness (§5.6) under way: 7.5-1/7.5-2/7.5-3/7.5-4/7.5-5 landed
-(`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`PENDING_HASH`). Next: 7.5-6
+(`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`). Next: 7.5-6
 (engine-side solid resolution for all actors). 7.5-5's own "Landed as"
 note flags one thing still owed: neither demo has been launched live this
 session (no windowed/GPU sandbox available to this agent) — a real
@@ -3777,7 +3777,7 @@ in the API doc's migration section in the same commit.
   `roguelike_combat.rs`'s existing headless tests, all still passing
   unchanged against the new data-driven numbers.
 
-#### `[x]` 7.5-5 — `set_script` and `on_load` (`PENDING_HASH`)
+#### `[x]` 7.5-5 — `set_script` and `on_load` (`8e3ebff`)
 
 - **Why:** `demos/shooter/scripts/director.rhai`'s own pre-step header said
   it plainly: "there is no `set_script` in the API… a spawned enemy
