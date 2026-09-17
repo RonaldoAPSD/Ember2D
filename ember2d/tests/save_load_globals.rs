@@ -127,6 +127,93 @@ fn a_scripts_set_global_survives_a_real_ron_round_trip_through_save_and_load() {
     let _ = std::fs::remove_file(&script_path);
 }
 
+// ── Tests: 7.5-5 (docs/ember2d-master-plan.md §5.6) — on_load runs on a
+// loaded save INSTEAD of on_start, never in addition to it ────────────────
+
+#[test]
+fn on_load_runs_on_a_loaded_save_but_on_start_does_not_re_run() {
+    let mut script_path = common::test_temp_dir();
+    script_path.push("ember2d_test_on_load.rhai");
+    std::fs::write(
+        &script_path,
+        r#"
+        fn on_start(id, ctx) {
+            // `let _n =`, not a bare statement: `add_global` returns the
+            // new total (used elsewhere to check for a kill/threshold in
+            // the same call), and Rhai's `call_fn::<()>` (every lifecycle
+            // call in this engine) rejects a block whose last statement's
+            // value isn't `()` — matching `atomic_arithmetic_tests.rs`'s
+            // own `two_add_global_calls_to_the_same_key_in_one_pass_both_land`
+            // convention for the exact same reason.
+            let _n = ctx.add_global("start_count", 1);
+        }
+        fn on_load(id, ctx) {
+            ctx.set_global("on_load_ran", true);
+        }
+    "#,
+    )
+    .expect("write temp script");
+
+    let mut data = LevelData::empty(10, 10);
+    let mut tile = TileRecord::new(2, 2, 1, 'r', Color::Red, Color::Reset, false, false, "enemy");
+    tile.script = Some(script_path.to_string_lossy().to_string());
+    data.tiles.push(tile);
+
+    // Fresh spawn: on_start runs once, on_load never runs.
+    let mut sim = Simulation::new(data.clone());
+    let mut world = World::new();
+    let mut persistent: BTreeMap<String, rhai::Dynamic> = BTreeMap::new();
+    sim.on_start(&mut world, 10, 10, &mut persistent);
+
+    assert_eq!(
+        sim.globals().get("start_count").and_then(|d| d.as_float().ok()),
+        Some(1.0),
+        "on_start must run exactly once on a fresh spawn"
+    );
+    assert!(
+        sim.globals().get("on_load_ran").is_none(),
+        "on_load must not run on a fresh spawn"
+    );
+
+    // A real RON round trip, same as the D17 test above and the R7 tests
+    // below — not just an in-memory clone.
+    let save = SaveState::new(
+        world.clone(),
+        persistent.clone(),
+        sim.globals().clone(),
+        sim.clips().clone(),
+        "unused.level".to_string(),
+        0,
+        Vec::new(),
+    );
+    let ron = save.to_ron().expect("SaveState must serialize");
+    let restored = SaveState::from_ron(&ron).expect("SaveState must deserialize");
+
+    let mut loaded_world = restored.world;
+    let mut loaded_persistent = restored.persistent;
+    let mut loaded_sim = Simulation::from_save(
+        data,
+        restored.globals,
+        restored.clips,
+        restored.turn_number,
+        restored.scheduler,
+    );
+    loaded_sim.on_start(&mut loaded_world, 10, 10, &mut loaded_persistent);
+
+    assert_eq!(
+        loaded_sim.globals().get("start_count").and_then(|d| d.as_float().ok()),
+        Some(1.0),
+        "on_start must NOT re-run on a loaded save — a real re-run would push start_count to 2.0"
+    );
+    assert_eq!(
+        loaded_sim.globals().get("on_load_ran").and_then(|d| d.as_bool().ok()),
+        Some(true),
+        "on_load must run exactly once on a loaded save"
+    );
+
+    let _ = std::fs::remove_file(&script_path);
+}
+
 // ── Tests: R7 (7A-3, docs/ember2d-master-plan.md) — save/load is a
 // faithful sim round trip, not just a globals/clips one ──────────────────
 

@@ -66,6 +66,19 @@ impl ScriptCtx {
         self.inner.borrow_mut().tags.get(&id).map(|t| **t == name).unwrap_or(false)
     }
 
+    /// Attaches (or replaces) `id`'s script (Step 7.5-5, docs/ember2d-
+    /// master-plan.md §5.6). Deferred like every other setter — see
+    /// `pending_set_script`'s own doc comment (scripting/state.rs) for why
+    /// `on_start` doesn't run until the step *after* this one. Lets a
+    /// script give an entity it just spawned its own `on_update`/
+    /// `on_collide`, which `spawn_entity` alone never could — see
+    /// `demos/shooter/scripts/director.rhai`'s pre-7.5-5 header comment for
+    /// why that gap forced every enemy/bullet to be driven by hand from one
+    /// script instead of scripts of their own.
+    pub fn set_script(&mut self, id: i64, path: String) {
+        self.inner.borrow_mut().pending_set_script.push((id, path));
+    }
+
     pub fn get_glyph(&mut self, id: i64) -> String {
         self.inner.borrow_mut().glyphs.get(&id).map(|c| c.to_string()).unwrap_or_default()
     }

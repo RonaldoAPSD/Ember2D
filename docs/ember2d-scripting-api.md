@@ -18,12 +18,31 @@ The scripting API is Ember2D's real public contract. Games are written in Rhai, 
 ### Lifecycle
 ```rhai
 fn on_start(id, ctx)
+fn on_load(id, ctx)
 fn on_input(id, ctx)
 fn on_update(id, ctx)
 fn on_turn(id, ctx)
 fn on_collide(id, other, ctx)
 ```
 All optional. A missing function is not an error.
+
+`on_load` (Step 7.5-5, docs/ember2d-master-plan.md §5.6) runs once per
+scripted entity, **instead of** `on_start`, on the one path `on_start`
+never runs: loading a save. Several scripts' `on_start` writes are
+unconditional (a fresh "hp"/"hp_max" seed, say) — re-running them on load
+would silently reset a run already in progress, which is exactly why
+`Simulation::on_start`'s loading-save branch has always skipped `on_start`
+entirely (R7, 7A-3). `on_load` gives a script a hook on that same path for
+whatever it still needs to do once, on load — re-deriving presentation-only
+state a save doesn't carry, say — without touching `persistent`/`globals`,
+which the save already restored faithfully. Missing `on_load` is exactly as
+fine as a missing `on_start`; most scripts need neither —
+`demos/roguelike/scripts/player.rhai`'s own `on_start` is the "fresh
+'hp'/'hp_max' seed" example above verbatim (moved there from a lazy-init
+inside `on_update` by this same step, once `on_start` became reliably
+fresh-spawn-only rather than needing to double as "first on_update after
+either a fresh spawn or a load"), and it has no `on_load` at all — nothing
+it owns needs re-deriving after a load.
 
 `on_input` is Step 5e (docs/ember2d-phase5-plan.md) — see "Input" in §3
 below for what it's for and why `on_update` shouldn't read raw keys
@@ -120,7 +139,18 @@ Colours are **name strings** (`"Red"`, `"Reset"`) or an explicit `"#RRGGBB"` hex
 > Replaces `set_animation(id,"abc",rate)`, removed in Step 3e — a clip is named and shared, not a bag of fields re-set every call.
 
 ### Entity lifecycle
-`spawn_entity(glyph,x,y,tag)` → id · `despawn(id)`
+`spawn_entity(glyph,x,y,tag)` → id · `despawn(id)` · `set_script(id,path)`
+
+`set_script` (Step 7.5-5) attaches (or replaces) `id`'s script — deferred
+like every other setter, so `on_start` for the newly-attached script runs
+at the *next* step, not this one (matching `spawn_entity`'s own "usable id
+immediately, entity exists once the queue drains" contract above). What
+`spawn_entity` alone could never do: give a spawned entity its own
+`on_update`/`on_collide`, rather than needing every enemy/bullet driven by
+hand from whichever script spawned them — see `demos/shooter/scripts/
+director.rhai`'s pre-7.5-5 header comment for what that used to force. A
+path that fails to compile is never attached (logged the same way a bad
+`script:` field in a level file already is).
 
 > **Defect D10, fixed in Phase 1** (docs/ember2d-refactor-plan.md §3): this
 > 4-arg overload used to hardcode every appearance/collider detail

@@ -26,7 +26,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use ember2d::prelude::*;
 use ember2d_sim::command::{GamepadSnapshot, InputSnapshot, MouseSnapshot};
-use ember2d_sim::components::{Collider, Tag};
+use ember2d_sim::components::{Collider, Script, Tag, Vars};
 use ember2d_sim::scripting::{LogEntry, LogLevel};
 use ember2d_sim::simulation::{Simulation, StepInput};
 
@@ -232,20 +232,50 @@ fn two_bullets_landing_in_one_pass_both_count_against_an_enemy() {
     h.run(STEPS_PAST_FIRST_WAVE, &[]);
     h.assert_no_script_errors();
 
+    // Fire one real shot first, purely so `bullet.rhai` lands in
+    // `ScriptEngine`'s own ast cache the same way a real `do_shoot` call
+    // compiles it via `ctx.set_script` — `run_scripts` silently skips any
+    // scripted entity whose path isn't compiled yet, and the two bullets
+    // this test places below go straight into `world` without ever calling
+    // `ctx.set_script` itself. The resulting real bullet is immediately
+    // despawned; only the compile it triggered is needed.
+    h.run_firing_at(1, &[], (78.0, 12.0));
+    let warm_up_bullets: Vec<EntityId> =
+        h.world.tags.iter().filter(|(_, t)| t.name == "bullet").map(|(&id, _)| id).collect();
+    for b in warm_up_bullets {
+        h.world.despawn(b);
+    }
+    h.assert_no_script_errors();
+
     let grunt = h.first_tagged("grunt").expect("wave 1 should have spawned grunts");
     let pos = h.world.transforms[&grunt].position;
 
-    // Two bullets stacked on the grunt in the SAME step. A grunt has 2 HP, so
-    // it only dies if `resolve_hits` tallies both hits before writing — which
-    // is the whole reason that function counts duplicates instead of doing a
-    // read-modify-write per hit. Resolving them one at a time would apply 1
-    // damage total (both reads see the same pre-pass value, last write wins)
-    // and this assertion would fail.
+    // Two bullets stacked on the grunt, each independently resolving its own
+    // hit in bullet.rhai's own on_update (Step 7.5-5, docs/ember2d-master-
+    // plan.md §5.6) — a grunt has 2 HP, so it only dies if both hits'
+    // `ctx.add_var(e, "hp", -1)` calls accumulate correctly across the two
+    // SEPARATE bullets' on_update calls in this one pass, which is the whole
+    // reason `add_var` reads "this pass's own already-queued write, not just
+    // the resolved store" rather than doing a read-modify-write per hit.
+    // Applying them one at a time would land 1 damage total (both reads see
+    // the same pre-pass value, last write wins) and this assertion would
+    // fail. `Script`/`Vars("armed", true)` are added directly rather than via
+    // `ctx.set_script` (which a script would use, and which this test's own
+    // harness has no script pass left to drive before its own `h.step` call
+    // below) — pre-arming skips exactly the staleness guard bullet.rhai's own
+    // header comment explains, which doesn't apply here anyway: unlike a
+    // bullet `do_shoot` spawns from `on_input`, these two are already fully
+    // present in `world` before the `WorldSnapshot` this test's `h.step`
+    // builds, so their positions are correct from their very first call.
     for _ in 0..2 {
         let b = h.world.spawn();
         h.world.add_transform(b, Transform::new(pos.x, pos.y));
         h.world.add_collider(b, Collider::trigger(0.4, 0.4));
         h.world.add_tag(b, Tag::new("bullet"));
+        h.world.add_script(b, Script::new("demos/shooter/scripts/bullet.rhai"));
+        h.world.vars.insert(b, Vars {
+            values: BTreeMap::from([("armed".to_string(), rhai::Dynamic::from(true))]),
+        });
     }
 
     h.step(&[]);
@@ -257,12 +287,17 @@ fn two_bullets_landing_in_one_pass_both_count_against_an_enemy() {
     );
     assert_eq!(h.count_tag("grunt"), 3, "only the struck grunt should have died");
 
-    // 7.5-2 (docs/ember2d-master-plan.md §5.6): `resolve_hits` now applies
-    // each hit as its own `add_global` call instead of tallying duplicates
-    // before one read-modify-write — this is the same two-bullets-one-pass
-    // shape re-proving that rewrite didn't just move the hazard, by also
-    // checking the "score"/"kills" side effects a dead grunt should produce
-    // exactly once, not zero (dropped) or twice (double-counted).
+    // 7.5-2/7.5-5 (docs/ember2d-master-plan.md §5.6): `resolve_hit`
+    // (bullet.rhai) applies each hit as its own `add_global` call instead of
+    // tallying duplicates before one read-modify-write — this is the same
+    // two-bullets-one-pass shape re-proving that rewrite didn't just move
+    // the hazard, by also checking the "score"/"kills" side effects a dead
+    // grunt should produce exactly once, not zero (dropped) or twice
+    // (double-counted, which the surviving bullet's own kill check — `dead`
+    // used to guard against under the old central `resolve_hits` — no
+    // longer needs to worry about either: only the SECOND bullet to run its
+    // on_update this pass ever sees `hp <= 0`, since the grunt is still
+    // alive when the first one checks).
     let score = h.sim.globals().get("score").and_then(|d| d.as_float().ok());
     let kills = h.sim.globals().get("kills").and_then(|d| d.as_float().ok());
     assert_eq!(score, Some(10.0), "killing one grunt (10 pts) must land exactly once");

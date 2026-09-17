@@ -213,9 +213,13 @@ SHRINKS the viewport (fixed-point-width side panels eat more of a fixed
 window). **Phase 7E (Editor features) deferred by user direction, same
 day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
-completeness (§5.6) under way: 7.5-1/7.5-2/7.5-3/7.5-4 landed
-(`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`). Next: 7.5-5 (`set_script`
-and `on_load`).**
+completeness (§5.6) under way: 7.5-1/7.5-2/7.5-3/7.5-4/7.5-5 landed
+(`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`PENDING_HASH`). Next: 7.5-6
+(engine-side solid resolution for all actors). 7.5-5's own "Landed as"
+note flags one thing still owed: neither demo has been launched live this
+session (no windowed/GPU sandbox available to this agent) — a real
+playtest of both, not just the headless suite, is still worth doing before
+treating that step as fully closed.**
 
 ### 2.3 Baseline numbers (at `v0.5.7d`)
 
@@ -3773,15 +3777,160 @@ in the API doc's migration section in the same commit.
   `roguelike_combat.rs`'s existing headless tests, all still passing
   unchanged against the new data-driven numbers.
 
-#### `[ ]` 7.5-5 — `set_script` and `on_load`
+#### `[x]` 7.5-5 — `set_script` and `on_load` (`PENDING_HASH`)
 
-`set_script(id, path)` attaches a script to a spawned entity (compiles via
-the AST cache; the entity's `on_start` runs at the next step boundary).
-`on_load(id, ctx)` lifecycle hook runs for every scripted entity after a
-save is loaded, **instead of** `on_start`, so scripts can re-derive
-presentation-only state without resetting gameplay state. `player.rhai`
-loses its `on_update` lazy-init. The shooter director shrinks by the bullet
-and enemy blocks that become per-entity scripts.
+- **Why:** `demos/shooter/scripts/director.rhai`'s own pre-step header said
+  it plainly: "there is no `set_script` in the API… a spawned enemy
+  therefore has no `on_update` of its own." Every bullet and enemy had to
+  be driven by hand from one always-present entity. Separately,
+  `demos/roguelike/scripts/player.rhai` couldn't use `on_start` at all —
+  `Simulation::on_start`'s loading-save branch never runs a script's
+  `on_start` (R7, 7A-3, deliberately: re-seeding a run's stats on load
+  would reset a run in progress) — so it lazy-initialized inside
+  `on_update`, guarded by `!ctx.has_persistent("hp_max")`, every single
+  step, forever.
+- **Change:** `set_script(id, path)` attaches (or replaces) a script on an
+  already-spawned entity, deferred like every other setter. `on_load(id,
+  ctx)` runs once per scripted entity on the loaded-save path, **instead
+  of** `on_start`. `player.rhai` moves its lazy-init into a real `on_start`
+  (fresh-spawn only). Shooter bullets get their own `bullet.rhai` via
+  `ctx.set_script`, attached by `player.rhai`'s `do_shoot`.
+- **Test:** `set_script_tests.rs` (attach lands this pass, `on_start` waits
+  for the next one, ghost-entity no-op, failed-compile no-op);
+  `save_load_globals.rs`'s `on_load_runs_on_a_loaded_save_but_on_start_
+  does_not_re_run`; `shooter_arena.rs`'s existing
+  `two_bullets_landing_in_one_pass_both_count_against_an_enemy` updated to
+  drive the new per-bullet path.
+- **Scope:** `ember2d-sim`, `ember2d` (tests, `examples/gen_shooter.rs`),
+  `demos/roguelike`, `demos/shooter`, both docs.
+- **Landed as:** one scope decision made with the user up front
+  (AskUserQuestion, before touching the shooter demo): how far to
+  decentralize it. `contact_damage` (director.rhai) takes the single
+  largest hit touching the player per step, gated by one shared cooldown —
+  spreading that across each enemy's own `on_update` would either silently
+  stop stacking correctly (deferred writes: two enemies' `set_global("hp",
+  …)` in the same pass both read the same pre-pass value, last write wins)
+  or need a per-enemy cooldown that measurably raises damage taken when
+  surrounded — a real difficulty change, not a neutral refactor. **Decided:
+  bullets only.** Enemies stay centrally steered and damaged by
+  director.rhai, by choice, not because `set_script` can't reach them —
+  documented in director.rhai's, player.rhai's, and gen_shooter.rs's own
+  headers so a future step doesn't mistake it for an oversight.
+
+  **Engine side** (`ember2d-sim`): `ScriptState` gains `pending_set_script:
+  Vec<(i64, String)>` (`api.rs`'s `set_script`, same one-line-push shape
+  `set_tag` already has). `apply_ctx` (`apply.rs`) drains it with the same
+  R10 ghost-component guard `pending_tags`/`pending_vars` use, compiles the
+  path via `self.compile` (never attaches on a compile failure — the sim
+  boundary's "never crash the editor" rule extends naturally to "never
+  silently point `World::scripts` at an AST that doesn't exist"), and on
+  success pushes the entity onto a new `ScriptEngine::pending_on_start:
+  Vec<EntityId>`. `run_scripts` drains that at the top of its own call and
+  runs `on_start` for each entry using that call's own `ctx`, before the
+  normal `on_update` loop — which already includes the newly-attached
+  entity, since `world.scripts` picked it up when `apply_ctx` ran. `on_load`
+  is `run_on_load_all`, a near-identical twin of the existing
+  `run_on_start_all` (same `ScriptState::from_world` setup, calls
+  `"on_load"` instead of `"on_start"`) — kept as two separate methods
+  rather than one parameterized by function name, matching how
+  `run_on_input`/`run_on_turn` already don't share a body either.
+  `Simulation::on_start`'s `is_loading_save` branch calls it once, computing
+  `cam_pos` the exact way `do_on_start` (`simulation/spawn.rs`) already does
+  for its own `run_on_start_all` call.
+
+  **A real correctness bug found designing bullet.rhai, not left in:** when
+  `do_shoot` (`player.rhai`, `on_input`) spawns a bullet and calls
+  `ctx.set_script` on it in the same call, that bullet's OWN first
+  `on_update` — which fires later this SAME step, since `apply_ctx` already
+  attached it to `world.scripts` before `run_scripts` runs — still executes
+  against the `WorldSnapshot` built at the TOP of this step, before the
+  spawn landed. `ctx.get_x`/`get_y` read that frozen snapshot and default to
+  `0.0` for an id they don't recognize, so the bullet would see itself at
+  `(0.0, 0.0)` — outside the arena — and self-destruct on the spot, every
+  time, without ever traveling. Fixed with an `armed` `Vars` flag
+  (`ctx.has_var`/`set_var`, Step 7.5-3): a bullet's first `on_update` call
+  just arms itself and returns; real hit detection starts on the second
+  call, once a snapshot built AFTER the bullet existed is in play —
+  reproducing the pre-7.5-5 `director.rhai`'s own already-correct timing
+  ("a bullet gets its first hit test on the step after it exists") inside
+  the new per-entity model instead of accidentally breaking it.
+
+  **`demos/roguelike/scripts/player.rhai`:** the lazy-init block (hp/
+  hp_max/gold/potions/depth/turns_taken, plus the "music_started" global
+  guard) moved into a new `on_start`, unconditional — it only ever runs on
+  a fresh spawn now, so the guard it used to need is gone along with it.
+  `on_update` just reads all five via `get_persistent` and feeds them to
+  `draw_hud`/the death check; header rewritten throughout (the "SAME-PASS
+  LAZY-INIT HAZARD" section, `on_update`'s and `draw_hud`'s own doc
+  comments) to describe the new split instead of the old workaround.
+
+  **`demos/shooter`:** `bullet.rhai` (new) owns a fired bullet's own hit
+  detection and kill resolution — `is_enemy`/`points_for`/`resolve_hit`
+  (was `resolve_hits`, no longer needs to dedupe a batch since there's no
+  batch)/`maybe_drop`, plus its own copy of the arena bounds (no
+  cross-script `use`/import exists yet — 7.5-13's open question).
+  `director.rhai` loses `update_bullets`/`resolve_hits`/`maybe_drop`/
+  `points_for` entirely; keeps `steer_enemies`/`steer_group`/
+  `contact_damage` per the scope decision above, with `is_enemy` kept too
+  (still used by `contact_dmg_for`). `player.rhai`'s `do_shoot` gains one
+  line: `ctx.set_script(b, "demos/shooter/scripts/bullet.rhai")`.
+  `gen_shooter.rs`'s header fact (2) and the `director()` doc comment
+  rewritten to match — `set_script` existing is not the same claim as
+  "director.rhai is now unnecessary."
+
+  **File-size fallout:** `engine.rs` crossed 750 lines the moment
+  `run_on_load_all` landed alongside the rest. `run_on_start_all`/
+  `run_on_load_all` moved to a new `lifecycle.rs` (same second-`impl
+  ScriptEngine`-in-a-sibling-file pattern `apply.rs` already established,
+  Phase 6 Step 2) — pure relocation. Needed four more `ScriptEngine` fields
+  bumped to `pub(super)` (`engine`, `ast_cache`, `disabled_scripts`, `rng`)
+  beyond the three (`scopes`/`layers`/`timers`/`pending_on_start`) already
+  there for `apply.rs`'s sake.
+
+  **A pre-existing test needed updating, not just adding to:**
+  `shooter_arena.rs`'s `two_bullets_landing_in_one_pass_both_count_against_
+  an_enemy` used to place two "bullet"-tagged entities directly into
+  `world` with no `Script` component at all, relying on director.rhai's own
+  tag-scan (`find_all_by_tag("bullet")`) to find them — which no longer
+  exists. Updated to also attach `Script::new("demos/shooter/scripts/
+  bullet.rhai")` and pre-arm each one's `Vars("armed", true)` (this test's
+  own bullets are already fully present in `world` before its `h.step`
+  call, so the staleness guard doesn't apply to them — pre-arming just
+  skips it explicitly rather than wasting a step). Also needed
+  `bullet.rhai` compiled into `ScriptEngine`'s ast cache first (`run_scripts`
+  silently skips an entity whose script isn't compiled yet, and this test
+  never calls `ctx.set_script` itself) — fixed by firing one real shot via
+  the harness's existing `run_firing_at` and despawning the resulting real
+  bullet before placing the two synthetic ones.
+
+  **Verification.** `cargo build --workspace --bins --examples` clean.
+  `cargo test --workspace`: 412 (was 408: +3 `set_script_tests`, +1
+  `on_load` save/load test), all pass, including `shooter_arena.rs`'s full
+  7 (the updated two-bullet test, plus `a_long_run_under_continuous_input_
+  never_errors`, unchanged, still green against the new per-bullet path)
+  and `roguelike_combat.rs`'s existing byte-exact assertions (unchanged,
+  still passing against the new `on_start`-based init). `scripts/check.sh`
+  clean (file-size limit, `ember2d-sim` determinism greps). `cargo clippy
+  --workspace --lib`: one new warning, `too_many_arguments` on the new
+  `run_on_load_all` (mirrors `run_on_start_all`'s own pre-existing 9-arg
+  shape, now both visible in `lifecycle.rs`) — not chased further, since
+  the phase-gate criterion (§0.5) tracks "no new warnings" at the gate, not
+  per step. `CLAUDE.md`'s registered-function count updated 157 → 158
+  (`set_script`); `API_VERSION` unchanged at 7, purely additive per
+  `docs/ember2d-scripting-api.md` §6's own convention. **Not verified
+  live this session** — no windowed/GPU environment available in this
+  agent's sandbox to launch either demo and take a screenshot the way prior
+  steps did; the user asked to keep going through the rest of Phase 7.5
+  and said they'd manually test it themselves. Coverage instead leans on
+  `shooter_arena.rs`'s `a_long_run_under_continuous_input_never_errors`
+  (many simulated steps of continuous fire/movement with
+  `assert_no_script_errors`) and `all_ten_waves_run_in_order_and_then_the_
+  run_is_won` (a full 10-wave clear, meaning every spawned bullet across an
+  entire run found and resolved its own hits without a script ever
+  disabling itself) as the closest headless proxy for "the demo actually
+  plays," but a live playtest of both demos is still owed before this step
+  is treated as fully closed the way CLAUDE.md's UI/feature-testing rule
+  asks for.
 
 #### `[ ]` 7.5-6 — Engine-side solid resolution for all actors
 

@@ -38,6 +38,7 @@ pub(super) fn register_all(engine: &mut Engine) {
     engine.register_fn("get_tag", ScriptCtx::get_tag);
     engine.register_fn("set_tag", ScriptCtx::set_tag);
     engine.register_fn("has_tag", ScriptCtx::has_tag);
+    engine.register_fn("set_script", ScriptCtx::set_script);
     engine.register_fn("get_glyph", ScriptCtx::get_glyph);
     engine.register_fn("get_color", ScriptCtx::get_color);
     engine.register_fn("get_texture", ScriptCtx::get_texture);

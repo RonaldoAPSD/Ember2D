@@ -35,8 +35,13 @@ use super::state::{ScriptState, WorldSnapshot};
 const HOT_RELOAD_CHECK_INTERVAL: u32 = 30;
 
 pub struct ScriptEngine {
-    engine: Engine,
-    ast_cache: HashMap<String, AST>,
+    /// `pub(super)` (not private) since `lifecycle.rs`'s `run_on_start_all`/
+    /// `run_on_load_all` — a second `impl ScriptEngine` block in a sibling
+    /// file, Step 7.5-5 — call `call_fn` on it directly, same reasoning
+    /// `scopes` below already gives for its own bump.
+    pub(super) engine: Engine,
+    /// `pub(super)`, same reasoning as `engine` immediately above.
+    pub(super) ast_cache: HashMap<String, AST>,
     /// `pub(super)` (not private) since `apply.rs`'s `apply_ctx` — a second
     /// `impl ScriptEngine` block in a sibling file, Phase 6 Step 2 — reads
     /// and removes entries directly (timer write-back, despawn cleanup).
@@ -46,9 +51,11 @@ pub struct ScriptEngine {
     /// defect D9: previously an error only suppressed its own log message
     /// (`logged_runtime_errors`) while the script kept being invoked, and
     /// kept failing, every frame. A script stays disabled until it hot-reloads
-    /// successfully (see `check_hot_reload`).
-    disabled_scripts: HashSet<String>,
-    rng: Rc<RefCell<rand::rngs::SmallRng>>,
+    /// successfully (see `check_hot_reload`). `pub(super)`, same reasoning
+    /// as `engine` above.
+    pub(super) disabled_scripts: HashSet<String>,
+    /// `pub(super)`, same reasoning as `engine` above.
+    pub(super) rng: Rc<RefCell<rand::rngs::SmallRng>>,
     /// Phase 6 Step 6 (docs/ember2d-phase6-plan.md): counts calls to
     /// `run_scripts` so hot-reload checking can run every
     /// `HOT_RELOAD_CHECK_INTERVAL` of them instead of every one — see that
@@ -82,6 +89,17 @@ pub struct ScriptEngine {
     /// unchanged behavior, just now documented rather than an accident of
     /// where the state happened to live.
     pub(super) timers: BTreeMap<EntityId, BTreeMap<String, f64>>,
+    /// Entities `apply_ctx` just attached a script to via `ctx.set_script`
+    /// (Step 7.5-5, docs/ember2d-master-plan.md §5.6) — drained by the next
+    /// `run_scripts` call, which calls each one's `on_start` before this
+    /// step's own `on_update` pass runs for it. `pub(super)`, same
+    /// reasoning as `scopes`/`layers`/`timers` above: `apply.rs`'s
+    /// `apply_ctx` pushes onto it directly. A plain `Vec`, not a `BTreeSet`
+    /// — `set_script` twice on the same entity in one pass (unusual, but
+    /// not guarded against) should call `on_start` twice next step, same
+    /// as calling it would from two separate passes; de-duplicating would
+    /// silently drop the second attach's own init.
+    pub(super) pending_on_start: Vec<EntityId>,
     pub pending_hud_draws: Vec<HudDraw>,
     pub pending_sounds: Vec<String>,
     pub pending_spatial_sounds: Vec<(String, f32, f32)>,
@@ -127,6 +145,7 @@ impl ScriptEngine {
             hot_reload_counter: 0,
             layers,
             timers: BTreeMap::new(),
+            pending_on_start: Vec::new(),
             pending_hud_draws: Vec::new(),
             pending_sounds: Vec::new(),
             pending_spatial_sounds: Vec::new(),
@@ -197,60 +216,21 @@ impl ScriptEngine {
     /// authoring `demos/roguelike/scripts/player.rhai` — see docs/HANDOFF.md.)
     /// Matching the error's exact payload instead of a substring of its
     /// Display text distinguishes the two cases correctly.
-    fn is_missing_optional_fn(err: &rhai::EvalAltResult, fn_name: &str) -> bool {
+    pub(super) fn is_missing_optional_fn(err: &rhai::EvalAltResult, fn_name: &str) -> bool {
         matches!(err, rhai::EvalAltResult::ErrorFunctionNotFound(sig, _) if sig.as_str() == fn_name)
     }
 
-    pub fn run_on_start_all(
-        &mut self,
-        world: &mut World,
-        log: &mut Vec<LogEntry>,
-        extra_spawns: &[(String, f32, f32)],
-        globals: BTreeMap<String, rhai::Dynamic>,
-        clips: BTreeMap<String, AnimationClip>,
-        persistent: &mut BTreeMap<String, rhai::Dynamic>,
-        camera_pos: crate::math::Vec2,
-        viewport_size: (usize, usize),
-    ) -> ScriptUpdateResult {
-        let scripted: Vec<(i64, String)> =
-            world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
-        let mut ctx_state = ScriptState::from_world(
-            world,
-            &self.layers,
-            0.0,
-            0.0,
-            InputSnapshot::default(),
-            MouseSnapshot::default(),
-            GamepadSnapshot::default(),
-            extra_spawns,
-            globals,
-            clips,
-            std::mem::take(persistent),
-            camera_pos,
-            BTreeMap::new(),
-            0,
-            viewport_size,
-        );
-        ctx_state.timers = std::mem::take(&mut self.timers);
-        let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
-        for (entity_id, path) in &scripted {
-            if self.disabled_scripts.contains(path) {
-                continue;
-            }
-            let Some(ast) = self.ast_cache.get(path) else { continue };
-            let scope = self.scopes.entry(*entity_id as EntityId).or_default();
-            let entity_ctx = ctx.with_entity(*entity_id);
-            if let Err(e) =
-                self.engine.call_fn::<()>(scope, ast, "on_start", (*entity_id, entity_ctx))
-            {
-                if !Self::is_missing_optional_fn(&e, "on_start") {
-                    log.push(LogEntry::error(format!("on_start '{}': {}", path, e)));
-                    self.disabled_scripts.insert(path.clone());
-                }
-            }
-        }
-        self.apply_ctx(ctx, world, log)
-    }
+    // run_on_start_all/run_on_load_all moved to lifecycle.rs (Step 7.5-5,
+    // docs/ember2d-master-plan.md §5.6) — this file was over CLAUDE.md's
+    // 750-line hard limit once `run_on_load_all` (7.5-5's own addition)
+    // landed alongside it. The two are a matched pair (fresh-spawn vs.
+    // loaded-save, each called exactly once by `Simulation::on_start`'s two
+    // branches) and together were the single largest, most self-contained
+    // pair of methods left in this file — same second-`impl ScriptEngine`-
+    // in-a-sibling-file pattern `apply.rs` already established (Phase 6
+    // Step 2). Pure relocation: nothing about either method changed, only
+    // location; `is_missing_optional_fn` above went from private to
+    // `pub(super)` as the one visibility bump this split needed.
 
     /// Step 5e's `on_input` pass (docs/ember2d-phase5-plan.md): runs once
     /// per step, for a single locally-controlled actor only — callers pass
@@ -475,6 +455,34 @@ impl ScriptEngine {
         let scripted: Vec<(i64, String)> =
             world.scripts.iter().map(|(id, s)| (*id as i64, s.path.clone())).collect();
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
+        // Step 7.5-5 (docs/ember2d-master-plan.md §5.6): `ctx.set_script`'s
+        // "next step boundary" contract — an entity `apply_ctx` attached a
+        // script to during a PRIOR pass gets its `on_start` called here,
+        // once, before this same call's `on_update` loop below reaches it
+        // for the first time (`scripted` above already includes it, since
+        // the attach landed in `World` before this call started). Uses
+        // this call's own `ctx`, same as every entry in `scripted` below —
+        // one `apply_ctx` flush covers both the on_start and on_update
+        // writes this step.
+        for entity_id in std::mem::take(&mut self.pending_on_start) {
+            let Some(path) = world.scripts.get(&entity_id).map(|s| s.path.clone()) else {
+                continue;
+            };
+            if self.disabled_scripts.contains(&path) {
+                continue;
+            }
+            let Some(ast) = self.ast_cache.get(&path) else { continue };
+            let scope = self.scopes.entry(entity_id).or_default();
+            let entity_ctx = ctx.with_entity(entity_id as i64);
+            if let Err(e) =
+                self.engine.call_fn::<()>(scope, ast, "on_start", (entity_id as i64, entity_ctx))
+            {
+                if !Self::is_missing_optional_fn(&e, "on_start") {
+                    log.push(LogEntry::error(format!("on_start '{}': {}", path, e)));
+                    self.disabled_scripts.insert(path.clone());
+                }
+            }
+        }
         for (entity_id, path) in scripted {
             if self.disabled_scripts.contains(&path) {
                 continue;
@@ -716,3 +724,11 @@ mod vars_tests;
 #[cfg(test)]
 #[path = "actor_stats_tests.rs"]
 mod actor_stats_tests;
+
+// 7.5-5 (docs/ember2d-master-plan.md §5.6): set_script/on_load regression
+// coverage split into its own sibling file — same reasoning
+// uniform_typing_tests.rs's/atomic_arithmetic_tests.rs's/vars_tests.rs's/
+// actor_stats_tests.rs's own header comments give for their own splits.
+#[cfg(test)]
+#[path = "set_script_tests.rs"]
+mod set_script_tests;

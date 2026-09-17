@@ -27,12 +27,25 @@
 //     player for free, but bullets and enemies pass straight through unless a
 //     script says otherwise. director.rhai does that work explicitly.
 //
-//  2. Rhai can spawn entities but cannot attach a script to one — there's no
-//     `set_script` in the API, and `apply_ctx`'s spawn queue only builds a
-//     transform/sprite/collider/tag. So a wave shooter cannot give each
-//     spawned enemy its own behavior script. Instead ONE always-present
-//     director entity drives every enemy and bullet from its own `on_update`.
-//     This is a genuine engine limitation, not a stylistic preference.
+//  2. Before Step 7.5-5 (docs/ember2d-master-plan.md §5.6), Rhai could spawn
+//     entities but not attach a script to one — no `set_script` in the API,
+//     and `apply_ctx`'s spawn queue only ever built a transform/sprite/
+//     collider/tag. That's why every bullet AND every enemy used to be
+//     driven by hand from director.rhai's own `on_update`, iterating them
+//     by tag. `set_script` closed that gap for bullets: player.rhai's
+//     `do_shoot` now attaches `bullet.rhai` to each one it fires, so a
+//     bullet finds and resolves its own hit instead of director.rhai
+//     scanning every live bullet every step. Enemies stay centrally driven
+//     BY CHOICE, not because the engine still can't do otherwise: contact
+//     damage against the player is a "take the single largest hit touching
+//     this step, not the sum of all of them" rule (director.rhai's
+//     `contact_damage`), which is a genuinely central operation — spreading
+//     it across each enemy's own `on_update` would either silently stop
+//     stacking correctly (deferred writes: two enemies' `set_global("hp",
+//     ...)` in the same pass both read the same pre-pass value, last write
+//     wins) or require a per-enemy cooldown that measurably changes the
+//     game's difficulty. See director.rhai's own header for that reasoning
+//     in full.
 //
 //  3. `Simulation::rebuild_scheduler` inserts every `Actor` into the
 //     `TurnScheduler` regardless of `GameplayLoop`, and `Simulation::step`
@@ -165,10 +178,10 @@ fn build_level(map: &Arena, features: Vec<TileRecord>) -> LevelData {
 }
 
 /// The wave director: a single invisible, collider-less entity whose
-/// `on_update` runs every step and drives the entire game — waves, enemy
-/// steering, bullet hit resolution, scoring. See fact (2) in this file's
-/// header for why one entity does all of it rather than each enemy carrying
-/// its own script.
+/// `on_update` runs every step and drives waves, enemy steering, contact
+/// damage, and scoring — bullets resolve their own hits now (`bullet.rhai`,
+/// Step 7.5-5). See fact (2) in this file's header for why enemies still
+/// don't carry their own script the way bullets now do.
 ///
 /// Placed at (0, 0), inside the wall ring, with a space glyph on layer 0: the
 /// wall tile at the same cell is on layer 1 and therefore draws over it, so

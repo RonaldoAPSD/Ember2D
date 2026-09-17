@@ -6,6 +6,7 @@ mod api_ext;
 mod api_spatial;
 mod apply;
 mod engine;
+mod lifecycle;
 mod registry;
 mod state;
 mod types;

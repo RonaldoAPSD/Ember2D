@@ -35,8 +35,8 @@
 // when TurnScheduler hands this actor the turn, so there's no more need for
 // the old "turn"/"acted_<id>" bookkeeping enemy scripts used to gate
 // themselves to once per player turn. on_update keeps only what must run
-// every single step regardless of whose turn it is: lazy init, the HUD, and
-// the death screen.
+// every single step regardless of whose turn it is: the HUD and the death
+// screen.
 //
 // DAMAGE MODEL CHANGED WITH IT: an enemy's on_turn now writes this script's
 // own "hp" persistent value DIRECTLY (see enemy_rat.rhai/enemy_boss.rhai),
@@ -56,24 +56,30 @@
 // in inventory. "Q" quaffs one (if any) for +6 hp (capped at hp_max),
 // costing a turn like waiting does.
 //
-// THE SAME-PASS LAZY-INIT HAZARD (docs/ember2d-master-plan.md §5.6, 7.5-2):
-// `ctx.set_persistent("hp", 12)` doesn't make `ctx.get_persistent("hp")`
-// return 12 later in this SAME call — it still returns whatever it was
-// before until apply_ctx folds the write in at the end of the pass. That
-// only bites within on_update, which runs in the same pass as the lazy-init
-// below: on_update's own draw_hud call is fed the just-computed local
-// values directly (see on_update) rather than re-reading them, so it never
-// needs to guard against its own write. on_turn, by contrast, always runs
-// in a LATER pass than this step's on_update (Simulation::step runs every
-// scripted entity's on_update, applies it, THEN runs the one actor whose
-// turn it is — see ember2d/src/simulation/step.rs), so by the time on_turn
-// reads "hp"/"hp_max"/etc. this step's lazy-init has already been applied
-// and a plain get_persistent is safe. `or_zero()` used to paper over both
-// cases uniformly (and, for "hp"/"hp_max", incorrectly — a wrong default
-// there isn't cosmetic, 0 reads as "already dead"); it's gone as of 7.5-2,
-// replaced by the parameter-passing above and `add_persistent`/
+// RUN INIT MOVED TO on_start (Step 7.5-5, docs/ember2d-master-plan.md §5.6):
+// this used to be lazy-initialized inside on_update, guarded by
+// `!ctx.has_persistent("hp_max")`, specifically because `Simulation::
+// on_start`'s loading-save branch never called a script's own `on_start` —
+// so a real `on_start` would never fire for a script whose only chance to
+// init was a fresh spawn OR a loaded save, and lazy-init-on-first-on_update
+// was the one hook guaranteed to run on both. Step 7.5-5 didn't change that
+// on_start still never re-runs on a loaded save (R7, 7A-3 — deliberate: this
+// run's stats already survived the save faithfully, and re-seeding them
+// would reset a run in progress) — it just gives on_update its `on_start`
+// back for the ONE case that actually needed it: a fresh spawn, which
+// `on_start` already always ran for uniquely, everywhere else in this
+// engine. `on_load` (7.5-5's other half, docs/ember2d-scripting-api.md) is
+// the loaded-save equivalent and isn't needed here at all — this script has
+// no presentation-only state to re-derive after a load that `persistent`
+// doesn't already cover.
+//
+// `or_zero()` used to paper over both the fresh-spawn and loaded-save cases
+// uniformly inside the lazy-init check above (and, for "hp"/"hp_max",
+// incorrectly — a wrong default there isn't cosmetic, 0 reads as "already
+// dead"); it was already gone as of 7.5-2, replaced by `add_persistent`/
 // `add_global` (docs/ember2d-scripting-api.md) for every write that used to
-// be a hand-rolled `set_x(get_x() + d)`.
+// be a hand-rolled `set_x(get_x() + d)` — unrelated to this step's change,
+// just no longer entangled with it now that on_update never lazy-inits.
 
 /// The only place this script reads raw input (see the Step 5e header note
 /// above). Priority mirrors on_turn's if/else-if chain exactly: restart
@@ -107,48 +113,30 @@ fn on_input(id, ctx) {
     }
 }
 
-/// Runs every step regardless of whose turn it is (Step 5f) — lazy init,
-/// the HUD, and the death screen. Never mutates gameplay state (that's
-/// on_turn's job) except the once-ever lazy-init below.
+/// Runs exactly once, only on a fresh spawn (Step 7.5-5) — never on a
+/// loaded save (R7, 7A-3; see the header's "RUN INIT MOVED TO on_start"
+/// note for why that's still correct, not a gap this step left open).
+/// Seeds this run's stats and starts the level music — both used to be
+/// guarded lazy-init inside on_update specifically because this hook
+/// wasn't reliably available before 7.5-5.
+fn on_start(id, ctx) {
+    ctx.set_persistent("hp", 12);
+    ctx.set_persistent("hp_max", 12);
+    ctx.set_persistent("gold", 0);
+    ctx.set_persistent("potions", 1);
+    ctx.set_persistent("depth", 1);
+    ctx.set_persistent("turns_taken", 0);
+    ctx.play_music("demos/roguelike/audio/music.ogg");
+}
+
+/// Runs every step regardless of whose turn it is (Step 5f) — the HUD and
+/// the death screen. Never mutates gameplay state (that's on_turn's job).
 fn on_update(id, ctx) {
-    // ---- lazy run init -------------------------------------------------
-    // Never in on_start: PlayState's is_loading_save path never calls
-    // on_start scripts at all. Lazy-init here is what lets this script
-    // survive both a fresh level load and a save/load without
-    // special-casing either.
-    //
-    // Every field draw_hud needs is captured into a local here and handed
-    // to it directly below, rather than draw_hud re-reading persistent
-    // itself — see the header's "SAME-PASS LAZY-INIT HAZARD" note for why
-    // that's the fix, not a stray get_persistent guard.
-    let hp;
-    let hp_max;
-    let gold;
-    let potions;
-    let depth;
-    if !ctx.has_persistent("hp_max") {
-        hp = 12;
-        hp_max = 12;
-        gold = 0;
-        potions = 1;
-        depth = 1;
-        ctx.set_persistent("hp", hp);
-        ctx.set_persistent("hp_max", hp_max);
-        ctx.set_persistent("gold", gold);
-        ctx.set_persistent("potions", potions);
-        ctx.set_persistent("depth", depth);
-        ctx.set_persistent("turns_taken", 0);
-    } else {
-        hp = ctx.get_persistent("hp");
-        hp_max = ctx.get_persistent("hp_max");
-        gold = ctx.get_persistent("gold");
-        potions = ctx.get_persistent("potions");
-        depth = ctx.get_persistent("depth");
-    }
-    if !ctx.has_global("music_started") {
-        ctx.play_music("demos/roguelike/audio/music.ogg");
-        ctx.set_global("music_started", true);
-    }
+    let hp = ctx.get_persistent("hp");
+    let hp_max = ctx.get_persistent("hp_max");
+    let gold = ctx.get_persistent("gold");
+    let potions = ctx.get_persistent("potions");
+    let depth = ctx.get_persistent("depth");
 
     draw_hud(ctx, hp, hp_max, gold, potions, depth);
     if hp <= 0 { draw_death_screen(ctx); }
@@ -243,8 +231,10 @@ fn attack(target, ctx) {
 }
 
 /// `hp`/`hp_max`/`gold`/`potions`/`depth` are passed in rather than
-/// re-read (see on_update's own comment on why). Each is cast with
-/// `.to_int()` before it's concatenated because `add_persistent`
+/// re-read — on_update already read all five once for its own hp<=0 check,
+/// so this just reuses them instead of five redundant get_persistent
+/// calls. Each is cast with `.to_int()` before it's concatenated because
+/// `add_persistent`
 /// (docs/ember2d-scripting-api.md, 7.5-2) always stores its result as a
 /// float — Rhai's string concatenation renders a whole-number float with a
 /// trailing ".0" (`"HP " + 12.0` is `"HP 12.0"`, not `"HP 12"`), which

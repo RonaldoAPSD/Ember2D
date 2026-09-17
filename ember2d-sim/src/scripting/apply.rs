@@ -15,7 +15,9 @@
 use std::collections::BTreeMap;
 
 use crate::command::Command;
-use crate::components::{AnimationClip, Animator, Collider, Sprite, SpriteSource, Tag, Transform};
+use crate::components::{
+    AnimationClip, Animator, Collider, Script, Sprite, SpriteSource, Tag, Transform,
+};
 use crate::world::{EntityId, World};
 
 use super::api::ScriptCtx;
@@ -121,6 +123,26 @@ impl ScriptEngine {
                 PendingWrite::Remove => {
                     entry.values.remove(&key);
                 }
+            }
+        }
+        // Step 7.5-5 (docs/ember2d-master-plan.md §5.6): same ghost-
+        // component guard `pending_tags`/`pending_vars` above already
+        // established for R10 — no `Script` for an entity nothing else
+        // spawned this pass. A path that fails to compile is never
+        // attached (`compile` already logs the error) — matches the sim
+        // boundary's "a script can never crash the editor" rule, not
+        // "wrong path attaches anyway and errors every step after." A
+        // successful attach queues the entity onto `pending_on_start` so
+        // `run_scripts` calls its `on_start` at the very next step — see
+        // `pending_set_script`'s own doc comment (state.rs) for why not
+        // this same pass.
+        for (id, path) in state.pending_set_script.drain(..) {
+            if !world.transforms.contains_key(&(id as EntityId)) {
+                continue;
+            }
+            if self.compile(&path, log) {
+                world.scripts.insert(id as EntityId, Script::new(path));
+                self.pending_on_start.push(id as EntityId);
             }
         }
         for (id, w, h) in state.pending_collider_size.drain(..) {

@@ -366,6 +366,15 @@ pub(super) struct ScriptState {
     pub(super) pending_visibility: Vec<(i64, bool)>,
     pub(super) pending_z_order: Vec<(i64, i32)>,
     pub(super) pending_tags: Vec<(i64, String)>,
+    /// `ctx.set_script`'s write queue (Step 7.5-5, docs/ember2d-master-
+    /// plan.md §5.6) — `(entity id, script path)`. Applied in `apply_ctx`
+    /// with the same ghost-component guard `pending_tags` uses (R10): no
+    /// `Script` for an entity nothing else spawned this pass. A successful
+    /// attach also queues the entity onto `ScriptEngine::pending_on_start`
+    /// so its `on_start` runs at the next step boundary, not this one —
+    /// this pass's own `scripted` list (in whichever `run_*` queued this
+    /// write) was already snapshotted before the attach lands.
+    pub(super) pending_set_script: Vec<(i64, String)>,
     pub(super) pending_collider_size: Vec<(i64, f32, f32)>,
     pub(super) pending_collider_solid: Vec<(i64, bool)>,
     pub(super) pending_collider_layer: Vec<(i64, String)>,
@@ -541,6 +550,7 @@ impl ScriptState {
             pending_visibility: Vec::new(),
             pending_z_order: Vec::new(),
             pending_tags: Vec::new(),
+            pending_set_script: Vec::new(),
             pending_collider_size: Vec::new(),
             pending_collider_solid: Vec::new(),
             pending_collider_layer: Vec::new(),

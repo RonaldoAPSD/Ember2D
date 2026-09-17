@@ -1,24 +1,39 @@
-// demos/shooter/scripts/director.rhai — the whole game except the player: the
-// ten-wave state machine, enemy spawning and steering, bullet hit resolution,
-// scoring, and the wave banner.
+// demos/shooter/scripts/director.rhai — the whole game except the player and
+// bullets: the ten-wave state machine, enemy spawning and steering, contact
+// damage, scoring, and the wave banner.
 //
 // Attached to one invisible, collider-less tile at (0, 0) (see
 // ember2d/examples/gen_shooter.rs's `director()`), so its `on_update` runs
 // every simulation step for the life of the level.
 //
-// ── WHY ONE SCRIPT DRIVES EVERY ENEMY ────────────────────────────────────────
+// ── WHY THIS SCRIPT STILL DRIVES EVERY ENEMY, EVEN THOUGH BULLETS DON'T
+//    NEED IT ANYMORE ──────────────────────────────────────────────────────
 //
-// Rhai can spawn entities (`ctx.spawn_entity`) but cannot attach a script to
-// one — there is no `set_script` in the API, and `ScriptEngine::apply_ctx`'s
-// spawn queue only builds a transform, sprite, tag and collider. A spawned
-// enemy therefore has no `on_update` of its own and no `on_collide` of its
-// own. Everything a wave shooter needs enemies to DO has to be driven from a
-// script that already exists, iterating them by tag. That is this file.
+// Before Step 7.5-5 (docs/ember2d-master-plan.md §5.6), Rhai could spawn
+// entities (`ctx.spawn_entity`) but not attach a script to one — no
+// `set_script` in the API, so a spawned enemy or bullet had no `on_update`/
+// `on_collide` of its own, and everything either needed to DO had to be
+// driven from a script that already existed, iterating them by tag. That's
+// this file's own origin. `set_script` closed that gap; `bullet.rhai` (see
+// `demos/shooter/scripts/player.rhai`'s `do_shoot`, which attaches it) is
+// what a bullet's own hit detection and kill resolution moved into —
+// `update_bullets`/`resolve_hits` used to live here and are gone.
 //
-// The second consequence is that bullets can't detect their own hits either.
-// `Simulation::late_step` resolves solid collisions only for the local player,
-// so a bullet is not stopped by a wall and never receives an `on_collide`;
-// `update_bullets` below does that work explicitly with a rect query.
+// Enemies stay here BY CHOICE, not because `set_script` couldn't reach them
+// too: `contact_damage` below is a "take the single largest hit touching the
+// player this step, not the sum of all of them" rule, gated by one shared
+// cooldown ("hurt_until"). That's a genuinely CENTRAL operation — spreading
+// it across each enemy's own `on_update` would either silently stop
+// stacking correctly (two enemies' `ctx.set_global("hp", ...)` in the same
+// pass both read the same pre-pass "hp"; deferred writes mean neither sees
+// the other's, so whichever runs last simply overwrites the first — not a
+// sum, not even reliably the larger of the two) or need a per-enemy cooldown
+// instead of one shared one, which would measurably raise damage taken when
+// surrounded by multiple enemies — a real difficulty change, not a neutral
+// refactor. `steer_enemies`/`steer_group` stay here too, mostly for the same
+// "this would just be per-enemy busywork with no correctness upside" reason,
+// though nothing stops a future step from moving pure per-enemy steering out
+// if a reason to actually needs it shows up.
 //
 // ── THE ONE RULE THAT SHAPES EVERY RUNNING TOTAL HERE ─────────────────────────
 //
@@ -33,12 +48,14 @@
 // CURRENT value — this pass's own already-queued write if there's one, the
 // resolved store otherwise — and adds to it, so any number of calls to the
 // same key in one pass land as that many additions. Every running total in
-// this file (score, kills via `add_global`; per-enemy HP via `add_var`) uses
-// one now. `resolve_hits` is the clearest example: it used to hand-tally
-// duplicate hits on one enemy before a single read-modify-write specifically
-// to dodge this hazard; now it can just apply each hit as its own call.
-// Per-enemy HP also used to live in a `"ehp_" + id` global — real per-entity
-// `Vars` state (7.5-3) replaced that too; see `spawn_enemy`'s own comment.
+// this file (score, kills via `add_global`) uses one now — as does
+// `bullet.rhai`'s own `resolve_hit` (Step 7.5-5), the file that used to hand-
+// tally duplicate hits on one enemy here before a single read-modify-write
+// specifically to dodge this hazard; it now just applies each hit as its own
+// call, since a bullet resolving its own hit means there's no batch left to
+// dedupe across. Per-enemy HP also used to live in a `"ehp_" + id` global —
+// real per-entity `Vars` state (7.5-3) replaced that too; see
+// `spawn_enemy`'s own comment.
 
 // ── Tuning knobs ─────────────────────────────────────────────────────────────
 // Functions, not top-level `const`: `Engine::call_fn` evaluates only the named
@@ -95,10 +112,11 @@ fn on_update(id, ctx) {
         return;
     }
 
-    // Enemies and bullets are driven in every phase, not just "fighting": a
-    // wave's last bullet should still be able to land after the wave ends, and
-    // medkits dropped by the final kill should still be collectable.
-    update_bullets(ctx, player);
+    // Enemies are driven in every phase, not just "fighting": medkits
+    // dropped by the final kill should still be collectable, and a wave's
+    // last live bullet (each now driven by its own bullet.rhai, Step
+    // 7.5-5) should still be able to land after the wave ends regardless of
+    // what this script does here.
     steer_enemies(ctx, player);
     contact_damage(ctx, player, now);
 
@@ -115,10 +133,11 @@ fn on_update(id, ctx) {
     } else {
         draw_wave_status(ctx);
         // `count_by_tag` reads the `WorldSnapshot` built at the top of this
-        // step, so an enemy despawned by `update_bullets` a few lines above is
-        // still counted here and this test only passes on the FOLLOWING step
-        // — a one-step lag, not a defect: `resolve_hits` needs this step to
-        // finish landing its kills before the wave can be declared cleared.
+        // step, so an enemy a bullet's own on_update despawns this same step
+        // (bullet.rhai's `resolve_hit`, Step 7.5-5) is still counted here —
+        // this test only passes on the FOLLOWING step, a one-step lag, not a
+        // defect: that kill needs this step to finish landing before the
+        // wave can be declared cleared.
         if enemies_left(ctx) == 0 { end_wave(ctx, now); }
     }
 }
@@ -179,8 +198,9 @@ fn spawn_wave(ctx, wave) {
 /// concept of "this entity's own" data at all). This used to be a
 /// `"ehp_" + id` global specifically because a spawned, unscripted enemy
 /// had no OTHER way to own per-entity state; `Vars` closes that gap
-/// directly, so `resolve_hits` below no longer needs to `remove_global` by
-/// hand on death either — `World::despawn` clears the whole component.
+/// directly, so `bullet.rhai`'s own `resolve_hit` (Step 7.5-5) no longer
+/// needs to `remove_global` by hand on a kill either — `World::despawn`
+/// clears the whole component.
 fn spawn_enemy(ctx, tag, glyph, colour, hp, w, h) {
     let p = spawn_pos(ctx);
     let e = ctx.spawn_entity(glyph, p[0], p[1], tag, colour, "Reset", 8, false, w, h, "enemy");
@@ -267,12 +287,6 @@ fn is_enemy(ctx, e) {
     ctx.has_tag(e, "grunt") || ctx.has_tag(e, "swarmer") || ctx.has_tag(e, "brute")
 }
 
-fn points_for(ctx, e) {
-    if ctx.has_tag(e, "brute") { return 50; }
-    if ctx.has_tag(e, "grunt") { return 10; }
-    5
-}
-
 fn contact_dmg_for(ctx, e) {
     if ctx.has_tag(e, "brute") { return 3; }
     if is_enemy(ctx, e) { return 1; }
@@ -310,101 +324,6 @@ fn contact_damage(ctx, player, now) {
     ctx.set_global("hurt_until", now + 0.7);
     ctx.shake_camera(2.0, 0.15);
     ctx.emit_particles(px, py, "!", "Red");
-}
-
-// ── Bullets ──────────────────────────────────────────────────────────────────
-
-/// Advances every live bullet's collision state. Bullets move themselves (they
-/// carry a velocity), so this only decides what they hit and when they die.
-///
-/// Bullets spawned during THIS step's `on_input` are not visible here — the
-/// `WorldSnapshot` is built once at the top of the step, before `on_input`
-/// runs. That is correct rather than a lag to work around: a bullet gets its
-/// first hit test on the step after it exists, by which point physics has
-/// moved it off the muzzle.
-fn update_bullets(ctx, player) {
-    let bullets = ctx.find_all_by_tag("bullet");
-    if bullets.len() == 0 { return; }
-
-    let spent = [];    // bullets to destroy
-    let struck = [];   // one entry per enemy hit, so duplicates are countable
-
-    for b in bullets {
-        let bx = ctx.get_x(b);
-        let by = ctx.get_y(b);
-
-        // Safety net only — the unbroken wall ring should always catch a
-        // bullet first. Kept so that opening the arena boundary later can't
-        // leak bullets forever.
-        if bx < min_x() || bx > max_x() || by < min_y() || by > max_y() {
-            spent.push(b);
-            continue;
-        }
-
-        // Matches the bullet's own 0.4x0.4 collider, so this query returns
-        // exactly what an engine-side collision would have. It also returns
-        // the bullet itself, and anything harmless it happens to be flying
-        // over (a medkit), so both are skipped rather than treated as a hit.
-        let hits = ctx.find_entities_in_rect(bx, by, 0.4, 0.4);
-        for h in hits {
-            if h == b || h == player { continue; }
-            if ctx.has_tag(h, "wall") { spent.push(b); break; }
-            if is_enemy(ctx, h) {
-                struck.push(h);
-                spent.push(b);
-                break;
-            }
-        }
-    }
-
-    for b in spent {
-        ctx.emit_particles(ctx.get_x(b), ctx.get_y(b), "*", "DarkGrey");
-        ctx.despawn(b);
-    }
-    resolve_hits(ctx, struck);
-}
-
-/// Applies this pass's bullet damage, one hit at a time.
-///
-/// Two bullets striking the same enemy in one pass is currently impossible —
-/// the fire cooldown puts consecutive shots about five cells apart — but this
-/// no longer needs that to stay true. `add_var` accumulates correctly no
-/// matter how many hits land on the same enemy's "hp" in this pass (see this
-/// file's header note), so each hit is applied as its own call and checked
-/// for a kill immediately, rather than tallied up front for one
-/// read-modify-write — what this function used to do specifically to dodge
-/// that hazard by hand. `dead` still exists, but for a different reason now:
-/// without it, a THIRD bullet landing on an enemy already killed by the
-/// first two would still see `hp <= 0` and re-run the kill block — scoring
-/// and dropping loot twice for one death. It has nothing to do with an
-/// "ehp_<id>" global surviving past the kill the way it used to: `Vars`
-/// (Step 7.5-3) needs no explicit cleanup on death at all, since
-/// `ctx.despawn(e)` below clears this enemy's entire `Vars` component for
-/// free (`World::despawn`) — no `remove_var` call needed here.
-fn resolve_hits(ctx, struck) {
-    let dead = [];
-
-    for e in struck {
-        if dead.contains(e) { continue; }
-
-        let hp = ctx.add_var(e, "hp", -1);
-        if hp > 0 { continue; }
-
-        dead.push(e);
-        ctx.add_global("score", points_for(ctx, e));
-        ctx.add_global("kills", 1);
-        ctx.emit_particles(ctx.get_x(e), ctx.get_y(e), "x", "Red");
-        maybe_drop(ctx, e);
-        ctx.despawn(e);
-    }
-}
-
-/// Brutes always drop a medkit; anything else rarely does. Spawned non-solid
-/// so it's a trigger — player.rhai's `on_collide` picks it up.
-fn maybe_drop(ctx, e) {
-    if !ctx.has_tag(e, "brute") && !ctx.random_bool(0.06) { return; }
-    ctx.spawn_entity("+", ctx.get_x(e), ctx.get_y(e), "medkit", "Green", "Reset",
-                     6, false, 1.0, 1.0, "pickup");
 }
 
 // ── HUD ──────────────────────────────────────────────────────────────────────

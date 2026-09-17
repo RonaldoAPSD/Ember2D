@@ -3,11 +3,14 @@
 // this script owns the player's HP, the stats bar, and the death/restart
 // screen.
 //
-// Companion to director.rhai, which owns everything else (waves, enemies,
-// bullet hit resolution). The split is not stylistic: Rhai can spawn entities
-// but cannot attach a script to one, so a spawned bullet or enemy has no
-// behavior of its own and something permanently present has to drive them.
-// See ember2d/examples/gen_shooter.rs's header for the full reasoning.
+// Companion to director.rhai, which owns waves, enemy steering, and contact
+// damage, and to bullet.rhai (Step 7.5-5, docs/ember2d-master-plan.md §5.6),
+// which a bullet this script fires gets attached to via `ctx.set_script` in
+// `do_shoot` below — a bullet resolves its own hit instead of director.rhai
+// scanning every live one every step, the way it (and every enemy, still)
+// had to before `set_script` existed. See ember2d/examples/gen_shooter.rs's
+// header for the full reasoning, including why enemies stay centrally driven
+// by choice rather than the same engine limitation that used to force it.
 //
 // ── WHY THIS SCRIPT LOOKS DIFFERENT FROM roguelike/scripts/player.rhai ───────
 //
@@ -37,8 +40,9 @@
 //
 // WALLS ARE FREE, EVERYTHING ELSE IS NOT. `Simulation::late_step` resolves
 // solid collisions only for the local player, so the arena walls stop this
-// entity with no script involvement at all. The same is not true of bullets
-// or enemies; director.rhai handles those by hand.
+// entity with no script involvement at all. A bullet spawned by this script
+// handles its own wall/enemy hit itself (bullet.rhai); an enemy still relies
+// on director.rhai for the same reason (steering + contact damage).
 
 // ── Tuning knobs ─────────────────────────────────────────────────────────────
 // Plain functions rather than top-level `const`: `ScriptEngine` invokes these
@@ -189,6 +193,13 @@ fn do_shoot(id, ctx) {
     let b = ctx.spawn_entity("*", px + dx * 0.8, py + dy * 0.8,
                              "bullet", "White", "Reset", 12, false, 0.4, 0.4, "bullet");
     ctx.set_velocity(b, dx * bullet_speed(), dy * bullet_speed());
+    // Step 7.5-5: gives this bullet its own on_update, so it finds and
+    // resolves its own hit next step instead of director.rhai scanning
+    // every "bullet"-tagged entity by hand every step. Deferred like every
+    // setter — bullet.rhai's own on_start (it has none) would run the step
+    // after this one regardless; its on_update picks up on the same step
+    // director.rhai's other scripted entities' on_update already runs on.
+    ctx.set_script(b, "demos/shooter/scripts/bullet.rhai");
     ctx.set_global("fire_ready", now + fire_cooldown());
 }
 

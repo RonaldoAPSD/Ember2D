@@ -416,6 +416,38 @@ impl Simulation {
                 self.scheduler
                     .restore(&saved_schedule, |id| world.actors.get(&id).map(|a| a.controller));
             }
+            // Step 7.5-5 (docs/ember2d-master-plan.md §5.6): `on_load`
+            // fires exactly once here, for every scripted entity a save
+            // deserialized — the loaded-save counterpart to `do_on_start`'s
+            // own `on_start` call above, which this branch never runs (see
+            // this branch's own opening comment). `cam_pos` is computed the
+            // same way `do_on_start` (simulation/spawn.rs) computes it for
+            // its own `run_on_start_all` call — `camera_entity` is already
+            // resolved by this point (just above).
+            let cam_pos =
+                self.camera_entity.map(|id| world.get_global_position(id)).unwrap_or(Vec2::ZERO);
+            let game_h = (viewport_h as i32).max(1);
+            let cam_x = (cam_pos.x - viewport_w as f32 / 2.0).max(0.0).round();
+            let cam_y = (cam_pos.y - game_h as f32 / 2.0).max(0.0).round();
+            let globals = std::mem::take(&mut self.globals);
+            let clips = std::mem::take(&mut self.clips);
+            let res = self.script_engine.run_on_load_all(
+                world,
+                &mut logs,
+                &self.level.extra_spawns,
+                globals,
+                clips,
+                persistent,
+                Vec2::new(cam_x, cam_y),
+                (viewport_w, viewport_h),
+            );
+            // Same as `do_on_start`'s own call: `on_start`/`on_load`'s
+            // return type is a plain `Vec<LogEntry>`, not a `StepOutcome` —
+            // this `outcome` only exists to satisfy `apply_script_result`'s
+            // signature and is discarded (a level-load pass has nothing
+            // that reads a camera override or a particle request yet).
+            let mut outcome = StepOutcome::default();
+            self.apply_script_result(world, res, persistent, &mut logs, &mut outcome);
         }
         logs
     }
