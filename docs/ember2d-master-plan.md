@@ -215,7 +215,7 @@ day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
 completeness (§5.6) under way: 7.5-1 through 7.5-9 landed
 (`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`b1964af`/`83d598a`/
-`aff65d4`/`PENDING_HASH`). Next: 7.5-10 (scripting engine internals). Three
+`aff65d4`/`57de3c2`). Next: 7.5-10 (scripting engine internals). Three
 things still owed, each flagged in its own step's "Landed as" note:
 neither demo has been launched live this session (no windowed/GPU sandbox
 available to this agent) — a real playtest of both, not just the headless
@@ -4163,7 +4163,7 @@ in the API doc's migration section in the same commit.
   calls these three functions, so there is no live scenario this step's
   fix would even change the behavior of today.
 
-#### `[x]` 7.5-9 — Sim boundary lints and `LevelSource` (`PENDING_HASH`)
+#### `[x]` 7.5-9 — Sim boundary lints and `LevelSource` (`57de3c2`)
 
 - **Why:** R17 (`simulation.rs`'s `resolve_exit_path`, `simulation/spawn.rs`'s
   node-graph script combine) and R41 (`world.rs`'s hierarchy-cycle
