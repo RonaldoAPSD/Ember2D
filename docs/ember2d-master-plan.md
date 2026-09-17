@@ -215,7 +215,7 @@ day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
 completeness (§5.6) under way: 7.5-1 through 7.5-10 landed
 (`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`b1964af`/`83d598a`/
-`aff65d4`/`57de3c2`/`PENDING_HASH`). Next: 7.5-11 (audio). Four things still
+`aff65d4`/`57de3c2`/`1d965f1`). Next: 7.5-11 (audio). Four things still
 owed, each flagged in its own step's "Landed as" note: neither demo has
 been launched live this session (no windowed/GPU sandbox available to this
 agent) — a real playtest of both, not just the headless suite, is still
@@ -4286,7 +4286,7 @@ in the API doc's migration section in the same commit.
   every step since 7.5-5 has recorded; a live save/load and a live level
   transition on both demos is still owed.
 
-#### `[x]` 7.5-10 — Scripting engine internals (`PENDING_HASH`)
+#### `[x]` 7.5-10 — Scripting engine internals (`1d965f1`)
 
 **Why.** R22: `ScriptEngine.scopes` (a per-entity `rhai::Scope` map) was
 still being maintained by `check_hot_reload` and `apply_ctx`'s despawn
@@ -4371,7 +4371,7 @@ sites, all mechanical — no test's actual assertions changed).
 `docs/ember2d-master-plan.md` (R22 closed, R91's site count corrected, new
 R92 for the two deferred sub-items).
 
-**Landed as:** `PENDING_HASH`. Full workspace build clean (`cargo build
+**Landed as:** `1d965f1`. Full workspace build clean (`cargo build
 --workspace --bins --examples`). `cargo test --workspace`: 435 (unchanged
 from 7.5-9's own count: +1 new `get_spawn_point_resolves_through_the_
 snapshots_extra_spawns`, -1 the removed scopes-based D8 test — net zero,
