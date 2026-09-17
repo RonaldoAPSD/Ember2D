@@ -213,13 +213,15 @@ SHRINKS the viewport (fixed-point-width side panels eat more of a fixed
 window). **Phase 7E (Editor features) deferred by user direction, same
 day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
-completeness (§5.6) under way: 7.5-1/7.5-2/7.5-3/7.5-4/7.5-5 landed
-(`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`). Next: 7.5-6
-(engine-side solid resolution for all actors). 7.5-5's own "Landed as"
-note flags one thing still owed: neither demo has been launched live this
-session (no windowed/GPU sandbox available to this agent) — a real
-playtest of both, not just the headless suite, is still worth doing before
-treating that step as fully closed.**
+completeness (§5.6) under way: 7.5-1 through 7.5-6 landed
+(`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`PENDING_HASH`). Next:
+7.5-7 (animation and turn model completeness). Two things still owed from
+7.5-5/7.5-6, both flagged in their own "Landed as" notes: neither demo has
+been launched live this session (no windowed/GPU sandbox available to this
+agent) — a real playtest of both, not just the headless suite, is still
+worth doing; and the shooter's `director.rhai` still hand-rolls its own
+enemy wall-slide (7.5-6 deliberately scoped shooter enemies out of engine-
+side solid resolution — see that step's own note for why).**
 
 ### 2.3 Baseline numbers (at `v0.5.7d`)
 
@@ -3932,13 +3934,96 @@ in the API doc's migration section in the same commit.
   is treated as fully closed the way CLAUDE.md's UI/feature-testing rule
   asks for.
 
-#### `[ ]` 7.5-6 — Engine-side solid resolution for all actors
+#### `[x]` 7.5-6 — Engine-side solid resolution for all actors (`PENDING_HASH`)
 
-`resolve_solid_collision` and wall sliding apply to any entity with an
-`Actor` (not only `Controller::Local`); a `physics: bool` on `Actor`
-opts out. The director's hand-rolled wall-slide and bullet hit tests are
-deleted. `get_path` gains `diagonal: bool` and a `reachable_within(id,
-budget)` query (tactical RPG need from the old plan's open question 4).
+- **Why:** `late_step`'s solid-collision resolution (`resolve_solid_
+  collision`) only ever ran for the local player (`is_local_player`) — any
+  other `Actor` (every roguelike enemy today; a future realtime AI actor
+  tomorrow) could walk straight through a wall unless a script hand-rolled
+  its own check, the way `director.rhai`'s `steer_group` (shooter demo)
+  already had to. `get_path` also had no diagonal option and no way to
+  preview a movement range, both open questions from the old refactor plan
+  for a future tactical-RPG genre (Phase 9).
+- **Change:** `resolve_solid_collision` now covers any `Actor` whose own
+  `physics` flag is set (default `true`, an opt-out). `get_path` gains a
+  6-arg overload adding `diagonal: bool`. `reachable_within(id, budget)` is
+  new.
+- **Test:** `ember2d/tests/actor_physics.rs` (an AI actor with `physics`
+  gets pushed out of an overlapped wall; `physics: false` opts out; the
+  local player is unaffected; an AI actor overlapping an exit tile never
+  triggers a level transition); `ember2d-sim`'s new `path_tests.rs`
+  (diagonal finds a shorter route; the no-corner-cutting guard; three
+  `reachable_within` cases).
+- **Scope:** `ember2d-sim`, `ember2d` (tests), both docs.
+- **Landed as:** one scope decision made with the user up front
+  (AskUserQuestion), before writing any code: the step's own text — "any
+  entity with an Actor" — reads as if it would let the shooter demo's
+  hand-rolled `steer_group` wall-slide be deleted too, but shooter enemies
+  have no `Actor` at all, deliberately (`gen_shooter.rs`'s own header:
+  giving one to an AI-controlled entity would insert it into
+  `TurnScheduler`, which round-robins turns among every `Actor` regardless
+  of `GameplayLoop` — with enemies added, the local player's own `on_input`
+  would stop firing on any step it isn't the player's turn, a real,
+  live-breaking regression to the shooter's WASD/aim/shoot controls, not
+  just a code-shape one). **Decided: Actor-only, AI-only** — extend solid
+  resolution to any `Actor` regardless of controller (so `Controller::Ai`
+  joins the local player, which already had it), but do NOT give shooter
+  enemies an `Actor` to reach it. Consequence, stated plainly rather than
+  silently dropped: `director.rhai`'s own wall-slide is NOT deleted this
+  step (shooter enemies have no other mechanism) — its own header, and
+  `player.rhai`'s and `gen_shooter.rs`'s, all note this explicitly so a
+  future session doesn't mistake the gap for an oversight. The "bullet hit
+  tests are deleted" half of the step's own Change already happened, one
+  step early — 7.5-5's `bullet.rhai` did that.
+
+  **Engine side** (`ember2d-sim`): `Actor.physics: bool` (`components/
+  actor.rs`, `#[serde(default = "default_physics")]` reading `true` for
+  every pre-7.5-6 save) plus the mirrored `ActorRecord.physics` (`level.rs`,
+  same default) so a level can actually author the opt-out — without it,
+  the flag would exist on the runtime type with no way to ever set it to
+  `false`, a half-finished feature. `do_on_start` (`simulation/spawn.rs`)
+  copies it the same way `stats`/`tint_aware`/`tint_asleep` already are.
+  `simulation.rs` gains `actor_has_physics` alongside the existing
+  `is_local_player`. `late_step` (`simulation/step.rs`) splits what used to
+  be one combined branch into two: a new physics-actor branch resolves
+  solid collisions for any qualifying pair (covers the local player too,
+  now through the shared path instead of a separate inline call); the
+  original local-player branch keeps the exit-tile check ONLY — deliberately
+  NOT reachable by the new branch, so an AI actor stepping onto stairs can
+  never trigger a level transition, a real correctness concern the
+  restructuring itself introduced were it not for the two-branch split.
+
+  **`get_path`/`reachable_within`** (`scripting/api_spatial.rs`): the
+  existing 4-directional `get_path` now forwards to a new `get_path_diag`
+  (registered under the same Rhai name, a 6-arg overload — `spawn_entity`'s
+  own 4-arg/11-arg split is the precedent) which adds 8-directional search
+  when `diagonal` is `true`: costs scaled ×10 (14 for a diagonal step, ≈
+  10×√2) to keep `g`/`f` plain `i32` with no runtime `sqrt`, a Chebyshev
+  heuristic when diagonal moves are legal (Manhattan would overestimate and
+  break A*'s admissibility once diagonals exist), and a no-corner-cutting
+  guard (a diagonal step is refused unless both orthogonal cells beside it
+  are also open). `reachable_within(id, budget)` is a plain 4-directional
+  BFS from `id`'s own position, no mask option — every solid blocks,
+  matching `is_solid_at`'s own simplicity, since a movement-range preview
+  should show exactly what a script's own `is_solid_at`-gated move allows.
+
+  **Verification.** `cargo build --workspace --bins --examples` clean.
+  `cargo test --workspace`: 421 (was 412: +4 `actor_physics.rs`, +5
+  `path_tests.rs`), all pass. `scripts/check.sh` clean. `cargo clippy -p
+  ember2d-sim --lib`: no new warnings from this step's own changes, verified
+  by inspecting every touched file's own warnings directly rather than
+  trusting a raw before/after count (clippy's per-run caching made a naive
+  count unreliable) — one doc-comment lint (`doc_lazy_continuation`, a
+  wrapped line in `get_path_diag`'s own doc comment that accidentally
+  started with `*`, read as a markdown bullet) found and fixed before it
+  ever landed. `CLAUDE.md`'s registered-function count updated 158 → 161
+  (`get_path` gains a 6-arg overload plus its `_i` twin, `reachable_within`);
+  `API_VERSION` unchanged at 7, purely additive. **Not verified live** —
+  same sandbox limitation 7.5-5's own note recorded (no windowed/GPU
+  environment available to this agent); `actor_physics.rs`'s four tests are
+  the direct proof this step's own new behavior works, but neither demo has
+  been launched to confirm the roguelike still plays normally with `Actor`
+  now carrying one more field.
 
 #### `[ ]` 7.5-7 — Animation and turn model completeness
 

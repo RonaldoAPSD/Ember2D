@@ -162,10 +162,51 @@ impl ScriptCtx {
         self.raycast(x1 as f64, y1 as f64, x2 as f64, y2 as f64, mask)
     }
 
-    /// A* pathfinding on the integer grid.
+    /// A* pathfinding on the integer grid, 4-directional (`diagonal:
+    /// false` — see `get_path_diag` below for the Step 7.5-6 addition).
     /// Returns: [[x, y], [x, y], ...] path from (x1, y1) to (x2, y2).
     /// mask: Optional array of layer names that act as obstacles. If empty, all solid entities block.
     pub fn get_path(&mut self, x1: f64, y1: f64, x2: f64, y2: f64, mask: Array) -> Array {
+        self.get_path_diag(x1, y1, x2, y2, mask, false)
+    }
+    /// `i64` overload — same reasoning as `get_entity_at_i` above.
+    pub fn get_path_i(&mut self, x1: i64, y1: i64, x2: i64, y2: i64, mask: Array) -> Array {
+        self.get_path(x1 as f64, y1 as f64, x2 as f64, y2 as f64, mask)
+    }
+
+    /// Step 7.5-6 (docs/ember2d-master-plan.md §5.6, tactical-RPG need from
+    /// the old plan's open question 4): the same A* as `get_path` above,
+    /// with an 8-directional option. Registered under the same Rhai name
+    /// ("get_path") as a 6-argument overload — `spawn_entity`'s own 4-arg/
+    /// 11-arg split is the precedent for more than one arity sharing a
+    /// name; this isn't a breaking change to the 5-arg form, which just
+    /// forwards here with `diagonal: false`.
+    ///
+    /// Costs are scaled ×10 (10 for a straight step, 14 ≈ 10×√2 for a
+    /// diagonal one) so both the heuristic and `g`/`f` stay plain `i32` —
+    /// no runtime `sqrt` in the loop (`atan2_approx` is this crate's one
+    /// approved transcendental-math replacement; a fixed, hand-rounded
+    /// integer constant sidesteps needing one here at all). When
+    /// `diagonal` is set the heuristic switches to the scaled Chebyshev
+    /// distance (the straight-line cost of the longer axis, plus the
+    /// diagonal-vs-straight cost difference times the shorter axis) —
+    /// Manhattan distance would overestimate remaining cost once diagonal
+    /// moves are legal, which breaks A*'s admissibility guarantee (the
+    /// path found is no longer guaranteed shortest).
+    ///
+    /// A diagonal move is only legal when BOTH orthogonal neighbors next to
+    /// it are unblocked — the standard "no cutting a corner" rule, since
+    /// without it a mover could squeeze diagonally between two solid cells
+    /// that share only a corner, visually clipping through both.
+    pub fn get_path_diag(
+        &mut self,
+        x1: f64,
+        y1: f64,
+        x2: f64,
+        y2: f64,
+        mask: Array,
+        diagonal: bool,
+    ) -> Array {
         let s = self.inner.borrow_mut();
         let start_x = x1.round() as i32;
         let start_y = y1.round() as i32;
@@ -178,7 +219,7 @@ impl ScriptCtx {
 
         // Phase 6 Step 7 (docs/ember2d-phase6-plan.md): folded to bits ONCE
         // here, before A* even starts, rather than re-compared as strings
-        // against every collider on every one of the (up to 2000 * 4)
+        // against every collider on every one of the (up to 2000 * 4 or 8)
         // neighbor checks below — see `raycast`'s matching comment above.
         let mask_vec: Vec<String> = mask.into_iter().map(|d| d.to_string()).collect();
         let mask_bits = s.layers.mask_bits(&mask_vec);
@@ -205,6 +246,59 @@ impl ScriptCtx {
             }
         }
 
+        const STRAIGHT: i32 = 10;
+        const DIAGONAL: i32 = 14;
+
+        let heuristic = |x: i32, y: i32| {
+            let dx = (x - target_x).abs();
+            let dy = (y - target_y).abs();
+            if diagonal {
+                let (lo, hi) = (dx.min(dy), dx.max(dy));
+                hi * STRAIGHT + lo * (DIAGONAL - STRAIGHT)
+            } else {
+                (dx + dy) * STRAIGHT
+            }
+        };
+
+        let blocked_at = |nx: i32, ny: i32| -> bool {
+            for (&id, &(w, h, solid, _, _, _, layer_bits)) in &s.colliders {
+                if !solid {
+                    continue;
+                }
+                // If mask is empty (mask_bits == 0), ALL solids block.
+                // Otherwise only solids whose own layer bit intersects the
+                // requested mask block.
+                if mask_bits != 0 && (mask_bits & layer_bits) == 0 {
+                    continue;
+                }
+                if let Some(&(px, py)) = s.positions.get(&id) {
+                    if nx >= px.round() as i32
+                        && nx < (px + w).round() as i32
+                        && ny >= py.round() as i32
+                        && ny < (py + h).round() as i32
+                    {
+                        return true;
+                    }
+                }
+            }
+            false
+        };
+
+        let neighbors: &[(i32, i32, i32)] = if diagonal {
+            &[
+                (0, 1, STRAIGHT),
+                (0, -1, STRAIGHT),
+                (1, 0, STRAIGHT),
+                (-1, 0, STRAIGHT),
+                (1, 1, DIAGONAL),
+                (1, -1, DIAGONAL),
+                (-1, 1, DIAGONAL),
+                (-1, -1, DIAGONAL),
+            ]
+        } else {
+            &[(0, 1, STRAIGHT), (0, -1, STRAIGHT), (1, 0, STRAIGHT), (-1, 0, STRAIGHT)]
+        };
+
         let mut open_set = BinaryHeap::new();
         let mut came_from = HashMap::new();
         let mut g_score = HashMap::new();
@@ -213,7 +307,7 @@ impl ScriptCtx {
             x: start_x,
             y: start_y,
             g: 0,
-            f: (start_x - target_x).abs() + (start_y - target_y).abs(),
+            f: heuristic(start_x, start_y),
         });
         g_score.insert((start_x, start_y), 0);
 
@@ -231,44 +325,25 @@ impl ScriptCtx {
                 break;
             }
 
-            for (dx, dy) in &[(0, 1), (0, -1), (1, 0), (-1, 0)] {
+            for &(dx, dy, cost) in neighbors {
                 let nx = current.x + dx;
                 let ny = current.y + dy;
 
-                // Check collision at (nx, ny)
-                let mut blocked = false;
-                for (&id, &(w, h, solid, _, _, _, layer_bits)) in &s.colliders {
-                    if !solid {
-                        continue;
-                    }
-                    // If mask is empty (mask_bits == 0), ALL solids block.
-                    // Otherwise only solids whose own layer bit intersects
-                    // the requested mask block.
-                    if mask_bits != 0 && (mask_bits & layer_bits) == 0 {
-                        continue;
-                    }
-
-                    if let Some(&(px, py)) = s.positions.get(&id) {
-                        if nx >= px.round() as i32
-                            && nx < (px + w).round() as i32
-                            && ny >= py.round() as i32
-                            && ny < (py + h).round() as i32
-                        {
-                            blocked = true;
-                            break;
-                        }
-                    }
+                if blocked_at(nx, ny) {
+                    continue;
                 }
-
-                if blocked {
+                // No-corner-cutting: a diagonal step is only legal if both
+                // of the orthogonal cells it would otherwise clip past are
+                // also open.
+                if dx != 0 && dy != 0 && (blocked_at(current.x + dx, current.y) || blocked_at(current.x, current.y + dy)) {
                     continue;
                 }
 
-                let tentative_g = current.g + 1;
+                let tentative_g = current.g + cost;
                 if tentative_g < *g_score.get(&(nx, ny)).unwrap_or(&i32::MAX) {
                     came_from.insert((nx, ny), (current.x, current.y));
                     g_score.insert((nx, ny), tentative_g);
-                    let f = tentative_g + (nx - target_x).abs() + (ny - target_y).abs();
+                    let f = tentative_g + heuristic(nx, ny);
                     open_set.push(Node { x: nx, y: ny, g: tentative_g, f });
                 }
             }
@@ -295,7 +370,84 @@ impl ScriptCtx {
         }
     }
     /// `i64` overload — same reasoning as `get_entity_at_i` above.
-    pub fn get_path_i(&mut self, x1: i64, y1: i64, x2: i64, y2: i64, mask: Array) -> Array {
-        self.get_path(x1 as f64, y1 as f64, x2 as f64, y2 as f64, mask)
+    pub fn get_path_diag_i(
+        &mut self,
+        x1: i64,
+        y1: i64,
+        x2: i64,
+        y2: i64,
+        mask: Array,
+        diagonal: bool,
+    ) -> Array {
+        self.get_path_diag(x1 as f64, y1 as f64, x2 as f64, y2 as f64, mask, diagonal)
+    }
+
+    /// Every cell reachable from `id`'s own current position within
+    /// `budget` orthogonal steps (Step 7.5-6, docs/ember2d-master-plan.md
+    /// §5.6 — the tactical-RPG movement-range preview the old plan's open
+    /// question 4 asked for). A plain BFS, budget in whole cells — no
+    /// `diagonal`/`mask` params unlike `get_path`/`raycast` above: every
+    /// solid blocks unconditionally, matching `is_solid_at`'s own
+    /// behavior, since a range preview should show exactly what a script's
+    /// own `is_solid_at`-gated move would allow, not a filtered subset.
+    /// Returns `[[x, y], [x, y], ...]`, NOT including `id`'s own starting
+    /// cell (nothing "moves zero steps"). An unknown `id` or a
+    /// non-positive `budget` both just return an empty array — no reason
+    /// to panic on either.
+    pub fn reachable_within(&mut self, id: i64, budget: i64) -> Array {
+        let s = self.inner.borrow_mut();
+        let Some(&(start_x, start_y)) = s.positions.get(&id) else { return Array::new() };
+        let start_x = start_x.round() as i32;
+        let start_y = start_y.round() as i32;
+        if budget <= 0 {
+            return Array::new();
+        }
+
+        let blocked_at = |nx: i32, ny: i32| -> bool {
+            for (&cid, &(w, h, solid, _, _, _, _)) in &s.colliders {
+                if cid == id || !solid {
+                    continue;
+                }
+                if let Some(&(px, py)) = s.positions.get(&cid) {
+                    if nx >= px.round() as i32
+                        && nx < (px + w).round() as i32
+                        && ny >= py.round() as i32
+                        && ny < (py + h).round() as i32
+                    {
+                        return true;
+                    }
+                }
+            }
+            false
+        };
+
+        use std::collections::{HashSet, VecDeque};
+        // Only ever `.contains`/`.insert` below, never iterated — the "no
+        // HashMap/HashSet iteration in sim code" rule (CLAUDE.md's
+        // Determinism section) is about iteration order leaking into
+        // output, not lookup-only membership tests. Output order instead
+        // comes entirely from the `VecDeque` frontier's own deterministic
+        // visit order (a fixed neighbor-offset list, breadth-first).
+        let mut visited: HashSet<(i32, i32)> = HashSet::new();
+        visited.insert((start_x, start_y));
+        let mut frontier = VecDeque::new();
+        frontier.push_back((start_x, start_y, 0i64));
+        let mut result = Array::new();
+
+        while let Some((x, y, steps)) = frontier.pop_front() {
+            if steps >= budget {
+                continue;
+            }
+            for (dx, dy) in [(0, 1), (0, -1), (1, 0), (-1, 0)] {
+                let (nx, ny) = (x + dx, y + dy);
+                if visited.contains(&(nx, ny)) || blocked_at(nx, ny) {
+                    continue;
+                }
+                visited.insert((nx, ny));
+                result.push(Dynamic::from(vec![Dynamic::from(nx as f64), Dynamic::from(ny as f64)]));
+                frontier.push_back((nx, ny, steps + 1));
+            }
+        }
+        result
     }
 }

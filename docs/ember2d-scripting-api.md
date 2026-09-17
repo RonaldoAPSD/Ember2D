@@ -227,6 +227,10 @@ filtering entirely; `false` by default.
 
 `get_path(x1,y1,x2,y2,mask)` → `[[x,y],…]`. A\* on the integer grid, 4-directional, 2000-node cap. Empty array means no path or already there.
 
+`get_path(x1,y1,x2,y2,mask,diagonal)` (Step 7.5-6, docs/ember2d-master-plan.md §5.6) — the same A\*, 8-directional when `diagonal` is `true`. A diagonal step costs more than a straight one (so the heuristic stays admissible) and is refused when it would cut between two solids that share only a corner. Registered under the same name as a 6-argument overload — the 5-argument form above is unchanged and still 4-directional.
+
+`reachable_within(id,budget)` → `[[x,y],…]` (Step 7.5-6) — every cell reachable from `id`'s own current position within `budget` orthogonal steps (a plain BFS; no `diagonal`/`mask` option — every solid blocks, matching `is_solid_at`). Never includes `id`'s own starting cell. An unknown `id` or `budget <= 0` returns `[]`. The tactical-RPG movement-range preview the old refactor plan's open question 4 asked for.
+
 ### Hierarchy
 `get_parent(id)` · `set_parent(id,parent)` · `set_parent_keep_world(id,parent)` · `get_world_x(id)` · `get_world_y(id)`
 

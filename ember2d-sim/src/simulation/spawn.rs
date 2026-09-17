@@ -91,6 +91,9 @@ impl Simulation {
                 actor.stats = ar.stats.clone();
                 actor.tint_aware = ar.tint_aware;
                 actor.tint_asleep = ar.tint_asleep;
+                // Step 7.5-6: same copy-not-fold reasoning as the three
+                // fields above.
+                actor.physics = ar.physics;
                 world.add_actor(id, actor);
             }
 

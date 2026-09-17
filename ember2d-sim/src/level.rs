@@ -187,10 +187,22 @@ pub struct ActorRecord {
     pub tint_aware: Color,
     #[serde(default = "default_tint")]
     pub tint_asleep: Color,
+    /// Opts this actor OUT of engine-side solid-collision resolution
+    /// (Step 7.5-6, docs/ember2d-master-plan.md §5.6) — copied onto the
+    /// runtime `Actor.physics` field by `simulation/spawn.rs::do_on_start`.
+    /// `#[serde(default = "default_physics")]` reads `true` for every
+    /// pre-7.5-6 level (this field didn't exist before), matching the
+    /// behavior every existing actor tile already had.
+    #[serde(default = "default_physics")]
+    pub physics: bool,
 }
 
 fn default_actor_speed() -> u32 {
     100
+}
+
+fn default_physics() -> bool {
+    true
 }
 
 /// `Color::Reset` (no override) — a generic, genre-agnostic fallback for an
@@ -209,6 +221,7 @@ impl Default for ActorRecord {
             stats: BTreeMap::new(),
             tint_aware: default_tint(),
             tint_asleep: default_tint(),
+            physics: default_physics(),
         }
     }
 }

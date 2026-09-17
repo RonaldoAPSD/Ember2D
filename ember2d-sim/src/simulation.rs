@@ -85,6 +85,20 @@ fn is_local_player(world: &World, id: EntityId) -> bool {
     matches!(world.actors.get(&id).map(|a| a.controller), Some(Controller::Local(_)))
 }
 
+/// True if `id` is any `Actor` (local, AI, or a future `Remote`) whose own
+/// `physics` flag is set — Step 7.5-6 (docs/ember2d-master-plan.md §5.6):
+/// what `late_step`'s solid-collision resolution gates on now, broader
+/// than `is_local_player`'s narrower "who receives on_input" question.
+/// `unwrap_or(false)`: an entity with no `Actor` at all (every enemy in
+/// the shooter demo, deliberately — see `gen_shooter.rs`'s own header for
+/// why giving them one would stall the local player's `on_input` under
+/// `TurnScheduler`) never gets engine-side resolution this way either;
+/// `physics: false` is the same "opt out" for an entity that DOES have an
+/// `Actor` but manages its own collision by hand.
+fn actor_has_physics(world: &World, id: EntityId) -> bool {
+    world.actors.get(&id).map(|a| a.physics).unwrap_or(false)
+}
+
 /// Every locally-controlled actor, in `EntityId` order (`world.actors` is a
 /// `BTreeMap`, Step 5b) — used only for `on_start`'s camera-entity fallback
 /// on a loaded save, where more than one might plausibly need considering.

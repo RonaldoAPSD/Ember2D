@@ -22,7 +22,7 @@ use crate::scheduler::ALTERNATING_COST;
 use crate::scripting::{LogEntry, ScriptUpdateResult, WorldSnapshot};
 use crate::world::{EntityId, World};
 
-use super::{is_local_player, resolve_exit_path, Simulation, StepInput, StepOutcome};
+use super::{actor_has_physics, is_local_player, resolve_exit_path, Simulation, StepInput, StepOutcome};
 
 impl Simulation {
     /// One simulation step: advance animators, run `on_input` for whichever
@@ -257,19 +257,46 @@ impl Simulation {
             let crate::event::GameEvent::Collision { entity_a, entity_b } = event else { continue };
             let (a, b) = (*entity_a, *entity_b);
             all_pairs.push((a, b));
-            let (player, other) = if is_local_player(world, a) {
-                (a, b)
+
+            // 7.5-6 (docs/ember2d-master-plan.md §5.6): solid-collision
+            // resolution now covers any `Actor` with `physics` set
+            // (default true), not just the local player — split out from
+            // the exit-tile check below, which stays local-player-only (an
+            // AI actor stepping onto stairs must never trigger a level
+            // transition; `actor_has_physics` says nothing about who
+            // should be allowed to change levels). The local player's own
+            // resolution used to happen inline in the branch below; it
+            // still does, just through this shared path now instead of a
+            // second, duplicate call.
+            let physics_pair = if actor_has_physics(world, a) {
+                Some((a, b))
+            } else if actor_has_physics(world, b) {
+                Some((b, a))
+            } else {
+                None
+            };
+            if let Some((mover, obstacle)) = physics_pair {
+                if world.colliders.get(&obstacle).map(|c| c.solid).unwrap_or(false) {
+                    world.resolve_solid_collision(mover, obstacle, prev_positions);
+                }
+            }
+
+            let other = if is_local_player(world, a) {
+                b
             } else if is_local_player(world, b) {
-                (b, a)
+                a
             } else {
                 continue;
             };
-            let solid = world.colliders.get(&other).map(|c| c.solid).unwrap_or(false);
+            // Solid pairs already got their resolution above (`physics_pair`
+            // covers the local player too, since `Actor::local` defaults
+            // `physics: true`) — only a non-solid collider (an exit tile)
+            // still needs handling here.
+            if world.colliders.get(&other).map(|c| c.solid).unwrap_or(false) {
+                continue;
+            }
             let locked = world.colliders.get(&other).map(|c| c.locked).unwrap_or(false);
-
-            if solid {
-                world.resolve_solid_collision(player, other, prev_positions);
-            } else if let Some(path) = self.exit_targets.get(&other).cloned() {
+            if let Some(path) = self.exit_targets.get(&other).cloned() {
                 if !locked {
                     let full_path = resolve_exit_path(&path, &self.level.path);
                     match LevelData::load(&full_path) {

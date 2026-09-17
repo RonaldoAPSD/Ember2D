@@ -144,6 +144,12 @@ pub(super) fn register_all(engine: &mut Engine) {
     engine.register_fn("raycast", ScriptCtx::raycast_i);
     engine.register_fn("get_path", ScriptCtx::get_path);
     engine.register_fn("get_path", ScriptCtx::get_path_i);
+    // 7.5-6 (docs/ember2d-master-plan.md §5.6): 6-arg overloads (adds
+    // `diagonal: bool`) under the same "get_path" name — same arity-
+    // overload mechanism `spawn_entity` already uses.
+    engine.register_fn("get_path", ScriptCtx::get_path_diag);
+    engine.register_fn("get_path", ScriptCtx::get_path_diag_i);
+    engine.register_fn("reachable_within", ScriptCtx::reachable_within);
     engine.register_fn("get_viewport_width", ScriptCtx::get_viewport_width);
     engine.register_fn("get_viewport_height", ScriptCtx::get_viewport_height);
     engine.register_fn("start_timer", ScriptCtx::start_timer);

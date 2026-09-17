@@ -732,3 +732,12 @@ mod actor_stats_tests;
 #[cfg(test)]
 #[path = "set_script_tests.rs"]
 mod set_script_tests;
+
+// 7.5-6 (docs/ember2d-master-plan.md §5.6): get_path's diagonal option and
+// reachable_within regression coverage split into its own sibling file —
+// same reasoning uniform_typing_tests.rs's/vars_tests.rs's/
+// actor_stats_tests.rs's/set_script_tests.rs's own header comments give for
+// their own splits.
+#[cfg(test)]
+#[path = "path_tests.rs"]
+mod path_tests;

@@ -60,10 +60,27 @@ pub struct Actor {
     pub tint_aware: Color,
     #[serde(default = "default_tint")]
     pub tint_asleep: Color,
+    /// Step 7.5-6 (docs/ember2d-master-plan.md §5.6): opts this actor OUT
+    /// of engine-side solid collision resolution (`late_step`'s
+    /// `physics_actor_pair`, simulation/step.rs) — an opt-out, not an
+    /// opt-in, so `#[serde(default = "default_physics")]` reads `true` for
+    /// every pre-7.5-6 save (this field didn't exist before), matching the
+    /// behavior every existing `Actor` already had. An actor that moves
+    /// only via direct `ctx.set_position` writes and its own `is_solid_at`
+    /// guard (every roguelike enemy today) never reaches a physics check
+    /// either way — this only matters for an actor that also carries a
+    /// `Transform.velocity` the engine's own `World::integrate_physics`
+    /// moves for it.
+    #[serde(default = "default_physics")]
+    pub physics: bool,
 }
 
 fn default_tint() -> Color {
     Color::Reset
+}
+
+fn default_physics() -> bool {
+    true
 }
 
 impl Actor {
@@ -77,6 +94,7 @@ impl Actor {
             stats: BTreeMap::new(),
             tint_aware: Color::Reset,
             tint_asleep: Color::Reset,
+            physics: true,
         }
     }
 
@@ -91,6 +109,7 @@ impl Actor {
             stats: BTreeMap::new(),
             tint_aware: Color::Reset,
             tint_asleep: Color::Reset,
+            physics: true,
         }
     }
 }
