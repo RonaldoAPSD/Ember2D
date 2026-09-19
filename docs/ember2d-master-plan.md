@@ -4486,7 +4486,7 @@ limitation every step since 7.5-5 has recorded; whether music actually
 survives a real floor transition, and whether spatial-sound panning sounds
 correct, both still need a live playtest.
 
-#### `[x]` 7.5-12 — Node-graph codegen hardening
+#### `[x]` 7.5-12 — Node-graph codegen hardening (`869f919`)
 
 String literals and identifiers escaped (`rhai` string escaping; identifiers
 validated against `[A-Za-z_][A-Za-z0-9_]*` with a UI error otherwise).
@@ -4559,7 +4559,7 @@ this step), `check.ps1` clean, replay ×3 byte-identical. Neither shipped
 demo uses a node graph (`grep -l "graph:" demos/**/*.level` — no matches),
 so this step is inert for both and needed no live playtest.
 
-#### `[x]` 7.5-13 — Rhai `no_module` re-evaluation
+#### `[x]` 7.5-13 — Rhai `no_module` re-evaluation (`6af6f42`)
 
 Decide (§7.4) whether to enable Rhai modules so scripts can `import` a
 shared `common.rhai`. Cost: AST cache and hot-reload need module
@@ -4577,6 +4577,35 @@ of duplication.
 **Phase 7.5 gate:** §0.5; both demos rewritten to use the new primitives and
 **smaller** than before (record line counts); `API_VERSION` 7 documented
 with a migration table; tag `v0.5.8`.
+
+**Gate status (checked after 7.5-13, not yet passed — not tagged):**
+`API_VERSION` 7's migration table was satisfied incrementally, each step
+documenting its own additions in `ember2d-scripting-api.md` in the same
+commit (§6 of that doc) — nothing left to write there. Every automated
+§0.5 criterion is green (build, full test suite — 455, up from 381 at
+`v0.5.7d` — clippy diffed clean of regressions, `check.ps1`, replay ×3;
+see §9's `v0.5.8` row). Two things still block the tag:
+
+1. **Checklist §11/§12/§13 (play mode, turn-based mode, save/load and
+   scripting)** — these are live F5-into-play-mode checks; this agent has
+   no windowed/GPU sandbox this session, same gap noted at the `v0.5.7c`/
+   `v0.5.7d` gates. Needs the user's own pass.
+2. **Demo line counts: roguelike shrank as required (681 → 588, `v0.5.7d`
+   → now), shooter did not (679 → 723).** Investigated directly rather than
+   assumed: `director.rhai` did shrink (436 → 351, per 7.5-5's own bullet/
+   enemy extraction), but the new `bullet.rhai` (112 lines) plus
+   `player.rhai` growth (243 → 260) more than offset it. A real pass over
+   all three files for duplication found exactly one genuine duplicate
+   (`is_enemy`, 3 identical lines in both `bullet.rhai` and
+   `director.rhai`) — not enough to matter, and the one place a bigger
+   savings exists (shared arena-bounds constants, `min_x`/`max_x`/`min_y`/
+   `max_y`, already commented as "duplicated, not shared" in `bullet.rhai`)
+   would need exactly the Rhai-modules feature 7.5-13 just decided not to
+   build. Recommendation given to the user: accept the growth as the
+   legitimate cost of a real architectural improvement (moving bullet hit
+   detection out of `director.rhai`'s old per-step batch scan into each
+   bullet's own `on_update`), not unaddressed cruft — **awaiting explicit
+   sign-off**, not yet acted on either way.
 
 ---
 
@@ -4899,7 +4928,7 @@ the commit message. "Appearance unchanged" is a claim that needs evidence.
 | `v0.5.7c` | Phase 7C | 2026-09-13 | 381 (was 252 at `v0.5.7b`) | 43 at `--lib` scope, 55 at `--all-targets` (down from 59/71) | not re-measured (no sim-path change) | local only — CI still blocked by the account billing lock (R37/R40) |
 | `v0.5.7d` | Phase 7D | 2026-09-13 | 381, same as `v0.5.7c` (tagged together — R88/R89 and the `UI Scale: 1.5x` follow-up landed as part of this same closing pass) | 43/55, unchanged from `v0.5.7c` | not re-measured (no sim-path change) | local only, same as `v0.5.7c` |
 | `v0.5.7` | Phase 7E | | | | | |
-| `v0.5.8` | Phase 7.5 | | | | | |
+| `v0.5.8` | Phase 7.5 | *pending — not tagged, see §5.6's own gate note* | 455 (was 381 at `v0.5.7d`) | 217 at `--all-targets` (was 55 at `v0.5.7d`; the jump is almost entirely 7.5-9's new `disallowed_types`/`disallowed_methods` lint categories firing on pre-existing lookup-only `HashMap`/`HashSet` and test-only `std::fs` use — R91/R92, already tracked, unscheduled — not a regression: message-by-message diffing at every step since 7.5-9 found zero new warnings from that step's own changes) | not re-measured (no sim-path perf change across 7.5) | local only — CI still blocked by the account billing lock (R37/R40) |
 | `v0.5.9` | Phase 8 | | | | | |
 | `v0.5.10` | Phase 9 | | | | | |
 | `v0.5.11` | Phase 10 | | | | | |
@@ -4985,6 +5014,20 @@ or delete; never let this grow past a screen.
   the shooter director by folding its bullet/enemy blocks into per-entity
   scripts — worth compiling early rather than assuming a merge that looks
   small will fit.
+- §3.2's R31/R32 rows still read `[ ] → 7.5-1` even though 7.5-1
+  (`a3d483e`) landed both fixes (uniform i64/f64 dispatch, sentinel
+  consistency) — noticed at 7.5-12/13's own wrap-up, not this session's
+  doing and not fixed here (out of scope for either step); worth a
+  one-line correction whenever someone's next in §3.
+- `cargo fmt --all -- --check` has drifted again since the 2026-09-13
+  one-time sweep — 46 files at 7.5-12's own check, 37 of them unrelated to
+  that step (pre-existing, left alone rather than swept as a drive-by).
+  Worth another explicit one-time `cargo fmt --all` pass at a future gate,
+  same shape as 7A-9/2026-09-13.
+- `cargo clippy --workspace --all-targets` held at 217 through 7.5-12
+  (down 1 from 218 at 7.5-11's own close, `923c045`) and 7.5-13 (a
+  decision-only step, no code) — still the same R91/R92-categorized gap
+  the bullet above already tracks, no new drift.
 
 ---
 
