@@ -213,11 +213,15 @@ SHRINKS the viewport (fixed-point-width side panels eat more of a fixed
 window). **Phase 7E (Editor features) deferred by user direction, same
 day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
-completeness (§5.6) under way: 7.5-1 through 7.5-12 landed
+completeness (§5.6): every numbered step (7.5-1 through 7.5-13) is now
+`[x]`**
 (`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`b1964af`/`83d598a`/
-`aff65d4`/`57de3c2`/`1d965f1`/`26e3e82`/`869f919`). Next:
-7.5-13 (Rhai `no_module` re-evaluation, §7.4 decision gate). Four things
-still owed, each flagged in its own step's
+`aff65d4`/`57de3c2`/`1d965f1`/`26e3e82`/`869f919`, 7.5-13 itself a
+decision-only step recorded in §7.4 with no commit). The phase itself
+stays `[~]`, not `[x]` (§0.5: a phase needs the gate to pass too, not just
+every step) — the phase gate (§0.5 in full: both demos rewritten smaller,
+`API_VERSION` 7 migration table, tag `v0.5.8`) hasn't run yet. Four things
+still owed from earlier steps, each flagged in its own step's
 "Landed as" note: neither demo has been launched live this session (no
 windowed/GPU sandbox available to this agent) — a real playtest of both,
 not just the headless suite, is still worth doing (7.5-11 in particular
@@ -3338,7 +3342,7 @@ undo stack and batching correctly. Checklist §5 extended.
 
 ---
 
-### 5.6 `[ ]` Phase 7.5 — Scripting completeness
+### 5.6 `[~]` Phase 7.5 — Scripting completeness
 
 **Purpose.** New phase. The demo scripts and the RPG feasibility study show
 the same gaps from two directions: `or_zero()` copy-pasted into five
@@ -4555,12 +4559,20 @@ this step), `check.ps1` clean, replay ×3 byte-identical. Neither shipped
 demo uses a node graph (`grep -l "graph:" demos/**/*.level` — no matches),
 so this step is inert for both and needed no live playtest.
 
-#### `[ ]` 7.5-13 — Rhai `no_module` re-evaluation
+#### `[x]` 7.5-13 — Rhai `no_module` re-evaluation
 
 Decide (§7.4) whether to enable Rhai modules so scripts can `import` a
 shared `common.rhai`. Cost: AST cache and hot-reload need module
 resolution; determinism is unaffected. Benefit: ends copy-paste across
 scripts for good. If yes, ship `demos/roguelike/scripts/common.rhai`.
+
+**Landed as a decision, no code.** §7.4 records it: **No**, keep
+`no_module` on. The gate's own trigger (`or_zero`-style duplication
+surviving 7.5-2/7.5-3 in a shipped script) never fired — verified fresh at
+this step with `grep -rn "or_zero" demos/`, which found only historical
+comments, no live calls, and no other cross-script duplication either.
+Nothing to build; revisit only if a future script reintroduces that kind
+of duplication.
 
 **Phase 7.5 gate:** §0.5; both demos rewritten to use the new primitives and
 **smaller** than before (record line counts); `API_VERSION` 7 documented
@@ -4826,6 +4838,14 @@ key-concatenation duplication is gone too (7.5-3 — `acted_`/`atk_*` turned
 out to already be dead before 7.5-3 even started, removed by Phase 5f's
 turn-scheduler rewrite). Revisit only if a future step reintroduces
 key-concatenation duplication in a shipped script.
+
+**Decision:** **No** — `no_module` stays on. The gate's own trigger
+condition never fired: a fresh grep across both demos at 7.5-13 found zero
+live `or_zero(` calls (only historical comments referencing the
+now-deleted pattern) and no other cross-script key-concatenation
+duplication either. Nothing currently in either shipped demo would benefit
+from `import`; enabling modules now would only add AST-cache/hot-reload
+module-resolution cost for a benefit no script actually needs yet.
 
 ### 7.5 Prefabs — decided in Phase 11
 
