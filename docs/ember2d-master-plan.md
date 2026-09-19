@@ -215,7 +215,7 @@ day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
 completeness (§5.6) under way: 7.5-1 through 7.5-12 landed
 (`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`b1964af`/`83d598a`/
-`aff65d4`/`57de3c2`/`1d965f1`/`26e3e82`/`<pending commit hash>`). Next:
+`aff65d4`/`57de3c2`/`1d965f1`/`26e3e82`/`869f919`). Next:
 7.5-13 (Rhai `no_module` re-evaluation, §7.4 decision gate). Four things
 still owed, each flagged in its own step's
 "Landed as" note: neither demo has been launched live this session (no
@@ -4508,7 +4508,7 @@ sim/src/simulation/spawn.rs`, `ember2d-editor/src/editor/impl_state/
 graph_sidecars.rs`) surface through the existing `LogEntry` console-log
 mechanism (7C-7) instead.
 
-**Landed as `<pending commit hash>`.** Every user-entered value spliced into
+**Landed as `869f919`.** Every user-entered value spliced into
 generated Rhai is now either escaped as a string literal
 (`codegen.rs::escape_rhai_string` — tags, paths, global/persistent/timer
 names, `StringLit`'s own value) or sanitized into a safe identifier
