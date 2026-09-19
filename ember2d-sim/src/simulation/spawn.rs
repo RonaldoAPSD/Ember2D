@@ -57,7 +57,8 @@ impl Simulation {
             let z = tile.layer as i32 * 10;
             let mut sprite = Sprite::new(tile.glyph, tile.fg, tile.bg, z);
             if let Some(ref path) = tile.texture {
-                let full = resolve_exit_path(path, &self.level.path, &|p| self.level_source_exists(p));
+                let full =
+                    resolve_exit_path(path, &self.level.path, &|p| self.level_source_exists(p));
                 sprite = sprite.with_texture(full);
             }
             world.add_sprite(id, sprite);
@@ -98,27 +99,69 @@ impl Simulation {
                 world.add_actor(id, actor);
             }
 
+            // 7.5-12 (R34, docs/ember2d-master-plan.md §5.6): `generate_graph`
+            // now returns a `GraphSource` (source + which lifecycle
+            // functions it actually gave real content + any generation-time
+            // warnings) rather than a bare `String`, so this combine can
+            // detect the case where the tile's own script file redefines a
+            // lifecycle function the graph already owns — concatenating the
+            // two used to let Rhai's own last-definition-wins semantics
+            // silently discard the graph's version (always the graph's,
+            // since the file's text is appended after it).
             let mut source = String::new();
+            let mut graph_result: Option<crate::graph::GraphSource> = None;
             if let Some(ref graph) = tile.graph {
-                source = crate::graph::generate_graph(graph);
+                let g = crate::graph::generate_graph(graph);
+                source = g.source.clone();
+                for w in &g.warnings {
+                    logs.push(LogEntry::warn(format!(
+                        "Tile ({}, {}) layer {}: {}",
+                        tile.x, tile.y, tile.layer, w
+                    )));
+                }
+                graph_result = Some(g);
             }
             if !source.is_empty() {
+                let mut collision: Option<Vec<&'static str>> = None;
                 if let Some(ref path) = tile.script {
-                    let full = resolve_exit_path(path, &self.level.path, &|p| self.level_source_exists(p));
+                    let full =
+                        resolve_exit_path(path, &self.level.path, &|p| self.level_source_exists(p));
                     if let Ok(file_src) = self.level_source.read_to_string(&full) {
-                        source.push('\n');
-                        source.push_str(&file_src);
+                        let hits = graph_result
+                            .as_ref()
+                            .map(|g| crate::graph::concatenation_collisions(g, &file_src))
+                            .unwrap_or_default();
+                        if hits.is_empty() {
+                            source.push('\n');
+                            source.push_str(&file_src);
+                        } else {
+                            collision = Some(hits);
+                        }
                     }
                 }
-                let key = format!("__script_{}", id);
-                if self.script_engine.compile_str(&key, &source, logs) {
-                    scripts_ok += 1;
-                } else {
+                if let Some(hits) = collision {
+                    logs.push(LogEntry::error(format!(
+                        "Tile ({}, {}) layer {}: node graph and script '{}' both define {} — the graph's own logic would be silently discarded by concatenation; rename the duplicate before this tile's script can run.",
+                        tile.x,
+                        tile.y,
+                        tile.layer,
+                        tile.script.as_deref().unwrap_or(""),
+                        hits.join(", "),
+                    )));
                     scripts_fail += 1;
+                } else {
+                    let key = format!("__script_{}", id);
+                    if self.script_engine.compile_str(&key, &source, logs) {
+                        scripts_ok += 1;
+                    } else {
+                        scripts_fail += 1;
+                    }
+                    world.add_script(id, Script::new(&key));
                 }
-                world.add_script(id, Script::new(&key));
             } else if let Some(script_path) = &tile.script {
-                let full = resolve_exit_path(script_path, &self.level.path, &|p| self.level_source_exists(p));
+                let full = resolve_exit_path(script_path, &self.level.path, &|p| {
+                    self.level_source_exists(p)
+                });
                 world.add_script(id, Script::new(&full));
                 if self.script_engine.compile(&full, logs) {
                     scripts_ok += 1;
@@ -151,7 +194,8 @@ impl Simulation {
         world.add_actor(player, Actor::local(0));
 
         if let Some(ref script_path) = pr.script.clone() {
-            let full = resolve_exit_path(script_path, &self.level.path, &|p| self.level_source_exists(p));
+            let full =
+                resolve_exit_path(script_path, &self.level.path, &|p| self.level_source_exists(p));
             world.add_script(player, Script::new(&full));
             if self.script_engine.compile(&full, logs) {
                 scripts_ok += 1;
@@ -212,3 +256,7 @@ impl Simulation {
         self.apply_script_result(world, res, persistent, logs, &mut outcome);
     }
 }
+
+#[cfg(test)]
+#[path = "spawn_tests.rs"]
+mod spawn_tests;

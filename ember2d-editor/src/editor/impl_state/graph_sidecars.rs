@@ -11,6 +11,7 @@ use super::super::EditorState;
 use ember2d::play::resolve_exit_path;
 use ember2d_sim::graph as node_graph;
 use ember2d_sim::level::LevelData;
+use ember2d_sim::scripting::LogEntry;
 use std::path::Path;
 
 impl EditorState {
@@ -25,7 +26,14 @@ impl EditorState {
     /// `data` is `self.grid.to_level_data()`'s own fresh clone, so mutating
     /// it here never touches `self.grid` — the live editor keeps every
     /// graph fully editable after a save.
-    pub(super) fn migrate_graph_sidecars(&self, data: &mut LevelData) {
+    ///
+    /// `&mut self` since 7.5-12 (R34, docs/ember2d-master-plan.md §5.6):
+    /// generation warnings and the graph/script concatenation collision
+    /// (see `do_on_start`'s own comment on the mirrored check) now go to
+    /// `self.console_log`, the same 7C-7 sink every other editor diagnostic
+    /// uses — `save` (the only caller) already takes `&mut self`, so this
+    /// costs nothing at the call site.
+    pub(super) fn migrate_graph_sidecars(&mut self, data: &mut LevelData) {
         let level_path = Path::new(&self.save_path);
         let dir = level_path
             .parent()
@@ -36,7 +44,14 @@ impl EditorState {
         for tile in &mut data.tiles {
             let Some(graph) = tile.graph.take() else { continue };
 
-            let mut source = node_graph::generate_graph(&graph);
+            let g = node_graph::generate_graph(&graph);
+            let mut source = g.source.clone();
+            for w in &g.warnings {
+                self.console_log.push(LogEntry::warn(format!(
+                    "Tile ({}, {}) layer {}: {}",
+                    tile.x, tile.y, tile.layer, w
+                )));
+            }
             if let Some(ref path) = tile.script {
                 // Step 7.5-9 (docs/ember2d-master-plan.md §5.6): `resolve_exit_path`
                 // now takes its own `exists` check as an injected closure
@@ -46,8 +61,23 @@ impl EditorState {
                 // (CLAUDE.md), so it just passes one directly.
                 let full = resolve_exit_path(path, &self.save_path, &|p| Path::new(p).exists());
                 if let Ok(existing) = std::fs::read_to_string(&full) {
-                    source.push('\n');
-                    source.push_str(&existing);
+                    let hits = node_graph::concatenation_collisions(&g, &existing);
+                    if hits.is_empty() {
+                        source.push('\n');
+                        source.push_str(&existing);
+                    } else {
+                        // 7.5-12 (R34): the file already redefines a
+                        // lifecycle function the graph gave real content
+                        // to — concatenating them would silently discard
+                        // the graph's own version (Rhai's last-definition-
+                        // wins). Keep just the graph's source and tell the
+                        // author, rather than combine and lose logic
+                        // neither side asked to drop.
+                        self.console_log.push(LogEntry::error(format!(
+                            "Tile ({}, {}) layer {}: node graph and script '{}' both define {} — keeping only the graph's own version; rename the duplicate in the script file and save again to combine them.",
+                            tile.x, tile.y, tile.layer, path, hits.join(", "),
+                        )));
+                    }
                 }
             }
 

@@ -213,10 +213,11 @@ SHRINKS the viewport (fixed-point-width side panels eat more of a fixed
 window). **Phase 7E (Editor features) deferred by user direction, same
 day** — feature/UX polish, not refactoring work; its 6 steps stand as
 written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
-completeness (§5.6) under way: 7.5-1 through 7.5-11 landed
+completeness (§5.6) under way: 7.5-1 through 7.5-12 landed
 (`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`b1964af`/`83d598a`/
-`aff65d4`/`57de3c2`/`1d965f1`/`26e3e82`). Next: 7.5-12 (node-graph
-codegen hardening). Four things still owed, each flagged in its own step's
+`aff65d4`/`57de3c2`/`1d965f1`/`26e3e82`/`<pending commit hash>`). Next:
+7.5-13 (Rhai `no_module` re-evaluation, §7.4 decision gate). Four things
+still owed, each flagged in its own step's
 "Landed as" note: neither demo has been launched live this session (no
 windowed/GPU sandbox available to this agent) — a real playtest of both,
 not just the headless suite, is still worth doing (7.5-11 in particular
@@ -329,7 +330,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R31 | S2 | i64/f64 dispatch trap: `draw_hud(x, y, ..)` with float `x` fails "function not found"; only `submit` coerces | `api.rs` throughout | `[ ]` → 7.5-1 |
 | R32 | S3 | Sentinel inconsistency (`-1` vs `0.0` vs `[]`; `()` tombstone means scripts can't store unit) | `api.rs` | `[ ]` → 7.5-1 |
 | R33 | S3 | `is_animating` always `false` | `api_animation.rs:63` | `[x]` 7.5-7 — `StepInput::animating` plumbs `PlayState.animations`' entity ids through to `ScriptState`; `is_animating` checks real membership now |
-| R34 | S2 | Node-graph codegen: no string escaping (code injection), no cycle guard (stack overflow), untyped `"0.0"` defaults, block-scoped `let` | `graph/codegen.rs:30, 40, 55, 138-146, 224, 249` | `[ ]` → 7.5-12 |
+| R34 | S2 | Node-graph codegen: no string escaping (code injection), no cycle guard (stack overflow), untyped `"0.0"` defaults, block-scoped `let` | `graph/codegen.rs:30, 40, 55, 138-146, 224, 249` | `[x]` 7.5-12 |
 | R35 | S3 | `is_collider_locked`/`set_collider_locked` and the 11-arg `spawn_entity` registered but undocumented; API doc says D3/D9 unfixed and timers are scope variables | `ember2d-scripting-api.md` | `[x]` 7A-6 — both documented; D3/D9 marked fixed; §2's "Per-entity scope" timer example rewritten to match Step 9 (nothing writes into scope between calls anymore, R22) |
 | R36 | S3 | HANDOFF/CLAUDE.md/checklist/index.html contradict the tree (test counts, format version, Phase 7 status, CI) | `docs/`, `index.html` | `[x]` 7A-6 — `index.html` already gone (pre-session); CLAUDE.md's format version/function count fixed and its "Current State" narrative replaced with a pointer to §2; checklist's test-count header and §14's defect table replaced with pointers; CI text (§15/§17) deliberately left for 7A-7 per this step's own Change list |
 | **Process** | | | | |
@@ -4481,7 +4482,7 @@ limitation every step since 7.5-5 has recorded; whether music actually
 survives a real floor transition, and whether spatial-sound panning sounds
 correct, both still need a live playtest.
 
-#### `[ ]` 7.5-12 — Node-graph codegen hardening
+#### `[x]` 7.5-12 — Node-graph codegen hardening
 
 String literals and identifiers escaped (`rhai` string escaping; identifiers
 validated against `[A-Za-z_][A-Za-z0-9_]*` with a UI error otherwise).
@@ -4492,6 +4493,67 @@ inside branches. Concatenation with a tile's own script becomes a compile
 error surfaced in the editor rather than a silent override. **Tests:**
 property-style — random graphs of the supported node kinds always produce
 Rhai that `compile_str` accepts.
+
+**Scope decision (asked at session start, re-opening the question left from
+the prior session's own close-out note):** sim-side hardening only — no new
+`IntLit`/`BoolLit` `NodeKind` variants, no editor palette/property-UI work.
+`StringLit` already exists. "Typed literal nodes... unconnected ports
+default per the port's declared type" is satisfied by tagging `PortSpec`
+with a `DataType` used only to pick each unconnected data-in port's default
+literal — a data-model addition, not a new node kind. "Identifiers
+validated... with a UI error otherwise" has no UI in this scope, so codegen
+sanitizes an invalid identifier to a safe one and records why in the
+`GraphSource` the generator now returns, which both call sites (`ember2d-
+sim/src/simulation/spawn.rs`, `ember2d-editor/src/editor/impl_state/
+graph_sidecars.rs`) surface through the existing `LogEntry` console-log
+mechanism (7C-7) instead.
+
+**Landed as `<pending commit hash>`.** Every user-entered value spliced into
+generated Rhai is now either escaped as a string literal
+(`codegen.rs::escape_rhai_string` — tags, paths, global/persistent/timer
+names, `StringLit`'s own value) or sanitized into a safe identifier
+(`sanitize_ident` — `SetVar`/`GetVar`'s `name`, which becomes a bare
+`__var_*` variable rather than a quoted argument, so escaping would be the
+wrong fix). `NodeGraph::add_edge` (graph/mod.rs) now refuses any edge that
+would close a cycle over the combined exec+data edge set (`path_exists`),
+the primary defense; `gen_exec_chain`/`resolve_data` (codegen.rs) also
+carry their own cycle guards (`GenCtx::exec_visited`/`data_visited`) as
+defense in depth against a cycle already sitting in a saved level file,
+which bypasses `add_edge` entirely on load. Unconnected `data_in` ports now
+default per the port's own new `DataType` (`PortSpec::data_type`,
+`codegen.rs::default_for_port`) instead of an unconditional `0.0` — fixes
+several previously always-broken combinations (an unwired `Branch.Cond`,
+`SetVisible.Bool`, `Log.Msg`, `RandomInt.Min`/`Max`, and others: Rhai has no
+int/float/string/bool auto-coercion for function arguments, so `ctx.log(0.0)`
+or `if 0.0 {` never compiled even before this step). A `SetVar`/`GetVar`'s
+`__var_*` local is now hoisted to one `let` block at the top of whichever
+lifecycle function (on_start/on_update/on_collide) references it
+(`GenCtx::declared_vars`), fixing the case where a variable set only inside
+a `Branch` arm was unreadable once the `if`/`else` closed (Rhai block
+scoping). `generate_graph` now returns a `GraphSource` (source + which
+lifecycle functions got real content + generation warnings) instead of a
+bare `String`; both call sites — `ember2d-sim/src/simulation/spawn.rs`'s
+runtime combine and `ember2d-editor/src/editor/impl_state/
+graph_sidecars.rs`'s save-time export (the latter's `migrate_graph_sidecars`
+is now `&mut self`) — use the new `concatenation_collisions` check before
+concatenating a graph's generated source with a tile's own script file, and
+skip the combine with a logged `LogEntry::error` instead of letting Rhai's
+last-definition-wins semantics silently discard the graph's own version.
+Also normalized `codegen_expr`'s `Spawn` fallback (an unresolved spawn-
+result reference) from the ad hoc `"0"` to `DataType::Entity`'s own `"-1"`
+sentinel, for the same "no entity" convention as everywhere else (§4.3,
+7.5-1) — not one of R34's own listed locations, but the same defect.
+**Tests:** 17 new — `graph/codegen_tests.rs` (15, including the plan's own
+property-style random-graph check, seeds 0–39, and a diamond-fan-in test
+guarding against a cycle-guard false positive) and
+`simulation/spawn_tests.rs` (2, exercising the concatenation-collision
+check through the real `Simulation::on_start` entry point rather than just
+the extracted predicate). Full workspace green (150 ember2d-sim / 54
+ember2d-editor / rest unchanged — 660+ total), `cargo clippy --workspace
+--all-targets` at 217 (down 1 from the 218 baseline — no new warnings from
+this step), `check.ps1` clean, replay ×3 byte-identical. Neither shipped
+demo uses a node graph (`grep -l "graph:" demos/**/*.level` — no matches),
+so this step is inert for both and needed no live playtest.
 
 #### `[ ]` 7.5-13 — Rhai `no_module` re-evaluation
 

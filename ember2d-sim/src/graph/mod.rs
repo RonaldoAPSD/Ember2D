@@ -266,25 +266,71 @@ pub enum PortKind {
     Data,
 }
 
+/// 7.5-12 (R34, docs/ember2d-master-plan.md §5.6): what kind of value a
+/// `Data` port carries, used only to pick a *type-correct* Rhai literal for
+/// an unconnected `data_in` port — `codegen.rs::default_for_port` is the
+/// one reader. Before this existed every unconnected data port defaulted to
+/// the bare float literal `0.0`, which happened to compile for the many
+/// registered API functions with both an `f64` and an `i64` overload
+/// (uniform typing, 7.5-1) but broke any string-, bool-, or entity-id-only
+/// one outright (`ctx.log(0.0)` — `log` has no numeric overload at all).
+/// Not a general type system: exec ports and most data ports still default
+/// to `Float` via the plain `exec_in`/`exec_out`/`data_in`/`data_out`
+/// constructors below (unused for exec, and correct-enough for data, since
+/// most numeric ports really are float/int-overloaded either way) —
+/// `data_in_typed` opts a specific port into a different default only where
+/// the port's single registered API call actually requires it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DataType {
+    Float,
+    Int,
+    Bool,
+    String,
+    /// An entity id — the sentinel for "no entity" is `-1` everywhere in
+    /// the scripting API (§4.3, 7.5-1), not `0`.
+    Entity,
+    Array,
+}
+
+impl DataType {
+    pub fn default_literal(self) -> &'static str {
+        match self {
+            DataType::Float => "0.0",
+            DataType::Int => "0",
+            DataType::Bool => "false",
+            DataType::String => "\"\"",
+            DataType::Entity => "-1",
+            DataType::Array => "[]",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PortSpec {
     pub label: &'static str,
     pub dir: PortDir,
     pub kind: PortKind,
+    pub data_type: DataType,
 }
 
 impl PortSpec {
     const fn exec_in(label: &'static str) -> Self {
-        PortSpec { label, dir: PortDir::In, kind: PortKind::Exec }
+        PortSpec { label, dir: PortDir::In, kind: PortKind::Exec, data_type: DataType::Float }
     }
     const fn exec_out(label: &'static str) -> Self {
-        PortSpec { label, dir: PortDir::Out, kind: PortKind::Exec }
+        PortSpec { label, dir: PortDir::Out, kind: PortKind::Exec, data_type: DataType::Float }
     }
     const fn data_in(label: &'static str) -> Self {
-        PortSpec { label, dir: PortDir::In, kind: PortKind::Data }
+        PortSpec { label, dir: PortDir::In, kind: PortKind::Data, data_type: DataType::Float }
     }
     const fn data_out(label: &'static str) -> Self {
-        PortSpec { label, dir: PortDir::Out, kind: PortKind::Data }
+        PortSpec { label, dir: PortDir::Out, kind: PortKind::Data, data_type: DataType::Float }
+    }
+    /// Same as `data_in`, for the minority of input ports whose one
+    /// registered API call doesn't accept a bare float (a string, a bool, an
+    /// entity id, or an array) — see the `DataType` doc comment above.
+    const fn data_in_typed(label: &'static str, data_type: DataType) -> Self {
+        PortSpec { label, dir: PortDir::In, kind: PortKind::Data, data_type }
     }
 }
 
@@ -296,7 +342,12 @@ pub fn ports_for(kind: &NodeKind) -> Vec<PortSpec> {
         NodeKind::OnKeyHeld { .. } | NodeKind::OnKeyPress { .. } => vec![P::exec_out("Out")],
         NodeKind::OnCollide { .. } => vec![P::exec_out("Out"), P::data_out("Other")],
         NodeKind::Branch => {
-            vec![P::exec_in("In"), P::data_in("Cond"), P::exec_out("True"), P::exec_out("False")]
+            vec![
+                P::exec_in("In"),
+                P::data_in_typed("Cond", DataType::Bool),
+                P::exec_out("True"),
+                P::exec_out("False"),
+            ]
         }
         NodeKind::Sequence { outputs } => {
             let mut v = vec![P::exec_in("In")];
@@ -320,8 +371,8 @@ pub fn ports_for(kind: &NodeKind) -> Vec<PortSpec> {
         NodeKind::Despawn => vec![P::exec_in("In")],
         NodeKind::Spawn => vec![
             P::exec_in("In"),
-            P::data_in("Glyph"),
-            P::data_in("Tag"),
+            P::data_in_typed("Glyph", DataType::String),
+            P::data_in_typed("Tag", DataType::String),
             P::data_in("X"),
             P::data_in("Y"),
             P::exec_out("Out"),
@@ -329,13 +380,17 @@ pub fn ports_for(kind: &NodeKind) -> Vec<PortSpec> {
         ],
         NodeKind::LoadLevel { .. } => vec![P::exec_in("In")],
         NodeKind::PlaySound { .. } => vec![P::exec_in("In"), P::exec_out("Out")],
-        NodeKind::Log => vec![P::exec_in("In"), P::data_in("Msg"), P::exec_out("Out")],
-        NodeKind::SetGlyph => vec![P::exec_in("In"), P::data_in("Glyph"), P::exec_out("Out")],
+        NodeKind::Log => {
+            vec![P::exec_in("In"), P::data_in_typed("Msg", DataType::String), P::exec_out("Out")]
+        }
+        NodeKind::SetGlyph => {
+            vec![P::exec_in("In"), P::data_in_typed("Glyph", DataType::String), P::exec_out("Out")]
+        }
         NodeKind::DrawHUD => vec![
             P::exec_in("In"),
             P::data_in("X"),
             P::data_in("Y"),
-            P::data_in("Text"),
+            P::data_in_typed("Text", DataType::String),
             P::exec_out("Out"),
         ],
         NodeKind::GetPosition => vec![P::data_out("X"), P::data_out("Y")],
@@ -362,8 +417,16 @@ pub fn ports_for(kind: &NodeKind) -> Vec<PortSpec> {
         NodeKind::GetMousePos => vec![P::data_out("X"), P::data_out("Y")],
         NodeKind::IsSolidAt => vec![P::data_in("X"), P::data_in("Y"), P::data_out("Bool")],
         NodeKind::GetEntityAt => vec![P::data_in("X"), P::data_in("Y"), P::data_out("Entity")],
-        NodeKind::GetDistance => vec![P::data_in("A"), P::data_in("B"), P::data_out("Dist")],
-        NodeKind::GetAngleTo => vec![P::data_in("A"), P::data_in("B"), P::data_out("Rad")],
+        NodeKind::GetDistance => vec![
+            P::data_in_typed("A", DataType::Entity),
+            P::data_in_typed("B", DataType::Entity),
+            P::data_out("Dist"),
+        ],
+        NodeKind::GetAngleTo => vec![
+            P::data_in_typed("A", DataType::Entity),
+            P::data_in_typed("B", DataType::Entity),
+            P::data_out("Rad"),
+        ],
         NodeKind::SetCamera => {
             vec![P::exec_in("In"), P::data_in("X"), P::data_in("Y"), P::exec_out("Out")]
         }
@@ -374,14 +437,21 @@ pub fn ports_for(kind: &NodeKind) -> Vec<PortSpec> {
             vec![P::exec_in("In"), P::data_in("Sec"), P::exec_out("Out")]
         }
         NodeKind::TimerDone { .. } => vec![P::data_out("Bool")],
-        NodeKind::SetVisible => vec![P::exec_in("In"), P::data_in("Bool"), P::exec_out("Out")],
+        NodeKind::SetVisible => {
+            vec![P::exec_in("In"), P::data_in_typed("Bool", DataType::Bool), P::exec_out("Out")]
+        }
         NodeKind::SetZOrder => vec![P::exec_in("In"), P::data_in("Z"), P::exec_out("Out")],
 
         NodeKind::CancelTimer { .. } => vec![P::exec_in("In"), P::exec_out("Out")],
         NodeKind::PlayMusic { .. } => vec![P::exec_in("In"), P::exec_out("Out")],
         NodeKind::StopMusic => vec![P::exec_in("In"), P::exec_out("Out")],
         NodeKind::SetColor => {
-            vec![P::exec_in("In"), P::data_in("FG"), P::data_in("BG"), P::exec_out("Out")]
+            vec![
+                P::exec_in("In"),
+                P::data_in_typed("FG", DataType::String),
+                P::data_in_typed("BG", DataType::String),
+                P::exec_out("Out"),
+            ]
         }
         NodeKind::DrawBox => vec![
             P::exec_in("In"),
@@ -389,8 +459,8 @@ pub fn ports_for(kind: &NodeKind) -> Vec<PortSpec> {
             P::data_in("Y"),
             P::data_in("W"),
             P::data_in("H"),
-            P::data_in("FG"),
-            P::data_in("BG"),
+            P::data_in_typed("FG", DataType::String),
+            P::data_in_typed("BG", DataType::String),
             P::exec_out("Out"),
         ],
         NodeKind::FillRect => vec![
@@ -399,22 +469,41 @@ pub fn ports_for(kind: &NodeKind) -> Vec<PortSpec> {
             P::data_in("Y"),
             P::data_in("W"),
             P::data_in("H"),
-            P::data_in("Char"),
-            P::data_in("FG"),
-            P::data_in("BG"),
+            P::data_in_typed("Char", DataType::String),
+            P::data_in_typed("FG", DataType::String),
+            P::data_in_typed("BG", DataType::String),
             P::exec_out("Out"),
         ],
         NodeKind::ClearHUD => vec![P::exec_in("In"), P::exec_out("Out")],
-        NodeKind::RandomInt => vec![P::data_in("Min"), P::data_in("Max"), P::data_out("Val")],
+        NodeKind::RandomInt => vec![
+            P::data_in_typed("Min", DataType::Int),
+            P::data_in_typed("Max", DataType::Int),
+            P::data_out("Val"),
+        ],
         NodeKind::RandomFloat => vec![P::data_out("Val")],
         NodeKind::RandomBool => vec![P::data_in("Prob"), P::data_out("Val")],
-        NodeKind::RandomChoice => vec![P::data_in("Arr"), P::data_out("Val")],
+        NodeKind::RandomChoice => {
+            vec![P::data_in_typed("Arr", DataType::Array), P::data_out("Val")]
+        }
         NodeKind::GetElapsed => vec![P::data_out("Val")],
-        NodeKind::EntityExists => vec![P::data_in("ID"), P::data_out("Bool")],
-        NodeKind::HasTag => vec![P::data_in("ID"), P::data_in("Tag"), P::data_out("Bool")],
-        NodeKind::GetColliderLayer => vec![P::data_in("ID"), P::data_out("Lyr")],
+        NodeKind::EntityExists => {
+            vec![P::data_in_typed("ID", DataType::Entity), P::data_out("Bool")]
+        }
+        NodeKind::HasTag => vec![
+            P::data_in_typed("ID", DataType::Entity),
+            P::data_in_typed("Tag", DataType::String),
+            P::data_out("Bool"),
+        ],
+        NodeKind::GetColliderLayer => {
+            vec![P::data_in_typed("ID", DataType::Entity), P::data_out("Lyr")]
+        }
         NodeKind::SetColliderLayer => {
-            vec![P::exec_in("In"), P::data_in("ID"), P::data_in("Lyr"), P::exec_out("Out")]
+            vec![
+                P::exec_in("In"),
+                P::data_in_typed("ID", DataType::Entity),
+                P::data_in_typed("Lyr", DataType::String),
+                P::exec_out("Out"),
+            ]
         }
         NodeKind::FindEntitiesInRect => vec![
             P::data_in("X"),
@@ -423,9 +512,11 @@ pub fn ports_for(kind: &NodeKind) -> Vec<PortSpec> {
             P::data_in("H"),
             P::data_out("Arr"),
         ],
-        NodeKind::CountByTag => vec![P::data_in("Tag"), P::data_out("Val")],
-        NodeKind::FindByTag => vec![P::data_in("Tag"), P::data_out("ID")],
-        NodeKind::FindAllByTag => vec![P::data_in("Tag"), P::data_out("Arr")],
+        NodeKind::CountByTag => vec![P::data_in_typed("Tag", DataType::String), P::data_out("Val")],
+        NodeKind::FindByTag => vec![P::data_in_typed("Tag", DataType::String), P::data_out("ID")],
+        NodeKind::FindAllByTag => {
+            vec![P::data_in_typed("Tag", DataType::String), P::data_out("Arr")]
+        }
         NodeKind::MouseLeftPressed => vec![P::data_out("Bool")],
         NodeKind::MouseLeftHeld => vec![P::data_out("Bool")],
     }
@@ -471,15 +562,61 @@ impl NodeGraph {
     pub fn get_mut(&mut self, id: NodeId) -> Option<&mut Node> {
         self.nodes.iter_mut().find(|n| n.id == id)
     }
+    /// Returns `false` (and leaves the graph unchanged) if this edge would
+    /// close a cycle — 7.5-12, R34: `codegen.rs`'s traversal follows exec
+    /// edges forward (`from_node` -> `to_node`) and data edges backward
+    /// (`to_node` looks up its own producer), so a cycle in either
+    /// direction sends `gen_exec_chain`/`codegen_expr` into unbounded
+    /// recursion. Rejecting the edge here (checked against the combined
+    /// exec+data edge set, since a cycle is a cycle regardless of which
+    /// port kind closes it) stops one from being drawn in the editor in the
+    /// first place; `gen_exec_chain`/`resolve_data`'s own visited-set guards
+    /// stay as defense in depth for a cycle already sitting in a saved
+    /// level file from before this existed (deserializing a `.level`
+    /// doesn't go through `add_edge` at all).
     pub fn add_edge(
         &mut self,
         from_node: NodeId,
         from_port: usize,
         to_node: NodeId,
         to_port: usize,
-    ) {
+    ) -> bool {
+        if self.path_exists(to_node, from_node) {
+            return false;
+        }
         self.edges.retain(|e| !(e.to_node == to_node && e.to_port == to_port));
         self.edges.push(Edge { from_node, from_port, to_node, to_port });
+        true
+    }
+    /// Is there already a directed path (over every edge, exec or data)
+    /// from `from` to `to`? `from == to` trivially counts, so this also
+    /// catches a node wired directly to its own input. Used only by
+    /// `add_edge`'s cycle check above.
+    fn path_exists(&self, from: NodeId, to: NodeId) -> bool {
+        if from == to {
+            return true;
+        }
+        let mut stack = vec![from];
+        // Lookup-only membership set (DFS "already queued"), never
+        // iterated — order can't affect the boolean result, so this is
+        // exempt from the sim's no-HashSet-iteration rule in spirit, but
+        // uses `BTreeSet` anyway to stay clear of the crate's
+        // `disallowed_types` lint without needing a per-site `#[allow]`.
+        let mut seen: std::collections::BTreeSet<NodeId> = std::collections::BTreeSet::new();
+        while let Some(n) = stack.pop() {
+            if !seen.insert(n) {
+                continue;
+            }
+            for e in &self.edges {
+                if e.from_node == n {
+                    if e.to_node == to {
+                        return true;
+                    }
+                    stack.push(e.to_node);
+                }
+            }
+        }
+        false
     }
     pub fn remove_edges_for(&mut self, id: NodeId) {
         self.edges.retain(|e| e.from_node != id && e.to_node != id);
