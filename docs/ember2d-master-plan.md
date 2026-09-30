@@ -181,7 +181,7 @@ start screen's New/Open Project browsers start from.
 | 7C | Editor foundation | `[x]` `v0.5.7c` — A.12 (all 9 steps `[x]`, 7C-9's own §7.1 decision recorded) |
 | 7D | Theme and restyle | `[x]` `v0.5.7d` — A.13 (7D-1/7D-4's own deferred remainder — `themes/ember-pixel` — stays unbuilt by design, not a gap; R88/R89 and the `UI Scale: 1.5x` follow-up landed as part of this same closing pass) |
 | 7E | Editor features | `[-]` deferred, 2026-09-13 (by user direction) — §5.5. Feature/UX polish (rulers, Inspector 2.0, toasts, command palette, rendering perf, undo audit) rather than refactoring work; revisit as a future update, not blocking the phase sequence below |
-| 7.5 | Scripting completeness | `[ ]` — §5.6, **next up** |
+| 7.5 | Scripting completeness | `[~]` — §5.6: all 13 steps `[x]`; gate open, awaiting the user's live checklist §11–§13 pass (shooter LOC exception accepted 2026-09-29) |
 | 8 | Tilemap, assets, animation authoring | `[ ]` — §5.7 |
 | 9 | Scene and UI layer + RPG demo | `[ ]` — §5.8 |
 | 10 | Networked 2-player | `[ ]` — §5.9 |
@@ -4604,8 +4604,14 @@ see §9's `v0.5.8` row). Two things still block the tag:
    build. Recommendation given to the user: accept the growth as the
    legitimate cost of a real architectural improvement (moving bullet hit
    detection out of `director.rhai`'s old per-step batch scan into each
-   bullet's own `on_update`), not unaddressed cruft — **awaiting explicit
-   sign-off**, not yet acted on either way.
+   bullet's own `on_update`), not unaddressed cruft. **Decided
+   (2026-09-29, user sign-off): accepted and documented** — the shooter's
+   723 lines stand as a recorded exception to this gate's "smaller"
+   criterion, not a blocker. No script changes.
+
+**Remaining blocker (2026-09-29):** item 1 only — the user's own live
+§11/§12/§13 pass. By user direction, Phase 8 work (8-1) proceeds in the
+meantime; 7.5 stays `[~]` and untagged until that pass is done.
 
 ---
 
