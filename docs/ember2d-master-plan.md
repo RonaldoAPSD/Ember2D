@@ -5151,7 +5151,7 @@ prerequisites, scheduled first (user's choice), so the demo carries no
 workarounds. The user approved the API/format additions below (all
 additive: no `API_VERSION` or level-format bump).
 
-#### `[x]` 9-5 — Per-project world cell size (square sprites) (`HASH95`)
+#### `[x]` 9-5 — Per-project world cell size (square sprites) (`bd2cbe4`)
 World cells are 8×16 px and every tileset tile is forced to one cell, so a
 16×16 sprite draws twice as tall as wide (§11's "square world units").
 `ProjectData.world_cell: (w, h)` px, default (8, 16) — the ASCII demos are
@@ -5162,7 +5162,7 @@ by k), script mouse-world coordinates and the starting camera, and the
 editor canvas. HUD, widgets, UI and `viewport_size` stay on the 8×16 glyph
 grid.
 
-- **Landed as** (`HASH95`):
+- **Landed as** (`bd2cbe4`):
   - `ember2d/src/project.rs`: `ProjectData.world_cell` (serde default
     (8, 16)) and `PlaySettings` — loop, pixels per unit, turn model and
     world cell as one value (`cell_scale`, `world_cell_px`), which the
@@ -5588,7 +5588,7 @@ or delete; never let this grow past a screen.
 
 - Square world units (true 8×8 cells): still a platformer-demo concern; 7B-2
   makes the cell aspect a single constant, which is the prerequisite.
-  **Done in 9-5 (`HASH95`)** as a per-project world cell size.
+  **Done in 9-5 (`bd2cbe4`)** as a per-project world cell size.
 - A pixel-space script HUD API beyond 9-3's menu/dialogue widgets.
 - OS drag-and-drop into the editor (an image dragged in from Explorer):
   winit delivers `DroppedFile`, nothing routes it yet; 8-4's in-editor drop
