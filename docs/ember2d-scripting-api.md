@@ -467,12 +467,30 @@ Mouse: `get_mouse_x()` · `get_mouse_y()` (cells) · `get_mouse_world_x()` · `g
 > the camera's, so they inherit the same nondeterminism.
 
 ### Camera
-`get_camera_x()` · `get_camera_y()` · `set_camera(x,y)` · `shake_camera(intensity,duration)`
+`get_camera_x()` · `get_camera_y()` · `set_camera(x,y)` · `shake_camera(intensity,duration)` · `set_camera_target(id)` · `set_camera_target(x,y)` · `clear_camera_target()` · `set_camera_zoom(z)` · `get_camera_zoom()` → float · `set_camera_bounds(x,y,w,h)` · `clear_camera_bounds()` · `set_camera_speed(s)`
 
-Setting the camera overrides follow until cleared. Phase 2 gave the
-internal `Camera` a `zoom` field, but there is still no scripted zoom
-control (no `set_zoom`/`get_zoom`) — nothing here changed as of this
-writing.
+Step 9-2 (docs/ember2d-master-plan.md §5.8) made the camera scriptable,
+which is what cutscenes need:
+
+- `set_camera_target(id)` follows an entity (back to the default follow if
+  it's despawned); `set_camera_target(x, y)` centres on a world point;
+  `clear_camera_target()` returns to following the level's camera-follow
+  actor. `set_camera(x, y)` is the same as `set_camera_target(x, y)` — it
+  used to pin the camera with no way back.
+- `set_camera_zoom(z)`: screen cells per world unit, clamped to 0.25–8
+  (glyphs and sprites scale with it). `get_camera_zoom()` reads the last
+  zoom a script set, as of the start of the pass.
+- `set_camera_bounds(x, y, w, h)` keeps the view inside that world rect
+  instead of the level's; `clear_camera_bounds()` goes back to the level.
+  When the bounds are smaller than the view, the view's top-left edge sits
+  on the bounds' top-left corner (as a small level always has).
+- `set_camera_speed(s)` sets how quickly the camera catches up with its
+  target, per second (default 5); `0` jumps straight there.
+- `get_mouse_world_x/y` divide the screen cell by the zoom;
+  `get_mouse_x/y` stay screen cells.
+- None of this is saved with the game — a script that wants its camera
+  back after a load sets it again in `on_load`. NaN and other nonsense
+  values are ignored (a negative bounds size, a negative entity id).
 
 > **Not replay-safe** (Step 5d, docs/ember2d-phase5-plan.md). Camera
 > position is presentation, not simulation: `PlayState`'s follow-lerp runs
@@ -729,6 +747,7 @@ numeric literals in one consistent style, though; mixing (`draw_hud(1,
 | 7.5 | Step 7.5-4 (docs/ember2d-master-plan.md §5.6): `get_stat`/`get_tint_aware`/`get_tint_asleep` added — numeric stats and an aware/asleep tint pair authored per actor tile via `TileRecord.actor.stats`/`tint_aware`/`tint_asleep`, letting `demos/roguelike/scripts/enemy.rhai` replace the near-duplicate `enemy_rat.rhai`/`enemy_boss.rhai` | **No** — purely additive: three new functions backed by new `ActorRecord`/`Actor` fields; every existing function's shape and behavior is unchanged. |
 | 8 | Step 8-1 (docs/ember2d-master-plan.md §5.7): static tiles become cells of one `Tilemap` entity; `is_tilemap(id)` and `get_tile_tag(x,y)` added | **No bump** — no signature or return shape changed and `is_solid_at`/`get_path`/`reachable_within` answer identically (pinned by `ember2d/tests/tilemap_equivalence.rs` against the real floor2). But an *identity* changed: `get_entity_at`/`find_entities_in_rect`/`raycast`/`on_collide`'s `other` now return the tilemap's id where they used to return a wall's, so a script recognising walls by `has_tag(hit, "wall")` needs `is_tilemap(hit)`. Every shipped script that did (`bullet.rhai`, the only one) was updated in the same step. |
 | 9 | Step 9-1 (docs/ember2d-master-plan.md §5.8): the scene stack — `push_scene`/`pop_scene`/`current_scene`/`scene_count`/`scene_data`/`quit_game`/`return_to_editor`/`is_editor_preview`, and the `on_start`/`on_input`/`on_update` contract for scene scripts. The Esc pause menu became a scene. | **No** — purely additive; a level's own scripts run exactly as before whenever no world-pausing scene is open. |
+| 9 | Step 9-2: `set_camera_target`/`clear_camera_target`/`set_camera_zoom`/`get_camera_zoom`/`set_camera_bounds`/`clear_camera_bounds`/`set_camera_speed`; `get_mouse_world_x/y` account for zoom | **No** — additive. `set_camera(x,y)` now behaves as `set_camera_target(x,y)` (same effect, but `clear_camera_target()` can now undo it); at the default zoom of 1 every existing function returns what it did before. |
 
 **Phase 6 is a zero-API-break phase** — `API_VERSION` stayed `6` through
 Step 5f. Phase 7.5-1 is the next break after it; 7.5-2 and 7.5-3 (the two

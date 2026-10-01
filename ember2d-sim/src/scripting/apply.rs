@@ -350,7 +350,7 @@ impl ScriptEngine {
             globals: std::mem::take(&mut state.globals),
             clips: std::mem::take(&mut state.clips),
             persistent: std::mem::take(&mut state.persistent),
-            camera_override: state.pending_camera.take(),
+            camera: std::mem::take(&mut state.pending_camera),
             shake_state: state.pending_shake.take(),
             clear_hud: state.clear_hud,
             particles: std::mem::take(&mut state.pending_particles),

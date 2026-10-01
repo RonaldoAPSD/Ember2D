@@ -21,13 +21,8 @@ impl PlayState {
     /// field `update` needs to hand back through `UpdateContext`, not
     /// something presentation reacts to).
     pub(super) fn apply_outcome(&mut self, outcome: ember2d_sim::simulation::StepOutcome) {
-        // Sticky until a script sets a new one — matches
-        // `docs/ember2d-scripting-api.md`'s "Camera" section ("setting the
-        // camera overrides follow until cleared"): a step with nothing new
-        // to say just leaves this alone.
-        if outcome.camera_override.is_some() {
-            self.camera_override = outcome.camera_override;
-        }
+        // Step 9-2: camera requests no longer come through here — they
+        // land on `Simulation`'s `CameraSettings` (read by camera_ctl.rs).
         if let Some(shake) = outcome.shake_state {
             self.shake_state = Some(shake);
             self.shake_timer = shake.duration;

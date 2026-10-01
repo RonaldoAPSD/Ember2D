@@ -410,7 +410,12 @@ pub(super) struct ScriptState {
     pub(super) pending_set_frame: Vec<(i64, usize)>,
     /// `PendingWrite`, same reasoning as `pending_globals` above.
     pub(super) pending_persistent: BTreeMap<String, PendingWrite>,
-    pub(super) pending_camera: Option<crate::math::Vec2>,
+    /// Step 9-2 (docs/ember2d-master-plan.md §5.8): this pass's camera
+    /// requests — was a single `Option<Vec2>` for `set_camera` alone.
+    pub(super) pending_camera: super::camera::CameraWrites,
+    /// Step 9-2: the camera as scripts had set it when this pass began —
+    /// what `get_camera_zoom` reads.
+    pub(super) camera_view: super::camera::CameraSettings,
     pub(super) pending_shake: Option<ShakeState>,
     pub(super) pending_visibility: Vec<(i64, bool)>,
     pub(super) pending_z_order: Vec<(i64, i32)>,
@@ -630,7 +635,8 @@ impl ScriptState {
             pending_clip_speed: Vec::new(),
             pending_set_frame: Vec::new(),
             pending_persistent: BTreeMap::new(),
-            pending_camera: None,
+            pending_camera: Default::default(),
+            camera_view: Default::default(),
             pending_shake: None,
             pending_visibility: Vec::new(),
             pending_z_order: Vec::new(),

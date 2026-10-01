@@ -518,8 +518,11 @@ impl Simulation {
             }
         }
 
-        if res.camera_override.is_some() {
-            outcome.camera_override = res.camera_override;
+        // Step 9-2: camera requests land on `self.camera` (was a sticky
+        // `outcome.camera_override` for `set_camera` alone).
+        if !res.camera.is_empty() {
+            res.camera.apply_to(&mut self.camera);
+            self.script_engine.set_camera_view(self.camera);
         }
         if let Some(shake) = res.shake_state {
             outcome.shake_state = Some(shake);

@@ -62,7 +62,6 @@ impl ScriptEngine {
                 globals: args.globals,
                 clips: args.clips,
                 persistent: std::mem::take(persistent),
-                camera_override: None,
                 shake_state: None,
                 clear_hud: false,
                 particles: Vec::new(),
@@ -77,6 +76,7 @@ impl ScriptEngine {
         let mut ctx_state = ScriptState::from_world(world, &self.layers, std::mem::take(persistent), args);
         ctx_state.timers = std::mem::take(&mut self.timers);
         ctx_state.scene = self.scene_ctx(); // Step 9-1
+        ctx_state.camera_view = self.camera_view; // Step 9-2
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         for (entity_id, other_id, path) in calls {
             let entity_ctx = ctx.with_entity(entity_id);

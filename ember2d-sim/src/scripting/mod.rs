@@ -11,12 +11,15 @@ mod lifecycle;
 mod registry;
 // Step 9-1: the scene stack's scripting half — see that file's header.
 mod scene;
+// Step 9-2: the script-drivable camera — see that file's header.
+mod camera;
 mod state;
 mod types;
 
 pub use api::*;
 pub use engine::*;
 pub use types::*;
+pub use camera::{CameraSettings, CameraTarget, CameraWrites, MAX_ZOOM, MIN_ZOOM};
 pub use scene::{FlowRequest, SceneInfo, SceneOp, BUILTIN_PAUSE_KEY, BUILTIN_PAUSE_SOURCE};
 // `WorldSnapshot` itself stays otherwise internal (`pub(super)` within this
 // module) — this one re-export is just so `play.rs` can build one once per

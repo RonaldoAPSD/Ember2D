@@ -12,6 +12,8 @@
 // `UpdateContext`/the editor are all untouched by it.
 
 mod animation;
+// Step 9-2: the per-frame camera follow — see that file's header.
+mod camera_ctl;
 // Step 9-1: apply_outcome/flush_audio — see that file's header.
 mod outcome;
 mod render;
@@ -95,7 +97,6 @@ pub struct PlayState {
     // parameter, sourced from `UpdateContext::audio` — see that field's own
     // doc comment (engine.rs) and `audio.rs`'s header comment for why.
     script_log: Vec<LogEntry>,
-    pub camera_override: Option<Vec2>,
     pub shake_state: Option<ShakeState>,
     pub shake_timer: f32,
     /// Owns world<->screen conversion for this level (Step 2e). Its
@@ -173,7 +174,6 @@ impl PlayState {
             sim,
             pending_transition: None,
             script_log: Vec::new(),
-            camera_override: None,
             shake_state: None,
             shake_timer: 0.0,
             camera: Camera::new(0.0, 0.0), // real dimensions set every update()
@@ -331,47 +331,10 @@ impl GameState for PlayState {
             self.show_debug = !self.show_debug;
         }
 
-        let mut target_cam =
-            self.sim.camera_entity().map(|id| world.get_global_position(id)).unwrap_or(Vec2::ZERO);
-        if let Some(over) = self.camera_override {
-            target_cam = over;
-        }
-
-        // Step 4g: the world gets the full viewport now — the two
-        // hardcoded HUD bars that used to reserve row 0 and the last row
-        // are gone; engine chrome is a toggleable F3 overlay drawn on top
-        // instead of reserving space.
-        let level = self.sim.level();
-        let game_h = (viewport_height as i32).max(1) as f32;
-        let half_w = viewport_width as f32 / 2.0;
-        let half_h = game_h / 2.0;
-
-        let min_x = half_w;
-        let max_x = (level.width as f32 - half_w).max(min_x);
-        let min_y = half_h;
-        let max_y = (level.height as f32 - half_h).max(min_y);
-
-        target_cam.x = target_cam.x.clamp(min_x, max_x);
-        target_cam.y = target_cam.y.clamp(min_y, max_y);
-
-        if self.camera.position == Vec2::ZERO {
-            self.camera.position = target_cam;
-        } else {
-            // Presentation, not simulation — frame_delta_time (real
-            // wall-clock), not delta_time, so the camera stays visually
-            // smooth regardless of the sim's own clock. `exp()` is a named
-            // cross-platform determinism hazard (refactor plan §5.2 H2) —
-            // one more reason camera position must never be read back into
-            // anything a script or the sim depends on.
-            let lerp_speed = 5.0;
-            self.camera.position = self.camera.position
-                + (target_cam - self.camera.position)
-                    * (1.0 - (-lerp_speed * frame_delta_time).exp());
-        }
-        self.camera.viewport_width = viewport_width as f32;
-        self.camera.viewport_height = game_h;
-        self.camera.viewport_origin = Vec2::ZERO;
-        self.camera.zoom = 1.0; // Phase 2 doesn't add a scripted zoom control yet
+        // Step 9-2 (docs/ember2d-master-plan.md §5.8): what the camera
+        // follows, its zoom, bounds and speed are script-set now — see
+        // `play/camera_ctl.rs`.
+        self.update_camera(world, frame_delta_time, viewport_width, viewport_height);
 
         // Phase 5.5 Part 3 (docs/ember2d-phase5.5-plan.md) gated the whole
         // scheduler on the WHOLE animation queue being empty — no actor's

@@ -192,14 +192,13 @@ pub struct StepInput<'a> {
 /// `pending_level`/`pending_load` are already-resolved (loaded from disk),
 /// not raw path strings — the caller's only job is turning a `Some` here
 /// into its own `Transition` (an `ember2d`-only type `Simulation` can't
-/// reference). `camera_override`/`shake_state` report "a script asked for
-/// this just now"; the caller is the one that decides whether that's sticky
-/// (camera override, until changed again) or a fresh timer (shake) — see
-/// `ember2d::play::PlayState::update`'s handling of each.
+/// reference). `shake_state` reports "a script asked for this just now"; the
+/// caller starts a fresh timer for it. (Camera requests used to come back
+/// here too, as `camera_override`; since Step 9-2 they live on
+/// `Simulation::camera_settings` instead.)
 #[derive(Default)]
 pub struct StepOutcome {
     pub turn_triggered: bool,
-    pub camera_override: Option<Vec2>,
     pub shake_state: Option<ShakeState>,
     pub particles: Vec<crate::scripting::ParticleRequest>,
     pub pending_level: Option<LevelData>,
@@ -307,6 +306,9 @@ pub struct Simulation {
     /// `late_step` checks, so a scene popped mid-step can't unpause a step
     /// that already skipped the level's own passes.
     paused_this_step: bool,
+    /// Step 9-2 (docs/ember2d-master-plan.md §5.8): the camera as scripts
+    /// have set it — play mode reads it every frame (`camera_settings`).
+    camera: crate::scripting::CameraSettings,
 }
 
 impl Simulation {
@@ -331,6 +333,7 @@ impl Simulation {
             scenes: Vec::new(),
             editor_preview: false,
             paused_this_step: false,
+            camera: Default::default(),
         }
     }
 
@@ -415,6 +418,13 @@ impl Simulation {
     pub fn layers(&self) -> &LayerRegistry {
         &self.layers
     }
+    /// Step 9-2: the camera as scripts have set it (target, zoom, bounds,
+    /// follow speed). Not saved: a script that wants its camera back after a
+    /// load sets it again in `on_load`.
+    pub fn camera_settings(&self) -> crate::scripting::CameraSettings {
+        self.camera
+    }
+
     pub fn camera_entity(&self) -> Option<EntityId> {
         self.camera_entity
     }

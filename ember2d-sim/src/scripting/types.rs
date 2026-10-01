@@ -69,7 +69,9 @@ pub struct ScriptUpdateResult {
     pub globals: BTreeMap<String, rhai::Dynamic>,
     pub clips: BTreeMap<String, crate::components::AnimationClip>,
     pub persistent: BTreeMap<String, rhai::Dynamic>,
-    pub camera_override: Option<crate::math::Vec2>,
+    /// Step 9-2: this pass's camera requests (was `camera_override:
+    /// Option<Vec2>`, `set_camera` alone).
+    pub camera: super::camera::CameraWrites,
     pub shake_state: Option<ShakeState>,
     pub clear_hud: bool,
     pub particles: Vec<ParticleRequest>,

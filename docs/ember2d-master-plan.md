@@ -5008,10 +5008,38 @@ the engine pauses `on_turn`/`on_update` for the level while a scene with
   - **Live-verified:** F5, Esc opens the built-in pause scene over the
     level, Down/Enter on Back to Editor returns to the editor.
 
-#### `[ ]` 9-2 — Script-drivable camera
+#### `[x]` 9-2 — Script-drivable camera (`HASH92`)
 `set_camera_target(id | position)`, `set_camera_zoom`, `camera_shake` (already
 via animation), `set_camera_bounds`. Lerp stays presentation-side (its
 `exp()` never re-enters the sim). Cutscenes become possible.
+
+- **Scoped (2026-10-01, by the agent; additive API):** also
+  `clear_camera_target`, `get_camera_zoom`, `clear_camera_bounds` and
+  `set_camera_speed` (0 = jump) — a cutscene needs to pan, hold and come
+  back, which the plan's four calls alone can't undo. `camera_shake` was
+  already `shake_camera`; unchanged. Camera settings are not saved (a
+  script re-applies them in `on_load`).
+- **Landed as** (`HASH92`):
+  - `ember2d-sim/src/scripting/camera.rs`: `CameraSettings` (target:
+    default follow / entity / point, zoom 0.25–8, optional bounds, speed),
+    the per-pass `CameraWrites`, and the twelve registrations. `Simulation`
+    owns the settings (`camera_settings()`); writes land in
+    `apply_script_result`. `set_camera` became `set_camera_target(x, y)`,
+    which retired the old `camera_override` plumbing (`ScriptUpdateResult`,
+    `StepOutcome`, `PlayState`). `get_mouse_world_x/y` divide by zoom.
+  - `ember2d/src/play/camera_ctl.rs`: the per-frame follow moved out of
+    `PlayState::update` — resolves the target (despawned entity → default
+    follow), clamps the view to the bounds at the current zoom
+    (`clamp_center`, unit-tested; a view larger than the bounds anchors to
+    their top-left, matching how small levels always drew), and smooths on
+    real frame time at the script's speed (`follow_fraction`).
+  - **Tests (11 new):** 5 `camera_ctl.rs` unit tests (clamping, zoom
+    reach, speed 0) and 6 in `ember2d/tests/camera_script.rs` (zoom +
+    point + speed 0 and the zoom read back; entity follow and fallback;
+    bounds set and cleared; `set_camera` undone by `clear_camera_target`;
+    nonsense values; mouse world coordinates under zoom).
+  - **Live-verified:** a test tile toggling zoom 2 and panning to itself
+    in floor 2 — glyphs, tilemap and HUD all correct at zoom 2.
 
 #### `[ ]` 9-3 — UI widgets with input
 `draw_menu` gains a real model: `menu_open(items) -> menu_id`,

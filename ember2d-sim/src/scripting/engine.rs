@@ -112,6 +112,8 @@ pub struct ScriptEngine {
     /// Step 9-1: the scene stack as scripts read it — see `set_scene_view`.
     pub(super) scene_view: Rc<Vec<super::scene::SceneInfo>>,
     pub(super) editor_preview: bool,
+    /// Step 9-2: the camera as scripts have set it — see `set_camera_view`.
+    pub(super) camera_view: super::camera::CameraSettings,
     pub pending_sounds: Vec<String>,
     pub pending_spatial_sounds: Vec<(String, f32, f32)>,
     pub pending_music: Option<String>,
@@ -160,6 +162,7 @@ impl ScriptEngine {
             pending_scene_hud_draws: Vec::new(),
             scene_view: Rc::new(Vec::new()),
             editor_preview: false,
+            camera_view: Default::default(),
             pending_sounds: Vec::new(),
             pending_spatial_sounds: Vec::new(),
             pending_music: None,
@@ -323,6 +326,7 @@ impl ScriptEngine {
             ScriptState::from_snapshot(snapshot, world.next_id, std::mem::take(persistent), args);
         ctx_state.timers = std::mem::take(&mut self.timers);
         ctx_state.scene = self.scene_ctx(); // Step 9-1
+        ctx_state.camera_view = self.camera_view; // Step 9-2
         ctx_state.animating = animating.iter().map(|&id| id as i64).collect(); // 7.5-7
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         if let Some(path) = path {
@@ -362,6 +366,7 @@ impl ScriptEngine {
             ScriptState::from_snapshot(snapshot, world.next_id, std::mem::take(persistent), args);
         ctx_state.timers = std::mem::take(&mut self.timers);
         ctx_state.scene = self.scene_ctx(); // Step 9-1
+        ctx_state.camera_view = self.camera_view; // Step 9-2
         ctx_state.animating = animating.iter().map(|&id| id as i64).collect();
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         if let Some(path) = path {
@@ -414,6 +419,7 @@ impl ScriptEngine {
             ScriptState::from_snapshot(snapshot, world.next_id, std::mem::take(persistent), args);
         ctx_state.timers = std::mem::take(&mut self.timers);
         ctx_state.scene = self.scene_ctx(); // Step 9-1
+        ctx_state.camera_view = self.camera_view; // Step 9-2
         ctx_state.animating = animating.iter().map(|&id| id as i64).collect();
         // Decay happens exactly once per real step, here — `run_scripts` is
         // the one call site the engine's own `update()` invokes unconditionally

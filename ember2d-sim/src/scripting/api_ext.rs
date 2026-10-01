@@ -167,9 +167,12 @@ impl ScriptCtx {
         self.inner.borrow_mut().mouse_pos.1 as f64
     }
 
+    /// Step 9-2 (docs/ember2d-master-plan.md §5.8): the screen cell is
+    /// divided by the camera's zoom first — at zoom 2 each world unit
+    /// spans two screen cells.
     pub fn get_mouse_world_x(&mut self) -> f64 {
         let s = self.inner.borrow_mut();
-        (s.mouse_pos.0 + s.camera_pos.0) as f64
+        (s.mouse_pos.0 / s.camera_view.zoom + s.camera_pos.0) as f64
     }
 
     pub fn get_mouse_world_y(&mut self) -> f64 {
@@ -183,7 +186,7 @@ impl ScriptCtx {
         // and `Camera::viewport_origin` were already inert. If a future HUD
         // design needs to reserve rows again, write a nonzero
         // `Camera::viewport_origin` and subtract it here.
-        (s.mouse_pos.1 + s.camera_pos.1) as f64
+        (s.mouse_pos.1 / s.camera_view.zoom + s.camera_pos.1) as f64
     }
 
     pub fn mouse_left_pressed(&mut self) -> bool {
@@ -206,8 +209,11 @@ impl ScriptCtx {
     pub fn get_camera_y(&mut self) -> f64 {
         self.inner.borrow_mut().camera_pos.1 as f64
     }
+    /// Step 9-2 (docs/ember2d-master-plan.md §5.8): now the same as
+    /// `set_camera_target(x, y)` (scripting/camera.rs) — it used to pin the
+    /// camera through a one-off override nothing could clear.
     pub fn set_camera(&mut self, x: f64, y: f64) {
-        self.inner.borrow_mut().pending_camera = Some(crate::math::Vec2::new(x as f32, y as f32));
+        self.set_camera_target_point(x, y);
     }
     /// `i64` overload — same reasoning as `set_collider_size_i` above.
     pub fn set_camera_i(&mut self, x: i64, y: i64) {
