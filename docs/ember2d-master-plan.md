@@ -4630,7 +4630,7 @@ meantime; 7.5 stays `[~]` and untagged until that pass is done.
 **Purpose.** The old Phase 8 (tileset importer, clip editor) plus the one
 data-model change that moves the entity ceiling by an order of magnitude.
 
-#### `[x]` 8-1 — `Tilemap` component (decision gate §7.2)
+#### `[x]` 8-1 — `Tilemap` component (decision gate §7.2) (`8008022`)
 
 - **Why:** Every tile is an entity with its own collider. A 200×200 map is
   40,000 entities before one actor. Collision, `is_solid_at`, raycast, A*,
@@ -4660,7 +4660,7 @@ data-model change that moves the entity ceiling by an order of magnitude.
   tiles" action: the editor unpacks the tilemap into its ordinary tile grid
   on load and bakes on save. (4) 9-4's `spawns` map is **not** folded in —
   it gets its own format bump at 9-4.
-- **Landed as** (`<8-1 hash>`):
+- **Landed as** (`8008022`):
   - `components/tilemap.rs` — `Tilemap` (palette of `TileDef`s + one
     `u16` grid per layer, runtime caches `#[serde(skip)]` and rebuilt by
     `refresh`) and `TilemapBuilder`. The plan's `TileCell { glyph_or_uv,
