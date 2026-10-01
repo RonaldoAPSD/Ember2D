@@ -40,10 +40,9 @@ scripts are commented throughout:
 `cargo run`, **New Project**:
 
 1. Name it.
-2. **Classic ASCII**.
-3. **Real-Time**.
-4. Confirm the location.
-5. **Empty Canvas**.
+2. **Real-Time**.
+3. Confirm the location.
+4. **Empty Canvas**.
 
 Then build the arena:
 

@@ -96,7 +96,7 @@ pub mod prelude {
     pub use ember2d_sim::save::SaveState;
 
     // ── Project ───────────────────────────────────────────────────────────
-    pub use crate::project::{GameplayLoop, ProjectData, VisualStyle};
+    pub use crate::project::{GameplayLoop, ProjectData};
     pub use crate::project::{StartResult, StartTemplate};
     // `TurnModel` (Step 7.5-7, docs/ember2d-master-plan.md §5.6) lives in
     // ember2d-sim (`Simulation::set_turn_model` consumes it) but is

@@ -82,16 +82,14 @@ impl StartScreen {
     pub(super) fn open_project(&mut self, folder: &str, _quit: &mut bool) {
         let name = ProjectData::name_for(folder);
         let levels = ProjectData::levels_in(folder);
-        let config = ProjectData::load(folder).unwrap_or_else(|_| {
-            ProjectData::new(name.clone(), VisualStyle::ClassicASCII, GameplayLoop::RealTime)
-        });
+        let config = ProjectData::load(folder)
+            .unwrap_or_else(|_| ProjectData::new(name.clone(), GameplayLoop::RealTime));
 
         let mut result = StartResult {
             project_folder: folder.to_string(),
             project_name: name.clone(),
             level_path: String::new(),
             template: None,
-            visual_style: config.visual_style,
             gameplay_loop: config.gameplay_loop,
         };
 
@@ -140,8 +138,6 @@ impl StartScreen {
         let folder = self.folder_buf.clone();
         let level_path =
             std::path::Path::new(&folder).join("main.level").to_string_lossy().into_owned();
-        let visual_style =
-            if self.style_sel == 0 { VisualStyle::ClassicASCII } else { VisualStyle::Sprites2D };
         let gameplay_loop =
             if self.loop_sel == 0 { GameplayLoop::RealTime } else { GameplayLoop::TurnBased };
 
@@ -150,7 +146,6 @@ impl StartScreen {
             project_folder: folder,
             project_name: self.name_buf.clone(),
             template: Some(tmpl),
-            visual_style,
             gameplay_loop,
         }));
     }
@@ -225,36 +220,8 @@ impl StartScreen {
                     self.screen = Screen::MainMenu;
                 }
                 if input.just_pressed(Key::Enter) && !self.name_buf.is_empty() {
-                    self.style_sel = 0;
-                    self.screen = Screen::NewStyle;
-                }
-            }
-            Screen::NewStyle => {
-                if (input.just_pressed(Key::Left) || input.just_pressed(Key::Up))
-                    && self.style_sel > 0
-                {
-                    self.style_sel -= 1;
-                }
-                if (input.just_pressed(Key::Right) || input.just_pressed(Key::Down))
-                    && self.style_sel + 1 < STYLE_LABELS.len()
-                {
-                    self.style_sel += 1;
-                }
-                if input.just_pressed(Key::Escape) {
-                    self.screen = Screen::NewName;
-                }
-                if input.just_pressed(Key::Enter) {
                     self.loop_sel = 0;
                     self.screen = Screen::NewLoop;
-                }
-                if let Some(WidgetId::StartTemplateItem(i)) = hit {
-                    if i < STYLE_LABELS.len() {
-                        self.style_sel = i;
-                        if click {
-                            self.loop_sel = 0;
-                            self.screen = Screen::NewLoop;
-                        }
-                    }
                 }
             }
             Screen::NewLoop => {
@@ -269,7 +236,7 @@ impl StartScreen {
                     self.loop_sel += 1;
                 }
                 if input.just_pressed(Key::Escape) {
-                    self.screen = Screen::NewStyle;
+                    self.screen = Screen::NewName;
                 }
                 if input.just_pressed(Key::Enter) {
                     self.init_fb();
@@ -459,18 +426,13 @@ impl StartScreen {
                 if confirm && !self.level_list.is_empty() {
                     let path = self.level_list[self.level_cursor].clone();
                     let config = ProjectData::load(&self.sel_project).unwrap_or_else(|_| {
-                        ProjectData::new(
-                            self.sel_project_name.clone(),
-                            VisualStyle::ClassicASCII,
-                            GameplayLoop::RealTime,
-                        )
+                        ProjectData::new(self.sel_project_name.clone(), GameplayLoop::RealTime)
                     });
                     self.pending_transition = Some(Transition::ToEditorWithResult(StartResult {
                         project_folder: self.sel_project.clone(),
                         project_name: self.sel_project_name.clone(),
                         level_path: path,
                         template: None,
-                        visual_style: config.visual_style,
                         gameplay_loop: config.gameplay_loop,
                     }));
                 }

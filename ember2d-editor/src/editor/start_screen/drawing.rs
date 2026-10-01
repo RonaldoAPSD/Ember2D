@@ -254,7 +254,7 @@ pub(super) fn draw_template_step(
     renderer.draw_str(
         tbox_x + 1,
         tbox_y,
-        " NEW PROJECT - Step 5/5: Starting Template ",
+        " NEW PROJECT - Step 4/4: Starting Template ",
         Color::Black,
         Color::Cyan,
     );
@@ -329,29 +329,6 @@ pub(super) fn draw_template_step(
     );
 }
 
-pub(super) fn draw_style_step(
-    renderer: &mut Renderer,
-    font: &mut dyn Font,
-    sw: usize,
-    sh: usize,
-    selected: usize,
-    frame: &mut UiFrame,
-) {
-    draw_card_wizard(
-        renderer,
-        font,
-        sw,
-        sh,
-        2,
-        5,
-        "Visual Style",
-        "Choose the visual aesthetic of your game:",
-        STYLE_LABELS,
-        selected,
-        frame,
-    );
-}
-
 pub(super) fn draw_loop_step(
     renderer: &mut Renderer,
     font: &mut dyn Font,
@@ -365,8 +342,8 @@ pub(super) fn draw_loop_step(
         font,
         sw,
         sh,
-        3,
-        5,
+        2,
+        4,
         "Gameplay Loop",
         "Choose how your game world updates:",
         LOOP_LABELS,
@@ -504,7 +481,7 @@ pub(super) fn draw_folder_browser(
     renderer.draw_str(
         fb_x + 1,
         fb_y,
-        " NEW PROJECT - Step 4/5: Choose Location ",
+        " NEW PROJECT - Step 3/4: Choose Location ",
         Color::Black,
         Color::Cyan,
     );

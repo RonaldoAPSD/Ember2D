@@ -1,6 +1,5 @@
 (
     name: "Emberfall",
-    visual_style: Sprites2D,
     gameplay_loop: RealTime,
     start_level: Some("title.level"),
     pixels_per_unit: 16.0,

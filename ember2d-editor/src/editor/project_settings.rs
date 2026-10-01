@@ -11,7 +11,7 @@
 // re-reads the file at every F5 (`ember2d-app`'s `run_editor_app`), so a
 // change shows the next time the game runs.
 
-use ember2d::project::{GameplayLoop, ProjectData, VisualStyle};
+use ember2d::project::{GameplayLoop, ProjectData};
 use ember2d_sim::scheduler::TurnModel;
 use ember2d_sim::scripting::LogEntry;
 
@@ -25,19 +25,17 @@ pub enum ProjectField {
     TurnModel,
     /// Step 9.5-3: `ai_turns_per_step`.
     AiTurns,
-    VisualStyle,
     StartLevel,
     WorldCell,
     PixelsPerUnit,
 }
 
 impl ProjectField {
-    pub const ALL: [ProjectField; 8] = [
+    pub const ALL: [ProjectField; 7] = [
         ProjectField::Name,
         ProjectField::GameplayLoop,
         ProjectField::TurnModel,
         ProjectField::AiTurns,
-        ProjectField::VisualStyle,
         ProjectField::StartLevel,
         ProjectField::WorldCell,
         ProjectField::PixelsPerUnit,
@@ -50,7 +48,6 @@ impl ProjectField {
             ProjectField::GameplayLoop => "Gameplay",
             ProjectField::TurnModel => "Turn order",
             ProjectField::AiTurns => "AI turns/step",
-            ProjectField::VisualStyle => "Visual style",
             ProjectField::StartLevel => "Start level",
             ProjectField::WorldCell => "World cell (px)",
             ProjectField::PixelsPerUnit => "Pixels per unit",
@@ -62,10 +59,7 @@ impl ProjectField {
     pub fn cycles(self) -> bool {
         matches!(
             self,
-            ProjectField::GameplayLoop
-                | ProjectField::TurnModel
-                | ProjectField::VisualStyle
-                | ProjectField::StartLevel
+            ProjectField::GameplayLoop | ProjectField::TurnModel | ProjectField::StartLevel
         )
     }
 
@@ -91,10 +85,6 @@ pub fn project_field_value(p: &ProjectData, field: ProjectField) -> String {
         },
         ProjectField::TurnModel => format!("{:?}", p.turn_model),
         ProjectField::AiTurns => p.ai_turns_per_step.to_string(),
-        ProjectField::VisualStyle => match p.visual_style {
-            VisualStyle::ClassicASCII => "ASCII".into(),
-            VisualStyle::Sprites2D => "Sprites".into(),
-        },
         ProjectField::StartLevel => p.start_level.clone().unwrap_or_else(|| "(none)".into()),
         ProjectField::WorldCell => format!("{} x {}", p.world_cell.0, p.world_cell.1),
         ProjectField::PixelsPerUnit => format!("{}", p.pixels_per_unit),
@@ -116,12 +106,6 @@ pub fn cycle_project_field(p: &mut ProjectData, field: ProjectField, levels: &[S
                 TurnModel::Alternating => TurnModel::Energy,
                 TurnModel::Energy => TurnModel::ActionCost,
                 TurnModel::ActionCost => TurnModel::Alternating,
-            }
-        }
-        ProjectField::VisualStyle => {
-            p.visual_style = match p.visual_style {
-                VisualStyle::ClassicASCII => VisualStyle::Sprites2D,
-                VisualStyle::Sprites2D => VisualStyle::ClassicASCII,
             }
         }
         ProjectField::StartLevel if !levels.is_empty() => {
@@ -231,11 +215,7 @@ impl EditorState {
             return;
         };
         let project = ProjectData::load(&folder).unwrap_or_else(|_| {
-            ProjectData::new(
-                ProjectData::name_for(&folder),
-                VisualStyle::ClassicASCII,
-                GameplayLoop::RealTime,
-            )
+            ProjectData::new(ProjectData::name_for(&folder), GameplayLoop::RealTime)
         });
         self.project_settings = Some(project);
         self.mode = EditorMode::ProjectSettings;
@@ -301,7 +281,7 @@ mod tests {
     use super::*;
 
     fn project() -> ProjectData {
-        ProjectData::new("Demo", VisualStyle::ClassicASCII, GameplayLoop::RealTime)
+        ProjectData::new("Demo", GameplayLoop::RealTime)
     }
 
     #[test]

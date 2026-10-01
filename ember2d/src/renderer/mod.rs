@@ -307,11 +307,6 @@ impl Renderer {
         self.backend.name()
     }
 
-    /// Toggles between ASCII and 2D Sprite rendering modes (if supported by backend).
-    pub fn set_sprite_mode(&mut self, enabled: bool) {
-        self.backend.set_sprite_mode(enabled);
-    }
-
     /// 7B-2 (docs/ember2d-master-plan.md §5.2, R21): replaces the old
     /// single-axis, DPI-blind `scale_factor()` (width-only ratio between
     /// physical size and `pixel_width`) — see `ScreenMapping`'s own doc

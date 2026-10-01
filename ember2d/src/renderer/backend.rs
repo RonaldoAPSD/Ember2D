@@ -60,7 +60,6 @@ mod draw;
 pub struct WgpuBackend {
     width: usize,
     height: usize,
-    pub is_sprite_mode: bool,
     /// 7B-2 (docs/ember2d-master-plan.md §5.2, R21): physical pixels per
     /// logical pixel, per axis (was one scalar) — set each frame from
     /// `Renderer::screen_mapping()` via `set_render_scale`.
@@ -335,7 +334,6 @@ impl WgpuBackend {
         WgpuBackend {
             width,
             height,
-            is_sprite_mode: false,
             render_scale: (1.0, 1.0),
             render_origin: (0.0, 0.0),
             pipeline,
@@ -490,6 +488,6 @@ impl WgpuBackend {
 
 // The per-frame drawing/frame-lifecycle `impl WgpuBackend` block
 // (`name`/`clear`/`draw_char`/`draw_char_scaled_pixels`/`draw_texture`/
-// `set_scissor`/`render`/`resize`/`width`/`height`/`set_sprite_mode`/
+// `set_scissor`/`render`/`resize`/`width`/`height`/
 // `invalidate_texture`/`evict_texture`/`set_render_scale`) lives in
 // backend/draw.rs now — see the `mod draw;` declaration above.

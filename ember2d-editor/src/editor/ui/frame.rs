@@ -191,8 +191,8 @@ pub enum WidgetId {
     /// both — never ambiguous, since only one screen renders per frame), by
     /// absolute index into whichever list is showing.
     StartBrowserItem(usize),
-    /// 7C-1: `StartScreen`'s new-project template/style/loop cards — three
-    /// screens (`NewStyle`/`NewLoop`/`NewTemplate`) share this one variant
+    /// 7C-1: `StartScreen`'s new-project template/loop cards — both
+    /// screens (`NewLoop`/`NewTemplate`) share this one variant
     /// the same way `StartBrowserItem` is shared, since `draw_card_wizard`
     /// and `draw_template_step` use identical card geometry.
     StartTemplateItem(usize),

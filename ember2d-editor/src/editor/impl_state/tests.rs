@@ -448,7 +448,7 @@ fn a_projects_world_cell_reaches_the_canvas() {
     std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
     std::fs::write(
         dir.join("project.ron"),
-        "(name: \"Sq\", visual_style: Sprites2D, gameplay_loop: TurnBased, world_cell: (16, 16))",
+        "(name: \"Sq\", gameplay_loop: TurnBased, world_cell: (16, 16))",
     )
     .unwrap();
     let mut editor = EditorState::new("");

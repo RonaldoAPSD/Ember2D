@@ -45,9 +45,9 @@ fn main() -> io::Result<()> {
             .with_prefs(PrefsStore::user());
             let project_dir = Path::new(&path).parent().unwrap_or(Path::new("."));
             // The editor has no time model of its own (D6) — only the project's
-            // sprite mode applies here. `gameplay_loop` (in `settings`) only
+            // name applies here. `gameplay_loop` (in `settings`) only
             // takes effect once the editor actually enters play mode.
-            let (settings, name) = load_project(&mut engine, &project_dir.to_string_lossy());
+            let (settings, name) = load_project(&project_dir.to_string_lossy());
             if name.is_some() {
                 editor.project_name = name;
             }
@@ -75,7 +75,7 @@ fn main() -> io::Result<()> {
                 }
             };
             let project_dir = Path::new(&path).parent().unwrap_or(Path::new("."));
-            let (settings, _) = load_project(&mut engine, &project_dir.to_string_lossy());
+            let (settings, _) = load_project(&project_dir.to_string_lossy());
             run_play_app(&mut engine, data, settings)?;
         } else {
             print_usage();
@@ -106,7 +106,7 @@ fn run_start_screen(engine: &mut Engine) -> io::Result<()> {
                     EditorState::new_from_result(res).map(|e| e.with_prefs(PrefsStore::user()))
                 {
                     let folder = editor.project_folder.clone().unwrap_or_else(|| ".".to_string());
-                    let (settings, _) = load_project(engine, &folder);
+                    let (settings, _) = load_project(&folder);
                     let back_to_start = run_editor_app(engine, editor, settings)?;
                     if after_editor(back_to_start) == AfterEditor::Exit {
                         break; // Quit from editor

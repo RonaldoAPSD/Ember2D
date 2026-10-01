@@ -41,10 +41,9 @@ place to notice if it doesn't.
 - [✓] `cargo run -- path/to.level` plays directly
 - [✓] Bad path prints an error and exits without panicking
 - [✓] No args + unrecognised args print usage
-- [ ] `project.ron`'s `visual_style` drives `set_sprite_mode` on launch —
-      **not exercised**: both shipped demos (`demos/roguelike/`, `demos/shooter/`) use
-      `visual_style: ClassicASCII`; nothing in this repo sets `Sprites2D`
-      to cross-check against (7B gate, 2026-09-07)
+- [ ] `project.ron`'s `world_cell`/`pixels_per_unit` are applied on
+      launch (the RPG: square 16x16 cells). The old `visual_style` key is
+      gone and an old file that still has it loads.
 - [✓] `project.ron`'s `gameplay_loop` is applied — confirmed by the two
       demos' actual behavior matching their `project.ron` (roguelike:
       `TurnBased`, advances only on keypress with a visible turn counter;
@@ -66,7 +65,8 @@ place to notice if it doesn't.
 
 ## 3. Start screen and projects
 
-- [✓] Create project: name, visual style, gameplay loop all selectable (8 gate, 2026-10-01)
+- [ ] Create project: name and gameplay loop selectable, four steps
+      (Name, Gameplay Loop, Location, Template — no visual style step)
 - [✓] `project.ron` written with all four fields (8 gate, 2026-10-01)
 - [ ] `BasicRoom` template generates walls, floor, centred spawn
 - [✓] Empty template gives a blank grid (8 gate, 2026-10-01)

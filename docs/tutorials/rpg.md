@@ -46,22 +46,26 @@ Paths below are relative to your project folder.
 Run `cargo run` to reach the start screen. Choose **New Project**, then:
 
 1. **Name:** type `Emberfall`, then Enter.
-2. **Visual style:** press Right to pick **2D Sprites**, then Enter. A
-   sprite project uses square 16x16-pixel world cells: one tile of the
-   Kenney packs fills exactly one cell. (An ASCII project uses tall 8x16
-   cells that fit a text glyph.)
-3. **Gameplay loop:** **Real-Time**.
-4. **Location:** confirm the suggested folder.
-5. **Template:** **Empty Canvas**.
+2. **Gameplay loop:** **Real-Time**.
+3. **Location:** confirm the suggested folder.
+4. **Template:** **Empty Canvas**.
 
-![Choosing 2D Sprites](img/rpg/01_wizard_style.png)
+The editor opens an empty `main.level`. Press **S** to save it.
 
-The editor opens an empty `main.level`. Press **S** to save it. Then copy
-the three sprite sheets into the project folder: name the two Kenney sheets
-`tiny_town.png` and `tiny_dungeon.png`, plus `extras.png`.
+A new project uses tall 8x16-pixel world cells, the shape of a text glyph.
+The Kenney tiles are 16x16, so make the cells square. Open **File > Project
+Settings...** and set two rows (click a row, replace its value, Enter):
 
-You can change the cell size, the start level and more later, under
-**File > Project Settings...**.
+- **World cell (px):** `16x16`.
+- **Pixels per unit:** `16`, so one 16-pixel tile fills one cell.
+
+![Square cells](img/rpg/01_project_settings.png)
+
+Glyphs and sprites can share a level either way; the cell only decides
+the shape of the grid. The same dialog sets the start level and more.
+
+Then copy the three sprite sheets into the project folder: name the two
+Kenney sheets `tiny_town.png` and `tiny_dungeon.png`, plus `extras.png`.
 
 ## 2. Import the tilesets
 

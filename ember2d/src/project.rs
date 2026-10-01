@@ -32,17 +32,14 @@ use std::fs;
 
 // ── ProjectData ───────────────────────────────────────────────────────────────
 
-/// The visual aesthetic of the project.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
-pub enum VisualStyle {
-    /// Character-cell based, using the standard font8x8.
-    ClassicASCII,
-    /// Pixel-art sprites from imported tilesets. A label for the project
-    /// (and the wizard's choice) more than a mode: what it changes is the
-    /// starting `world_cell` — square 16x16 for a new sprite project
-    /// (`ProjectData::new`, Step 9-8), the size most pixel-art sheets use.
-    Sprites2D,
-}
+// There is no "visual style" setting (ASCII vs sprites) any more: a level
+// mixes glyphs and sprites freely, so the choice never selected anything —
+// all it did was pick a new project's starting `world_cell`. It was removed
+// after Step 9.5-5 (the New Project wizard's style step, the Project
+// Settings row and this field with it). A `project.ron` that still has a
+// `visual_style:` line loads fine: serde skips a key the struct doesn't
+// have (`an_old_project_ron_with_visual_style_still_loads`). A sprite game
+// sets its square cell in Project Settings (World cell, Pixels per unit).
 
 /// The core gameplay execution model.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -58,10 +55,6 @@ pub enum GameplayLoop {
 pub struct ProjectData {
     /// Human-readable project name (e.g. "My Platformer").
     pub name: String,
-
-    /// Whether the game uses ASCII cells or sprites.
-    #[serde(default = "default_visual_style")]
-    pub visual_style: VisualStyle,
 
     /// Whether the game is real-time or turn-based.
     #[serde(default = "default_gameplay_loop")]
@@ -165,9 +158,6 @@ impl PlaySettings {
     }
 }
 
-fn default_visual_style() -> VisualStyle {
-    VisualStyle::ClassicASCII
-}
 fn default_gameplay_loop() -> GameplayLoop {
     GameplayLoop::RealTime
 }
@@ -197,37 +187,22 @@ pub struct StartResult {
     pub project_name: String,
     pub level_path: String,
     pub template: Option<StartTemplate>,
-    pub visual_style: VisualStyle,
     pub gameplay_loop: GameplayLoop,
 }
 
 impl ProjectData {
-    /// Create a new ProjectData with the given settings. A `Sprites2D`
-    /// project starts with square 16x16 world cells (Step 9-8: before that
-    /// the style changed nothing, and every sprite project had to fix its
-    /// cell in Project Settings first), and 16 pixels per unit to match;
-    /// an ASCII one keeps the glyph cell and 8.
-    pub fn new(
-        name: impl Into<String>,
-        visual_style: VisualStyle,
-        gameplay_loop: GameplayLoop,
-    ) -> Self {
+    /// Create a new ProjectData with the given settings. Every new project
+    /// starts on the glyph cell (8x16) and 8 pixels per unit; a sprite game
+    /// whose art is square sets both in Project Settings (16x16 and 16 for
+    /// 16 px tiles — the RPG tutorial's first step).
+    pub fn new(name: impl Into<String>, gameplay_loop: GameplayLoop) -> Self {
         ProjectData {
             name: name.into(),
-            visual_style,
             gameplay_loop,
             start_level: Some("main.level".to_string()),
-            // One world unit is one world cell, so a 16 px sprite at its
-            // natural size fills exactly one 16x16 cell.
-            pixels_per_unit: match visual_style {
-                VisualStyle::ClassicASCII => default_pixels_per_unit(),
-                VisualStyle::Sprites2D => 16.0,
-            },
+            pixels_per_unit: default_pixels_per_unit(),
             turn_model: ember2d_sim::scheduler::TurnModel::default(),
-            world_cell: match visual_style {
-                VisualStyle::ClassicASCII => default_world_cell(),
-                VisualStyle::Sprites2D => (16, 16),
-            },
+            world_cell: default_world_cell(),
             // A new turn-based game answers the player's move with every
             // monster at once (Step 9.5-3); a `project.ron` without the key
             // keeps 1, one actor per step, as it always ran.
@@ -378,15 +353,31 @@ mod tests {
         assert_eq!(s.cell_scale(), (1.0, 1.0));
     }
 
-    /// Step 9-8: the wizard's "2D Sprites" choice starts the project on
-    /// square cells; "Classic ASCII" on the glyph cell.
+    /// A new project starts on the glyph cell, whatever its loop; a
+    /// turn-based one answers the player with every monster at once.
     #[test]
-    fn a_new_sprite_project_starts_with_square_cells() {
-        let p = ProjectData::new("S", VisualStyle::Sprites2D, GameplayLoop::RealTime);
-        assert_eq!(p.world_cell, (16, 16));
-        assert_eq!(p.pixels_per_unit, 16.0);
-        let p = ProjectData::new("A", VisualStyle::ClassicASCII, GameplayLoop::RealTime);
+    fn a_new_project_starts_on_the_glyph_cell() {
+        let p = ProjectData::new("A", GameplayLoop::RealTime);
         assert_eq!(p.world_cell, (8, 16));
         assert_eq!(p.pixels_per_unit, 8.0);
+        assert_eq!(p.ai_turns_per_step, 1);
+        let p = ProjectData::new("T", GameplayLoop::TurnBased);
+        assert_eq!(p.world_cell, (8, 16));
+        assert_eq!(p.ai_turns_per_step, 256);
+    }
+
+    /// The visual-style option's removal: a `project.ron` written while it
+    /// existed (every demo's, and every project made before) still loads,
+    /// keeping what it set — the stale `visual_style` key is just skipped.
+    #[test]
+    fn an_old_project_ron_with_visual_style_still_loads() {
+        let p: ProjectData = ron::de::from_str(
+            "(name: \"Sq\", visual_style: Sprites2D, gameplay_loop: TurnBased, world_cell: (16, 16), pixels_per_unit: 16.0)",
+        )
+        .expect("a project.ron with visual_style parses");
+        assert_eq!(p.name, "Sq");
+        assert_eq!(p.world_cell, (16, 16));
+        assert_eq!(p.pixels_per_unit, 16.0);
+        assert_eq!(p.gameplay_loop, GameplayLoop::TurnBased);
     }
 }

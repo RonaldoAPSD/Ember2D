@@ -44,10 +44,9 @@ code and point to the finished scripts, which are commented throughout:
 `cargo run`, then **New Project**:
 
 1. **Name:** type it, then Enter.
-2. **Visual style:** **Classic ASCII**, Enter.
-3. **Gameplay loop:** press Right for **Turn-Based**, then Enter.
-4. **Location:** confirm.
-5. **Template:** **Empty Canvas**.
+2. **Gameplay loop:** press Right for **Turn-Based**, then Enter.
+3. **Location:** confirm.
+4. **Template:** **Empty Canvas**.
 
 ![Turn-based](img/roguelike/01_wizard_turn_based.png)
 

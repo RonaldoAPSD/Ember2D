@@ -5719,6 +5719,36 @@ live bullets and enemies at 60 FPS in the debug build, plus a
     director tile with its script, three scripts typed in the Scripter;
     F5, then grunts chasing and shot down.
 
+#### `[x]` Between 9.5-5 and 9.5-6 — The Visual Style option removed (`PENDING`)
+Asked for by the user (2026-10-01): a level mixes glyphs and sprites
+freely, so choosing "Classic ASCII" or "2D Sprites" selected nothing. All
+the choice did was pick a new project's starting world cell (9-8), and
+label F3's backend name ("WGPU ASCII"/"WGPU Sprites"). It will come back
+as a template menu (Phase 11's presets).
+
+- **Removed:**
+  - the New Project wizard's style step (four steps now: Name, Gameplay
+    Loop, Location, Template);
+  - the Project Settings "Visual style" row;
+  - `ProjectData.visual_style`, the `VisualStyle` enum,
+    `StartResult.visual_style`;
+  - `Renderer::set_sprite_mode` and the backend's sprite-mode flag; F3
+    says "WGPU".
+- **Changed:** `ProjectData::new(name, gameplay_loop)`; every new project
+  starts on the 8×16 glyph cell. A sprite game sets World cell `16x16`
+  and Pixels per unit `16` in Project Settings (the RPG tutorial's first
+  step now does this).
+- **Compatibility:** a `project.ron` with a `visual_style:` line still
+  loads (serde skips it); the test fixtures keep theirs on purpose. The
+  three demos' `project.ron` files dropped the line. `load_project` no
+  longer takes the engine.
+- **Tests:** `a_new_project_starts_on_the_glyph_cell`,
+  `an_old_project_ron_with_visual_style_still_loads`.
+- **Live:** the 4-step wizard writing a clean `project.ron`; Project
+  Settings without the row, setting `16x16`/`16` and the canvas turning
+  square at once. The RPG and roguelike tutorials' wizard screenshots
+  were retaken.
+
 #### `[ ]` 9.5-6 — Tutorials index and gate
 `docs/tutorials/README.md`, a "your first project" tutorial, stress
 numbers recorded in §2.
@@ -5772,9 +5802,11 @@ traversal.
 
 ### 5.10 `[ ]` Phase 11 — Presets, cleanup, 0.6.0
 
-- **Presets, not modes.** `VisualStyle` becomes initial project settings
-  (zoom constraints, snapping, default sprite constructor, palette, tool
-  defaults). ASCII, Sprite, Empty presets. No `if preset` in the engine.
+- **Presets, not modes.** A template menu in the New Project wizard
+  (the user's plan, 2026-10-01: it replaces the Visual Style step removed
+  after 9.5-5). A template is only initial project settings (world cell,
+  zoom constraints, snapping, default sprite constructor, palette, tool
+  defaults) — ASCII, Sprite, Empty. No `if preset` in the engine.
 - Delete `rollback_position`, `_prev` parameters, `Vec2::normalized`,
   `IVec2`, `Rect::center` if still unused.
 - `PlayerRecord` becomes a normal entity (prefab groundwork); prefabs

@@ -6,19 +6,16 @@ use ember2d::prelude::*;
 use ember2d::project::PlaySettings;
 use ember2d_editor::prelude::EditorState;
 
-/// Reads `<folder>/project.ron`, if there is one: applies its visual style
-/// to the renderer and returns its play settings and name. A folder with no
+/// Reads `<folder>/project.ron`, if there is one, and returns its play
+/// settings and name. A folder with no
 /// (or a broken) `project.ron` gets the defaults. Step 9-5
 /// (docs/ember2d-master-plan.md §5.8): one function for what all three
 /// launch paths in main.rs used to repeat line for line, now that the
 /// settings travel as one `PlaySettings` value instead of three loose
 /// arguments. Step 9-6: `run_editor_app` calls it again at every F5.
-pub fn load_project(engine: &mut Engine, folder: &str) -> (PlaySettings, Option<String>) {
+pub fn load_project(folder: &str) -> (PlaySettings, Option<String>) {
     match ProjectData::load(folder) {
-        Ok(proj) => {
-            engine.renderer.set_sprite_mode(proj.visual_style == VisualStyle::Sprites2D);
-            (proj.play_settings(), Some(proj.name))
-        }
+        Ok(proj) => (proj.play_settings(), Some(proj.name)),
         Err(_) => (PlaySettings::default(), None),
     }
 }
@@ -54,7 +51,7 @@ pub fn run_editor_app(
                     .map(|d| d.to_string_lossy().into_owned())
                     .filter(|d| !d.is_empty())
                     .unwrap_or_else(|| ".".to_string());
-                let settings = match load_project(engine, &folder) {
+                let settings = match load_project(&folder) {
                     (s, Some(_)) => s,
                     (_, None) => settings,
                 };

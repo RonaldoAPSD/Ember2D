@@ -8,7 +8,7 @@ mod common;
 
 use common::{click_menu_item, open_menu, EditorHarness};
 use ember2d::input::Key;
-use ember2d::project::{GameplayLoop, ProjectData, VisualStyle};
+use ember2d::project::{GameplayLoop, ProjectData};
 use ember2d_editor::editor::project_settings::ProjectField;
 use ember2d_editor::editor::ui::{MenuKind, ToolbarAction, WidgetId};
 use ember2d_editor::editor::EditorMode;
@@ -20,7 +20,7 @@ fn project(tag: &str) -> (EditorHarness, PathBuf) {
     let dir = std::env::temp_dir().join(format!("ember2d-{}", std::process::id())).join(tag);
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    ProjectData::new("Proj", VisualStyle::ClassicASCII, GameplayLoop::RealTime)
+    ProjectData::new("Proj", GameplayLoop::RealTime)
         .save(&dir.to_string_lossy())
         .unwrap();
     let level = dir.join("main.level").to_string_lossy().into_owned();

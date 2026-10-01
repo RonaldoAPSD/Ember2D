@@ -20,12 +20,12 @@ use crate::renderer::{CELL_H, CELL_W};
 use ember2d_sim::math::Rect;
 
 impl WgpuBackend {
+    /// The name F3's debug bar shows. It used to say "WGPU ASCII" or
+    /// "WGPU Sprites" after the project's visual style — a label only,
+    /// nothing drew differently — and that setting is gone (after Step
+    /// 9.5-5: a level mixes glyphs and sprites freely).
     pub fn name(&self) -> &str {
-        if self.is_sprite_mode {
-            "WGPU Sprites"
-        } else {
-            "WGPU ASCII"
-        }
+        "WGPU"
     }
 
     pub fn clear(&mut self) {
@@ -327,9 +327,6 @@ impl WgpuBackend {
     }
     pub fn height(&self) -> usize {
         self.height
-    }
-    pub fn set_sprite_mode(&mut self, enabled: bool) {
-        self.is_sprite_mode = enabled;
     }
 
     /// Drop `id` from the uploaded-texture cache, so the next

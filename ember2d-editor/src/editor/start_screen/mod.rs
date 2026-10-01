@@ -2,7 +2,7 @@
 
 use super::ui::UiFrame;
 use ember2d::engine::{GameState, RenderContext, Transition, UpdateContext};
-use ember2d::project::{GameplayLoop, StartResult, StartTemplate, VisualStyle};
+use ember2d::project::{GameplayLoop, StartResult, StartTemplate};
 use ember2d_sim::event::EventBus;
 use ember2d_sim::world::World;
 
@@ -17,7 +17,6 @@ pub enum Screen {
     MainMenu,
     NewName,
     FolderBrowser,
-    NewStyle,
     NewLoop,
     NewTemplate,
     OpenProject,
@@ -35,10 +34,6 @@ mod mod_types {
         ("Empty Canvas", "Blank grid — place everything yourself"),
         ("Basic Room", "Floor, walls, and a player spawn pre-built"),
     ];
-    pub const STYLE_LABELS: &[(&str, &str)] = &[
-        ("Classic ASCII", "The iconic character-cell grid aesthetic"),
-        ("2D Sprites", "Pixel-art tilesets on square 16x16 world cells"),
-    ];
     pub const LOOP_LABELS: &[(&str, &str)] = &[
         ("Real-Time", "Standard updates every frame (action/platformer)"),
         ("Turn-Based", "World only advances when you act (roguelike)"),
@@ -51,7 +46,6 @@ pub struct StartScreen {
     name_buf: String,
     folder_buf: String,
     template_sel: usize,
-    style_sel: usize,
     loop_sel: usize,
     sel_project: String,
     sel_project_name: String,
@@ -91,7 +85,6 @@ impl StartScreen {
             name_buf: String::new(),
             folder_buf: String::new(),
             template_sel: 0,
-            style_sel: 0,
             loop_sel: 0,
             sel_project: String::new(),
             sel_project_name: String::new(),
@@ -164,14 +157,13 @@ impl GameState for StartScreen {
                 sw,
                 sh,
                 1,
-                5,
+                4,
                 "Project Name",
                 "Enter a name for your new project:",
                 "This becomes the folder name and appears in the editor title bar.",
                 "Enter: next  |  Esc: back",
                 &self.name_buf,
             ),
-            Screen::NewStyle => draw_style_step(ctx.renderer, font, sw, sh, self.style_sel, frame),
             Screen::NewLoop => draw_loop_step(ctx.renderer, font, sw, sh, self.loop_sel, frame),
             Screen::FolderBrowser => draw_folder_browser(
                 ctx.renderer,
@@ -189,8 +181,8 @@ impl GameState for StartScreen {
                 font,
                 sw,
                 sh,
+                3,
                 4,
-                5,
                 "New Folder",
                 "Enter a name for the new folder:",
                 "A new directory will be created inside the current location.",
