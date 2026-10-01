@@ -5091,7 +5091,7 @@ HUD API, additive beside the cell-based one.
     text) and a titled menu; Down moved the menu, not the player; Enter
     confirmed; the pause menu draws through the same widget.
 
-#### `[x]` 9-4 — Positional continuity and structured state (`HASH94`)
+#### `[x]` 9-4 — Positional continuity and structured state (`3eb4e9e`)
 `load_level(path, spawn_name)` spawns at a named spawn point (level format
 gains `spawns: BTreeMap<String, Vec2>`, replacing the single `spawn_point`
 — a v4 change, folded into 8-1's bump). Nested `Dynamic` maps/arrays in
@@ -5110,7 +5110,7 @@ roster and inventory without a new type.
   dropping it. Added beyond the plan: an exit tile's target may be
   `path#spawn`, the same request through the same code
   (`Simulation::load_transition`) as `load_level(path, spawn)`.
-- **Landed as** (`HASH94`):
+- **Landed as** (`3eb4e9e`):
   - `ember2d-sim/src/level/spawns.rs` (new): `PLAYER_SPAWN`,
     `player_spawn`/`set_player_spawn`/`add_spawn`/`entry_point`,
     `migrate_spawns` (private legacy fields read by a custom
