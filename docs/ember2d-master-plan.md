@@ -187,7 +187,7 @@ start screen's New/Open Project browsers start from.
 | 7.5 | Scripting completeness | `[~]` — §5.6: all 13 steps `[x]`; gate open, awaiting the user's live checklist §11–§13 pass (shooter LOC exception accepted 2026-09-29) |
 | 8 | Tilemap, assets, animation authoring | `[~]` — §5.7: all 4 steps `[x]`; gate pass run 2026-10-01 (automated + live, R103/R104/R106 fixed in it), awaiting the user's OK to tag `v0.5.9` |
 | 9 | Scene and UI layer + RPG demo | `[~]` — §5.8: 9-1 to 9-8 landed and the gate pass is done (2026-10-01): all three demos play, the RPG tutorial replayed in a fresh project. Awaiting the user's OK to tag `v0.5.10` |
-| 9.5 | Demo expansion as engine stress tests | `[~]` — §5.8.5: 9.5-1 tilemap API (`c07dc73`), 9.5-2 field of view (`fc7e0a4`) and 9.5-3/9.5-4 the generated roguelike (`25b5325`, `dabe571`) and 9.5-5 the shooter landed; next the 20-floor procedural roguelike, the shooter as a stress test, tutorials (planned 2026-10-01) |
+| 9.5 | Demo expansion as engine stress tests | `[~]` — §5.8.5: 9.5-1 tilemap API (`c07dc73`), 9.5-2 field of view (`fc7e0a4`) and 9.5-3/9.5-4 the generated roguelike (`25b5325`, `dabe571`) and 9.5-5 the shooter (`67a9307`) landed; next the 20-floor procedural roguelike, the shooter as a stress test, tutorials (planned 2026-10-01) |
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
 
@@ -5644,7 +5644,7 @@ generated and connected; a scripted fight). Tutorial
     - the generator and the turn-based player typed into the Scripter;
     - F5: a generated floor revealed under fog, walked turn by turn.
 
-#### `[x]` 9.5-5 — Shooter expansion
+#### `[x]` 9.5-5 — Shooter expansion (`67a9307`)
 A large scrolling arena (camera follow and bounds), enemy projectiles,
 spread and shotgun powerups, a boss wave, particles, shake, audio, a
 saved high score, a pause scene with options. Stress target: about 300
@@ -5652,7 +5652,7 @@ live bullets and enemies at 60 FPS in the debug build, plus a
 `bench_sim` shooter scenario. Retires `gen_shooter.rs`. Tutorial
 `docs/tutorials/shooter.md`.
 
-- **Landed as:** "Ember Assault", `demos/shooter/`, rebuilt around a
+- **Landed as** (`67a9307`): "Ember Assault", `demos/shooter/`, rebuilt around a
   160×60 arena: a wall ring, cover blocks, corner bunkers, a central
   ring, floor dots so scrolling reads.
   - **Scripts:**
