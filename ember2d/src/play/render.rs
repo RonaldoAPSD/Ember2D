@@ -200,6 +200,16 @@ pub(super) fn in_viewport(col: i32, row: i32, width: usize, height: usize) -> bo
     col >= 0 && row >= 0 && (col as usize) < width && (row as usize) < height
 }
 
+/// Step 9-5 (docs/ember2d-master-plan.md §5.8): how many extra glyph cells
+/// a world cell can hang off the left/top edge while still showing part of
+/// itself — `cells_per_unit` rounded up, less the one cell `in_viewport`
+/// already allows. (0, 0) on the classic grid at zoom 1, so ASCII culling
+/// is exactly what it was.
+pub(super) fn cull_slack(cells_per_unit: Vec2) -> (i32, i32) {
+    let s = |v: f32| (v.ceil() as i32 - 1).max(0);
+    (s(cells_per_unit.x), s(cells_per_unit.y))
+}
+
 /// This frame's camera-shake offset, or zero if inactive — pulled out of
 /// `play.rs`'s `render` (R15, 7A-5, docs/ember2d-master-plan.md) so it's
 /// directly testable without a real `Renderer`, and to keep play.rs under

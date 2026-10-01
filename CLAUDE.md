@@ -97,6 +97,7 @@ own comment on this for the full explanation.
 | Shared per-step simulation sequence | ember2d/src/sim.rs |
 | Turn scheduler | ember2d-sim/src/scheduler.rs |
 | Spawn points + transitions (Step 9-4) | ember2d-sim/src/level/spawns.rs, ember2d-sim/src/simulation.rs (`load_transition`) |
+| World cell size (Step 9-5) | ember2d/src/project.rs (`world_cell`, `PlaySettings`), ember2d/src/camera.rs (`cell_scale`), ember2d-editor/src/editor/ui/canvas.rs (`CanvasView`) |
 | Script menus + dialogue (Step 9-3) | ember2d-sim/src/ui.rs, ember2d-sim/src/scripting/widgets.rs, ember2d/src/play/ui_draw.rs |
 | Script camera (Step 9-2) | ember2d-sim/src/scripting/camera.rs, ember2d/src/play/camera_ctl.rs |
 | Scene stack (Step 9-1) | ember2d-sim/src/scripting/scene.rs (+ builtin_pause.rhai), ember2d-sim/src/simulation/scenes.rs |

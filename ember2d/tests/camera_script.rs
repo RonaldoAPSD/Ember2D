@@ -203,3 +203,64 @@ fn on_update(id, ctx) {
     assert_eq!(f("sx"), 10.0, "get_mouse_x stays the screen cell");
     assert_eq!(f("mx"), 3.0 + 10.0 / 2.0, "world = camera origin + cell / zoom");
 }
+
+// ── Step 9-5 (docs/ember2d-master-plan.md §5.8): a non-8x16 world cell ───
+
+/// A 16×16 world cell is two glyph cells wide and one tall, so a mouse on
+/// screen cell (10, 4) is 5 world units right of the camera origin, 4 down.
+#[test]
+fn a_square_world_cell_scales_the_mouse_world_coordinates() {
+    let path = common::test_temp_dir().join("camera_mouse_cell.rhai");
+    std::fs::write(
+        &path,
+        r#"
+fn on_update(id, ctx) {
+    ctx.set_global("mx", ctx.get_mouse_world_x());
+    ctx.set_global("my", ctx.get_mouse_world_y());
+}
+"#,
+    )
+    .unwrap();
+    let mut data = LevelData::empty(60, 40);
+    data.player.script = Some(path.to_string_lossy().into_owned());
+    let mut sim = Simulation::new(data);
+    sim.set_world_cell_scale((2.0, 1.0));
+    sim.set_world_cell_scale((0.0, f32::NAN)); // ignored
+    let mut world = World::new();
+    let mut persistent = BTreeMap::new();
+    sim.on_start(&mut world, VIEW.0, VIEW.1, &mut persistent);
+    sim.step(
+        &mut world,
+        StepInput {
+            input: &InputSnapshot::default(),
+            mouse: MouseSnapshot { cell: (10.0, 4.0), ..Default::default() },
+            gamepad: &GamepadSnapshot::default(),
+            external_commands: &[],
+            animating: &[],
+            camera_origin: Vec2::new(3.0, 1.0),
+            sim_dt: 1.0 / 60.0,
+            elapsed: 0.0,
+            viewport_w: VIEW.0,
+            viewport_h: VIEW.1,
+        },
+        &mut persistent,
+    );
+    let f = |k: &str| sim.globals().get(k).and_then(|v| v.as_float().ok()).unwrap();
+    assert_eq!((f("mx"), f("my")), (3.0 + 5.0, 1.0 + 4.0));
+}
+
+/// Play mode with a 16×16 world cell: the camera stretches the world (2, 1),
+/// a 20-cell-wide view shows 10 world columns, and the clamped view still
+/// never crosses the level's left/top edge.
+#[test]
+fn a_square_world_cell_halves_the_visible_world_width() {
+    let (mut play, mut world) = play_with("cell", "fn on_update(id, ctx) {}");
+    let settings = ember2d::project::PlaySettings { world_cell: (16, 16), ..Default::default() };
+    play.apply_play_settings(&settings);
+    run(&mut play, &mut world, 3);
+    assert_eq!(play.camera.cell_scale, Vec2::new(2.0, 1.0));
+    let left = play.camera.screen_to_world(Vec2::new(0.0, 0.0));
+    let right = play.camera.screen_to_world(Vec2::new(VIEW.0 as f32, 0.0));
+    assert!((right.x - left.x - 10.0).abs() < 1e-4, "{left:?}..{right:?}");
+    assert!(left.x >= -1e-4 && left.y >= -1e-4, "clamped inside the level: {left:?}");
+}

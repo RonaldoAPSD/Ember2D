@@ -302,8 +302,11 @@ impl Simulation {
         let cam_pos =
             self.camera_entity.map(|id| world.get_global_position(id)).unwrap_or(Vec2::ZERO);
         let game_h = (viewport_h as i32).max(1);
-        let cam_x = (cam_pos.x - viewport_w as f32 / 2.0).max(0.0).round();
-        let cam_y = (cam_pos.y - game_h as f32 / 2.0).max(0.0).round();
+        // Step 9-5: the viewport is in glyph cells; a world unit spans
+        // `world_cell_scale` of them.
+        let (kx, ky) = self.world_cell_scale;
+        let cam_x = (cam_pos.x - viewport_w as f32 / 2.0 / kx).max(0.0).round();
+        let cam_y = (cam_pos.y - game_h as f32 / 2.0 / ky).max(0.0).round();
 
         // Phase 6 Step 3 (docs/ember2d-phase6-plan.md): `mem::take` instead
         // of `.clone()` — `self.globals`/`self.clips` are about to be

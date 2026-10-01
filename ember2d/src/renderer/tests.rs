@@ -26,3 +26,15 @@ fn camera_position_lands_at_the_viewport_center_in_pixels() {
     let (px, py) = screen_cell_to_pixel(cam.world_to_screen(cam.position));
     assert_eq!((px, py), ((40 * CELL_W) as i32, (12 * CELL_H) as i32));
 }
+
+/// Step 9-5 (docs/ember2d-master-plan.md §5.8): with a 16×16 world cell
+/// (`cell_scale` (2, 1)) one world unit is 16 logical pixels both ways.
+#[test]
+fn a_square_world_cell_is_square_in_pixels() {
+    let mut cam = Camera::new(80.0, 24.0);
+    cam.cell_scale = Vec2::new(2.0, 1.0);
+    cam.position = Vec2::new(10.0, 5.0);
+    let (x0, y0) = screen_cell_to_pixel(cam.world_to_screen(Vec2::new(10.0, 5.0)));
+    let (x1, y1) = screen_cell_to_pixel(cam.world_to_screen(Vec2::new(11.0, 6.0)));
+    assert_eq!((x1 - x0, y1 - y0), (16, 16));
+}

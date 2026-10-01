@@ -8,8 +8,24 @@ mod app;
 use app::{run_editor_app, run_play_app};
 
 use ember2d::prelude::*;
-use ember2d::project;
+use ember2d::project::PlaySettings;
 use ember2d_editor::prelude::{EditorState, PrefsStore, StartScreen};
+
+/// Reads `<folder>/project.ron`, if there is one: applies its visual style
+/// to the renderer and returns its play settings and name. A folder with no
+/// (or a broken) `project.ron` gets the defaults. Step 9-5
+/// (docs/ember2d-master-plan.md §5.8): one function for what all three
+/// launch paths below used to repeat line for line, now that the settings
+/// travel as one `PlaySettings` value instead of three loose arguments.
+fn load_project(engine: &mut Engine, folder: &str) -> (PlaySettings, Option<String>) {
+    match ProjectData::load(folder) {
+        Ok(proj) => {
+            engine.renderer.set_sprite_mode(proj.visual_style == VisualStyle::Sprites2D);
+            (proj.play_settings(), Some(proj.name))
+        }
+        Err(_) => (PlaySettings::default(), None),
+    }
+}
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -46,21 +62,11 @@ fn main() -> io::Result<()> {
             .with_prefs(PrefsStore::user());
             let project_dir = Path::new(&path).parent().unwrap_or(Path::new("."));
             // The editor has no time model of its own (D6) — only the project's
-            // sprite mode applies here. `gameplay_loop` is captured separately
-            // and only takes effect once the editor actually enters play mode.
-            let mut play_gameplay_loop = GameplayLoop::RealTime;
-            let mut pixels_per_unit = project::default_pixels_per_unit();
-            let mut turn_model = TurnModel::default();
-            if let Ok(proj) = ProjectData::load(&project_dir.to_string_lossy()) {
-                if proj.visual_style == VisualStyle::Sprites2D {
-                    engine.renderer.set_sprite_mode(true);
-                } else {
-                    engine.renderer.set_sprite_mode(false);
-                }
-                play_gameplay_loop = proj.gameplay_loop;
-                pixels_per_unit = proj.pixels_per_unit;
-                turn_model = proj.turn_model;
-                editor.project_name = Some(proj.name);
+            // sprite mode applies here. `gameplay_loop` (in `settings`) only
+            // takes effect once the editor actually enters play mode.
+            let (settings, name) = load_project(&mut engine, &project_dir.to_string_lossy());
+            if name.is_some() {
+                editor.project_name = name;
             }
             // R45 (7A-12, docs/ember2d-master-plan.md §5.1): without this,
             // a level opened via `--editor path/to.level` rendered fine but
@@ -69,13 +75,7 @@ fn main() -> io::Result<()> {
             if !path.is_empty() {
                 editor.open_project_folder(project_dir.to_string_lossy().into_owned());
             }
-            let back_to_start = run_editor_app(
-                &mut engine,
-                editor,
-                play_gameplay_loop,
-                pixels_per_unit,
-                turn_model,
-            )?;
+            let back_to_start = run_editor_app(&mut engine, editor, settings)?;
             // R106 (§3 in the master plan): this return value used to be
             // dropped, so File > Close Project quit the whole app when the
             // editor had been launched as `--editor path/to.level` (it only
@@ -92,19 +92,8 @@ fn main() -> io::Result<()> {
                 }
             };
             let project_dir = Path::new(&path).parent().unwrap_or(Path::new("."));
-            let mut pixels_per_unit = project::default_pixels_per_unit();
-            let mut turn_model = TurnModel::default();
-            if let Ok(proj) = ProjectData::load(&project_dir.to_string_lossy()) {
-                if proj.visual_style == VisualStyle::Sprites2D {
-                    engine.renderer.set_sprite_mode(true);
-                } else {
-                    engine.renderer.set_sprite_mode(false);
-                }
-                engine.gameplay_loop = proj.gameplay_loop;
-                pixels_per_unit = proj.pixels_per_unit;
-                turn_model = proj.turn_model;
-            }
-            run_play_app(&mut engine, data, pixels_per_unit, turn_model)?;
+            let (settings, _) = load_project(&mut engine, &project_dir.to_string_lossy());
+            run_play_app(&mut engine, data, settings)?;
         } else {
             print_usage();
         }
@@ -134,26 +123,8 @@ fn run_start_screen(engine: &mut Engine) -> io::Result<()> {
                     EditorState::new_from_result(res).map(|e| e.with_prefs(PrefsStore::user()))
                 {
                     let folder = editor.project_folder.clone().unwrap_or_else(|| ".".to_string());
-                    let mut play_gameplay_loop = GameplayLoop::RealTime;
-                    let mut pixels_per_unit = project::default_pixels_per_unit();
-                    let mut turn_model = TurnModel::default();
-                    if let Ok(proj) = ProjectData::load(&folder) {
-                        if proj.visual_style == VisualStyle::Sprites2D {
-                            engine.renderer.set_sprite_mode(true);
-                        } else {
-                            engine.renderer.set_sprite_mode(false);
-                        }
-                        play_gameplay_loop = proj.gameplay_loop;
-                        pixels_per_unit = proj.pixels_per_unit;
-                        turn_model = proj.turn_model;
-                    }
-                    let back_to_start = run_editor_app(
-                        engine,
-                        editor,
-                        play_gameplay_loop,
-                        pixels_per_unit,
-                        turn_model,
-                    )?;
+                    let (settings, _) = load_project(engine, &folder);
+                    let back_to_start = run_editor_app(engine, editor, settings)?;
                     if after_editor(back_to_start) == AfterEditor::Exit {
                         break; // Quit from editor
                     }

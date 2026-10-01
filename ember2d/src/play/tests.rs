@@ -693,3 +693,15 @@ fn get_elapsed_derives_from_step_count_not_the_wall_clock_value_passed_in() {
 
     let _ = std::fs::remove_file(&script_path);
 }
+
+// Step 9-5 (docs/ember2d-master-plan.md §5.8): culling slack for world
+// cells wider than a glyph cell — zero on the classic grid, so ASCII
+// culling is unchanged.
+#[test]
+fn cull_slack_is_zero_on_the_classic_grid_and_grows_with_the_cell() {
+    use super::render::cull_slack;
+    assert_eq!(cull_slack(Vec2::new(1.0, 1.0)), (0, 0));
+    assert_eq!(cull_slack(Vec2::new(2.0, 1.0)), (1, 0));
+    assert_eq!(cull_slack(Vec2::new(4.0, 2.0)), (3, 1));
+    assert_eq!(cull_slack(Vec2::new(0.5, 0.5)), (0, 0));
+}

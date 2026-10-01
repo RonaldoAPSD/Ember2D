@@ -348,6 +348,21 @@ impl Renderer {
         self.backend.draw_char_scaled_pixels(px as f32, py as f32, ch, fg, bg, scale);
     }
 
+    /// Per-axis twin of `draw_char_scaled_pixels` (Step 9-5) — what a world
+    /// glyph in a non-8×16 world cell, and the editor canvas, draw with.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_char_sized_pixels(
+        &mut self,
+        px: i32,
+        py: i32,
+        ch: char,
+        fg: Color,
+        bg: Color,
+        size: [f32; 2],
+    ) {
+        self.backend.draw_char_sized_pixels(px as f32, py as f32, ch, fg, bg, size);
+    }
+
     /// The `f32`-position twin of `draw_char_scaled_pixels` (7D-3,
     /// docs/ember2d-master-plan.md §5.4) — `draw_char_scaled_pixels` keeps
     /// its `i32` signature for its one existing caller (`draw_char_world`,
@@ -417,7 +432,9 @@ impl Renderer {
         bg: Color,
     ) {
         let (px, py) = screen_cell_to_pixel(camera.world_to_screen(world_pos));
-        self.draw_char_scaled_pixels(px, py, ch, fg, bg, camera.zoom);
+        // Step 9-5: one world cell spans `zoom × cell_scale` glyph cells.
+        let s = camera.cells_per_unit();
+        self.draw_char_sized_pixels(px, py, ch, fg, bg, [s.x, s.y]);
     }
 
     /// Draw a texture at a world-space position, through `camera`. `size` is
@@ -440,7 +457,9 @@ impl Renderer {
     ) {
         self.backend.upload_texture(&self.device, &self.queue, texture);
         let (px, py) = screen_cell_to_pixel(camera.world_to_screen(world_pos));
-        let cell_size = [size.x * camera.zoom, size.y * camera.zoom];
+        // Step 9-5: world units -> glyph cells, per axis.
+        let s = camera.cells_per_unit();
+        let cell_size = [size.x * s.x, size.y * s.y];
         let uv_rect = src.map(|r| {
             [
                 r.x / texture.width as f32,

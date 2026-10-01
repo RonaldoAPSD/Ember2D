@@ -69,6 +69,24 @@ impl WgpuBackend {
         bg: Color,
         scale: f32,
     ) {
+        self.draw_char_sized_pixels(px, py, ch, fg, bg, [scale, scale]);
+    }
+
+    /// `draw_char_scaled_pixels` with a separate scale per axis, in glyph
+    /// cells — Step 9-5 (docs/ember2d-master-plan.md §5.8): a project whose
+    /// world cell isn't 8×16 draws a world glyph stretched to that cell
+    /// (16×16 is `[2, 1]` at zoom 1, a uniformly doubled, still crisp
+    /// glyph). The shader always took a per-axis instance size; only this
+    /// entry point was uniform.
+    pub fn draw_char_sized_pixels(
+        &mut self,
+        px: f32,
+        py: f32,
+        ch: char,
+        fg: Color,
+        bg: Color,
+        size: [f32; 2],
+    ) {
         self.ensure_batch(self.font_texture_id);
 
         let fg_rgba = fg.to_rgba(DEFAULT_FG);
@@ -82,7 +100,7 @@ impl WgpuBackend {
 
         self.instances.push(SpriteInstance {
             position: [cell_x, cell_y],
-            size: [scale, scale],
+            size,
             uv_offset: [0.0, uv_y],
             uv_size: [1.0, 1.0 / 128.0],
             color_fg: fg_rgba,

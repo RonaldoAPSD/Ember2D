@@ -3,24 +3,23 @@
 use std::io;
 
 use ember2d::prelude::*;
+use ember2d::project::PlaySettings;
 use ember2d_editor::prelude::EditorState;
 
 /// Run the editor, switching into play mode and back as the user requests.
 ///
-/// `play_gameplay_loop` is the project's target loop model (RealTime or
-/// TurnBased) for actual gameplay. The editor itself has no time model of
-/// its own (D6 — it must not inherit the project's setting) and always runs
-/// realtime; `play_gameplay_loop` only takes effect for the stretches where
-/// a `PlayState` is on top of the stack. `pixels_per_unit` is the project's
-/// natural-texture-sizing setting (Step 3b) — threaded through the same way
-/// for the same reason: `PlayState::from_level` takes only a `LevelData`,
-/// not a `ProjectData`.
+/// `settings.gameplay_loop` is the project's target loop model (RealTime
+/// or TurnBased) for actual gameplay. The editor itself has no time model
+/// of its own (D6 — it must not inherit the project's setting) and always
+/// runs realtime; the loop only takes effect for the stretches where a
+/// `PlayState` is on top of the stack. The rest of `settings` (pixels per
+/// unit, turn model, world cell — Step 9-5 bundled them into one
+/// `PlaySettings`) is handed to each `PlayState` as it's built, since
+/// `PlayState::from_level` takes only a `LevelData`, not a `ProjectData`.
 pub fn run_editor_app(
     engine: &mut Engine,
     editor: EditorState,
-    play_gameplay_loop: GameplayLoop,
-    pixels_per_unit: f32,
-    turn_model: TurnModel,
+    settings: PlaySettings,
 ) -> io::Result<bool> {
     engine.gameplay_loop = GameplayLoop::RealTime;
     engine.push_state(Box::new(editor));
@@ -29,7 +28,7 @@ pub fn run_editor_app(
         match transition {
             Transition::ToPlay(mut level_data) => {
                 // ── Switch to play mode ────────────────────────────────────
-                engine.gameplay_loop = play_gameplay_loop;
+                engine.gameplay_loop = settings.gameplay_loop;
                 // R96 (docs/ember2d-master-plan.md §3.2): this arm is a
                 // FRESH run (F5 / File > Play from the editor) — the inner
                 // loop's own `ToPlay(next_data)` arm below is a level
@@ -73,8 +72,7 @@ pub fn run_editor_app(
                     } else {
                         PlayState::from_level(level_data.clone(), engine.persistent.clone())
                     };
-                    play.set_pixels_per_unit(pixels_per_unit);
-                    play.set_turn_model(turn_model);
+                    play.apply_play_settings(&settings);
                     // Step 9-1 (docs/ember2d-master-plan.md §5.8): an F5 run
                     // offers the pause scene's Back to Editor row.
                     play.set_editor_preview(true);
@@ -166,12 +164,14 @@ pub fn run_editor_app(
     Ok(false)
 }
 
+/// Play `data` directly (`ember2d level.level`), following level changes
+/// and loaded saves until the game ends. `settings` as in `run_editor_app`.
 pub fn run_play_app(
     engine: &mut Engine,
     mut data: LevelData,
-    pixels_per_unit: f32,
-    turn_model: TurnModel,
+    settings: PlaySettings,
 ) -> io::Result<()> {
+    engine.gameplay_loop = settings.gameplay_loop;
     let mut pending_save: Option<SaveState> = None;
     loop {
         engine.reset_world();
@@ -203,8 +203,7 @@ pub fn run_play_app(
         } else {
             PlayState::from_level(data.clone(), engine.persistent.clone())
         };
-        play.set_pixels_per_unit(pixels_per_unit);
-        play.set_turn_model(turn_model);
+        play.apply_play_settings(&settings);
         if let Some((scenes, ui)) = loaded_scenes.take() {
             play.set_saved_scenes(scenes); // Step 9-1
             play.set_saved_ui(ui); // Step 9-3

@@ -154,8 +154,10 @@ impl EditorState {
             // not `mouse.cell_x`/`cell_y` against the deleted `Layout`'s
             // cell-quantized origin. Reuses `viewport_rect` computed above
             // (same exact value `on_canvas`'s own gate just used).
-            let mx = (mouse.pixel_x - viewport_rect.x) / ember2d::renderer::CELL_W as f32;
-            let my = (mouse.pixel_y - viewport_rect.y) / ember2d::renderer::CELL_H as f32;
+            // Step 9-5: in level cells (the project's world cell), so the
+            // pivot stays under the mouse whatever the cell's shape.
+            let mx = (mouse.pixel_x - viewport_rect.x) / self.world_cell.0;
+            let my = (mouse.pixel_y - viewport_rect.y) / self.world_cell.1;
 
             let gx_before = mx / self.zoom + self.target_scroll.0;
             let gy_before = my / self.zoom + self.target_scroll.1;

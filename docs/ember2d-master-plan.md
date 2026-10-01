@@ -5151,7 +5151,7 @@ prerequisites, scheduled first (user's choice), so the demo carries no
 workarounds. The user approved the API/format additions below (all
 additive: no `API_VERSION` or level-format bump).
 
-#### `[ ]` 9-5 — Per-project world cell size (square sprites)
+#### `[x]` 9-5 — Per-project world cell size (square sprites) (`HASH95`)
 World cells are 8×16 px and every tileset tile is forced to one cell, so a
 16×16 sprite draws twice as tall as wide (§11's "square world units").
 `ProjectData.world_cell: (w, h)` px, default (8, 16) — the ASCII demos are
@@ -5161,6 +5161,40 @@ world_cell / glyph cell) in `world_to_screen`/inverse/half extent,
 by k), script mouse-world coordinates and the starting camera, and the
 editor canvas. HUD, widgets, UI and `viewport_size` stay on the 8×16 glyph
 grid.
+
+- **Landed as** (`HASH95`):
+  - `ember2d/src/project.rs`: `ProjectData.world_cell` (serde default
+    (8, 16)) and `PlaySettings` — loop, pixels per unit, turn model and
+    world cell as one value (`cell_scale`, `world_cell_px`), which the
+    three launch paths in `ember2d-app` now share through one
+    `load_project` (they used to repeat the same block three times and
+    thread three loose arguments). `PlayState::apply_play_settings`.
+  - `ember2d/src/camera.rs`: `cell_scale` and `cells_per_unit` in every
+    conversion; `renderer/mod.rs` `draw_char_world`/`draw_texture_world`
+    use a per-axis size through the new `draw_char_sized_pixels`
+    (backend and `DrawSurface`). `play/camera_ctl.rs` clamps with the
+    scaled half extent; `render.rs::cull_slack` lets a wide cell that
+    starts off the left/top edge still draw (0 on the classic grid).
+  - Sim: `Simulation::set_world_cell_scale`, the script mouse-world
+    divide, the first frame's camera origin. The six script passes now
+    copy their per-pass context (scene, camera, cell scale, widgets)
+    through one `fill_pass_context` instead of three repeated lines each.
+  - Editor: `ui/canvas.rs::CanvasView` (scroll, zoom, viewport, cell)
+    replaces the `(scroll, zoom, viewport)` triple every canvas function
+    took, with `grid_to_pixel`/`pixel_to_grid`/`visible_cells`/
+    `glyph_size`; `mouse_to_grid`, the zoom pivot and the cursor
+    highlight share `pixel_to_grid`; the world cell comes from
+    `project.ron` (`load_project_settings`). Focus Camera now calls
+    `center_on` rather than repeating it in glyph cells.
+  - **Tests (10 new):** camera stretch and round trip, renderer pixels,
+    project parsing and fallback, cull slack, the canvas square-cell
+    round trip, the editor reading `world_cell`, script mouse-world and
+    play-mode visible width under a 16×16 cell.
+  - **Live-verified:** the roguelike (play, editor, editor zoomed, F5)
+    is pixel-identical to the pre-9-5 build apart from the GPU driver's
+    own FPS overlay; a copy of the 8-2/8-3 sprite test project set to
+    16×16 draws square tiles, sprites and glyphs in the editor and in
+    play, with the HUD unchanged.
 
 #### `[ ]` 9-6 — Editor authoring completeness
 A focused subset of 7E-2, enough that no demo needs a generator: an
@@ -5554,7 +5588,7 @@ or delete; never let this grow past a screen.
 
 - Square world units (true 8×8 cells): still a platformer-demo concern; 7B-2
   makes the cell aspect a single constant, which is the prerequisite.
-  **Scheduled as 9-5 (2026-10-01)** — the RPG demo's sprites need it.
+  **Done in 9-5 (`HASH95`)** as a per-project world cell size.
 - A pixel-space script HUD API beyond 9-3's menu/dialogue widgets.
 - OS drag-and-drop into the editor (an image dragged in from Explorer):
   winit delivers `DroppedFile`, nothing routes it yet; 8-4's in-editor drop

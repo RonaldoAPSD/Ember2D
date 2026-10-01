@@ -357,6 +357,11 @@ pub struct EditorState {
     /// `EditorMode`'s own doc comment.
     pub(super) mode: EditorMode,
     pub(super) zoom: f32,
+    /// Step 9-5 (docs/ember2d-master-plan.md §5.8): one level cell in
+    /// logical pixels at zoom 1 — the project's `world_cell` (8×16 unless
+    /// set), read by `load_project_settings`. Every canvas draw and
+    /// hit-test goes through `canvas_view`, which carries it.
+    pub(super) world_cell: (f32, f32),
 }
 
 const DEFAULT_LEVEL_W: usize = 32;
@@ -489,6 +494,7 @@ impl EditorState {
             color_picker_hsv: (0.0, 1.0, 1.0),
             mode: EditorMode::default(),
             zoom: 1.0,
+            world_cell: ember2d::project::PlaySettings::default().world_cell_px(),
         }
     }
 
@@ -516,7 +522,29 @@ impl EditorState {
     pub fn open_project_folder(&mut self, folder: String) {
         self.project_folder = Some(folder);
         self.load_palette();
+        self.load_project_settings();
         self.refresh_project_files();
+    }
+
+    /// Step 9-5: what the editor takes from the project's `project.ron` —
+    /// so far the world cell the canvas draws with. No (or a broken)
+    /// `project.ron` keeps the glyph cell.
+    pub(super) fn load_project_settings(&mut self) {
+        let Some(folder) = self.project_folder.as_deref() else { return };
+        if let Ok(project) = ember2d::project::ProjectData::load(folder) {
+            self.world_cell = project.play_settings().world_cell_px();
+        }
+    }
+
+    /// The canvas as it stands this frame — scroll, zoom, the Viewport
+    /// panel's logical content rect and the world cell (Step 9-5).
+    pub(super) fn canvas_view(&self, viewport_logical: ui::UiRect) -> ui::CanvasView {
+        ui::CanvasView {
+            scroll: self.scroll,
+            zoom: self.zoom,
+            viewport: viewport_logical,
+            cell: self.world_cell,
+        }
     }
 
     // Read-only accessors (7C-5, master plan §5.3) moved to `accessors.rs`
@@ -577,6 +605,7 @@ impl EditorState {
                 editor.project_folder = Some(result.project_folder);
                 editor.project_name = Some(result.project_name);
                 editor.load_palette();
+                editor.load_project_settings();
                 editor.refresh_project_files();
                 Ok(editor)
             }
@@ -591,6 +620,7 @@ impl EditorState {
                 editor.project_folder = Some(result.project_folder);
                 editor.project_name = Some(result.project_name);
                 editor.load_palette();
+                editor.load_project_settings();
                 editor.refresh_project_files();
                 if template == StartTemplate::BasicRoom {
                     apply_basic_room(&mut editor.grid);

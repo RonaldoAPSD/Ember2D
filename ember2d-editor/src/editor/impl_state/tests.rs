@@ -390,3 +390,28 @@ fn r109_saving_a_script_keeps_its_crlf_line_endings_and_final_newline() {
         assert_eq!(back, want, "{name} saved unchanged");
     }
 }
+
+// ── Test: Step 9-5 (docs/ember2d-master-plan.md §5.8) — the canvas takes
+// the project's world cell, and its hit-test agrees with its drawing. ──────
+
+#[test]
+fn a_projects_world_cell_reaches_the_canvas() {
+    let dir = std::env::temp_dir().join(format!("ember2d-{}", std::process::id())).join("cell95");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+    std::fs::write(
+        dir.join("project.ron"),
+        "(name: \"Sq\", visual_style: Sprites2D, gameplay_loop: TurnBased, world_cell: (16, 16))",
+    )
+    .unwrap();
+    let mut editor = EditorState::new("");
+    assert_eq!(editor.world_cell, (8.0, 16.0), "the glyph cell until a project says otherwise");
+    editor.open_project_folder(dir.to_string_lossy().into_owned());
+    assert_eq!(editor.world_cell, (16.0, 16.0));
+
+    let view = editor.canvas_view(crate::editor::ui::UiRect::new(100.0, 50.0, 640.0, 320.0));
+    let (px, py) = view.grid_to_pixel(3, 2);
+    assert_eq!((px, py), (100 + 48, 50 + 32), "16 logical px per cell both ways");
+    assert_eq!(view.pixel_to_grid(px as f32 + 1.0, py as f32 + 1.0), (3, 2));
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -75,9 +75,7 @@ impl ScriptEngine {
 
         let mut ctx_state = ScriptState::from_world(world, &self.layers, std::mem::take(persistent), args);
         ctx_state.timers = std::mem::take(&mut self.timers);
-        ctx_state.scene = self.scene_ctx(); // Step 9-1
-        ctx_state.camera_view = self.camera_view; // Step 9-2
-        ctx_state.ui = self.ui_ctx(); // Step 9-3
+        self.fill_pass_context(&mut ctx_state); // Steps 9-1..9-5
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         for (entity_id, other_id, path) in calls {
             let entity_ctx = ctx.with_entity(entity_id);

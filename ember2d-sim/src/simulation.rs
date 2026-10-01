@@ -311,6 +311,10 @@ pub struct Simulation {
     camera: crate::scripting::CameraSettings,
     /// Step 9-3: open menus and the dialogue box — see `crate::ui`.
     ui: crate::ui::UiModel,
+    /// Step 9-5 (docs/ember2d-master-plan.md §5.8): screen (glyph) cells
+    /// one world unit spans at zoom 1, per axis — (1, 1) unless the project
+    /// sets a non-8×16 world cell. See `set_world_cell_scale`.
+    world_cell_scale: (f32, f32),
 }
 
 impl Simulation {
@@ -337,6 +341,20 @@ impl Simulation {
             paused_this_step: false,
             camera: Default::default(),
             ui: Default::default(),
+            world_cell_scale: (1.0, 1.0),
+        }
+    }
+
+    /// Step 9-5: the project's world cell as a per-axis multiple of the
+    /// glyph cell (`ember2d::project::PlaySettings::cell_scale`) — what
+    /// turns a script's mouse position (glyph cells) into world units, and
+    /// sizes the first frame's camera origin. Set once by play mode, like
+    /// `set_turn_model`; a non-positive or non-finite axis is ignored.
+    pub fn set_world_cell_scale(&mut self, scale: (f32, f32)) {
+        let ok = |v: f32| v.is_finite() && v > 0.0;
+        if ok(scale.0) && ok(scale.1) {
+            self.world_cell_scale = scale;
+            self.script_engine.set_world_cell_scale(scale);
         }
     }
 

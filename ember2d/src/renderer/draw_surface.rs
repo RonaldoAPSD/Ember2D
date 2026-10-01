@@ -148,6 +148,19 @@ pub trait DrawSurface {
         bg: Color,
         scale: f32,
     );
+    /// `draw_char_scaled_pixels` with a scale per axis (Step 9-5,
+    /// docs/ember2d-master-plan.md §5.8) — the editor canvas draws a glyph
+    /// stretched to the project's world cell with it.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_char_sized_pixels(
+        &mut self,
+        px: i32,
+        py: i32,
+        ch: char,
+        fg: Color,
+        bg: Color,
+        size: [f32; 2],
+    );
     /// The `f32`-position twin of `draw_char_scaled_pixels` (7D-3,
     /// docs/ember2d-master-plan.md §5.4) — see `Renderer::draw_char_px`'s
     /// own doc comment for why the two coexist.
@@ -225,6 +238,18 @@ impl DrawSurface for Renderer {
         scale: f32,
     ) {
         Renderer::draw_char_scaled_pixels(self, px, py, ch, fg, bg, scale);
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn draw_char_sized_pixels(
+        &mut self,
+        px: i32,
+        py: i32,
+        ch: char,
+        fg: Color,
+        bg: Color,
+        size: [f32; 2],
+    ) {
+        Renderer::draw_char_sized_pixels(self, px, py, ch, fg, bg, size);
     }
     fn draw_char_px(&mut self, pos: Vec2, ch: char, fg: Color, bg: Color, scale: f32) {
         Renderer::draw_char_px(self, pos, ch, fg, bg, scale);
@@ -382,6 +407,17 @@ impl DrawSurface for NullRenderer {
         _fg: Color,
         _bg: Color,
         _scale: f32,
+    ) {
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn draw_char_sized_pixels(
+        &mut self,
+        _px: i32,
+        _py: i32,
+        _ch: char,
+        _fg: Color,
+        _bg: Color,
+        _size: [f32; 2],
     ) {
     }
     fn draw_char_px(&mut self, pos: Vec2, ch: char, _fg: Color, _bg: Color, scale: f32) {

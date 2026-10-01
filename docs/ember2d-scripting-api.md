@@ -486,8 +486,17 @@ which is what cutscenes need:
   on the bounds' top-left corner (as a small level always has).
 - `set_camera_speed(s)` sets how quickly the camera catches up with its
   target, per second (default 5); `0` jumps straight there.
-- `get_mouse_world_x/y` divide the screen cell by the zoom;
-  `get_mouse_x/y` stay screen cells.
+- `get_mouse_world_x/y` divide the screen cell by the zoom (and, since
+  Step 9-5, by the project's world cell — see below); `get_mouse_x/y` stay
+  screen cells.
+- **World cell size** (Step 9-5): a project's `project.ron` can set
+  `world_cell: (w, h)` in pixels — `(16, 16)` for square pixel art. One
+  world unit (one level cell) is then that big on screen at zoom 1, so
+  square sprites draw square. The default is the glyph cell, `(8, 16)`.
+  Only the world stretches: `draw_hud`, menus, dialogue, `get_mouse_x/y`
+  and `get_viewport_width/height` stay on the 8×16 glyph grid, so a
+  16×16 project's HUD still has 80 columns while the camera shows 40
+  world columns.
 - None of this is saved with the game — a script that wants its camera
   back after a load sets it again in `on_load`. NaN and other nonsense
   values are ignored (a negative bounds size, a negative entity id).
@@ -806,6 +815,7 @@ numeric literals in one consistent style, though; mixing (`draw_hud(1,
 | 9 | Step 9-2: `set_camera_target`/`clear_camera_target`/`set_camera_zoom`/`get_camera_zoom`/`set_camera_bounds`/`clear_camera_bounds`/`set_camera_speed`; `get_mouse_world_x/y` account for zoom | **No** — additive. `set_camera(x,y)` now behaves as `set_camera_target(x,y)` (same effect, but `clear_camera_target()` can now undo it); at the default zoom of 1 every existing function returns what it did before. |
 | 9 | Step 9-3: `menu_open`/`menu_selection`/`menu_closed`/`menu_close`, `draw_dialogue`/`dialogue_advance`/`dialogue_open`/`dialogue_done`/`close_dialogue`, `wrap_text`; R108 — every letter key now reaches `is_held`/`just_pressed` | **No** — additive (`draw_menu` and the cell HUD are unchanged). While a widget is open its keys are withheld from scripts, which no script could rely on before because no widget existed. |
 | 9 | Step 9-4: `load_level(path, spawn)`; exit targets `path#spawn`; `get_spawn_point("player")` now returns the player's start | **No** — additive. Level format v7 (`spawns`) is a level-file change, not an API one; older levels are migrated when they load. |
+| 9 | Step 9-5: `project.ron`'s `world_cell` — `get_mouse_world_x/y` divide by it | **No** — additive; a project without `world_cell` behaves exactly as before. |
 
 **Phase 6 is a zero-API-break phase** — `API_VERSION` stayed `6` through
 Step 5f. Phase 7.5-1 is the next break after it; 7.5-2 and 7.5-3 (the two

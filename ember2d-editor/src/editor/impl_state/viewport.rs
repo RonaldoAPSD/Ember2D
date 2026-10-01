@@ -57,17 +57,17 @@ impl EditorState {
             return None;
         }
         let viewport = self.ui_space.rect_to_logical(viewport_pt.into());
-        let local_x = (mouse_px - viewport.x) / ember2d::renderer::CELL_W as f32;
-        let local_y = (mouse_py - viewport.y) / ember2d::renderer::CELL_H as f32;
 
-        // 3. Project to grid coordinates
-        let gx = (local_x / self.zoom + self.scroll.0).floor() as i32;
-        let gy = (local_y / self.zoom + self.scroll.1).floor() as i32;
-
-        Some((gx, gy))
+        // 3. Project to grid coordinates — Step 9-5: through the same
+        // `CanvasView::pixel_to_grid` the cursor highlight draws with, so
+        // a non-8×16 world cell can't make the two disagree.
+        let view = self.canvas_view(super::super::ui::UiRect::new(
+            viewport.x, viewport.y, viewport.w, viewport.h,
+        ));
+        Some(view.pixel_to_grid(mouse_px, mouse_py))
     }
 
-    /// The viewport's own content area, in `CELL_W`/`CELL_H` TILES — R66-C
+    /// The viewport's own content area, in level cells at zoom 1 — R66-C
     /// (§3 in the master plan): `center_on`/`clamp_scroll` below used to
     /// read `Panel::content_w()`/`content_h()` (the CELL-ROUNDED bridge) as
     /// a tile count directly, which silently changed meaning the moment a
@@ -77,15 +77,13 @@ impl EditorState {
     /// `mouse_to_grid`'s own formula above.
     fn viewport_tiles(&self) -> (f32, f32) {
         // 7D-3 checkpoint 7: `content_rect` is points-space now — converted
-        // to logical before dividing by the logical-pixel `CELL_W`/`CELL_H`
-        // constants, same reasoning as `mouse_to_grid` above.
+        // to logical before dividing by the logical-pixel world cell (Step
+        // 9-5: `world_cell`, 8×16 unless the project sets it), same
+        // reasoning as `mouse_to_grid` above.
         let metrics = super::super::ui::ChromeMetrics::from_theme(&self.theme);
         let viewport_pt = self.panels.viewport().content_rect(&metrics);
         let viewport = self.ui_space.rect_to_logical(viewport_pt.into());
-        (
-            viewport.w / ember2d::renderer::CELL_W as f32,
-            viewport.h / ember2d::renderer::CELL_H as f32,
-        )
+        (viewport.w / self.world_cell.0, viewport.h / self.world_cell.1)
     }
 
     pub(in crate::editor) fn center_on(&mut self, gx: i32, gy: i32) {

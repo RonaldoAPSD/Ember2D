@@ -127,13 +127,11 @@ impl EditorState {
                     }
                 };
                 if let Some((gx, gy)) = pos {
-                    let (cw, ch) = (
-                        self.panels.viewport().content_w() as f32 / self.zoom,
-                        self.panels.viewport().content_h() as f32 / self.zoom,
-                    );
-                    self.target_scroll.0 = gx - cw / 2.0;
-                    self.target_scroll.1 = gy - ch / 2.0;
-                    self.clamp_scroll();
+                    // Step 9-5: `center_on` (impl_state/viewport.rs) does
+                    // exactly this in level cells; this used to repeat it
+                    // with the viewport's glyph-cell size, which is wrong
+                    // once a level cell isn't 8×16.
+                    self.center_on(gx.round() as i32, gy.round() as i32);
                 }
             }
             ContextMenuAction::DuplicateEntity(sel) => {

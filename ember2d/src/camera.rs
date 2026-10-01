@@ -13,6 +13,13 @@
 //   screen cell — the same mapping PlayState used before this existed.
 //   In an ASCII project `zoom` should stay an integer so glyphs stay crisp;
 //   that's a project-setting decision made by the caller, not enforced here.
+//
+//   Step 9-5 (docs/ember2d-master-plan.md §5.8): `cell_scale` is how many
+//   screen cells (8×16 glyph cells) one world unit spans at zoom 1, per
+//   axis — (1, 1) for the classic grid, (2, 1) for a project whose world
+//   cell is 16×16 px, so square sprites draw square. Screen space stays in
+//   glyph cells (the HUD, widgets and `viewport_*` are untouched); only the
+//   world side of the conversion stretches.
 
 use ember2d_sim::math::Vec2;
 
@@ -37,6 +44,10 @@ pub struct Camera {
     /// render loop and `get_mouse_world_y` — one number, one place, used by
     /// both directions of the world<->screen conversion below.
     pub viewport_origin: Vec2,
+
+    /// Screen cells per world unit at zoom 1, per axis — see the header.
+    /// Set once from the project's `world_cell` (`ProjectData::cell_scale`).
+    pub cell_scale: Vec2,
 }
 
 impl Camera {
@@ -47,12 +58,20 @@ impl Camera {
             viewport_width,
             viewport_height,
             viewport_origin: Vec2::ZERO,
+            cell_scale: Vec2::new(1.0, 1.0),
         }
+    }
+
+    /// Screen cells one world unit spans right now, per axis: `zoom ×
+    /// cell_scale`. What every world-to-screen conversion multiplies by.
+    pub fn cells_per_unit(&self) -> Vec2 {
+        Vec2::new(self.zoom * self.cell_scale.x, self.zoom * self.cell_scale.y)
     }
 
     /// Half the visible world extent along each axis, in world units.
     fn half_extent(&self) -> Vec2 {
-        Vec2::new(self.viewport_width / 2.0 / self.zoom, self.viewport_height / 2.0 / self.zoom)
+        let s = self.cells_per_unit();
+        Vec2::new(self.viewport_width / 2.0 / s.x, self.viewport_height / 2.0 / s.y)
     }
 
     /// World-space position of the viewport's top-left corner.
@@ -62,7 +81,9 @@ impl Camera {
 
     /// Convert a world-space point to a screen-space cell position.
     pub fn world_to_screen(&self, world: Vec2) -> Vec2 {
-        (world - self.top_left()) * self.zoom + self.viewport_origin
+        let d = world - self.top_left();
+        let s = self.cells_per_unit();
+        Vec2::new(d.x * s.x, d.y * s.y) + self.viewport_origin
     }
 
     /// Convert a screen-space cell position back to world space — the
@@ -70,7 +91,9 @@ impl Camera {
     /// `get_mouse_world_x`/`get_mouse_world_y` math (and its hardcoded
     /// HUD-row fudge) once `PlayState` owns a real `Camera` (Step 2e).
     pub fn screen_to_world(&self, screen: Vec2) -> Vec2 {
-        (screen - self.viewport_origin) * (1.0 / self.zoom) + self.top_left()
+        let d = screen - self.viewport_origin;
+        let s = self.cells_per_unit();
+        Vec2::new(d.x / s.x, d.y / s.y) + self.top_left()
     }
 }
 
@@ -123,6 +146,24 @@ mod tests {
             (right.x - left.x - 40.0).abs() < 1e-4,
             "zoom 2.0 over an 80-cell viewport should show 40 world units"
         );
+    }
+
+    /// Step 9-5: a 16×16 world cell is two glyph cells wide and one tall,
+    /// so one world unit spans (2, 1) screen cells at zoom 1, and the
+    /// visible world area halves horizontally.
+    #[test]
+    fn a_square_world_cell_stretches_only_the_world_side() {
+        let mut cam = Camera::new(80.0, 24.0);
+        cam.cell_scale = Vec2::new(2.0, 1.0);
+        cam.position = Vec2::new(20.0, 12.0);
+        approx_eq(cam.world_to_screen(cam.position), Vec2::new(40.0, 12.0));
+        approx_eq(cam.world_to_screen(Vec2::new(21.0, 13.0)), Vec2::new(42.0, 13.0));
+        approx_eq(cam.top_left(), Vec2::new(0.0, 0.0));
+        cam.zoom = 2.0;
+        for p in [Vec2::new(3.0, 4.0), Vec2::new(-7.5, 30.25)] {
+            approx_eq(cam.screen_to_world(cam.world_to_screen(p)), p);
+        }
+        assert_eq!(cam.cells_per_unit(), Vec2::new(4.0, 2.0));
     }
 
     #[test]

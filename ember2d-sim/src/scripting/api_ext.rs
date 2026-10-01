@@ -169,10 +169,11 @@ impl ScriptCtx {
 
     /// Step 9-2 (docs/ember2d-master-plan.md §5.8): the screen cell is
     /// divided by the camera's zoom first — at zoom 2 each world unit
-    /// spans two screen cells.
+    /// spans two screen cells. Step 9-5: and by the world cell scale — in
+    /// a 16×16-cell project one world unit is two glyph cells wide.
     pub fn get_mouse_world_x(&mut self) -> f64 {
         let s = self.inner.borrow_mut();
-        (s.mouse_pos.0 / s.camera_view.zoom + s.camera_pos.0) as f64
+        (s.mouse_pos.0 / (s.camera_view.zoom * s.cell_scale.0) + s.camera_pos.0) as f64
     }
 
     pub fn get_mouse_world_y(&mut self) -> f64 {
@@ -186,7 +187,7 @@ impl ScriptCtx {
         // and `Camera::viewport_origin` were already inert. If a future HUD
         // design needs to reserve rows again, write a nonzero
         // `Camera::viewport_origin` and subtract it here.
-        (s.mouse_pos.1 / s.camera_view.zoom + s.camera_pos.1) as f64
+        (s.mouse_pos.1 / (s.camera_view.zoom * s.cell_scale.1) + s.camera_pos.1) as f64
     }
 
     pub fn mouse_left_pressed(&mut self) -> bool {

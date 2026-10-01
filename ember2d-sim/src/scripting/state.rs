@@ -416,6 +416,9 @@ pub(super) struct ScriptState {
     /// Step 9-2: the camera as scripts had set it when this pass began —
     /// what `get_camera_zoom` reads.
     pub(super) camera_view: super::camera::CameraSettings,
+    /// Step 9-5: glyph cells per world unit at zoom 1 (`(1, 1)` unless the
+    /// project's world cell isn't 8×16) — `get_mouse_world_x/y` divide by it.
+    pub(super) cell_scale: (f32, f32),
     /// Step 9-3 (docs/ember2d-master-plan.md §5.8): menus and dialogue as
     /// they stood when this pass began, plus this pass's widget requests.
     pub(super) ui: super::widgets::UiCtx,
@@ -640,6 +643,7 @@ impl ScriptState {
             pending_persistent: BTreeMap::new(),
             pending_camera: Default::default(),
             camera_view: Default::default(),
+            cell_scale: (1.0, 1.0),
             ui: Default::default(),
             pending_shake: None,
             pending_visibility: Vec::new(),

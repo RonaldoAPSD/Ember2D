@@ -116,6 +116,9 @@ pub struct ScriptEngine {
     pub(super) camera_view: super::camera::CameraSettings,
     /// Step 9-3: menus and dialogue as scripts read them — `set_ui_view`.
     pub(super) ui_view: Rc<crate::ui::UiModel>,
+    /// Step 9-5: glyph cells per world unit at zoom 1 — see
+    /// `Simulation::set_world_cell_scale`.
+    pub(super) world_cell_scale: (f32, f32),
     pub pending_sounds: Vec<String>,
     pub pending_spatial_sounds: Vec<(String, f32, f32)>,
     pub pending_music: Option<String>,
@@ -166,6 +169,7 @@ impl ScriptEngine {
             editor_preview: false,
             camera_view: Default::default(),
             ui_view: Rc::new(Default::default()),
+            world_cell_scale: (1.0, 1.0),
             pending_sounds: Vec::new(),
             pending_spatial_sounds: Vec::new(),
             pending_music: None,
@@ -328,9 +332,7 @@ impl ScriptEngine {
         let mut ctx_state =
             ScriptState::from_snapshot(snapshot, world.next_id, std::mem::take(persistent), args);
         ctx_state.timers = std::mem::take(&mut self.timers);
-        ctx_state.scene = self.scene_ctx(); // Step 9-1
-        ctx_state.camera_view = self.camera_view; // Step 9-2
-        ctx_state.ui = self.ui_ctx(); // Step 9-3
+        self.fill_pass_context(&mut ctx_state); // Steps 9-1..9-5
         ctx_state.animating = animating.iter().map(|&id| id as i64).collect(); // 7.5-7
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         if let Some(path) = path {
@@ -369,9 +371,7 @@ impl ScriptEngine {
         let mut ctx_state =
             ScriptState::from_snapshot(snapshot, world.next_id, std::mem::take(persistent), args);
         ctx_state.timers = std::mem::take(&mut self.timers);
-        ctx_state.scene = self.scene_ctx(); // Step 9-1
-        ctx_state.camera_view = self.camera_view; // Step 9-2
-        ctx_state.ui = self.ui_ctx(); // Step 9-3
+        self.fill_pass_context(&mut ctx_state); // Steps 9-1..9-5
         ctx_state.animating = animating.iter().map(|&id| id as i64).collect();
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         if let Some(path) = path {
@@ -423,9 +423,7 @@ impl ScriptEngine {
         let mut ctx_state =
             ScriptState::from_snapshot(snapshot, world.next_id, std::mem::take(persistent), args);
         ctx_state.timers = std::mem::take(&mut self.timers);
-        ctx_state.scene = self.scene_ctx(); // Step 9-1
-        ctx_state.camera_view = self.camera_view; // Step 9-2
-        ctx_state.ui = self.ui_ctx(); // Step 9-3
+        self.fill_pass_context(&mut ctx_state); // Steps 9-1..9-5
         ctx_state.animating = animating.iter().map(|&id| id as i64).collect();
         // Decay happens exactly once per real step, here — `run_scripts` is
         // the one call site the engine's own `update()` invokes unconditionally

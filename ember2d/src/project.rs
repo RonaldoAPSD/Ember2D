@@ -85,6 +85,67 @@ pub struct ProjectData {
     /// only behavior that ever existed before this step.
     #[serde(default)]
     pub turn_model: ember2d_sim::scheduler::TurnModel,
+
+    /// Step 9-5 (docs/ember2d-master-plan.md §5.8): the size of one WORLD
+    /// cell in logical pixels, (width, height). Defaults to the glyph cell
+    /// (8×16), which is every project before this step — so an ASCII
+    /// project changes nothing. A sprite project whose art is square sets
+    /// it square (the RPG demo: 16×16), and its tiles, sprites and world
+    /// glyphs then draw square. Only the world stretches: the HUD, menus,
+    /// dialogue and every script screen coordinate stay on the 8×16 glyph
+    /// grid. Each axis should be a whole multiple of the glyph cell's
+    /// (8 and 16) for crisp glyphs; `cell_scale` accepts anything positive.
+    #[serde(default = "default_world_cell")]
+    pub world_cell: (u32, u32),
+}
+
+/// Play-mode settings a project carries, bundled — Step 9-5: these used to
+/// travel as separate arguments (loop, pixels per unit, turn model) through
+/// every launch path in `ember2d-app`, and `world_cell` would have made a
+/// fourth. `Default` is what a level with no `project.ron` gets.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlaySettings {
+    pub gameplay_loop: GameplayLoop,
+    pub pixels_per_unit: f32,
+    pub turn_model: ember2d_sim::scheduler::TurnModel,
+    pub world_cell: (u32, u32),
+}
+
+impl Default for PlaySettings {
+    fn default() -> Self {
+        PlaySettings {
+            gameplay_loop: GameplayLoop::RealTime,
+            pixels_per_unit: default_pixels_per_unit(),
+            turn_model: Default::default(),
+            world_cell: default_world_cell(),
+        }
+    }
+}
+
+impl PlaySettings {
+    /// Screen (glyph) cells one world unit spans at zoom 1, per axis —
+    /// `world_cell / (CELL_W, CELL_H)`. A zero or absurd size falls back to
+    /// the glyph cell rather than dividing by zero or vanishing.
+    pub fn cell_scale(&self) -> (f32, f32) {
+        let axis = |v: u32, glyph: usize| -> f32 {
+            if v == 0 || v > 1024 {
+                1.0
+            } else {
+                v as f32 / glyph as f32
+            }
+        };
+        (
+            axis(self.world_cell.0, crate::renderer::CELL_W),
+            axis(self.world_cell.1, crate::renderer::CELL_H),
+        )
+    }
+
+    /// The world cell in logical pixels after `cell_scale`'s validation —
+    /// what the editor canvas sizes a level cell with.
+    pub fn world_cell_px(&self) -> (f32, f32) {
+        let (kx, ky) = self.cell_scale();
+        (kx * crate::renderer::CELL_W as f32, ky * crate::renderer::CELL_H as f32)
+    }
 }
 
 fn default_visual_style() -> VisualStyle {
@@ -101,6 +162,10 @@ fn default_start_level() -> Option<String> {
 // of a second hardcoded "8.0" drifting from this one.
 pub fn default_pixels_per_unit() -> f32 {
     8.0
+}
+/// The glyph cell, 8×16 — see `ProjectData::world_cell`.
+pub fn default_world_cell() -> (u32, u32) {
+    (crate::renderer::CELL_W as u32, crate::renderer::CELL_H as u32)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -133,6 +198,17 @@ impl ProjectData {
             start_level: Some("main.level".to_string()),
             pixels_per_unit: default_pixels_per_unit(),
             turn_model: ember2d_sim::scheduler::TurnModel::default(),
+            world_cell: default_world_cell(),
+        }
+    }
+
+    /// This project's play-mode settings (Step 9-5).
+    pub fn play_settings(&self) -> PlaySettings {
+        PlaySettings {
+            gameplay_loop: self.gameplay_loop,
+            pixels_per_unit: self.pixels_per_unit,
+            turn_model: self.turn_model,
+            world_cell: self.world_cell,
         }
     }
 
@@ -232,5 +308,36 @@ impl ProjectData {
             .collect();
         folders.sort();
         folders
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Step 9-5: a `project.ron` written before `world_cell` existed loads
+    /// with the glyph cell, so every existing project draws as before.
+    #[test]
+    fn an_old_project_ron_gets_the_glyph_world_cell() {
+        let p: ProjectData =
+            ron::de::from_str("(name: \"Old\", visual_style: ClassicASCII, gameplay_loop: TurnBased)")
+                .expect("an old project.ron parses");
+        assert_eq!(p.world_cell, (8, 16));
+        assert_eq!(p.play_settings().cell_scale(), (1.0, 1.0));
+        assert_eq!(p.play_settings().gameplay_loop, GameplayLoop::TurnBased);
+    }
+
+    #[test]
+    fn a_square_world_cell_scales_the_world_two_to_one() {
+        let s = PlaySettings { world_cell: (16, 16), ..Default::default() };
+        assert_eq!(s.cell_scale(), (2.0, 1.0));
+        let s = PlaySettings { world_cell: (32, 32), ..Default::default() };
+        assert_eq!(s.cell_scale(), (4.0, 2.0));
+    }
+
+    #[test]
+    fn a_zero_or_absurd_world_cell_falls_back_to_the_glyph_cell() {
+        let s = PlaySettings { world_cell: (0, 5000), ..Default::default() };
+        assert_eq!(s.cell_scale(), (1.0, 1.0));
     }
 }

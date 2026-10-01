@@ -100,6 +100,23 @@ impl ScriptEngine {
     pub fn set_camera_view(&mut self, settings: CameraSettings) {
         self.camera_view = settings;
     }
+
+    /// Step 9-5: see `Simulation::set_world_cell_scale`.
+    pub fn set_world_cell_scale(&mut self, scale: (f32, f32)) {
+        self.world_cell_scale = scale;
+    }
+
+    /// What every pass copies from the engine into its `ScriptState`
+    /// before running scripts: the scene stack (9-1), the camera (9-2),
+    /// the world cell scale (9-5) and the widget model (9-3). One helper
+    /// since 9-5 — the same three lines used to be repeated in all six
+    /// passes, and a fourth would have made it twenty-four.
+    pub(super) fn fill_pass_context(&self, state: &mut super::state::ScriptState) {
+        state.scene = self.scene_ctx();
+        state.camera_view = self.camera_view;
+        state.cell_scale = self.world_cell_scale;
+        state.ui = self.ui_ctx();
+    }
 }
 
 /// A finite float, or `None` (so a NaN from a script is ignored, never stored).

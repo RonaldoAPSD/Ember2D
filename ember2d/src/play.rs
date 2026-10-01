@@ -38,7 +38,7 @@ use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use render::{
     camera_shake_jitter, clip_frame, draw_debug_overlay, draw_hud_queue, draw_recent_log,
-    in_viewport, sprite_size, ClipFrame,
+    cull_slack, in_viewport, sprite_size, ClipFrame,
 };
 pub use render::{DrawCommand, DrawList, Space};
 // Step 9-1: what `SaveState::scenes` holds, for `set_saved_scenes` callers.
@@ -266,6 +266,15 @@ impl PlayState {
     /// `from_save` never see a `ProjectData`; optional for the same reason.
     pub fn set_turn_model(&mut self, model: ember2d_sim::scheduler::TurnModel) {
         self.sim.set_turn_model(model);
+    }
+
+    /// Step 9-5: every project play setting at once — pixels per unit, the
+    /// turn model and the world cell (`set_world_cell`, play/camera_ctl.rs).
+    /// What `ember2d-app` calls; the single setters stay for tests.
+    pub fn apply_play_settings(&mut self, settings: &crate::project::PlaySettings) {
+        self.set_pixels_per_unit(settings.pixels_per_unit);
+        self.set_turn_model(settings.turn_model);
+        self.set_world_cell(settings);
     }
 
     /// Forwarding accessors onto the owned `Simulation` — kept public
@@ -549,6 +558,8 @@ impl GameState for PlayState {
             render_camera.screen_to_world(Vec2::new(renderer.width as f32, renderer.height as f32));
         let view = Rect::new(view_min.x, view_min.y, view_max.x - view_min.x, view_max.y - view_min.y);
         let draw_list = DrawList::from_world_in(world, Some(view));
+        let slack = cull_slack(render_camera.cells_per_unit());
+        let (w_pad, h_pad) = (slack.0 as usize, slack.1 as usize);
         for cmd in draw_list.commands {
             let mut world_pos = overrides.position(cmd.id).unwrap_or(cmd.world_pos);
             let tint = overrides.tint(cmd.id).unwrap_or(cmd.tint);
@@ -564,8 +575,12 @@ impl GameState for PlayState {
             // Defect D13: the texture branch used to draw and `continue`
             // before this bounds check ran, so textured sprites bypassed
             // viewport culling entirely (glyph sprites were always culled
-            // correctly). Both paths now share one check up front.
-            if !in_viewport(col, row, renderer.width, renderer.height) {
+            // correctly). Both paths now share one check up front. Step
+            // 9-5: a world cell wider than a glyph cell can start off the
+            // left/top edge and still show — `slack` (0 on the classic
+            // grid) lets those through.
+            if !in_viewport(col + slack.0, row + slack.1, renderer.width + w_pad, renderer.height + h_pad)
+            {
                 continue;
             }
 
@@ -626,7 +641,8 @@ impl GameState for PlayState {
             let world_pos = Vec2::new(p.x, p.y);
             let screen = render_camera.world_to_screen(world_pos);
             let (col, row) = (screen.x.round() as i32, screen.y.round() as i32);
-            if in_viewport(col, row, renderer.width, renderer.height) {
+            if in_viewport(col + slack.0, row + slack.1, renderer.width + w_pad, renderer.height + h_pad)
+            {
                 renderer.draw_char_world(&render_camera, world_pos, p.glyph, p.fg, Color::Reset);
             }
         }

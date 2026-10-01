@@ -71,8 +71,10 @@ impl PlayState {
         // Step 4g: the world gets the full viewport — no HUD bars reserve rows.
         let game_h = (viewport_height as i32).max(1) as f32;
         let zoom = settings.zoom;
-        let half_w = viewport_width as f32 / 2.0 / zoom;
-        let half_h = game_h / 2.0 / zoom;
+        // Step 9-5: a world unit spans `zoom × cell_scale` glyph cells.
+        let k = self.camera.cell_scale;
+        let half_w = viewport_width as f32 / 2.0 / (zoom * k.x);
+        let half_h = game_h / 2.0 / (zoom * k.y);
         let target = clamp_center(self.camera_target(world, &settings), half_w, half_h, bounds);
 
         if self.camera.position == Vec2::ZERO {
@@ -85,6 +87,16 @@ impl PlayState {
         self.camera.viewport_height = game_h;
         self.camera.viewport_origin = Vec2::ZERO;
         self.camera.zoom = zoom;
+    }
+
+    /// Step 9-5 (docs/ember2d-master-plan.md §5.8): the project's world
+    /// cell — the camera stretches the world by it, and the simulation
+    /// needs the same factor for script mouse-world coordinates and the
+    /// first frame's camera origin.
+    pub fn set_world_cell(&mut self, settings: &crate::project::PlaySettings) {
+        let (kx, ky) = settings.cell_scale();
+        self.camera.cell_scale = Vec2::new(kx, ky);
+        self.sim.set_world_cell_scale((kx, ky));
     }
 }
 

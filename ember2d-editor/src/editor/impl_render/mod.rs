@@ -250,6 +250,9 @@ impl EditorState {
                     // never clip against a different rect than what's drawn.
                     painter.clip(Some(viewport.into()));
                     let renderer = painter.surface();
+                    // Step 9-5: one view (scroll, zoom, viewport, world
+                    // cell) for every canvas draw below.
+                    let view = self.canvas_view(viewport_logical);
 
                     // Render Viewport content within its panel area — the
                     // canvas/viewport stays on the engine's own fixed-cell
@@ -257,21 +260,17 @@ impl EditorState {
                     // `viewport_logical`, not the points-space `viewport`
                     // above, and the raw `renderer` escape hatch, not
                     // `painter`.
-                    ui::draw_void(renderer, &self.grid, self.scroll, self.zoom, viewport_logical);
+                    ui::draw_void(renderer, &self.grid, &view);
                     ui::draw_level_boundary(
                         renderer,
                         &self.grid,
-                        self.scroll,
-                        self.zoom,
-                        viewport_logical,
+                        &view,
                     );
                     if self.show_grid {
                         ui::draw_grid_overlay(
                             renderer,
                             &self.grid,
-                            self.scroll,
-                            self.zoom,
-                            viewport_logical,
+                            &view,
                         );
                     }
                     ui::draw_grid(
@@ -280,23 +279,17 @@ impl EditorState {
                         &self.sprites,
                         self.anim_time,
                         self.active_layer,
-                        self.scroll,
-                        self.zoom,
-                        viewport_logical,
+                        &view,
                     );
                     ui::draw_spawn_marker(
                         renderer,
                         self.grid.spawn_point,
-                        self.scroll,
-                        self.zoom,
-                        viewport_logical,
+                        &view,
                     );
                     ui::draw_extra_spawns(
                         renderer,
                         &self.grid.extra_spawns,
-                        self.scroll,
-                        self.zoom,
-                        viewport_logical,
+                        &view,
                     );
 
                     // ── Mode overlays ─────────────────────────────────────────────
@@ -314,9 +307,7 @@ impl EditorState {
                                 self.paste_flip_x,
                                 self.paste_flip_y,
                                 self.paste_rotate,
-                                self.scroll,
-                                self.zoom,
-                                viewport_logical,
+                                &view,
                             );
                         }
                     } else if matches!(self.mode, EditorMode::Select { .. }) {
@@ -325,9 +316,7 @@ impl EditorState {
                                 renderer,
                                 anchor,
                                 current,
-                                self.scroll,
-                                self.zoom,
-                                viewport_logical,
+                                &view,
                             );
                         }
                     } else if let Some(anchor) = self.rect_anchor {
@@ -337,9 +326,7 @@ impl EditorState {
                             anchor,
                             current,
                             self.palette.current().glyph,
-                            self.scroll,
-                            self.zoom,
-                            viewport_logical,
+                            &view,
                         );
                     } else if let Some(anchor) = self.line_anchor {
                         let current = grid_cursor.unwrap_or(anchor);
@@ -348,9 +335,7 @@ impl EditorState {
                             anchor,
                             current,
                             self.palette.current().glyph,
-                            self.scroll,
-                            self.zoom,
-                            viewport_logical,
+                            &view,
                         );
                     } else {
                         ui::draw_cursor_highlight(
@@ -358,9 +343,7 @@ impl EditorState {
                             mouse,
                             &self.palette,
                             matches!(self.mode, EditorMode::Inspect),
-                            self.scroll,
-                            self.zoom,
-                            viewport_logical,
+                            &view,
                         );
                     }
 
@@ -370,9 +353,7 @@ impl EditorState {
                             renderer,
                             &self.grid,
                             self.active_layer,
-                            self.scroll,
-                            self.zoom,
-                            viewport_logical,
+                            &view,
                         );
                     }
 
@@ -383,9 +364,7 @@ impl EditorState {
                                 renderer,
                                 cursor,
                                 self.erase_size,
-                                self.scroll,
-                                self.zoom,
-                                viewport_logical,
+                                &view,
                             );
                         }
                     }
