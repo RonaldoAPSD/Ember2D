@@ -19,6 +19,7 @@ fn wall() -> TileDef {
         texture: None,
         sprite: None,
         src: None,
+        name: String::new(),
     }
 }
 
@@ -306,4 +307,32 @@ fn baking_keeps_a_tiles_sprite_ref_and_treats_it_as_part_of_the_defs_identity() 
     let text = ron::ser::to_string(&data).unwrap();
     let back: LevelData = ron::de::from_str(&text).unwrap();
     assert_eq!(format!("{:?}", back.all_tiles()), before);
+}
+
+#[test]
+fn editing_cells_interns_defs_and_growing_keeps_every_tile_in_place() {
+    // Step 9.5-1: what a script's tile_set/tile_clear/growth do to a map.
+    let mut map = Tilemap::new((2, 3), 4, 2);
+    let w = map.intern(&wall()).unwrap();
+    assert_eq!(map.intern(&wall()), Some(w), "an existing def is reused");
+    let f = map.intern(&floor()).unwrap();
+    assert!(map.set_cell(1, 2, 3, w));
+    assert!(map.set_cell(0, 5, 4, f));
+    assert!(!map.set_cell(1, 0, 0, w), "outside the grid: nothing placed");
+    assert!(map.set_cell(2, 3, 3, 0), "clearing an empty layer is fine and adds no layer");
+    assert_eq!(map.layers.iter().map(|l| l.layer).collect::<Vec<_>>(), vec![0, 1], "layers stay sorted");
+
+    assert!(map.grow_to_cover(0, 0, 10, 8));
+    assert_eq!((map.origin, map.width, map.height), ((0, 0), 10, 8));
+    map.refresh(&registry());
+    assert!(map.solid_at(2, 3, 0), "the wall is where it was");
+    assert_eq!(map.tag_at(5, 4), "floor", "and so is the floor");
+    assert_eq!(map.tile_count(), 2);
+    assert!(map.grow_to_cover(1, 1, 2, 2), "already covered: nothing changes");
+    assert_eq!((map.origin, map.width, map.height), ((0, 0), 10, 8));
+    assert!(!map.grow_to_cover(0, 0, 5000, 5000), "past MAX_TILEMAP_CELLS: refused");
+
+    assert!(map.clear_cell(2, 3));
+    map.refresh(&registry());
+    assert!(!map.solid_at(2, 3, 0));
 }

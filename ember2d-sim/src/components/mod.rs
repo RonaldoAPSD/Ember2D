@@ -38,6 +38,6 @@ pub use collider::Collider;
 pub use script::Script;
 pub use sprite::{Sprite, SpriteSource};
 pub use tag::Tag;
-pub use tilemap::{TileDef, TileLayer, Tilemap, TilemapBuilder};
+pub use tilemap::{TileDef, TileLayer, TileStamp, Tilemap, TilemapBuilder};
 pub use transform::Transform;
 pub use vars::Vars;

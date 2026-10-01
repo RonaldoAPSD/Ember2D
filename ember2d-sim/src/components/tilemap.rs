@@ -98,6 +98,20 @@ pub struct TileDef {
     /// draws its sprites without re-reading any tileset file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub src: Option<Rect>,
+    /// Step 9.5-1: the name a script gave this def (`ctx.tile_def(name,
+    /// ...)`), so `ctx.get_tile(x, y, layer)` can say what a cell holds.
+    /// Empty for a tile the editor baked — a level file never has one.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+}
+
+/// Step 9.5-1: a def a script declared with `ctx.tile_def`, and the layer
+/// `tile_set`/`tile_fill` put it on unless told otherwise. Kept on `World`
+/// (`World::tile_defs`, by name) so a loaded save can go on placing them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TileStamp {
+    pub def: TileDef,
+    pub layer: u8,
 }
 
 impl TileDef {
@@ -410,6 +424,98 @@ impl Tilemap {
     pub fn tile_count(&self) -> usize {
         self.layers.iter().map(|l| l.cells.iter().filter(|&&c| c != 0).count()).sum()
     }
+
+    // ── Editing (Step 9.5-1: scripts placing tiles) ──────────────────────
+    //
+    // A script's `tile_set`/`tile_fill`/`tile_clear` land here, applied by
+    // `Simulation` (simulation/tiles.rs) on the `World`'s tilemap. None of
+    // these rebuild the runtime caches: a batch of edits is followed by
+    // ONE `refresh`, which the caller owes (it has the `LayerRegistry`).
+
+    /// The palette cell value for `def`, adding it if it's new — `None`
+    /// once the palette is full (`MAX_TILE_DEFS`). A linear scan: a level
+    /// or a generated floor has a handful of distinct defs, and `Color` has
+    /// no `Hash`/`Ord` to key a map with (see `TilemapBuilder`'s `last`).
+    pub fn intern(&mut self, def: &TileDef) -> Option<u16> {
+        if let Some(p) = self.palette.iter().position(|d| d == def) {
+            return Some((p + 1) as u16);
+        }
+        if self.palette.len() >= MAX_TILE_DEFS {
+            return None;
+        }
+        self.palette.push(def.clone());
+        Some(self.palette.len() as u16)
+    }
+
+    /// Sets world cell (x, y) on `layer` to palette cell value `cell`
+    /// (`0` clears it). `false` — nothing changed — outside the grid. A
+    /// layer that doesn't exist yet is created (kept sorted, as
+    /// `layers` must be).
+    pub fn set_cell(&mut self, layer: u8, x: i32, y: i32, cell: u16) -> bool {
+        let Some(i) = self.index(x, y) else { return false };
+        let li = match self.layers.binary_search_by_key(&layer, |l| l.layer) {
+            Ok(li) => li,
+            Err(_) if cell == 0 => return true, // clearing an empty layer
+            Err(li) => {
+                let n = self.width as usize * self.height as usize;
+                self.layers.insert(li, TileLayer { layer, cells: vec![0; n] });
+                li
+            }
+        };
+        self.layers[li].cells[i] = cell;
+        true
+    }
+
+    /// Clears world cell (x, y) on every layer. `false` outside the grid.
+    pub fn clear_cell(&mut self, x: i32, y: i32) -> bool {
+        let Some(i) = self.index(x, y) else { return false };
+        for layer in &mut self.layers {
+            layer.cells[i] = 0;
+        }
+        true
+    }
+
+    /// Grows the grid (never shrinks it) to cover world cells `x0..x1`,
+    /// `y0..y1` as well, every tile staying where it is. A level's baked
+    /// map only spans the box its painted tiles happen to fill; a script
+    /// generating the rest of the level needs all of it. `false` — nothing
+    /// changed — if the result would pass `MAX_TILEMAP_CELLS`.
+    pub fn grow_to_cover(&mut self, x0: i32, y0: i32, x1: i32, y1: i32) -> bool {
+        let (ox, oy) = (self.origin.0 as i64, self.origin.1 as i64);
+        let (w, h) = (self.width as i64, self.height as i64);
+        let nx0 = (x0 as i64).min(ox);
+        let ny0 = (y0 as i64).min(oy);
+        let nx1 = (x1 as i64).max(ox + w);
+        let ny1 = (y1 as i64).max(oy + h);
+        if (nx0, ny0, nx1, ny1) == (ox, oy, ox + w, oy + h) {
+            return true;
+        }
+        let (nw, nh) = (nx1 - nx0, ny1 - ny0);
+        if (nw as u64) * (nh as u64) > MAX_TILEMAP_CELLS {
+            return false;
+        }
+        for layer in &mut self.layers {
+            let mut cells = vec![0u16; (nw * nh) as usize];
+            for (i, &c) in layer.cells.iter().enumerate() {
+                if c != 0 {
+                    let (lx, ly) = (i as i64 % w.max(1), i as i64 / w.max(1));
+                    let (gx, gy) = (ox + lx - nx0, oy + ly - ny0);
+                    cells[(gy * nw + gx) as usize] = c;
+                }
+            }
+            layer.cells = cells;
+        }
+        self.origin = (nx0 as i32, ny0 as i32);
+        self.width = nw as u32;
+        self.height = nh as u32;
+        true
+    }
+
+    /// The script name of the tile on `layer` at (x, y) — `""` for an
+    /// empty cell or a tile no script named (`TileDef::name`).
+    pub fn name_at(&self, layer: u8, x: i32, y: i32) -> &str {
+        self.get(layer, x, y).map(|d| d.name.as_str()).unwrap_or("")
+    }
 }
 
 /// Builds a `Tilemap` one tile at a time over a fixed bounding box —
@@ -466,16 +572,7 @@ impl TilemapBuilder {
                 return Some(c);
             }
         }
-        let c = match self.map.palette.iter().position(|d| *d == def) {
-            Some(p) => (p + 1) as u16,
-            None => {
-                if self.map.palette.len() >= MAX_TILE_DEFS {
-                    return None;
-                }
-                self.map.palette.push(def);
-                self.map.palette.len() as u16
-            }
-        };
+        let c = self.map.intern(&def)?;
         self.last = Some(c);
         Some(c)
     }

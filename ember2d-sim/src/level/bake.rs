@@ -59,6 +59,7 @@ impl TileRecord {
             texture: self.texture.clone(),
             sprite: self.sprite.clone(),
             src: None,
+            name: String::new(),
         }
     }
 

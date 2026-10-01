@@ -492,6 +492,10 @@ impl Simulation {
         // Step 9-7: regions and project clips, which need a file found.
         let sprite_requests = std::mem::take(&mut res.sprite_requests);
         self.apply_sprite_requests(world, sprite_requests, logs);
+        // Step 9.5-1: tile placements, applied to the level's tilemap now,
+        // so this step's physics already collides with them.
+        let tile_ops = std::mem::take(&mut res.tile_ops);
+        self.apply_tile_ops(world, tile_ops, logs);
         self.commands = res.commands;
         *persistent = res.persistent;
 

@@ -424,6 +424,8 @@ pub(super) struct ScriptState {
     pub(super) ui: super::widgets::UiCtx,
     /// Step 9-7: this pass's sprite requests, in call order (`sprite.rs`).
     pub(super) sprite_ops: Vec<super::sprite::SpriteOp>,
+    /// Step 9.5-1: this pass's tile requests, in call order (`tiles.rs`).
+    pub(super) tile_ops: Vec<super::tiles::TileOp>,
     pub(super) pending_shake: Option<ShakeState>,
     pub(super) pending_visibility: Vec<(i64, bool)>,
     pub(super) pending_z_order: Vec<(i64, i32)>,
@@ -648,6 +650,7 @@ impl ScriptState {
             cell_scale: (1.0, 1.0),
             ui: Default::default(),
             sprite_ops: Vec::new(),
+            tile_ops: Vec::new(),
             pending_shake: None,
             pending_visibility: Vec::new(),
             pending_z_order: Vec::new(),

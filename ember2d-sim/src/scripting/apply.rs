@@ -371,6 +371,9 @@ impl ScriptEngine {
                 world,
                 std::mem::take(&mut state.sprite_ops),
             ),
+            // Step 9.5-1: all of them go up to `Simulation`, which has the
+            // layer registry and the tileset loader they need.
+            tile_ops: std::mem::take(&mut state.tile_ops),
         };
         // Phase 6 Step 9: the matching half of every call site's own
         // `ctx_state.timers = std::mem::take(&mut self.timers)` — timers

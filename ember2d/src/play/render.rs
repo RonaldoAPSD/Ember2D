@@ -384,6 +384,7 @@ mod tilemap_draw_tests {
             tag: String::new(),
             collider_layer: String::new(),
             texture: None,
+            name: String::new(),
         };
         let floor = TileDef { glyph: '.', solid: false, ..wall.clone() };
         let mut b = TilemapBuilder::new((0, 0), 100, 100).unwrap();

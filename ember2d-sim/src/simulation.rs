@@ -49,6 +49,7 @@ pub mod scenes;
 // file's own header comment.
 mod tilesets;
 mod sprites;
+mod tiles;
 
 use std::collections::BTreeMap;
 use std::path::Path;

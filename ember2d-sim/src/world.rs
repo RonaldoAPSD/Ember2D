@@ -102,6 +102,11 @@ pub struct World {
     /// entities — loads with none, and keeps working exactly as it did.
     #[serde(default)]
     pub tilemaps: BTreeMap<EntityId, Rc<Tilemap>>,
+    /// Step 9.5-1: the tiles scripts declared (`ctx.tile_def`), by name —
+    /// what `tile_set`/`tile_fill` place. Here, not on the script engine,
+    /// so a save carries them and a loaded game can go on placing them.
+    #[serde(default)]
+    pub tile_defs: BTreeMap<String, crate::components::TileStamp>,
     /// Exit tiles' destination level paths, keyed by the exit entity's
     /// REAL id (Step 8-1 — R93, §3.2). `Simulation` used to keep this map
     /// itself and rebuild it on load by assuming "entity id = tile index +
@@ -146,6 +151,7 @@ impl World {
             actors: BTreeMap::new(),
             vars: BTreeMap::new(),
             tilemaps: BTreeMap::new(),
+            tile_defs: BTreeMap::new(),
             exits: BTreeMap::new(),
             y_sort: false,
             diagnostics: RefCell::new(Vec::new()),

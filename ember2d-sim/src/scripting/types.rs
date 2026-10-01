@@ -121,6 +121,10 @@ pub struct ScriptUpdateResult {
     /// Step 9-7: `set_sprite`/`play_project_clip` requests, which need a
     /// file found — `Simulation` resolves them (simulation/sprites.rs).
     pub sprite_requests: Vec<super::sprite::SpriteOp>,
+    /// Step 9.5-1: `tile_def`/`tile_set`/`tile_fill`/`tile_clear`/
+    /// `tilemap_resize`, in call order — `Simulation` applies them
+    /// (simulation/tiles.rs).
+    pub tile_ops: Vec<super::tiles::TileOp>,
 }
 
 /// A queued write to `ScriptState::pending_globals`/`pending_persistent`

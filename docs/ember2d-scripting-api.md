@@ -304,6 +304,48 @@ filtering entirely; `false` by default.
 
 `reachable_within(id,budget)` → `[[x,y],…]` (Step 7.5-6) — every cell reachable from `id`'s own current position within `budget` orthogonal steps (a plain BFS; no `diagonal`/`mask` option — every solid blocks, matching `is_solid_at`). Never includes `id`'s own starting cell. An unknown `id` or `budget <= 0` returns `[]`. The tactical-RPG movement-range preview the old refactor plan's open question 4 asked for.
 
+### Tiles (Step 9.5-1)
+`tile_def(name, #{…})` · `tilemap_resize(w,h)` · `tile_set(x,y,name)` · `tile_set_layer(x,y,layer,name)` · `tile_fill(x,y,w,h,name)` · `tile_fill_layer(x,y,w,h,layer,name)` · `tile_clear(x,y)` · `tile_clear_layer(x,y,layer)` · `tile_clear_rect(x,y,w,h)` · `tile_clear_rect_layer(x,y,w,h,layer)` · `get_tile(x,y,layer)` → `String`
+
+Scripts can place static tiles: cells of the level's tilemap (Step 8-1),
+not entities, so a generated 80×45 floor costs what a painted one does.
+
+- **Declare a tile once.** `tile_def("wall", #{ glyph: "#", fg: "Grey",
+  bg: "Reset", solid: true, tag: "wall", layer: 1 })` names it. Every key
+  is optional; the defaults are a space, white on nothing, walkable,
+  layer 0.
+  - `sprite: "tileset:region"` draws a project tileset region instead of
+    the glyph. A missing region warns once and falls back to the glyph.
+  - `collider_layer` is the tile's collision layer, as a painted tile's.
+  - A key only an entity can have (`trigger`, `clip`, `script`, `exit`,
+    `actor`) is refused with a warning: spawn an entity for those. So is
+    an unknown key, to catch typos.
+  - Declaring a name again changes the tiles placed after that; cells
+    already placed keep their look.
+  - Declarations are part of `World`, so saves keep them.
+- **Place.** `tile_set`/`tile_fill` put the tile on its own layer;
+  `_layer` puts it on another.
+- **Clear.** `tile_clear`/`tile_clear_rect` empty every layer of a cell;
+  `_layer` empties one.
+- **Read.** `get_tile` returns the name a cell's tile was declared with,
+  or `""` for an empty cell or an editor-painted tile (read those with
+  `get_tile_tag`).
+- **Which map.** The level's own tilemap. Before the first edit it grows to
+  cover the whole level, since a painted level's map spans only its
+  painted box. A level with none gets an empty one the level's size.
+- **Resize.** `tilemap_resize(w,h)` replaces the map with an empty `w`×`h`
+  grid at (0, 0), up to 2048×2048 cells.
+- **Out of range.** A rect is clipped to the map. A request entirely
+  outside it, or naming a tile no `tile_def` declared, does nothing and
+  warns once per pass.
+- **When changes show.** Ops apply in call order, after the pass. This
+  step's collision already sees them. The script's own reads
+  (`is_solid_at`, `get_tile`, `get_tile_tag`, `get_path`) see them from the
+  next step, like every deferred write.
+
+Coordinates and layers accept ints or floats (floats floor to a cell); the single-cell calls also take float coordinates with an int layer (`get_tile(ctx.get_x(id), ctx.get_y(id), 0)`). See
+`ember2d/tests/tile_script.rs`.
+
 ### Hierarchy
 `get_parent(id)` · `set_parent(id,parent)` · `set_parent_keep_world(id,parent)` · `get_world_x(id)` · `get_world_y(id)`
 
@@ -861,6 +903,7 @@ Rhai (`go` is one) and can't name a function.
 | 9 | Step 9-4: `load_level(path, spawn)`; exit targets `path#spawn`; `get_spawn_point("player")` now returns the player's start | **No** — additive. Level format v7 (`spawns`) is a level-file change, not an API one; older levels are migrated when they load. |
 | 9 | Step 9-5: `project.ron`'s `world_cell` — `get_mouse_world_x/y` divide by it | **No** — additive; a project without `world_cell` behaves exactly as before. |
 | 9 | Step 9-7: `set_size`, `set_flip`, `set_sprite`, `play_project_clip`/`play_project_clip_once`, `set_y_sort` | **No** — additive. |
+| 9.5 | Step 9.5-1: `tile_def`, `tilemap_resize`, `tile_set`/`tile_set_layer`, `tile_fill`/`tile_fill_layer`, `tile_clear`/`tile_clear_layer`, `tile_clear_rect`/`tile_clear_rect_layer`, `get_tile` | **No** — additive. A save gains `World::tile_defs` (`serde(default)`; older saves load without it). |
 
 **Phase 6 is a zero-API-break phase** — `API_VERSION` stayed `6` through
 Step 5f. Phase 7.5-1 is the next break after it; 7.5-2 and 7.5-3 (the two
