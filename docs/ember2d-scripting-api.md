@@ -209,6 +209,35 @@ filtering entirely; `false` by default.
 ### Spatial queries
 `get_entity_at(x,y)` · `is_solid_at(x,y)` · `find_entities_in_rect(x,y,w,h)` · `get_distance(a,b)` · `get_angle_to(from,to)` (radians)
 
+> **Static tiles are cells of a tilemap, not entities (Step 8-1,
+> docs/ember2d-master-plan.md §5.7).** Every tile with no script, node
+> graph, trigger, actor, `next_level`, collider mask, or camera follow — in
+> the shipped demos, every wall and floor — is stored in the level's one
+> `Tilemap`, which is itself a single entity. What that means for these
+> functions:
+>
+> - `is_solid_at`, `get_path`, `reachable_within`: **unchanged** — a solid
+>   cell blocks exactly as the wall entity it replaced did (same mask
+>   filtering; an unregistered layer still blocks unmasked queries only).
+> - `get_entity_at`, `find_entities_in_rect`, `raycast` (and a script's
+>   `on_collide(me, other)`): a solid cell reports **the tilemap's entity
+>   id**, not a per-wall id (a cell has none). `find_entities_in_rect` lists
+>   the tilemap once however many of its cells the rect touches. Ties for
+>   "first" still go to the lowest id. A non-solid cell (a floor) is
+>   invisible to all three, as a floor tile always was (it never had a
+>   collider).
+> - So a script that recognised a wall by `has_tag(hit, "wall")` must test
+>   `is_tilemap(hit)` instead (or both — see `demos/shooter/scripts/
+>   bullet.rhai`). `find_by_tag("wall")`/`count_by_tag("wall")` no longer
+>   see collapsed walls either; `get_tile_tag(x,y)` reads a cell's tag.
+> - The tilemap entity has a position (`get_x`/`get_y` = its grid's
+>   top-left cell) and `entity_exists` is true for it, but moving it does
+>   **not** move the walls — cell geometry is fixed at level load.
+
+`is_tilemap(id)` → `bool` (Step 8-1) — `true` for the tilemap entity every static-tile hit above reports, `false` for anything else (including an id that doesn't exist).
+
+`get_tile_tag(x,y)` → `String` (Step 8-1) — the tag of the static tile covering (x, y) — the topmost layer's that has one — or `""` if none. Unlike the queries above it answers for non-solid cells too (floors). Accepts int or float coordinates. Interactive tiles are still entities: use `get_entity_at`/`get_tag` for those.
+
 > **`get_angle_to` is deterministic; a script's own `.cos()`/`.sin()` on its
 > result usually isn't.** As of Phase 6 Step 12 (docs/ember2d-phase6-plan.md,
 > §5.2 H2) `get_angle_to` no longer calls the platform's `atan2` — it uses a
@@ -223,7 +252,7 @@ filtering entirely; `false` by default.
 > — both IEEE-754-exact operations, so the whole computation stays
 > deterministic end to end. See §4's chase example, rewritten this way.
 
-`raycast(x1,y1,x2,y2,mask)` → `[id, hit_x, hit_y]` or `[]`. Finite segment, solids only, skips self.
+`raycast(x1,y1,x2,y2,mask)` → `[id, hit_x, hit_y]` or `[]`. Finite segment, solids only, skips self. A hit on a static wall reports the tilemap's id (see the Step 8-1 note above); `hit_x`/`hit_y` are the exact point it entered that cell, computed the same way as for a wall entity.
 
 `get_path(x1,y1,x2,y2,mask)` → `[[x,y],…]`. A\* on the integer grid, 4-directional, 2000-node cap. Empty array means no path or already there.
 
@@ -653,6 +682,7 @@ numeric literals in one consistent style, though; mixing (`draw_hud(1,
 | 7.5 | Step 7.5-2 (docs/ember2d-master-plan.md §5.6): `add_global`/`add_persistent` added, for accumulating a running total without the same-pass read-modify-write hazard every other `set_*` call has | **No** — purely additive: two new functions, nothing existing changed shape or behavior. |
 | 7.5 | Step 7.5-3 (docs/ember2d-master-plan.md §5.6): `set_var`/`get_var`/`has_var`/`remove_var`/`add_var` added — real per-entity state (a new `Vars` component), replacing the `"hp_" + id`-style global-key-concatenation convention | **No** — purely additive: five new functions backed by a new component; every existing function's shape and behavior is unchanged. |
 | 7.5 | Step 7.5-4 (docs/ember2d-master-plan.md §5.6): `get_stat`/`get_tint_aware`/`get_tint_asleep` added — numeric stats and an aware/asleep tint pair authored per actor tile via `TileRecord.actor.stats`/`tint_aware`/`tint_asleep`, letting `demos/roguelike/scripts/enemy.rhai` replace the near-duplicate `enemy_rat.rhai`/`enemy_boss.rhai` | **No** — purely additive: three new functions backed by new `ActorRecord`/`Actor` fields; every existing function's shape and behavior is unchanged. |
+| 8 | Step 8-1 (docs/ember2d-master-plan.md §5.7): static tiles become cells of one `Tilemap` entity; `is_tilemap(id)` and `get_tile_tag(x,y)` added | **No bump** — no signature or return shape changed and `is_solid_at`/`get_path`/`reachable_within` answer identically (pinned by `ember2d/tests/tilemap_equivalence.rs` against the real floor2). But an *identity* changed: `get_entity_at`/`find_entities_in_rect`/`raycast`/`on_collide`'s `other` now return the tilemap's id where they used to return a wall's, so a script recognising walls by `has_tag(hit, "wall")` needs `is_tilemap(hit)`. Every shipped script that did (`bullet.rhai`, the only one) was updated in the same step. |
 
 **Phase 6 is a zero-API-break phase** — `API_VERSION` stayed `6` through
 Step 5f. Phase 7.5-1 is the next break after it; 7.5-2 and 7.5-3 (the two

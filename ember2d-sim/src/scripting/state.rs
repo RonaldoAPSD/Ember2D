@@ -159,6 +159,13 @@ pub struct WorldSnapshot {
     /// once per `WorldSnapshot`, shared via the same `Rc::clone` every
     /// other field here already relies on.
     pub(super) extra_spawns: HashMap<String, (f32, f32)>,
+    /// Every `Tilemap` in the world (Step 8-1, docs/ember2d-master-plan.md
+    /// §5.7), keyed by its entity id — what `is_solid_at`/`raycast`/
+    /// `get_path`/etc. (`api_spatial.rs`) check alongside `colliders`.
+    /// An `Rc::clone` of `World`'s own, not a copy: this is the field that
+    /// took `WorldSnapshot::build` from copying every wall to not copying
+    /// any of them.
+    pub(super) tilemaps: BTreeMap<i64, Rc<crate::components::Tilemap>>,
 }
 
 impl WorldSnapshot {
@@ -295,6 +302,7 @@ impl WorldSnapshot {
             vars,
             layers: layers.clone(),
             extra_spawns,
+            tilemaps: world.tilemaps.iter().map(|(id, m)| (*id as i64, Rc::clone(m))).collect(),
         }
     }
 }

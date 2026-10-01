@@ -70,10 +70,17 @@ fn on_update(id, ctx) {
     // exactly what an engine-side collision would have. It also returns the
     // bullet itself and anything harmless it happens to be flying over (a
     // medkit), so both are skipped rather than treated as a hit.
+    //
+    // Walls are static tiles, which since engine Step 8-1 live in the
+    // level's one tilemap rather than as their own entities — so a wall hit
+    // comes back as the tilemap's id (`is_tilemap`), not an id tagged
+    // "wall". The `has_tag` half still catches a wall that IS its own
+    // entity (e.g. one given a script later), so nothing that used to stop
+    // a bullet stops stopping one.
     let hits = ctx.find_entities_in_rect(bx, by, 0.4, 0.4);
     for h in hits {
         if h == id || h == player { continue; }
-        if ctx.has_tag(h, "wall") {
+        if ctx.is_tilemap(h) || ctx.has_tag(h, "wall") {
             ctx.emit_particles(bx, by, "*", "DarkGrey");
             ctx.despawn(id);
             return;

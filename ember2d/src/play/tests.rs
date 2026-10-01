@@ -350,7 +350,26 @@ fn tile_z_uses_only_the_authored_layer_not_a_tag_based_offset() {
     let mut persistent: BTreeMap<String, rhai::Dynamic> = BTreeMap::new();
     play.on_start(&mut world, &mut events, 20, 10, &mut persistent);
 
-    let z_of = |tag: &str| world.sprites.get(&world.find_by_tag(tag).unwrap()).unwrap().layer;
+    // Step 8-1 (docs/ember2d-master-plan.md §5.7): floor/wall/water are
+    // static, so they're `Tilemap` cells now, not entities with a `Sprite`
+    // to read — looked up by position in the draw list instead, which
+    // carries a cell's z (`TileLayer::z`) and an entity's alike. That's
+    // the stronger check anyway: it's the z the renderer actually sorts by.
+    let x_of_tag = |tag: &str| match tag {
+        "floor" => 1.0,
+        "item" => 2.0,
+        "wall" => 3.0,
+        "water" => 4.0,
+        _ => 5.0,
+    };
+    let list = DrawList::from_world(&world);
+    let z_of = |tag: &str| {
+        list.commands
+            .iter()
+            .find(|c| c.world_pos == Vec2::new(x_of_tag(tag), 1.0))
+            .map(|c| c.z)
+            .unwrap_or_else(|| panic!("no draw command for the '{}' tile", tag))
+    };
     assert_eq!(z_of("floor"), 10, "layer 1 must land at z=10 regardless of tag");
     assert_eq!(
         z_of("item"),

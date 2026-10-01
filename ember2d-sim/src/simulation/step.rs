@@ -7,7 +7,7 @@
 // 2018+'s file+sibling-directory layout lets `simulation.rs` and
 // `simulation/` coexist, so `mod step;` in simulation.rs resolves here.
 // simulation.rs itself keeps the `Simulation` struct, its constructors,
-// accessors, `rebuild_scheduler`/`index_exits`, and `on_start` — this file
+// accessors, `rebuild_scheduler`/`restore_legacy_exits`, and `on_start` — this file
 // is what a caller drives every step afterward.
 
 use std::collections::{BTreeMap, HashMap};
@@ -317,6 +317,12 @@ impl Simulation {
             if let Some((mover, obstacle)) = physics_pair {
                 if world.colliders.get(&obstacle).map(|c| c.solid).unwrap_or(false) {
                     world.resolve_solid_collision(mover, obstacle, prev_positions);
+                } else if world.tilemaps.contains_key(&obstacle) {
+                    // Step 8-1: the obstacle is a whole tilemap — push out
+                    // of each overlapped solid cell, the same way this
+                    // branch above pushes out of one wall entity (see
+                    // world/tilemap_collision.rs's header for the contract).
+                    world.resolve_tilemap_collision(mover, obstacle);
                 }
             }
 
@@ -335,7 +341,9 @@ impl Simulation {
                 continue;
             }
             let locked = world.colliders.get(&other).map(|c| c.locked).unwrap_or(false);
-            if let Some(path) = self.exit_targets.get(&other).cloned() {
+            // Step 8-1 (R93): keyed by the exit entity's real id on `World`
+            // itself, not a Simulation-side map rebuilt from tile order.
+            if let Some(path) = world.exits.get(&other).cloned() {
                 if !locked {
                     let full_path =
                         resolve_exit_path(&path, &self.level.path, &|p| self.level_source_exists(p));

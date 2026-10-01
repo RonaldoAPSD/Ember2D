@@ -31,7 +31,7 @@
 use crate::renderer::color::Color;
 use crate::renderer::Renderer;
 use ember2d_sim::components::SpriteSource;
-use ember2d_sim::math::Vec2;
+use ember2d_sim::math::{Rect, Vec2};
 use ember2d_sim::scripting::{HudDraw, LogEntry, LogLevel, ShakeState};
 use ember2d_sim::world::{EntityId, World};
 use rand::rngs::SmallRng;
@@ -75,8 +75,25 @@ impl<'w> DrawList<'w> {
     /// Collect every visible sprite, sorted for rendering. Free
     /// function-shaped (an associated fn with no `&self`) so it's testable
     /// without a live GPU-backed `Renderer`. No camera involved here at
-    /// all — that conversion happens per-command in `render`.
+    /// all — that conversion happens per-command in `render`. Every
+    /// tilemap cell is included (`from_world_in` with no window).
+    #[cfg(test)]
     pub(super) fn from_world(world: &'w World) -> Self {
+        Self::from_world_in(world, None)
+    }
+
+    /// `from_world`, plus Step 8-1's tilemap cells (docs/ember2d-master-
+    /// plan.md §5.7) — only those inside `view`, a world-space rect (the
+    /// camera's visible area; `None` = every cell). That window is the
+    /// point: entity sprites are still all built then culled one by one in
+    /// `render`, but a 200×200 map's 40,000 static cells now cost only the
+    /// few thousand on screen, walked straight off the grid
+    /// (`Tilemap::visible_cells`), before anything is sorted. Each cell
+    /// becomes an ordinary `DrawCommand` at its layer's z (`TileLayer::z`,
+    /// the same `layer * 10` a tile entity's sprite had) with the tilemap's
+    /// entity id as its tiebreak, so it sorts into exactly the slot its
+    /// old entity did and batches with every other glyph on the atlas.
+    pub(super) fn from_world_in(world: &'w World, view: Option<Rect>) -> Self {
         let mut commands: Vec<DrawCommand<'w>> = world
             .transforms
             .keys()
@@ -98,6 +115,20 @@ impl<'w> DrawList<'w> {
                 })
             })
             .collect();
+
+        for (&map_id, map) in &world.tilemaps {
+            for (z, x, y, source, tint) in map.visible_cells(view) {
+                commands.push(DrawCommand {
+                    space: Space::World,
+                    z,
+                    id: map_id,
+                    world_pos: Vec2::new(x as f32, y as f32),
+                    source,
+                    tint,
+                    size: None,
+                });
+            }
+        }
 
         commands.sort_unstable_by_key(|c| (c.space, c.z, texture_sort_key(c.source), c.id));
         DrawList { commands }
@@ -246,5 +277,85 @@ pub(super) fn draw_recent_log(renderer: &mut Renderer, log: &[LogEntry], max: us
             LogLevel::Info => Color::Cyan,
         };
         renderer.draw_str(1, renderer.height - 1 - i, &entry.text, col, Color::Reset);
+    }
+}
+
+// ── Tests: Step 8-1 (docs/ember2d-master-plan.md §5.7) ──────────────────────
+// Kept here rather than in play/tests.rs, which is near CLAUDE.md's 750-line
+// limit — these only exercise `DrawList`, which lives in this file.
+#[cfg(test)]
+mod tilemap_draw_tests {
+    use super::*;
+    use ember2d_sim::components::{Sprite, TileDef, TilemapBuilder, Transform};
+    use ember2d_sim::layers::LayerRegistry;
+
+    /// A 100×100 wall-and-floor tilemap (floors on layer 0, one wall row on
+    /// layer 1) on entity 1, plus one ordinary sprite entity on top.
+    fn world_with_big_tilemap() -> World {
+        let wall = TileDef {
+            glyph: '#',
+            fg: Color::Grey,
+            bg: Color::Reset,
+            solid: true,
+            tag: String::new(),
+            collider_layer: String::new(),
+            texture: None,
+        };
+        let floor = TileDef { glyph: '.', solid: false, ..wall.clone() };
+        let mut b = TilemapBuilder::new((0, 0), 100, 100).unwrap();
+        for y in 0..100 {
+            for x in 0..100 {
+                b.add(0, x, y, floor.clone());
+            }
+            b.add(1, y, 0, wall.clone());
+        }
+        let mut map = b.finish().unwrap();
+        map.refresh(&LayerRegistry::new(&["solid".to_string()]));
+        let mut world = World::new();
+        let id = world.spawn();
+        world.add_tilemap(id, map);
+        let e = world.spawn();
+        world.add_transform(e, Transform::new(5.0, 5.0));
+        world.add_sprite(e, Sprite::new('@', Color::Green, Color::Reset, 15));
+        world
+    }
+
+    #[test]
+    fn only_tilemap_cells_inside_the_view_become_draw_commands() {
+        let world = world_with_big_tilemap();
+        let all = DrawList::from_world(&world);
+        assert_eq!(
+            all.commands.len(),
+            100 * 100 + 100 + 1,
+            "no window: every cell plus the entity"
+        );
+
+        // A 10×5 view; `visible_cells` adds one cell of slack each side.
+        let view = Rect::new(20.0, 20.0, 10.0, 5.0);
+        let windowed = DrawList::from_world_in(&world, Some(view));
+        let cells: Vec<&DrawCommand> = windowed.commands.iter().filter(|c| c.id == 1).collect();
+        assert!(cells.len() <= 12 * 7, "a 10×5 view must not draw {} cells", cells.len());
+        assert!(cells.iter().all(|c| {
+            (19.0..=31.0).contains(&c.world_pos.x) && (19.0..=26.0).contains(&c.world_pos.y)
+        }));
+        assert!(
+            windowed.commands.iter().any(|c| c.id == 2),
+            "entities are never windowed out here"
+        );
+    }
+
+    #[test]
+    fn tilemap_cells_sort_by_their_layer_z_around_entities() {
+        let world = world_with_big_tilemap();
+        let list = DrawList::from_world_in(&world, Some(Rect::new(0.0, 0.0, 8.0, 8.0)));
+        let zs: Vec<i32> = list.commands.iter().map(|c| c.z).collect();
+        let mut sorted = zs.clone();
+        sorted.sort();
+        assert_eq!(zs, sorted, "draw commands must come out in z order");
+        let player_at = list.commands.iter().position(|c| c.id == 2).unwrap();
+        assert!(
+            list.commands[..player_at].iter().all(|c| c.z <= 15),
+            "floors (z 0) and walls (z 10) draw under the player (z 15)"
+        );
     }
 }

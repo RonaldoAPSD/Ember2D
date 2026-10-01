@@ -27,6 +27,7 @@ pub mod collider;
 pub mod script;
 pub mod sprite;
 pub mod tag;
+pub mod tilemap;
 pub mod transform;
 pub mod vars;
 
@@ -37,5 +38,6 @@ pub use collider::Collider;
 pub use script::Script;
 pub use sprite::{Sprite, SpriteSource};
 pub use tag::Tag;
+pub use tilemap::{TileDef, TileLayer, Tilemap, TilemapBuilder};
 pub use transform::Transform;
 pub use vars::Vars;

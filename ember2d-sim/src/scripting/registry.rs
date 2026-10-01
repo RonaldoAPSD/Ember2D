@@ -150,6 +150,12 @@ pub(super) fn register_all(engine: &mut Engine) {
     engine.register_fn("get_path", ScriptCtx::get_path_diag);
     engine.register_fn("get_path", ScriptCtx::get_path_diag_i);
     engine.register_fn("reachable_within", ScriptCtx::reachable_within);
+    // Step 8-1 (docs/ember2d-master-plan.md §5.7): static tiles live in a
+    // `Tilemap` now — these two read what a wall/floor entity's own id
+    // used to give a script access to.
+    engine.register_fn("is_tilemap", ScriptCtx::is_tilemap);
+    engine.register_fn("get_tile_tag", ScriptCtx::get_tile_tag);
+    engine.register_fn("get_tile_tag", ScriptCtx::get_tile_tag_i);
     engine.register_fn("get_viewport_width", ScriptCtx::get_viewport_width);
     engine.register_fn("get_viewport_height", ScriptCtx::get_viewport_height);
     engine.register_fn("start_timer", ScriptCtx::start_timer);

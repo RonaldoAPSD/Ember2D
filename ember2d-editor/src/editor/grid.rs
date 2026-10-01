@@ -214,10 +214,18 @@ impl LevelGrid {
     /// `HashMap`) is what makes every OTHER iteration of `tiles` (this
     /// method's own `.values()` below, `iter()`, `resize()`) deterministic
     /// too, not just this one call site.
+    ///
+    /// Step 8-1 (docs/ember2d-master-plan.md §5.7): the result is baked —
+    /// every static tile (`TileRecord::is_static`) moved into the v4
+    /// `tilemap` section, only interactive tiles left in `tiles` ("auto-
+    /// bake on save", the step's own scoping decision; the grid itself
+    /// never changes shape, only what gets written). Deterministic like
+    /// the sort above: `bake_tilemap` re-sorts and interns its palette in
+    /// that same (layer, y, x) order.
     pub fn to_level_data(&self) -> LevelData {
         let mut tiles: Vec<TileRecord> = self.tiles.values().cloned().collect();
         tiles.sort_by_key(|t| (t.layer, t.y, t.x));
-        LevelData {
+        let mut data = LevelData {
             version: ember2d_sim::level::LEVEL_FORMAT_VERSION,
             name: self.name.clone(),
             width: self.width,
@@ -229,14 +237,20 @@ impl LevelGrid {
             path: String::new(),
             seed: self.seed,
             collision_layers: self.collision_layers.clone(),
-        }
+            tilemap: None,
+        };
+        data.bake_tilemap();
+        data
     }
 
     /// Build a LevelGrid from a saved LevelData.
     ///
     /// Called when the editor opens a .level file from disk.
-    /// The flat Vec<TileRecord> in LevelData is inserted into the map one
-    /// tile at a time, keyed by each tile's (x, y, layer) position.
+    /// Every tile — `all_tiles()`, so a v4 level's baked `tilemap` cells
+    /// are unpacked back into ordinary `TileRecord`s first (Step 8-1): the
+    /// editor paints, undoes, and inspects plain tiles and never sees a
+    /// tilemap — is inserted into the map one at a time, keyed by each
+    /// tile's (x, y, layer) position.
     pub fn from_level_data(data: &LevelData) -> Self {
         let mut grid = LevelGrid::new(data.width, data.height);
         grid.name = data.name.clone();
@@ -246,8 +260,8 @@ impl LevelGrid {
         grid.seed = data.seed;
         grid.collision_layers = data.collision_layers.clone();
 
-        for tile in &data.tiles {
-            grid.tiles.insert((tile.x, tile.y, tile.layer), tile.clone());
+        for tile in data.all_tiles() {
+            grid.tiles.insert((tile.x, tile.y, tile.layer), tile);
         }
 
         grid
@@ -302,8 +316,11 @@ mod tests {
             TileRecord::new(9, 0, 0, 'b', Color::White, Color::Reset, false, false, ""),
         );
 
+        // Step 8-1: every tile here is static, so after `to_level_data`'s
+        // bake they all live in `data.tilemap`, not `data.tiles` —
+        // `all_tiles()` is the whole level, in the same (layer, y, x) order.
         let data = grid.to_level_data();
-        let glyphs: Vec<char> = data.tiles.iter().map(|t| t.glyph).collect();
+        let glyphs: Vec<char> = data.all_tiles().iter().map(|t| t.glyph).collect();
         assert_eq!(
             glyphs,
             vec!['a', 'b', 'c', 'e', 'd'],
@@ -334,8 +351,12 @@ mod tests {
 
         let first = grid.to_level_data();
         let second = grid.to_level_data();
-        let positions =
-            |data: &LevelData| data.tiles.iter().map(|t| (t.layer, t.y, t.x)).collect::<Vec<_>>();
+        let positions = |data: &LevelData| {
+            data.all_tiles().iter().map(|t| (t.layer, t.y, t.x)).collect::<Vec<_>>()
+        };
         assert_eq!(positions(&first), positions(&second));
+        // Step 8-1: the baked tilemap itself (palette order, cell values)
+        // must be just as deterministic as the tile order.
+        assert_eq!(format!("{:?}", first.tilemap), format!("{:?}", second.tilemap));
     }
 }

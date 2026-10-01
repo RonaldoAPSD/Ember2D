@@ -401,6 +401,16 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R91 | S4 | `ember2d-sim/clippy.toml`'s new `disallowed-types` lint (`HashMap`/`HashSet`, `#![warn(...)]` in lib.rs) surfaces 67 unique pre-existing sites once actually turned on — every one already a deliberate lookup-only use per CLAUDE.md's own carve-out (`WorldSnapshot`'s velocities/parents/glyphs/etc., `ScriptEngine`'s mod_times/disabled_scripts, the graph codegen module, `layers.rs`, and others), none newly introduced by 7.5-9 itself (verified: none of this step's own new code — `level_source.rs`, `World::diagnostics` — adds a HashMap/HashSet at all). Not a correctness bug (nothing here is order-sensitive; each one already has its own "lookup-only" reasoning in a nearby doc comment, just not yet the formal `#[allow(clippy::disallowed_types)]` annotation clippy now expects) — a mechanical annotation pass across ~12 files, large enough on its own to warrant its own step rather than folding into 7.5-9's already-substantial diff (LevelSource, Diagnostic, set_parent/despawn, the world.rs/world_tests.rs split). 7.5-10 deleted `ScriptEngine.scopes` (R22) — one of the ~67 sites — without annotating it, so this count is now ~66; still unscheduled | `ember2d-sim/src/scripting/state.rs` (the largest concentration, ~35 sites), `world.rs`, `simulation.rs`, `simulation/step.rs`, `scripting/engine.rs`, `scripting/collisions.rs`, `scripting/api_spatial.rs`, `command.rs`, `layers.rs`, `graph/codegen.rs`, `graph/mod.rs` | `[ ]` unscheduled |
 | **Found writing 7.5-10 (docs/ember2d-master-plan.md §5.6)** | | | | |
 | R92 | S4 | 7.5-10's own plan text bundled two more things that turned out to need deferring: (1) it says `run_collisions` should "reuse the step snapshot instead of rebuilding" — but `run_collisions` builds its snapshot AFTER `late_step` calls `resolve_solid_collision`, deliberately (see `collisions.rs`'s own comment, Phase 6 Step 5), while `step()`'s own shared snapshot is built BEFORE that resolution; sharing it as the plan text asks would hand `on_collide` scripts stale, pre-resolution positions — a real regression, not a style choice, so this sub-item was skipped rather than implemented as written (user decision, 7.5-10). (2) `WorldSnapshot` storing collider `layer`/`mask` as `Rc<str>`/`Rc<[Rc<str>]>` "like tags" only pays for itself the way `tags` does if the same `Rc` is shared into more than one map (`tags`/`tag_to_id`/`tag_to_ids`) — collider layer/mask are written into exactly one map today, and `Collider`'s own fields (`components/collider.rs`) are plain `String`/`Vec<String>`, so retyping just the snapshot's copy would still allocate once per collider per step, identical cost to today, while adding a `.to_string()` conversion at every `get_collider_layer`/`get_collider_mask` call. Both of these were coupled in the plan's own text to the per-step spatial index (`get_entity_at`/`is_solid_at`/`raycast`/`get_path` sharing a sorted-by-x index with the broad phase) — a genuine, measurement-driven performance project the user chose to defer as its own future step rather than rush alongside 7.5-10's cleanup half; revisit both together once that index exists | `scripting/collisions.rs`, `scripting/state.rs` (`WorldSnapshot.colliders`) | `[ ]` unscheduled |
+| **Found writing 8-1 (docs/ember2d-master-plan.md §5.7)** | | | | |
+| R93 | S2 | `Simulation::index_exits` rebuilt the exit-tile → next-level map by assuming "entity id = tile index + 1" — true only while every tile spawned as an entity, in `level.tiles` order, with nothing spawned before them. Latent until 8-1: the moment static tiles collapse into a `Tilemap` (spawned first, one entity for all of them), every stairs would have been keyed to the wrong id — the level transition silently dead, on fresh spawn and on every loaded save alike | `simulation.rs:468-477` (pre-8-1) | `[x]` 8-1 — exits moved onto `World.exits`, recorded at spawn against the id `spawn()` actually returned and carried through saves with the `World`; a pre-8-1 save (no `exits`, no tilemap) gets the old mapping rebuilt by `restore_legacy_exits`, still correct for it. Tests: `r93_an_exit_after_collapsed_walls_is_keyed_by_its_real_entity_id`, `r93_a_pre_8_1_save_without_exits_gets_them_rebuilt_from_tile_order` (`simulation/tilemap_spawn_tests.rs`) |
+| R94 | S4 | The demo generators write `turn_model: Alternating` into `project.ron` (since 7.5-7 added the field), but the shipped `demos/roguelike/project.ron`/`demos/shooter/project.ron` were never regenerated — rerunning `gen_roguelike`/`gen_shooter` shows a one-line diff in each. Harmless (`#[serde(default)]` gives `Alternating` anyway) but means "regenerate the demos" isn't a no-op for files a step didn't mean to touch; 8-1 reverted that diff rather than ship it out of scope | `ember2d/examples/gen_roguelike.rs`/`gen_shooter.rs` `main`; `demos/*/project.ron` | `[ ]` unscheduled — regenerate both `project.ron`s in any later step that already touches demo content |
+| **Found during 8-1's live test pass (2026-09-30) — every one reproduced identically on the pre-8-1 binary (`5e0e88d`), so none is an 8-1 regression** | | | | |
+| R95 | S3 | Palette panel: each row's `[   ]` swatch is empty and the tile glyph previews are drawn as a stray stacked column lower in the panel (over the `[ Edit ]` button). `glyph_cell_x`/`glyph_cell_y` divide the row rect — UI **points** since 7D-3 — by `CELL_W`/`CELL_H` as if it were logical pixels, so at any UI scale other than the one the math happens to match (1.5× here) the glyph lands in the wrong cell and several rows collapse onto one. Same file: the 4–9/0 hotkey digit is right-aligned flush to `row_rect`'s right edge with no padding, so the panel border clips it. Also visible in the palette editor modal (a stray red glyph under its Tag field). Screenshot evidence in the 8-1 live test report | `ember2d-editor/src/editor/ui/panels/dock.rs:119-128` (swatch), `:147-155` (hotkey) | `[ ]` unscheduled — the user flagged the palette as looking wrong; needs the glyph preview moved to a points-space draw (or the points→logical→cell conversion R83's family already needs) |
+| R96 | S2 | Roguelike: `player.rhai`'s `on_start` unconditionally `set_persistent`s hp 12 / gold 0 / potions 1 / depth 1 / turns 0 — and `on_start` runs on EVERY level load, so taking the stairs resets the whole run: the HUD shows `Depth 1` on floor2 and any gold/HP is lost. Live-confirmed on both the 8-1 build and pre-8-1 `5e0e88d`. Most likely introduced when 7.5-5 moved the old lazy-init out of `on_update` into the new `on_start` hook without an "already initialised" guard (`has_persistent`) | `demos/roguelike/scripts/player.rhai:122-130` | `[ ]` unscheduled — a one-line guard, but it's demo content and gameplay-visible, so it wants its own step + a test that descends a floor and checks depth == 2 |
+| R97 | S4 | Keyboard-shortcuts overlay: the "Press ? or Esc to close" hint is drawn on top of the LEVEL column heading (fixed y, not laid out after the columns) | `ember2d-editor/src/editor/ui/panels/modals.rs:632` | `[ ]` unscheduled |
+| R98 | S4 | Stats panel counts tiles per palette def by `def.tag`, but the default palette's defs all have an empty tag — so every category reads 0 on a real level while Total (2,569 on floor2) is right | `ember2d-editor/src/editor/ui/panels/dock.rs:241` | `[ ]` unscheduled |
+| R99 | S3 | View → API Docs runs `cmd /C start index.html` relative to CWD; no `index.html` exists anywhere in the repo, so the menu item silently does nothing (no error surfaced) | `ember2d-editor/src/editor/impl_state/mod.rs:649-660` | `[ ]` unscheduled — point it at `docs/ember2d-scripting-api.md` or remove the item |
+| R100 | S4 | Two editor observations not root-caused in the 8-1 live pass: (1) toggling the grid (Tab / View → Grid) showed no visible overlay in either build; (2) the Files panel shows ~5 rows with no scroll affordance, so a project's `.level` files can sit below the fold with no hint they exist | `impl_render/mod.rs:265` (grid), Files panel | `[ ]` unscheduled — investigate before fixing; may be by design |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -4615,12 +4625,12 @@ meantime; 7.5 stays `[~]` and untagged until that pass is done.
 
 ---
 
-### 5.7 `[ ]` Phase 8 — Tilemap, assets, animation authoring
+### 5.7 `[~]` Phase 8 — Tilemap, assets, animation authoring
 
 **Purpose.** The old Phase 8 (tileset importer, clip editor) plus the one
 data-model change that moves the entity ceiling by an order of magnitude.
 
-#### `[ ]` 8-1 — `Tilemap` component (decision gate §7.2)
+#### `[x]` 8-1 — `Tilemap` component (decision gate §7.2)
 
 - **Why:** Every tile is an entity with its own collider. A 200×200 map is
   40,000 entities before one actor. Collision, `is_solid_at`, raycast, A*,
@@ -4639,6 +4649,86 @@ data-model change that moves the entity ceiling by an order of magnitude.
   and after; `roguelike_level_integrity.rs` on a baked floor2 shows
   identical BFS reachability; replay unchanged.
 - **Done when:** a 200×200 level with 50 actors holds 60 fps in debug.
+- **Scoped (2026-09-29, user decisions, before any code):** (1) **tagged
+  static tiles collapse too** — the plan's "tag-less" rule would have
+  collapsed zero tiles in the shipped demos (every wall/floor is tagged);
+  the tag is kept per cell (`TileDef::tag`, readable via `get_tile_tag`).
+  (2) A cell hit reports **the tilemap's own entity id** from
+  `get_entity_at`/`find_entities_in_rect`/`raycast`/`on_collide`, plus
+  additive `is_tilemap(id)`/`get_tile_tag(x,y)` — no `API_VERSION` bump.
+  (3) **Full v4, auto-bake on save** instead of an explicit "Bake static
+  tiles" action: the editor unpacks the tilemap into its ordinary tile grid
+  on load and bakes on save. (4) 9-4's `spawns` map is **not** folded in —
+  it gets its own format bump at 9-4.
+- **Landed as** (`<8-1 hash>`):
+  - `components/tilemap.rs` — `Tilemap` (palette of `TileDef`s + one
+    `u16` grid per layer, runtime caches `#[serde(skip)]` and rebuilt by
+    `refresh`) and `TilemapBuilder`. The plan's `TileCell { glyph_or_uv,
+    fg, bg, solid, layer_bits }` became a palette index per cell instead
+    (identical walls share one def; 2 bytes a cell). `TileRecord::
+    is_static` (`level/bake.rs`) is the one collapse rule: no script,
+    graph, trigger, actor, `next_level`, collider mask, or camera follow.
+  - `LevelData.tilemap` (v4) with lossless `bake_tilemap`/`all_tiles`/
+    `split_static`. A **v3 level also collapses at load** (`split_static`
+    reads both the baked section and static `tiles`), so the speedup needs
+    no re-save — a refinement of the plan's "v3 loads with every tile an
+    entity".
+  - `World.tilemaps` (`Rc<Tilemap>`, shared into `WorldSnapshot` by
+    refcount — serde's `rc` feature enabled for it) and `World.exits`
+    (R93). The tilemap entity spawns first, with a `Transform` at the grid
+    origin (informational; moving it doesn't move cells).
+  - Queries (`api_spatial.rs`): tilemap checked alongside colliders;
+    `get_path`/`reachable_within` check it first, O(1) per neighbour.
+    Broad phase: colliders test tilemap cells by direct lookup
+    (`world/tilemap_collision.rs`), one `Collision` event per (collider,
+    tilemap) pair; `late_step` pushes a mover out of each overlapped cell
+    row-major through the same `push_out_of` a wall entity uses.
+  - Play rendering: `DrawList::from_world_in` adds only the cells inside
+    the camera's view, as ordinary `DrawCommand`s at `layer * 10`.
+  - Editor `LevelGrid::from_level_data`/`to_level_data` unpack/bake;
+    both generators bake; every shipped level regenerated to v4 and
+    verified lossless against its v3 original (every tile, and every other
+    field, identical). floor2.level: 28,360 lines → ~370.
+  - `bullet.rhai` recognises a wall hit by `is_tilemap(h)` as well as
+    `has_tag(h, "wall")` — the only shipped script that identified walls
+    by an entity tag. (Not `is_solid_at` as first proposed: the existing
+    `find_entities_in_rect` call already uses the bullet's exact 0.4×0.4
+    footprint; a point test would have changed the hit shape.)
+  - **Measured** (`bench_sim`, release, before → after): 200×200 + 50
+    actors **42.38 → 0.298 ms/step p50**, 99,907 → 1,877 allocs/step,
+    `WorldSnapshot::build` 26.5 → 0.041 ms; floor2 1.306 → 0.009 ms/step,
+    6,327 → 70 allocs/step. Debug build, same 200×200 scenario: 0.345
+    ms/step (sim only).
+  - **Tests (25 new):** 15 unit tests (`components/tilemap_tests.rs` —
+    builder, masks, clamping, NaN, raycast parity, bake round trip/
+    idempotence/oversize refusal); 4 spawn tests
+    (`simulation/tilemap_spawn_tests.rs`, incl. both R93 tests and a
+    save/RON/load round trip); `ember2d/tests/tilemap_equivalence.rs`'s 3
+    — floor2 with and without the tilemap must give identical
+    `is_solid_at`/`get_entity_at`/`find_entities_in_rect`/`raycast`/
+    `get_path` (4- and 8-dir)/`reachable_within` answers, identical
+    push-out traces, and an identical 160-step playthrough; 1 integrity
+    test (every shipped level baked, tilemap solidity = tile solidity cell
+    for cell) plus the existing integrity checks moved to `all_tiles()`
+    (they would otherwise have passed vacuously — no walls in `tiles`); 2
+    `DrawList` window tests. Existing tests updated for walls no longer
+    being entities: `shooter_arena` (wall count now read from the
+    tilemap), `trigger_collider_layer`, `play::tests`' z-order test (now
+    read off the draw list), the editor's two `grid.rs` tests.
+  - **Live-verified (2026-09-30, by the agent, real `ember2d.exe`
+    windows driven by synthetic input + screenshots — the user had no
+    time for a manual pass):** floor2/floor1/arena render; walls block
+    the player (turn-based and realtime push-out); potion pickup;
+    corridor walk + rat wake/chase/bump-kill; floor1 stairs → floor2
+    (R93's fix, live); shooter bullets stop at walls; editor opens a v4
+    level with every wall back as an ordinary tile; editor save rewrote
+    floor2.level **byte-identical**; paint → F5 (painted wall present and
+    solid in play) → undo. Play-mode floor2 and arena screenshots are
+    **pixel-identical** to the pre-8-1 binary. A generated 200×200 level
+    + 50 actors (266 KB as v4 vs 9.4 MB as v3) holds the **60 FPS** cap
+    in a debug build on the F3 overlay — the "Done when" condition. Every
+    editor menu and panel was also exercised; the defects found (R95–R100)
+    all reproduce identically on the pre-8-1 binary.
 
 #### `[ ]` 8-2 — Tileset importer
 Slice a PNG into a grid, name regions, write `project/assets/tilesets/*.ron`.
@@ -4803,9 +4893,9 @@ its `Cargo.toml` comment, as today.
 
 | Scenario | Budget | Today |
 |---|---|---|
-| floor2 p50 ms/step (release) | ≤ 2.0 ms | 1.817 |
-| floor2 allocs/step | ≤ 7,000, not growing with entity count after 8-1 | 6,598 |
-| 200×200 tilemap + 50 actors (after 8-1) | 60 fps debug | n/a |
+| floor2 p50 ms/step (release) | ≤ 2.0 ms | 0.009 (8-1; was 1.306 at `5e0e88d`) |
+| floor2 allocs/step | ≤ 7,000, not growing with entity count after 8-1 | 70 (8-1; was 6,327) |
+| 200×200 tilemap + 50 actors (after 8-1) | 60 fps debug | sim 0.345 ms/step debug, 0.298 release (8-1, was 42.4 release); frame rate not measured live yet |
 | Editor frame at zoom 0.25 on floor2 (after 7E-5) | ≤ 4 ms | unmeasured |
 
 ### 6.5 `scripts/check.ps1` (and `check.sh`)
@@ -4855,7 +4945,12 @@ friend) needs maps over ~5,000 tiles, or if `bench_sim` shows
 `WorldSnapshot::build` above 1 ms at that size. Otherwise defer to Phase 11
 and proceed to 8-2.
 
-**Decision:** *(pending)*
+**Decision (2026-09-29): build 8-1.** Measured, not assumed —
+`cargo run --release -p ember2d-sim --example bench_sim` at `5e0e88d`:
+`WorldSnapshot::build` p50 = **3.18 ms** at the 5,000-tile synthetic level
+(5.86 ms at 10,000; 26.5 ms at 40,000), over 3× the 1 ms trigger, and the
+shipped floor2 (2,570 entities) already sits at 1.16 ms. Scoping choices
+the user made at the same time are recorded in 8-1's own body.
 
 ### 7.3 Rollback (10-5) — decided at end of 10-4
 
@@ -4953,7 +5048,7 @@ four `Cargo.toml`s and CLAUDE.md change in the tag commit.
 | Stabilisation sprint (7A) balloons | Every 7A step is one file or one concern; anything larger moves to its owning phase |
 | wgpu/winit upgrade breaks rendering subtly | Screenshot pairs required (§8); do it before any theme work |
 | `API_VERSION` 7 breaks scripts nobody remembers | Only two projects exist; both are rewritten in the same phase and shrink |
-| Tilemap format change corrupts levels | v3 loads losslessly; baking is an explicit editor action; integrity test covers a baked level |
+| Tilemap format change corrupts levels | v3 loads losslessly (and collapses at load); baking is automatic on save but lossless and idempotent (`tilemap_tests.rs`), every shipped level was verified tile-for-tile against its v3 original at 8-1, and the integrity test checks each baked level's grid against its own tiles |
 | Determinism erodes during single-player phases | CI on two OSes, replay 3×, clippy lints on the sim crate (7.5-9) |
 | Docs drift again | `check.ps1` fails the gate; §2/§3 updated in the same commit as code |
 | Netcode competes with shipping a game | Phase 10 after the third demo; 10-5 conditional |

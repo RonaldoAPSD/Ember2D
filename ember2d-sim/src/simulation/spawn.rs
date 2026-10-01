@@ -1,5 +1,6 @@
-// simulation/spawn.rs — Simulation::do_on_start: spawns every tile plus the
-// player, compiles every script, and runs every on_start.
+// simulation/spawn.rs — Simulation::do_on_start: spawns the level's static
+// tiles as one Tilemap entity (Step 8-1), every other tile plus the player
+// as entities, compiles every script, and runs every on_start.
 //
 // Split into its own file rather than left in simulation.rs — Phase 6 Step 7
 // (docs/ember2d-phase6-plan.md) pushed simulation.rs past the project's
@@ -44,14 +45,43 @@ impl Simulation {
         let mut scripts_ok = 0u32;
         let mut scripts_fail = 0u32;
 
-        // R7 (7A-3, docs/ember2d-master-plan.md): populates `exit_targets`
-        // independently of this loop's own `world.spawn()` calls — see
-        // `index_exits`'s own doc comment (simulation.rs) for why, and why
-        // that's what lets the same function also run on a loaded save.
-        self.index_exits();
-
-        for tile in &self.level.tiles {
+        // Step 8-1 (docs/ember2d-master-plan.md §5.7): every static tile —
+        // from a v4 file's baked `tilemap` section or a v3 file's plain
+        // `tiles` list alike — goes into ONE `Tilemap`, on one entity,
+        // spawned first. `entity_tiles` is everything else, in level order;
+        // the loop below spawns those exactly as every tile used to be.
+        let (tilemap, entity_tiles) = self.level.split_static();
+        if let Some(mut map) = tilemap {
+            // A level file stores a texture path relative to itself; the
+            // renderer needs it resolved — the same `resolve_exit_path` an
+            // entity tile's own texture goes through below.
+            for def in &mut map.palette {
+                if let Some(ref path) = def.texture {
+                    def.texture = Some(resolve_exit_path(path, &self.level.path, &|p| {
+                        self.level_source_exists(p)
+                    }));
+                }
+            }
+            map.refresh(&self.layers);
             let id = world.spawn();
+            // The tilemap entity's `Transform` sits at the grid's origin so
+            // `entity_exists`/`get_x`/`get_y` answer sensibly for the id a
+            // spatial query returns on a cell hit. It's informational only:
+            // cell geometry is `Tilemap::origin`, fixed at load — moving
+            // the entity does not move the walls (documented on
+            // `is_tilemap`, docs/ember2d-scripting-api.md).
+            world.add_transform(id, Transform::new(map.origin.0 as f32, map.origin.1 as f32));
+            world.add_tilemap(id, map);
+        }
+
+        for tile in &entity_tiles {
+            let id = world.spawn();
+            // R7/R93: recorded against the id `spawn()` just returned, on
+            // `World` itself — see `World.exits`' own doc comment for why
+            // this replaced `index_exits`' "id = tile index + 1" rebuild.
+            if let Some(ref path) = tile.next_level {
+                world.add_exit(id, path.clone());
+            }
             world.add_transform(id, Transform::new(tile.x as f32, tile.y as f32));
 
             let z = tile.layer as i32 * 10;
@@ -260,3 +290,7 @@ impl Simulation {
 #[cfg(test)]
 #[path = "spawn_tests.rs"]
 mod spawn_tests;
+
+#[cfg(test)]
+#[path = "tilemap_spawn_tests.rs"]
+mod tilemap_spawn_tests;

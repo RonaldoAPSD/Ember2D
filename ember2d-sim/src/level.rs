@@ -42,9 +42,14 @@
 // it serializes to its variant name: `Yellow`, `Reset`, etc. — not a number.
 
 use crate::color::Color;
+use crate::components::Tilemap;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
+
+// Step 8-1: which tiles are static, and baking them into / unpacking them
+// out of `LevelData.tilemap` — see that file's own header comment.
+mod bake;
 
 // ── TileRecord ────────────────────────────────────────────────────────────────
 
@@ -375,7 +380,16 @@ impl TileRecord {
 /// — an old level loads with the one-entry default below, which reproduces
 /// every pre-Step-7 level's actual behavior exactly (see that field's own
 /// doc comment for why).
-pub const LEVEL_FORMAT_VERSION: u32 = 3;
+/// Version 4 is Step 8-1 (docs/ember2d-master-plan.md §5.7):
+/// `LevelData.tilemap`, every static tile baked into one compact grid.
+/// Additive again (`#[serde(default)]`, `None`) — and a v3 level doesn't
+/// even need re-saving to benefit: `Simulation::do_on_start` collapses a
+/// v3 file's static `tiles` into the same runtime `Tilemap` at load
+/// (`LevelData::split_static`, level/bake.rs). The version bump marks that
+/// a v4 file's `tiles` list is no longer the whole level — a pre-8-1
+/// engine reading one would silently drop every wall, which is exactly
+/// what R8's newer-version rejection in `load` exists to stop.
+pub const LEVEL_FORMAT_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LevelData {
@@ -405,8 +419,11 @@ pub struct LevelData {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extra_spawns: Vec<(String, f32, f32)>,
 
-    /// All tiles placed in this level, in the order the editor placed them.
-    /// The order does not matter for rendering — the renderer sorts by z_order.
+    /// The tiles that are their own entities, in the order the editor
+    /// placed them. On a v4 (Step 8-1) level these are only the
+    /// interactive ones — every static tile lives in `tilemap` below;
+    /// `all_tiles()` returns both together. The order does not matter for
+    /// rendering — the renderer sorts by z_order.
     pub tiles: Vec<TileRecord>,
 
     /// Player entity properties (glyph, camera, script, etc.).
@@ -449,6 +466,15 @@ pub struct LevelData {
     /// filtering behavior is reproduced exactly, not just approximated.
     #[serde(default = "default_collision_layers")]
     pub collision_layers: Vec<String>,
+
+    /// Every static tile (`TileRecord::is_static`), baked into one grid —
+    /// Step 8-1, format v4. `None` on every level saved before 8-1, and on
+    /// any level with no static tiles at all. When present, `tiles` holds
+    /// only the tiles that stay entities; `all_tiles()` is the whole level.
+    /// Written by `bake_tilemap` (the editor's save path and both demo
+    /// generators), never edited in place.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tilemap: Option<Tilemap>,
 }
 
 // pub so ember2d-editor's LevelGrid (which mirrors LevelData's top-level
@@ -483,6 +509,7 @@ impl LevelData {
             path: String::new(),
             seed: rand::random(),
             collision_layers: default_collision_layers(),
+            tilemap: None,
         }
     }
 

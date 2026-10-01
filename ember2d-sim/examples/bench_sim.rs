@@ -391,6 +391,13 @@ fn main() {
         // count — floor2 has 6 rats in ~2,570 tiles, not a fixed fraction.
         bench_synthetic(n, 6, steps.min(120));
     }
+    // Step 8-1 (docs/ember2d-master-plan.md §5.7, §6.4's "200×200 tilemap
+    // + 50 actors" budget row): the scale the `Tilemap` component exists
+    // for — 40,000 tiles, an order of magnitude past floor2, with enough
+    // actors that the non-tile entity count isn't trivially small either.
+    // Fewer steps than the rows above: before 8-1, a single step here is
+    // tens of milliseconds, and the point is the before/after ratio.
+    bench_synthetic(40_000, 50, steps.min(30));
 
     println!("\n--- shipped content ---");
     for path in &[

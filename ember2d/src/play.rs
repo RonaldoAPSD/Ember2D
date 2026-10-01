@@ -28,7 +28,7 @@ use animation::{PlayingAnimation, RenderOverrides};
 use ember2d_sim::components::{AnimationClip, ClipFrames, SpriteSource};
 use ember2d_sim::event::EventBus;
 use ember2d_sim::level::LevelData;
-use ember2d_sim::math::Vec2;
+use ember2d_sim::math::{Rect, Vec2};
 use ember2d_sim::scripting::LogEntry;
 use ember2d_sim::simulation::{Simulation, StepInput};
 use ember2d_sim::world::{EntityId, World};
@@ -613,7 +613,13 @@ impl GameState for PlayState {
         // resolved (see play/animation.rs's own header comment).
         let overrides = RenderOverrides::build(&self.animations);
 
-        let draw_list = DrawList::from_world(world);
+        // Step 8-1: tilemap cells only inside the camera's view (one cell
+        // of slack is `Tilemap::visible_cells`' own, for shake/rounding).
+        let view_min = render_camera.screen_to_world(Vec2::ZERO);
+        let view_max =
+            render_camera.screen_to_world(Vec2::new(renderer.width as f32, renderer.height as f32));
+        let view = Rect::new(view_min.x, view_min.y, view_max.x - view_min.x, view_max.y - view_min.y);
+        let draw_list = DrawList::from_world_in(world, Some(view));
         for cmd in draw_list.commands {
             let mut world_pos = overrides.position(cmd.id).unwrap_or(cmd.world_pos);
             let tint = overrides.tint(cmd.id).unwrap_or(cmd.tint);

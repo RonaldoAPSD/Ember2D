@@ -155,6 +155,12 @@ fn build_level(
     }
     data.tiles.extend(features);
     data.tiles.sort_by_key(|t| (t.layer, t.y, t.x));
+    // Step 8-1 (docs/ember2d-master-plan.md §5.7): write level format v4 —
+    // every static tile (all the walls and floors) baked into the compact
+    // `tilemap` section, only the interactive tiles left in `tiles`. The
+    // same `bake_tilemap` the editor's own save path runs, so a generated
+    // level and an editor-saved one are byte-for-byte the same shape.
+    data.bake_tilemap();
     data
 }
 

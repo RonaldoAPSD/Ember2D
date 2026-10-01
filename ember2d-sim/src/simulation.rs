@@ -44,7 +44,7 @@ mod spawn;
 // header comment.
 mod step;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::command::{Command, GamepadSnapshot, InputSnapshot, MouseSnapshot};
@@ -254,7 +254,9 @@ pub struct Simulation {
     /// progression, which a wall-clock value can never guarantee.
     step_count: u64,
     camera_entity: Option<EntityId>,
-    exit_targets: HashMap<EntityId, String>,
+    // `exit_targets: HashMap<EntityId, String>` used to live here — Step
+    // 8-1 moved exits onto `World.exits` (R93, see that field's own doc
+    // comment for why the old tile-index reconstruction broke).
     is_loading_save: bool,
     /// R7 (7A-3, docs/ember2d-master-plan.md): the saved scheduler state,
     /// staged here by `from_save` for `on_start`'s loading-save branch to
@@ -305,7 +307,6 @@ impl Simulation {
             turn_number: 0,
             step_count: 0,
             camera_entity: None,
-            exit_targets: HashMap::new(),
             is_loading_save: false,
             pending_scheduler: Vec::new(),
             layers,
@@ -453,26 +454,32 @@ impl Simulation {
         }
     }
 
-    /// R7 (7A-3, docs/ember2d-master-plan.md): rebuilds `exit_targets`
-    /// purely from `self.level.tiles`'s own order — the exact id sequence
-    /// `do_on_start`'s spawn loop assigns (a fresh `World`'s ids start at 1
-    /// and increment once per tile, in `level.tiles` order, with nothing
-    /// else spawned in between). Reproducing that sequence here, without
-    /// touching `world` at all, is what lets the SAME function run against
-    /// a loaded save's `World` (already fully populated via
-    /// deserialization — re-spawning would duplicate every tile) exactly
-    /// as safely as it runs during a fresh spawn — see `on_start`'s two
-    /// branches, and `simulation/spawn.rs`'s own call site for why this
-    /// used to be an inline `self.exit_targets.insert(id, ...)` tied to
-    /// that loop's real `world.spawn()` id instead.
-    fn index_exits(&mut self) {
-        self.exit_targets.clear();
-        let mut id: EntityId = 1;
-        for tile in &self.level.tiles {
+    /// Rebuilds `World.exits` for a save written before Step 8-1 — the
+    /// only kind of `World` that can reach `on_start`'s loading branch
+    /// without them (`World.exits` is `#[serde(default)]`). Such a save's
+    /// world was spawned by the pre-8-1 `do_on_start`, which gave every
+    /// tile an entity, in order, starting at id 1 — so "exit id = tile
+    /// index plus one" (R7's original `index_exits`, 7A-3) is still
+    /// exactly right for it. Which tile list: `level.tiles` if the level file is still a
+    /// v3 one; `all_tiles()` (sorted (layer, y, x), the order every
+    /// generator and the editor always wrote) if it has since been
+    /// re-baked to v4, whose own `tiles` no longer lists the walls.
+    /// Skipped when the world already carries exits, or has a tilemap
+    /// (then it's a post-8-1 save, and its exits — if it has none — really
+    /// are none).
+    fn restore_legacy_exits(&self, world: &mut World) {
+        if !world.exits.is_empty() || !world.tilemaps.is_empty() {
+            return;
+        }
+        let tiles = if self.level.tilemap.is_some() {
+            self.level.all_tiles()
+        } else {
+            self.level.tiles.clone()
+        };
+        for (i, tile) in tiles.iter().enumerate() {
             if let Some(ref path) = tile.next_level {
-                self.exit_targets.insert(id, path.clone());
+                world.add_exit(i as EntityId + 1, path.clone());
             }
-            id += 1;
         }
     }
 
@@ -495,8 +502,8 @@ impl Simulation {
     ) -> Vec<LogEntry> {
         let mut logs = Vec::new();
         if !self.is_loading_save {
-            // `do_on_start` calls `index_exits` and this crate's normal
-            // fresh-spawn scheduler build — see that function's own body.
+            // `do_on_start` records each exit on `World.exits` as it
+            // spawns it; this is the normal fresh-spawn scheduler build.
             self.do_on_start(world, viewport_w, viewport_h, persistent, &mut logs);
             self.rebuild_scheduler(world);
         } else {
@@ -518,12 +525,12 @@ impl Simulation {
             // `Collider`'s own header comment (components/collider.rs) for
             // why this is the one mistake here with no visible symptom.
             world.refresh_collider_bits(&self.layers);
-            // R7 (7A-3, docs/ember2d-master-plan.md): `exit_targets` used to
-            // never get built on this branch at all — stairs were dead on
-            // every loaded save. `index_exits` is a pure function of
-            // `self.level`, so it's exactly as safe to call here as it is
-            // during a fresh spawn.
-            self.index_exits();
+            // R7 (7A-3, docs/ember2d-master-plan.md): exits used to never
+            // get built on this branch at all — stairs were dead on every
+            // loaded save. Since Step 8-1 they travel inside the save's own
+            // `World.exits`; only a pre-8-1 save needs them rebuilt — see
+            // `restore_legacy_exits`' own doc comment.
+            self.restore_legacy_exits(world);
             // R7: restore the exact scheduler state a mid-round save
             // captured, rather than resetting every actor to the same due
             // time — see `pending_scheduler`'s own doc comment. An empty

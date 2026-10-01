@@ -174,7 +174,22 @@ fn the_arena_loads_with_a_player_a_director_and_an_intact_wall_ring() {
     // 80x24 perimeter: 2*80 top/bottom + 2*22 sides, plus six 4x2 cover
     // blocks. A gap here would let the player (the one entity the engine's
     // solid resolver acts on) walk out of the arena.
-    assert_eq!(h.count_tag("wall"), 2 * 80 + 2 * 22 + 6 * 8);
+    //
+    // Step 8-1 (docs/ember2d-master-plan.md §5.7): the walls are static, so
+    // they're cells of the level's one `Tilemap` now, not entities tagged
+    // "wall" — counted there instead, by their per-cell tag, and every one
+    // of them must still be solid (a wall that lost its solidity in the
+    // bake would be a gap just the same).
+    assert_eq!(h.count_tag("wall"), 0, "no wall should still be its own entity");
+    let walls: Vec<(i32, i32)> = h
+        .world
+        .tilemaps
+        .values()
+        .flat_map(|m| m.iter_tiles().filter(|(_, _, _, d)| d.tag == "wall").map(|(_, x, y, _)| (x, y)))
+        .collect();
+    assert_eq!(walls.len(), 2 * 80 + 2 * 22 + 6 * 8);
+    let map = h.world.tilemaps.values().next().expect("the arena must have a tilemap");
+    assert!(walls.iter().all(|&(x, y)| map.solid_at(x, y, 0)), "every wall cell must be solid");
 }
 
 #[test]

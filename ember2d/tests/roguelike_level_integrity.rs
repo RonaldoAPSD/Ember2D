@@ -96,7 +96,9 @@ fn every_script_and_next_level_path_a_level_references_exists_on_disk() {
                 script
             );
         }
-        for tile in &data.tiles {
+        // Step 8-1: `all_tiles()`, not `tiles` — on a v4 level `tiles` is
+        // only the interactive ones; the walls/floors are in `tilemap`.
+        for tile in &data.all_tiles() {
             if let Some(ref script) = tile.script {
                 assert!(
                     Path::new(script).exists(),
@@ -126,7 +128,8 @@ fn every_levels_spawn_point_is_not_inside_a_solid_tile() {
     for path in LEVELS {
         let data = LevelData::load(path).unwrap_or_else(|e| panic!("load {}: {}", path, e));
         let (sx, sy) = (data.spawn_point.0.round() as i32, data.spawn_point.1.round() as i32);
-        let blocked = data.tiles.iter().any(|t| t.x == sx && t.y == sy && t.solid);
+        // Step 8-1: every tile, baked tilemap cells included (see above).
+        let blocked = data.all_tiles().iter().any(|t| t.x == sx && t.y == sy && t.solid);
         assert!(!blocked, "{}: spawn point ({},{}) must not be inside a solid tile", path, sx, sy);
     }
 }
@@ -141,7 +144,8 @@ fn no_cell_in_any_level_has_more_than_one_collider_bearing_tile() {
     for path in LEVELS {
         let data = LevelData::load(path).unwrap_or_else(|e| panic!("load {}: {}", path, e));
         let mut seen: HashMap<(i32, i32), u32> = HashMap::new();
-        for t in &data.tiles {
+        // Step 8-1: every tile, baked tilemap cells included.
+        for t in &data.all_tiles() {
             if t.solid || t.trigger {
                 *seen.entry((t.x, t.y)).or_insert(0) += 1;
             }
@@ -175,8 +179,12 @@ fn every_level_is_fully_walkable_from_spawn_to_the_stairs_and_every_enemy() {
     for path in LEVELS {
         let data = LevelData::load(path).unwrap_or_else(|e| panic!("load {}: {}", path, e));
 
+        // Step 8-1: `all_tiles()` — on the baked (v4) levels every wall is
+        // a tilemap cell, not an entry in `tiles`; flood-filling over
+        // `tiles` alone would see no walls at all and pass vacuously.
+        let all = data.all_tiles();
         let mut solid: HashSet<(i32, i32)> = HashSet::new();
-        for t in &data.tiles {
+        for t in &all {
             if t.solid && t.tag != "enemy" && t.tag != "boss" {
                 solid.insert((t.x, t.y));
             }
@@ -202,7 +210,8 @@ fn every_level_is_fully_walkable_from_spawn_to_the_stairs_and_every_enemy() {
             }
         }
 
-        for t in &data.tiles {
+        assert!(solid.len() > 50, "{}: the flood fill must actually see the walls", path);
+        for t in &all {
             if t.tag == "stairs" || t.tag == "enemy" || t.tag == "boss" {
                 assert!(
                     visited.contains(&(t.x, t.y)),
@@ -212,6 +221,47 @@ fn every_level_is_fully_walkable_from_spawn_to_the_stairs_and_every_enemy() {
                     t.x,
                     t.y,
                     start
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn every_shipped_level_is_baked_with_no_static_tile_left_as_an_entity() {
+    // Step 8-1 (docs/ember2d-master-plan.md §5.7): the generators bake
+    // before saving (`LevelData::bake_tilemap`), so a shipped level's
+    // `tiles` must hold only interactive tiles and its `tilemap` every
+    // static one — a static tile left in `tiles` would still collapse at
+    // load (`split_static`), but would mean the file wasn't regenerated
+    // through the current generator. And the baked grid must agree cell
+    // for cell with the tile list it came from: every solid static tile is
+    // a solid cell, nothing else is.
+    for path in LEVELS {
+        let data = LevelData::load(path).unwrap_or_else(|e| panic!("load {}: {}", path, e));
+        assert!(
+            data.tiles.iter().all(|t| !t.is_static()),
+            "{}: a static tile was left in `tiles` — regenerate the level",
+            path
+        );
+        let mut map =
+            data.tilemap.clone().unwrap_or_else(|| panic!("{}: must have a baked tilemap", path));
+        map.refresh(&ember2d_sim::layers::LayerRegistry::new(&data.collision_layers));
+        let solid_statics: HashSet<(i32, i32)> = data
+            .all_tiles()
+            .iter()
+            .filter(|t| t.is_static() && t.solid)
+            .map(|t| (t.x, t.y))
+            .collect();
+        for y in -1..=data.height as i32 {
+            for x in -1..=data.width as i32 {
+                assert_eq!(
+                    map.solid_at(x, y, 0),
+                    solid_statics.contains(&(x, y)),
+                    "{}: cell ({},{}) solidity differs between the tilemap and its tiles",
+                    path,
+                    x,
+                    y
                 );
             }
         }

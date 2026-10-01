@@ -14,8 +14,13 @@ repository = "https://github.com/RonaldoAPSD/Ember2D"
 
 [dependencies]
 # serde: derives (De)Serialize on every sim-side data type — components,
-# World, level/save data.
-serde = { version = "1", features = ["derive"] }
+# World, level/save data. `rc` (Step 8-1, docs/ember2d-master-plan.md
+# §5.7): `World.tilemaps` holds each `Tilemap` behind an `Rc` so the
+# per-step `WorldSnapshot` can share it with a refcount bump instead of
+# copying 40,000 cells — and `World` must still serialize for saves. Not a
+# new dependency, just serde's own opt-in impls for `Rc<T>` (it serializes
+# the pointee; sharing isn't preserved across a save, and needn't be).
+serde = { version = "1", features = ["derive", "rc"] }
 
 # ron: the level (.level) and save-file format.
 ron = "0.8"

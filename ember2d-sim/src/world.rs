@@ -2,8 +2,9 @@
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
+use std::rc::Rc;
 
-use crate::components::{Actor, Animator, Collider, Script, Sprite, Tag, Transform, Vars};
+use crate::components::{Actor, Animator, Collider, Script, Sprite, Tag, Tilemap, Transform, Vars};
 use crate::event::{EventBus, GameEvent};
 use crate::math::{Rect, Vec2};
 
@@ -90,6 +91,30 @@ pub struct World {
     /// if every entity's `Vars` were empty.
     #[serde(default)]
     pub vars: BTreeMap<EntityId, Vars>,
+    /// Every static tile of the level, as a grid (Step 8-1, docs/ember2d-
+    /// master-plan.md §5.7 — see `components/tilemap.rs`'s own header
+    /// comment). Normally exactly one entry, spawned first by
+    /// `Simulation::do_on_start`. Behind an `Rc` so `WorldSnapshot::build`
+    /// shares it per step with a refcount bump rather than copying every
+    /// cell — nothing mutates a tilemap after load today; `Rc::make_mut`
+    /// (see `refresh_collider_bits`) is the seam if something ever does.
+    /// `#[serde(default)]` so a pre-8-1 save — whose walls are all still
+    /// entities — loads with none, and keeps working exactly as it did.
+    #[serde(default)]
+    pub tilemaps: BTreeMap<EntityId, Rc<Tilemap>>,
+    /// Exit tiles' destination level paths, keyed by the exit entity's
+    /// REAL id (Step 8-1 — R93, §3.2). `Simulation` used to keep this map
+    /// itself and rebuild it on load by assuming "entity id = tile index +
+    /// 1", true only while every tile spawned as an entity in order; the
+    /// moment static tiles stopped spawning, that assumption pointed every
+    /// stairs at the wrong entity. Living here, it's recorded at spawn from
+    /// the id `spawn()` actually returned and travels with the `World`
+    /// through a save — no reconstruction to get wrong. `#[serde(default)]`:
+    /// a pre-8-1 save loads with none, and `Simulation::on_start`'s loading
+    /// branch rebuilds them the old way (still correct for such a save —
+    /// see `restore_legacy_exits`).
+    #[serde(default)]
+    pub exits: BTreeMap<EntityId, String>,
     /// Step 7.5-9 (R41 fix, see `Diagnostic`'s own doc comment above) — a
     /// `RefCell`, not a plain `Vec`, specifically so `get_global_position`
     /// (a pure `&self` query every existing caller relies on staying
@@ -115,6 +140,8 @@ impl World {
             animators: BTreeMap::new(),
             actors: BTreeMap::new(),
             vars: BTreeMap::new(),
+            tilemaps: BTreeMap::new(),
+            exits: BTreeMap::new(),
             diagnostics: RefCell::new(Vec::new()),
         }
     }
@@ -160,6 +187,8 @@ impl World {
         self.animators.remove(&id);
         self.actors.remove(&id);
         self.vars.remove(&id);
+        self.tilemaps.remove(&id);
+        self.exits.remove(&id);
     }
 
     // ── Component accessors ───────────────────────────────────────────────
@@ -207,6 +236,17 @@ impl World {
     }
     pub fn remove_vars(&mut self, id: EntityId) {
         self.vars.remove(&id);
+    }
+    /// Step 8-1. The caller owes the map a `Tilemap::refresh` first —
+    /// `Simulation::do_on_start` does it before calling this.
+    pub fn add_tilemap(&mut self, id: EntityId, t: Tilemap) {
+        self.tilemaps.insert(id, Rc::new(t));
+    }
+    pub fn remove_tilemap(&mut self, id: EntityId) {
+        self.tilemaps.remove(&id);
+    }
+    pub fn add_exit(&mut self, id: EntityId, path: impl Into<String>) {
+        self.exits.insert(id, path.into());
     }
 
     // ── Hierarchy ─────────────────────────────────────────────────────────
@@ -335,6 +375,8 @@ impl World {
         ids.extend(self.animators.keys().copied());
         ids.extend(self.actors.keys().copied());
         ids.extend(self.vars.keys().copied());
+        ids.extend(self.tilemaps.keys().copied());
+        ids.extend(self.exits.keys().copied());
         ids.into_iter().collect()
     }
 
@@ -444,6 +486,13 @@ impl World {
             }
         }
 
+        // Step 8-1: a collider against a tilemap is one cell lookup per
+        // overlapped cell, not a place in the sweep above — see
+        // `tilemap_hits`' own doc comment (world/tilemap_collision.rs).
+        // Pushed into the same `hits` before the sort, so the emission
+        // order stays the one ascending-pair sequence scripts rely on.
+        self.tilemap_hits(&collidables, &mut hits);
+
         hits.sort_unstable();
         for (entity_a, entity_b) in hits {
             events.emit(GameEvent::Collision { entity_a, entity_b });
@@ -458,9 +507,19 @@ impl World {
     /// forgetting to call this is the one mistake here with no visible
     /// symptom — `Simulation::on_start`'s `is_loading_save` branch is the
     /// one caller.
+    ///
+    /// Step 8-1: also rebuilds every `Tilemap`'s runtime caches (its cells'
+    /// solidity and layer bits are `#[serde(skip)]` for the same reason a
+    /// `Collider`'s bits are — see `components/tilemap.rs`'s header). A
+    /// loaded save is the only case this runs on: `Rc::make_mut` finds the
+    /// refcount at 1 (no snapshot shares it yet), so it's an in-place
+    /// update, not a copy.
     pub fn refresh_collider_bits(&mut self, registry: &crate::layers::LayerRegistry) {
         for col in self.colliders.values_mut() {
             col.refresh_bits(registry);
+        }
+        for map in self.tilemaps.values_mut() {
+            Rc::make_mut(map).refresh(registry);
         }
     }
 
@@ -501,15 +560,6 @@ impl World {
         obstacle_id: EntityId,
         _prev: &HashMap<EntityId, Vec2>,
     ) {
-        let (global_x, global_y, mover_w, mover_h) = {
-            if !self.colliders.contains_key(&mover_id) {
-                return;
-            };
-            let col = &self.colliders[&mover_id];
-            let pos = self.get_global_position(mover_id);
-            (pos.x, pos.y, col.width, col.height)
-        };
-
         let obstacle_rect = {
             if !self.colliders.contains_key(&obstacle_id) {
                 return;
@@ -517,6 +567,25 @@ impl World {
             let col = &self.colliders[&obstacle_id];
             let pos = self.get_global_position(obstacle_id);
             col.world_rect(pos.x, pos.y)
+        };
+        self.push_out_of(mover_id, obstacle_rect);
+    }
+
+    /// Minimum-overlap push-out of `mover_id`'s collider from one solid
+    /// rect: shove it along whichever axis overlaps less, away from the
+    /// obstacle's centre, and zero that axis' velocity. Pulled out of
+    /// `resolve_solid_collision` at Step 8-1 so a tilemap cell
+    /// (`resolve_tilemap_collision`, world/tilemap_collision.rs) and a
+    /// wall entity get pushed out by literally the same arithmetic — a
+    /// wall must behave identically whichever way it's stored.
+    pub(crate) fn push_out_of(&mut self, mover_id: EntityId, obstacle_rect: Rect) {
+        let (global_x, global_y, mover_w, mover_h) = {
+            if !self.colliders.contains_key(&mover_id) {
+                return;
+            };
+            let col = &self.colliders[&mover_id];
+            let pos = self.get_global_position(mover_id);
+            (pos.x, pos.y, col.width, col.height)
         };
 
         let mover_rect = Rect::new(global_x, global_y, mover_w, mover_h);
@@ -553,6 +622,11 @@ impl World {
         }
     }
 }
+
+// Step 8-1: collider-vs-tilemap detection and resolution, in their own
+// child module (world.rs was at 562 of CLAUDE.md's 750 lines, and the
+// tilemap half is a self-contained concern) — see that file's header.
+mod tilemap_collision;
 
 // Tests split into world_tests.rs (Step 7.5-9, docs/ember2d-master-plan.md
 // §5.6) — see that file's own header comment for why, once this file

@@ -16,18 +16,55 @@ use rhai::{Array, Dynamic};
 
 use super::api::ScriptCtx;
 
+// ── Step 8-1: tilemap cells (docs/ember2d-master-plan.md §5.7) ──────────────
+//
+// Every query below checks the snapshot's `tilemaps` alongside its
+// `colliders`. The rule, from 8-1's own scoping decision: a SOLID cell
+// answers exactly like the wall entity it replaced would have, except that
+// the id it reports is the tilemap's own entity id (a cell has none of its
+// own) — so `is_solid_at`/`get_path` are unchanged for a script, and
+// `get_entity_at`/`find_entities_in_rect`/`raycast` return the tilemap's id
+// where they used to return a wall's. A non-solid cell (a floor) is
+// invisible to all of them, same as a floor tile entity was: it never had a
+// collider. Where several hits compete for "first", ties still resolve to
+// the lowest id, the tilemap's included.
+
+/// The grid cell a script-supplied coordinate falls in — `None` for a NaN,
+/// infinite, or out-of-`i32`-range value, which a collider's own
+/// comparison-based containment test could never match either (every
+/// comparison against NaN is false), so neither may a cell. Without this, a
+/// NaN would `floor() as i32` to `0` and "hit" cell (0, 0).
+fn cell_of(v: f64) -> Option<i32> {
+    let f = v.floor();
+    if f.is_finite() && f >= i32::MIN as f64 && f <= i32::MAX as f64 {
+        Some(f as i32)
+    } else {
+        None
+    }
+}
+
 impl ScriptCtx {
     // 3. Spatial Queries
     pub fn get_entity_at(&mut self, x: f64, y: f64) -> i64 {
         let s = self.inner.borrow_mut();
+        let mut hit = -1i64;
         for (&id, &(w, h, _, _, _, _, _)) in &s.colliders {
             if let Some(&(px, py)) = s.positions.get(&id) {
                 if x >= px as f64 && x < (px + w) as f64 && y >= py as f64 && y < (py + h) as f64 {
-                    return id;
+                    hit = id;
+                    break;
                 }
             }
         }
-        -1
+        // Step 8-1: a solid cell counts as its tilemap's id; lowest id wins.
+        if let (Some(cx), Some(cy)) = (cell_of(x), cell_of(y)) {
+            for (&map_id, map) in &s.tilemaps {
+                if map.solid_at(cx, cy, 0) && (hit == -1 || map_id < hit) {
+                    hit = map_id;
+                }
+            }
+        }
+        hit
     }
     /// `i64` overload (7.5-1, docs/ember2d-master-plan.md §5.6, R31) — see
     /// `api.rs`'s `draw_hud_f` for the full reasoning every coordinate/
@@ -37,6 +74,12 @@ impl ScriptCtx {
     }
     pub fn is_solid_at(&mut self, x: f64, y: f64) -> bool {
         let s = self.inner.borrow_mut();
+        // Step 8-1: one cell lookup per tilemap, before the collider scan.
+        if let (Some(cx), Some(cy)) = (cell_of(x), cell_of(y)) {
+            if s.tilemaps.values().any(|m| m.solid_at(cx, cy, 0)) {
+                return true;
+            }
+        }
         for (&id, &(w, h, solid, _, _, _, _)) in &s.colliders {
             if !solid {
                 continue;
@@ -55,17 +98,26 @@ impl ScriptCtx {
     }
     pub fn find_entities_in_rect(&mut self, x: f64, y: f64, w: f64, h: f64) -> Array {
         let s = self.inner.borrow_mut();
-        let mut found = Vec::new();
+        let mut found: Vec<i64> = Vec::new();
         let r1 = crate::math::Rect::new(x as f32, y as f32, w as f32, h as f32);
         for (&id, &(cw, ch, _, _, _, _, _)) in &s.colliders {
             if let Some(&(px, py)) = s.positions.get(&id) {
                 let r2 = crate::math::Rect::new(px, py, cw, ch);
                 if r1.intersects(r2) {
-                    found.push(Dynamic::from(id));
+                    found.push(id);
                 }
             }
         }
-        found
+        // Step 8-1: a tilemap is listed once if any of its solid cells
+        // intersects — then everything re-sorted into ascending id order,
+        // the order this always returned (colliders iterate a `BTreeMap`).
+        for (&map_id, map) in &s.tilemaps {
+            if map.any_solid_in(r1, 0) {
+                found.push(map_id);
+            }
+        }
+        found.sort_unstable();
+        found.into_iter().map(Dynamic::from).collect()
     }
     /// `i64` overload — same reasoning as `get_entity_at_i` above.
     pub fn find_entities_in_rect_i(&mut self, x: i64, y: i64, w: i64, h: i64) -> Array {
@@ -141,6 +193,21 @@ impl ScriptCtx {
                         closest_t = t;
                         closest_id = id;
                     }
+                }
+            }
+        }
+
+        // Step 8-1: the nearest solid cell of each tilemap competes on the
+        // same terms; an exact tie in `t` goes to the lower id, which is
+        // what the ascending collider loop above already did implicitly.
+        for (&map_id, map) in &s.tilemaps {
+            if map_id == self.entity_id {
+                continue;
+            }
+            if let Some(t) = map.raycast(ox, oy, dx, dy, mask_bits) {
+                if t < closest_t || (t == closest_t && closest_id != -1 && map_id < closest_id) {
+                    closest_t = t;
+                    closest_id = map_id;
                 }
             }
         }
@@ -261,6 +328,13 @@ impl ScriptCtx {
         };
 
         let blocked_at = |nx: i32, ny: i32| -> bool {
+            // Step 8-1: the O(1) tilemap check first — on a tile-heavy map
+            // this answers almost every neighbour check without the
+            // collider scan below ever running (which, before 8-1, was a
+            // scan over every wall, per neighbour, per A* node).
+            if s.tilemaps.values().any(|m| m.solid_at(nx, ny, mask_bits)) {
+                return true;
+            }
             for (&id, &(w, h, solid, _, _, _, layer_bits)) in &s.colliders {
                 if !solid {
                     continue;
@@ -404,6 +478,11 @@ impl ScriptCtx {
         }
 
         let blocked_at = |nx: i32, ny: i32| -> bool {
+            // Step 8-1: same tilemap-first check as `get_path`'s, unmasked
+            // like the rest of this function.
+            if s.tilemaps.iter().any(|(&mid, m)| mid != id && m.solid_at(nx, ny, 0)) {
+                return true;
+            }
             for (&cid, &(w, h, solid, _, _, _, _)) in &s.colliders {
                 if cid == id || !solid {
                     continue;
@@ -449,5 +528,36 @@ impl ScriptCtx {
             }
         }
         result
+    }
+
+    /// Step 8-1 (additive, no `API_VERSION` bump): is `id` a tilemap
+    /// entity — the id `get_entity_at`/`find_entities_in_rect`/`raycast`/
+    /// `on_collide` report for a static tile? A tilemap has a position
+    /// (its grid's top-left cell) but no glyph, collider, or tag of its
+    /// own; per-cell detail is `get_tile_tag` below and `is_solid_at`.
+    pub fn is_tilemap(&mut self, id: i64) -> bool {
+        self.inner.borrow_mut().tilemaps.contains_key(&id)
+    }
+
+    /// Step 8-1 (additive): the tag of the static tile at (x, y) — the
+    /// topmost layer's that has one — or `""`. The per-cell replacement for
+    /// `has_tag(get_entity_at(x, y), ...)` now that a wall or floor has no
+    /// entity of its own. Floors answer too (unlike every other query here,
+    /// this reads the cell whether or not it's solid). Checks tilemaps in
+    /// ascending id order; the first non-empty tag wins.
+    pub fn get_tile_tag(&mut self, x: f64, y: f64) -> String {
+        let s = self.inner.borrow_mut();
+        let (Some(cx), Some(cy)) = (cell_of(x), cell_of(y)) else { return String::new() };
+        for map in s.tilemaps.values() {
+            let tag = map.tag_at(cx, cy);
+            if !tag.is_empty() {
+                return tag.to_string();
+            }
+        }
+        String::new()
+    }
+    /// `i64` overload — same reasoning as `get_entity_at_i` above.
+    pub fn get_tile_tag_i(&mut self, x: i64, y: i64) -> String {
+        self.get_tile_tag(x as f64, y as f64)
     }
 }
