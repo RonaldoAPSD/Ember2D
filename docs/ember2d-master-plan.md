@@ -4800,7 +4800,7 @@ Sprite thumbnails in the palette (unblocked by 7D).
     (the parking-lot "square world units" item), so a square sprite draws
     twice as tall as wide, in the canvas and in play alike.
 
-#### `[x]` 8-3 — Sprite animation editor (`HASH83`)
+#### `[x]` 8-3 — Sprite animation editor (`a26b509`)
 Build clips, scrub frames, preview looping; clips serialised to the project
 (today they are runtime-only), referenced by name from `SpriteSource::Clip`.
 
@@ -4812,7 +4812,7 @@ Build clips, scrub frames, preview looping; clips serialised to the project
   animate); (3) **one file per clip**, `<project>/assets/clips/<name>.ron`,
   beside `assets/tilesets/`; (4) animated tiles **animate on the editor
   canvas** too.
-- **Landed as** (`HASH83`):
+- **Landed as** (`a26b509`):
   - `ember2d-sim/src/clip_asset.rs` — `ClipData { name, tileset, frames
     (region names), fps, looping }` with `validate` (name, non-empty, fps in
     (0, 60]) and `to_animation_clip`, which builds the existing runtime
