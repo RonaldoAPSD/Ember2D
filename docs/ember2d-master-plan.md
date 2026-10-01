@@ -5260,12 +5260,12 @@ copied elsewhere still plays).
     canvas at once and the next F5 played square; a copy of the roguelike
     run from an unrelated working directory plays.
 
-#### `[x]` 9-7 — Sprite scripting API (`HASH97`)
+#### `[x]` 9-7 — Sprite scripting API (`5c349dc`)
 `set_size(id,w,h)`, `set_flip(id,fx,fy)`, `set_sprite(id,tileset,
 region)`, `play_project_clip(id,name)` (a clip no tile uses), opt-in
 y-sort. New `scripting/sprite.rs`.
 
-- **Landed as** (`HASH97`): `scripting/sprite.rs` (seven registrations —
+- **Landed as** (`5c349dc`): `scripting/sprite.rs` (seven registrations —
   `set_size` has int, float and both mixed overloads) queues `SpriteOp`s;
   size, flip and y-sort apply in `apply_ctx`. A region or a project clip
   has to be found on disk, so those return in
