@@ -399,19 +399,39 @@ impl InputManager {
     pub fn snapshot(&self) -> InputSnapshot {
         // Lowercase to match the documented script API contract
         // (docs/ember2d-scripting-api.md §3: `"w"`, `"space"`, `"escape"`, `"left"`, …).
+        //
+        // R108 (§3 in the master plan): every letter — this map used to
+        // carry only the twelve the demos happened to use (WASD, Q/E/R/F,
+        // Z/X/C/V), so `just_pressed("t")`/`("m")`/`("i")` and the other
+        // fourteen silently never fired. Found building Step 9-3's
+        // dialogue test bed.
         const KEY_MAP: &[(Key, &str)] = &[
-            (Key::W, "w"),
             (Key::A, "a"),
-            (Key::S, "s"),
-            (Key::D, "d"),
-            (Key::Q, "q"),
-            (Key::E, "e"),
-            (Key::R, "r"),
-            (Key::F, "f"),
-            (Key::Z, "z"),
-            (Key::X, "x"),
+            (Key::B, "b"),
             (Key::C, "c"),
+            (Key::D, "d"),
+            (Key::E, "e"),
+            (Key::F, "f"),
+            (Key::G, "g"),
+            (Key::H, "h"),
+            (Key::I, "i"),
+            (Key::J, "j"),
+            (Key::K, "k"),
+            (Key::L, "l"),
+            (Key::M, "m"),
+            (Key::N, "n"),
+            (Key::O, "o"),
+            (Key::P, "p"),
+            (Key::Q, "q"),
+            (Key::R, "r"),
+            (Key::S, "s"),
+            (Key::T, "t"),
+            (Key::U, "u"),
             (Key::V, "v"),
+            (Key::W, "w"),
+            (Key::X, "x"),
+            (Key::Y, "y"),
+            (Key::Z, "z"),
             (Key::Up, "up"),
             (Key::Down, "down"),
             (Key::Left, "left"),
@@ -567,6 +587,23 @@ mod tests {
             !snap.is_held("W") && !snap.just_pressed("Enter"),
             "no capitalized names should leak through"
         );
+    }
+
+    #[test]
+    fn r108_every_letter_key_reaches_scripts() {
+        let letters = [
+            Key::A, Key::B, Key::C, Key::D, Key::E, Key::F, Key::G, Key::H, Key::I, Key::J,
+            Key::K, Key::L, Key::M, Key::N, Key::O, Key::P, Key::Q, Key::R, Key::S, Key::T,
+            Key::U, Key::V, Key::W, Key::X, Key::Y, Key::Z,
+        ];
+        for (key, name) in letters.into_iter().zip('a'..='z') {
+            let mut input = InputManager::new();
+            input.handle_pressed(key);
+            input.consume_step();
+            let snap = input.snapshot();
+            assert!(snap.just_pressed(&name.to_string()), "{name} never reached scripts");
+            assert!(snap.is_held(&name.to_string()));
+        }
     }
 
     // ── Tests: R12 (7A-2, docs/ember2d-master-plan.md) — text_buffer must

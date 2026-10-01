@@ -13,12 +13,15 @@ mod registry;
 mod scene;
 // Step 9-2: the script-drivable camera — see that file's header.
 mod camera;
+// Step 9-3: menus and dialogue for scripts — see that file's header.
+mod widgets;
 mod state;
 mod types;
 
 pub use api::*;
 pub use engine::*;
 pub use types::*;
+pub use widgets::DIALOGUE_MARGIN_COLS;
 pub use camera::{CameraSettings, CameraTarget, CameraWrites, MAX_ZOOM, MIN_ZOOM};
 pub use scene::{FlowRequest, SceneInfo, SceneOp, BUILTIN_PAUSE_KEY, BUILTIN_PAUSE_SOURCE};
 // `WorldSnapshot` itself stays otherwise internal (`pub(super)` within this

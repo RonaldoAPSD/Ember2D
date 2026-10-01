@@ -360,6 +360,7 @@ impl ScriptEngine {
             animations: std::mem::take(&mut state.pending_animations),
             scene_ops: std::mem::take(&mut state.scene.ops),
             flow: state.scene.flow.take(),
+            ui_ops: std::mem::take(&mut state.ui.ops),
         };
         // Phase 6 Step 9: the matching half of every call site's own
         // `ctx_state.timers = std::mem::take(&mut self.timers)` — timers

@@ -418,6 +418,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R105 | S4 | Start screen (never themed, R80): New Project step 1's hint line runs past the dialog's right border and step 4's footer is clipped at the window edge; on the main menu, a mouse resting over an item re-selects it every frame, so Up/Down does nothing until the mouse moves | `ember2d-editor/src/editor/start_screen/` | `[ ]` unscheduled |
 | R106 | S3 | File > Close Project QUIT the app when the editor was launched as `ember2d --editor path/to.level` — `main.rs` dropped `run_editor_app`'s "back to start" result in that branch (only the no-argument launch reached the start screen). Found in the Phase 8 gate's live pass | `ember2d-app/src/main.rs` | `[x]` Phase 8 gate (`8eff030`) — both launch paths share `run_start_screen` and one `after_editor` rule; test `r106_close_project_goes_to_the_start_screen_and_quit_exits`; live re-check reached the start screen |
 | R107 | S4 | Editor chrome cosmetics seen in the Phase 8 gate pass, all pre-existing (identical on the pre-8-2 binary where checked): the palette editor's and colour picker's labels start ~8 pt left of their frame; a long save path in the title-bar flash overlaps the "EMBER2D EDITOR" label; the node graph's Add Node menu isn't clamped to the window bottom when opened low (rows run off-screen; opened higher it scrolls with "v more"); the confirm modal ignores Enter although [ YES ] is drawn as the default; dock-tab and hierarchy context menus draw a blank first row | various `ember2d-editor/src/editor/ui/` | `[ ]` unscheduled |
+| R108 | S2 | Scripts could read only twelve letter keys (W/A/S/D, Q/E/R/F, Z/X/C/V): `InputManager::snapshot`'s `KEY_MAP` listed just the letters the demos used, so `just_pressed("t")`, `("m")`, `("i")` and eleven more silently never fired. Found building Step 9-3's dialogue test bed | `ember2d/src/input.rs` (`snapshot`) | `[x]` 9-3 (`HASH93`) — all 26 letters; test `r108_every_letter_key_reaches_scripts` |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -5041,13 +5042,54 @@ via animation), `set_camera_bounds`. Lerp stays presentation-side (its
   - **Live-verified:** a test tile toggling zoom 2 and panning to itself
     in floor 2 — glyphs, tilemap and HUD all correct at zoom 2.
 
-#### `[ ]` 9-3 — UI widgets with input
+#### `[x]` 9-3 — UI widgets with input (`HASH93`)
 `draw_menu` gains a real model: `menu_open(items) -> menu_id`,
 `menu_selection(menu_id)`, `menu_closed`, arrow/confirm/cancel handled by
 the engine with buffered input. `draw_dialogue(text, speaker)` with
 `wrap_text` (from Part 2) and paging; `dialogue_advance`. Both draw through
 the theme font on the pixel path — the **first** script-facing pixel-space
 HUD API, additive beside the cell-based one.
+
+- **Scoped (2026-10-01, by the agent; additive API):** widget state is
+  SIMULATION state (`ember2d-sim/src/ui.rs`: deterministic, replayed,
+  saved), not presentation — the keyboard moves it at the start of a step,
+  before any script. Because the sim can't measure a font, dialogue is
+  wrapped and paged there by character count, with a text size chosen so
+  the bundled monospace font fits one character per cell; Part 2's pixel
+  `Font::wrap_text` stays a presentation tool. "The theme font" in play
+  mode is the bundled Cascadia Mono (`renderer::font::bundled_ui_font`) — a
+  game has no editor theme folder. Added beyond the plan's names:
+  `menu_close`, `dialogue_open`, `dialogue_done`, `close_dialogue`, and a
+  script-visible `wrap_text`; menu options `title`/`x`/`y`/`width`/
+  `cancelable`/`selected`.
+- **Landed as** (`HASH93`):
+  - `ember2d-sim/src/ui.rs`: `UiModel` (menus by id, the dialogue box,
+    the id counter), `handle_input` (dialogue first, else the newest open
+    menu; the keys used are removed from that step's input, pressed and
+    held), `apply` for the per-pass `UiOp`s, `wrap_text`/`paginate`,
+    `close_owned_by` (a popped scene's widgets close with it; every widget
+    records the entity whose script opened it). Saved as `SaveState::ui`.
+  - `ember2d-sim/src/scripting/widgets.rs`: the eleven registrations;
+    ids come from a per-pass counter so two opens in one pass differ.
+  - `ember2d/src/play/ui_draw.rs`: draws open menus (oldest first) and the
+    dialogue box on the pixel path at 13 px (Cascadia's 0.6 em advance =
+    7.8 px, inside an 8 px cell); `menu_rect` keeps a menu on screen and
+    never underflows (R86's rule, now tested here).
+  - The built-in pause scene now uses `menu_open` (title "PAUSED"; Escape
+    cancels = Resume).
+  - R108 fixed on the way (only twelve letter keys reached scripts).
+  - **Tests (23 new):** 9 `ui.rs` unit tests (wrapping, paging, menu
+    navigation and wrap-around, confirm/cancel/non-cancelable, dialogue
+    paging and modality, closed-menu cap, scene ownership), 5 `ui_draw.rs`
+    (layout, R86, dialogue fit, drawing through the recording renderer with
+    the real font), 6 `ember2d/tests/ui_widgets.rs` (keys withheld from
+    scripts, cancel, newest menu wins, paging + no-op redraw, script-driven
+    advance/close, an open menu in a save), R108's test, and the scene
+    tests updated for the menu-based pause scene (+1: Resume closes the
+    scene and its menu).
+  - **Live-verified:** a test tile opening a dialogue (speaker, wrapped
+    text) and a titled menu; Down moved the menu, not the player; Enter
+    confirmed; the pause menu draws through the same widget.
 
 #### `[ ]` 9-4 — Positional continuity and structured state
 `load_level(path, spawn_name)` spawns at a named spawn point (level format

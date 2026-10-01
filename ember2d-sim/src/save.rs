@@ -64,6 +64,9 @@ pub struct SaveState {
     /// from before scenes existed.
     #[serde(default)]
     pub scenes: Vec<crate::simulation::scenes::SceneFrame>,
+    /// Step 9-3: open menus and the dialogue box at the moment of saving.
+    #[serde(default)]
+    pub ui: crate::ui::UiModel,
 }
 
 impl SaveState {
@@ -87,6 +90,7 @@ impl SaveState {
             turn_number,
             scheduler,
             scenes: Vec::new(),
+            ui: Default::default(),
         }
     }
 

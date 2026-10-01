@@ -160,6 +160,9 @@ impl Simulation {
                 SceneOp::Pop => {
                     if let Some(frame) = self.scenes.pop() {
                         world.despawn(frame.entity);
+                        // Step 9-3: the scene's own menus/dialogue go too.
+                        self.ui.close_owned_by(frame.entity as i64);
+                        self.script_engine.set_ui_view(self.ui.clone());
                     }
                 }
             }

@@ -128,6 +128,7 @@ impl ScriptEngine {
         ctx_state.timers = std::mem::take(&mut self.timers);
         ctx_state.scene = self.scene_ctx();
         ctx_state.camera_view = self.camera_view;
+        ctx_state.ui = self.ui_ctx();
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         for (entity, key, f) in calls {
             let entity_ctx = ctx.with_entity(*entity as i64);

@@ -114,6 +114,8 @@ pub struct ScriptEngine {
     pub(super) editor_preview: bool,
     /// Step 9-2: the camera as scripts have set it — see `set_camera_view`.
     pub(super) camera_view: super::camera::CameraSettings,
+    /// Step 9-3: menus and dialogue as scripts read them — `set_ui_view`.
+    pub(super) ui_view: Rc<crate::ui::UiModel>,
     pub pending_sounds: Vec<String>,
     pub pending_spatial_sounds: Vec<(String, f32, f32)>,
     pub pending_music: Option<String>,
@@ -163,6 +165,7 @@ impl ScriptEngine {
             scene_view: Rc::new(Vec::new()),
             editor_preview: false,
             camera_view: Default::default(),
+            ui_view: Rc::new(Default::default()),
             pending_sounds: Vec::new(),
             pending_spatial_sounds: Vec::new(),
             pending_music: None,
@@ -327,6 +330,7 @@ impl ScriptEngine {
         ctx_state.timers = std::mem::take(&mut self.timers);
         ctx_state.scene = self.scene_ctx(); // Step 9-1
         ctx_state.camera_view = self.camera_view; // Step 9-2
+        ctx_state.ui = self.ui_ctx(); // Step 9-3
         ctx_state.animating = animating.iter().map(|&id| id as i64).collect(); // 7.5-7
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         if let Some(path) = path {
@@ -367,6 +371,7 @@ impl ScriptEngine {
         ctx_state.timers = std::mem::take(&mut self.timers);
         ctx_state.scene = self.scene_ctx(); // Step 9-1
         ctx_state.camera_view = self.camera_view; // Step 9-2
+        ctx_state.ui = self.ui_ctx(); // Step 9-3
         ctx_state.animating = animating.iter().map(|&id| id as i64).collect();
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         if let Some(path) = path {
@@ -420,6 +425,7 @@ impl ScriptEngine {
         ctx_state.timers = std::mem::take(&mut self.timers);
         ctx_state.scene = self.scene_ctx(); // Step 9-1
         ctx_state.camera_view = self.camera_view; // Step 9-2
+        ctx_state.ui = self.ui_ctx(); // Step 9-3
         ctx_state.animating = animating.iter().map(|&id| id as i64).collect();
         // Decay happens exactly once per real step, here — `run_scripts` is
         // the one call site the engine's own `update()` invokes unconditionally

@@ -184,14 +184,10 @@ fn the_key_that_opens_the_pause_scene_does_not_also_close_it() {
 }
 
 fn pause_menu_options(h: &Harness) -> Vec<String> {
-    h.sim
-        .scene_hud_draws()
-        .iter()
-        .find_map(|d| match d {
-            HudDraw::Menu { options, .. } => Some(options.clone()),
-            _ => None,
-        })
-        .expect("the pause scene draws a menu")
+    // Step 9-3: the built-in pause scene's list is an engine menu.
+    let (_, menu) = h.sim.ui().active_menu().expect("the pause scene opens a menu");
+    assert_eq!(menu.title, "PAUSED");
+    menu.items.clone()
 }
 
 #[test]
@@ -219,23 +215,18 @@ fn the_builtin_pause_menu_offers_back_to_editor_only_in_an_editor_preview() {
     h.assert_no_errors();
 }
 
-/// R86, carried over from the Rust pause menu this replaced: on a window
-/// smaller than the panel, the panel must start at 0, never wrap around.
+// R86's tiny-window case (carried over from the deleted Rust pause menu)
+// is now a layout test of the menu widget itself: `ember2d/src/play/
+// ui_draw.rs`'s `r86_a_menu_never_underflows_on_a_screen_smaller_than_itself`.
+
 #[test]
-fn r86_the_builtin_pause_menu_never_draws_off_a_tiny_viewport() {
-    let mut h = Harness::with_viewport("tiny", "", &[], (20, 6));
+fn resume_closes_the_pause_scene_and_its_menu() {
+    let mut h = Harness::new("resume", "", &[]);
     h.sim.request_pause(&mut h.world, &mut h.logs);
     h.step(&[]);
-    let panel = h
-        .sim
-        .scene_hud_draws()
-        .iter()
-        .find_map(|d| match d {
-            HudDraw::Panel { x, y, .. } => Some((*x, *y)),
-            _ => None,
-        })
-        .expect("a panel");
-    assert_eq!(panel, (0, 0));
+    h.step(&["enter"]); // Resume is the first row
+    assert!(h.sim.scene_names().is_empty());
+    assert!(h.sim.ui().active_menu().is_none(), "the popped scene's menu went with it");
     h.assert_no_errors();
 }
 
@@ -260,7 +251,8 @@ fn a_project_pause_scene_replaces_the_builtin_one() {
 #[test]
 fn a_paused_levels_hud_stays_under_the_scene_hud() {
     let level = r#"fn on_update(id, ctx) { ctx.draw_hud(0, 0, "LEVEL", "White", "Reset"); }"#;
-    let mut h = Harness::new("hud", level, &[]);
+    let pause = r#"fn on_update(id, ctx) { ctx.draw_hud(0, 1, "SCENE", "White", "Reset"); }"#;
+    let mut h = Harness::new("hud", level, &[("pause", pause)]);
     h.step(&[]);
     h.sim.request_pause(&mut h.world, &mut h.logs);
     h.step(&[]);
@@ -271,7 +263,12 @@ fn a_paused_levels_hud_stays_under_the_scene_hud() {
         .iter()
         .any(|d| matches!(d, HudDraw::Text { text, .. } if text == "LEVEL"));
     assert!(level_text, "the level's last HUD is still drawn while paused");
-    assert!(!h.sim.scene_hud_draws().is_empty(), "and the pause menu draws above it");
+    let scene_text = h
+        .sim
+        .scene_hud_draws()
+        .iter()
+        .any(|d| matches!(d, HudDraw::Text { text, .. } if text == "SCENE"));
+    assert!(scene_text, "and the scene's own HUD draws in its own layer above it");
 }
 
 #[test]

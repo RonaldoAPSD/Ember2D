@@ -309,6 +309,8 @@ pub struct Simulation {
     /// Step 9-2 (docs/ember2d-master-plan.md §5.8): the camera as scripts
     /// have set it — play mode reads it every frame (`camera_settings`).
     camera: crate::scripting::CameraSettings,
+    /// Step 9-3: open menus and the dialogue box — see `crate::ui`.
+    ui: crate::ui::UiModel,
 }
 
 impl Simulation {
@@ -334,6 +336,7 @@ impl Simulation {
             editor_preview: false,
             paused_this_step: false,
             camera: Default::default(),
+            ui: Default::default(),
         }
     }
 
@@ -423,6 +426,17 @@ impl Simulation {
     /// load sets it again in `on_load`.
     pub fn camera_settings(&self) -> crate::scripting::CameraSettings {
         self.camera
+    }
+
+    /// Step 9-3: open menus and the dialogue box, for drawing.
+    pub fn ui(&self) -> &crate::ui::UiModel {
+        &self.ui
+    }
+
+    /// Step 9-3: the widgets a loaded save had open (`SaveState::ui`).
+    pub fn set_saved_ui(&mut self, ui: crate::ui::UiModel) {
+        self.script_engine.set_ui_view(ui.clone());
+        self.ui = ui;
     }
 
     pub fn camera_entity(&self) -> Option<EntityId> {

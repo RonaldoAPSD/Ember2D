@@ -116,6 +116,8 @@ pub struct ScriptUpdateResult {
     pub scene_ops: Vec<super::scene::SceneOp>,
     /// Step 9-1: `quit_game`/`return_to_editor`, last call wins.
     pub flow: Option<super::scene::FlowRequest>,
+    /// Step 9-3: menu/dialogue requests this pass, in call order.
+    pub ui_ops: Vec<crate::ui::UiOp>,
 }
 
 /// A queued write to `ScriptState::pending_globals`/`pending_persistent`

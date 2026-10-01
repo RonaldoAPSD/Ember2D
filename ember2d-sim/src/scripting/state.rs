@@ -416,6 +416,9 @@ pub(super) struct ScriptState {
     /// Step 9-2: the camera as scripts had set it when this pass began —
     /// what `get_camera_zoom` reads.
     pub(super) camera_view: super::camera::CameraSettings,
+    /// Step 9-3 (docs/ember2d-master-plan.md §5.8): menus and dialogue as
+    /// they stood when this pass began, plus this pass's widget requests.
+    pub(super) ui: super::widgets::UiCtx,
     pub(super) pending_shake: Option<ShakeState>,
     pub(super) pending_visibility: Vec<(i64, bool)>,
     pub(super) pending_z_order: Vec<(i64, i32)>,
@@ -637,6 +640,7 @@ impl ScriptState {
             pending_persistent: BTreeMap::new(),
             pending_camera: Default::default(),
             camera_view: Default::default(),
+            ui: Default::default(),
             pending_shake: None,
             pending_visibility: Vec::new(),
             pending_z_order: Vec::new(),

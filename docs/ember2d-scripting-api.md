@@ -277,7 +277,7 @@ filtering entirely; `false` by default.
 Pass `-1` as parent to detach. `set_parent` rejects a reparent that would create a cycle as a no-op (Step 7.5-9, docs/ember2d-master-plan.md §5.6) — checked up front, not discovered later; `get_global_position`'s own depth-100 walk still exists underneath as a safety net for a cycle that bypasses `set_parent` entirely (hand-edited save/level data), which is now the only way one can still occur. `despawn(id)` also clears every child's own `parent` link (rather than leaving it pointing at a dead id), preserving each child's current world position so it doesn't visually jump.
 
 ### Input
-`is_held(key)` · `just_pressed(key)` — lowercase names (`"w"`, `"space"`, `"escape"`, `"left"`).
+`is_held(key)` · `just_pressed(key)` — lowercase names: every letter `"a"`–`"z"` (R108: only twelve of them worked before Step 9-3), digits `"0"`–`"9"`, `"up"`/`"down"`/`"left"`/`"right"`, `"space"`, `"enter"`, `"escape"`, `"tab"`, `"backspace"`, `"shift"`, `"ctrl"`, `"f1"`–`"f12"`. While an engine menu or dialogue box is open, the keys it uses (arrows, W/S, Enter, Space, Escape) are taken out of what scripts see — see "Menus and dialogue".
 
 **Semantics (from Phase 1 onward): buffered until consumed.** `just_pressed` is true in exactly **one** simulation step per physical press — no matter how many steps run in a frame — and a press is never lost to a frame that ran zero steps. A press held for less than one frame still registers. `is_held` is continuous state and is unbuffered.
 
@@ -594,6 +594,40 @@ engine-owned state now, not smuggled through each entity's Rhai `Scope` as
 
 Screen space, in cells. Cleared each frame.
 
+### Menus and dialogue
+`menu_open(items)` → id · `menu_open(items, opts)` → id · `menu_selection(id)` → int · `menu_closed(id)` → bool · `menu_close(id)` · `draw_dialogue(text, speaker)` → id · `dialogue_advance()` · `dialogue_open()` → bool · `dialogue_done(id)` → bool · `close_dialogue()` · `wrap_text(text, width)` → array of lines
+
+Step 9-3 (docs/ember2d-master-plan.md §5.8). Unlike `draw_menu` (which
+only draws a list), these are **engine-owned widgets**: open one once, and
+the engine handles the keyboard and draws it — in the bundled Cascadia
+Mono font on the pixel path, above every HUD — until it closes.
+
+- `menu_open(items, opts)`: `opts` may hold `title`, `x`/`y` (cells;
+  default centred, always kept on screen), `width` (cells; default fits the
+  longest line), `cancelable` (default `true`), `selected` (starting row).
+  Up/Down or W/S move the highlight (wrapping), Enter or Space confirms,
+  Escape cancels when allowed. Only the newest open menu takes the keys.
+- `menu_selection(id)`: the highlighted row while open, the chosen row once
+  confirmed, `-1` once cancelled (or for an unknown id). `menu_closed(id)`
+  turns true when it's confirmed or cancelled. A closed menu stays
+  readable until `menu_close(id)` forgets it (the 32 newest are kept).
+- `draw_dialogue(text, speaker)` shows `text` in a box along the bottom,
+  with `speaker` (may be `""`) above it. The text is word-wrapped to the
+  screen and shown three lines per page; Enter or Space turns the page and
+  closes the box after the last. Call it **once** when the conversation
+  starts — calling it again with the same text and speaker while it's
+  showing does nothing (returns the same id), but after it closes the
+  same call opens it again. `dialogue_done(id)` is true once that dialogue
+  was read through, closed or replaced; `dialogue_advance()` turns the page
+  from a script; `close_dialogue()` closes it.
+- While a dialogue box is open it has the keyboard, then the newest menu.
+  The keys a widget uses are removed from what every script sees that
+  step, so a player doesn't walk while a menu is open.
+- Widgets opened by a scene's script close when that scene is popped.
+  Open widgets are saved with the game.
+- `wrap_text(text, width)` is the same word-wrap the dialogue box uses:
+  breaks at spaces, honours newlines, and splits a word longer than a line.
+
 ### Effects and audio
 `emit_particles(x,y,glyph,fg)` · `play_sound(path)` · `play_sound_at(path,x,y)` (volume falls off to 20 units, stereo pans left/right with the camera's horizontal offset) · `play_music(path)` (a no-op if `path` is already the current track — see the note below) · `stop_music()`
 
@@ -748,6 +782,7 @@ numeric literals in one consistent style, though; mixing (`draw_hud(1,
 | 8 | Step 8-1 (docs/ember2d-master-plan.md §5.7): static tiles become cells of one `Tilemap` entity; `is_tilemap(id)` and `get_tile_tag(x,y)` added | **No bump** — no signature or return shape changed and `is_solid_at`/`get_path`/`reachable_within` answer identically (pinned by `ember2d/tests/tilemap_equivalence.rs` against the real floor2). But an *identity* changed: `get_entity_at`/`find_entities_in_rect`/`raycast`/`on_collide`'s `other` now return the tilemap's id where they used to return a wall's, so a script recognising walls by `has_tag(hit, "wall")` needs `is_tilemap(hit)`. Every shipped script that did (`bullet.rhai`, the only one) was updated in the same step. |
 | 9 | Step 9-1 (docs/ember2d-master-plan.md §5.8): the scene stack — `push_scene`/`pop_scene`/`current_scene`/`scene_count`/`scene_data`/`quit_game`/`return_to_editor`/`is_editor_preview`, and the `on_start`/`on_input`/`on_update` contract for scene scripts. The Esc pause menu became a scene. | **No** — purely additive; a level's own scripts run exactly as before whenever no world-pausing scene is open. |
 | 9 | Step 9-2: `set_camera_target`/`clear_camera_target`/`set_camera_zoom`/`get_camera_zoom`/`set_camera_bounds`/`clear_camera_bounds`/`set_camera_speed`; `get_mouse_world_x/y` account for zoom | **No** — additive. `set_camera(x,y)` now behaves as `set_camera_target(x,y)` (same effect, but `clear_camera_target()` can now undo it); at the default zoom of 1 every existing function returns what it did before. |
+| 9 | Step 9-3: `menu_open`/`menu_selection`/`menu_closed`/`menu_close`, `draw_dialogue`/`dialogue_advance`/`dialogue_open`/`dialogue_done`/`close_dialogue`, `wrap_text`; R108 — every letter key now reaches `is_held`/`just_pressed` | **No** — additive (`draw_menu` and the cell HUD are unchanged). While a widget is open its keys are withheld from scripts, which no script could rely on before because no widget existed. |
 
 **Phase 6 is a zero-API-break phase** — `API_VERSION` stayed `6` through
 Step 5f. Phase 7.5-1 is the next break after it; 7.5-2 and 7.5-3 (the two

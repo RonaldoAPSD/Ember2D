@@ -67,6 +67,14 @@ impl Simulation {
         let paused = self.world_paused();
         self.paused_this_step = paused;
 
+        // Step 9-3: open menus / the dialogue box get the keyboard first;
+        // the keys they use are removed from what scripts see this step.
+        let filtered_input = self.ui.handle_input(input_snapshot);
+        if filtered_input.is_some() {
+            self.script_engine.set_ui_view(self.ui.clone());
+        }
+        let input_snapshot = filtered_input.as_ref().unwrap_or(input_snapshot);
+
         // Advance every Animator before scripts run this step, so
         // `clip_finished(id)` reflects this tick, not last step's.
         for animator in world.animators.values_mut().filter(|_| !paused) {
@@ -462,6 +470,11 @@ impl Simulation {
         if res.flow.is_some() {
             outcome.flow = res.flow;
         }
+        // Step 9-3: menu/dialogue requests.
+        if !res.ui_ops.is_empty() {
+            self.ui.apply(std::mem::take(&mut res.ui_ops));
+            self.script_engine.set_ui_view(self.ui.clone());
+        }
         // A despawned actor must not keep cycling a dead turn slot forever.
         for &id in &res.despawned {
             self.scheduler.remove(id);
@@ -500,6 +513,7 @@ impl Simulation {
             );
             let mut state = state;
             state.scenes = self.scenes.clone(); // Step 9-1
+            state.ui = self.ui.clone(); // Step 9-3
             if let Err(e) = state.save_to_file(&save_path) {
                 logs.push(LogEntry::error(format!("save_game failed: {}", e)));
             } else {

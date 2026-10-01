@@ -49,8 +49,17 @@ pub enum UiFontKind {
 /// instead of mutating process-global env state (racy under `cargo test`'s
 /// parallel test execution) — `ui_font_from_env` below is the real
 /// entry point every non-test caller uses.
+/// The bundled Cascadia Mono, embedded in the binary.
+const CASCADIA_MONO: &[u8] = include_bytes!("../../../assets/fonts/CascadiaMono.ttf");
+
+/// Step 9-3 (docs/ember2d-master-plan.md §5.8): the bundled Cascadia Mono
+/// as a `TtfFont` — what play mode draws script menus and dialogue with.
+/// Embedded, so a game never depends on an editor theme folder.
+pub fn bundled_ui_font() -> Result<TtfFont, String> {
+    TtfFont::from_bytes(CASCADIA_MONO, 0)
+}
+
 fn ui_font_for(value: Option<&str>) -> (Box<dyn Font>, f32, UiFontKind) {
-    const CASCADIA_MONO: &[u8] = include_bytes!("../../../assets/fonts/CascadiaMono.ttf");
     const TTF_PX: f32 = 16.0;
 
     if value == Some("ttf") {

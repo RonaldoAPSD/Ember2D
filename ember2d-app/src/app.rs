@@ -44,7 +44,7 @@ pub fn run_editor_app(
                 let mut pending_save: Option<SaveState> = None;
                 loop {
                     engine.reset_world();
-                    let mut loaded_scenes: Option<Vec<ember2d::play::SceneFrame>> = None;
+                    let mut loaded_scenes: Option<(Vec<ember2d::play::SceneFrame>, ember2d::play::UiModel)> = None;
                     let mut play = if let Some(save) = pending_save.take() {
                         // globals/clips restored directly from the save,
                         // not rebuilt via on_start — defect D17 fix (Step
@@ -55,7 +55,7 @@ pub fn run_editor_app(
                         // scheduler/turn_number half of a faithful save
                         // round trip, same treatment as globals/clips above.
                         let (turn_number, scheduler) = (save.turn_number, save.scheduler);
-                        loaded_scenes = Some(save.scenes); // Step 9-1
+                        loaded_scenes = Some((save.scenes, save.ui)); // Steps 9-1, 9-3
                         engine.world = save.world;
                         engine.persistent = save.persistent;
                         level_data = LevelData::load(&save.level_path).map_err(|e| {
@@ -78,8 +78,9 @@ pub fn run_editor_app(
                     // Step 9-1 (docs/ember2d-master-plan.md §5.8): an F5 run
                     // offers the pause scene's Back to Editor row.
                     play.set_editor_preview(true);
-                    if let Some(scenes) = loaded_scenes.take() {
+                    if let Some((scenes, ui)) = loaded_scenes.take() {
                         play.set_saved_scenes(scenes);
+                        play.set_saved_ui(ui);
                     }
                     engine.push_state(Box::new(play));
 
@@ -174,7 +175,7 @@ pub fn run_play_app(
     let mut pending_save: Option<SaveState> = None;
     loop {
         engine.reset_world();
-        let mut loaded_scenes: Option<Vec<ember2d::play::SceneFrame>> = None;
+        let mut loaded_scenes: Option<(Vec<ember2d::play::SceneFrame>, ember2d::play::UiModel)> = None;
         let mut play = if let Some(save) = pending_save.take() {
             // globals/clips restored directly from the save, not rebuilt
             // via on_start — defect D17 fix (Step 5c,
@@ -184,7 +185,7 @@ pub fn run_play_app(
             // R7 (7A-3, docs/ember2d-master-plan.md): see the matching
             // comment in `run_editor_app` above.
             let (turn_number, scheduler) = (save.turn_number, save.scheduler);
-                        loaded_scenes = Some(save.scenes); // Step 9-1
+                        loaded_scenes = Some((save.scenes, save.ui)); // Steps 9-1, 9-3
             engine.world = save.world;
             engine.persistent = save.persistent;
             data = LevelData::load(&save.level_path).map_err(|e| {
@@ -204,8 +205,9 @@ pub fn run_play_app(
         };
         play.set_pixels_per_unit(pixels_per_unit);
         play.set_turn_model(turn_model);
-        if let Some(scenes) = loaded_scenes.take() {
+        if let Some((scenes, ui)) = loaded_scenes.take() {
             play.set_saved_scenes(scenes); // Step 9-1
+            play.set_saved_ui(ui); // Step 9-3
         }
         engine.push_state(Box::new(play));
 

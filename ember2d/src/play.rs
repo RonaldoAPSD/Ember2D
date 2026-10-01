@@ -14,6 +14,8 @@
 mod animation;
 // Step 9-2: the per-frame camera follow — see that file's header.
 mod camera_ctl;
+// Step 9-3: drawing script menus and dialogue — see that file's header.
+mod ui_draw;
 // Step 9-1: apply_outcome/flush_audio — see that file's header.
 mod outcome;
 mod render;
@@ -41,6 +43,8 @@ use render::{
 pub use render::{DrawCommand, DrawList, Space};
 // Step 9-1: what `SaveState::scenes` holds, for `set_saved_scenes` callers.
 pub use ember2d_sim::simulation::scenes::SceneFrame;
+// Step 9-3: what `SaveState::ui` holds, for `set_saved_ui` callers.
+pub use ember2d_sim::ui::UiModel;
 
 // `resolve_exit_path` moved into `ember2d-sim`'s `simulation` module (Phase
 // 5.5, docs/ember2d-phase5.5-plan.md Part 2) — every real caller
@@ -147,6 +151,12 @@ pub struct PlayState {
     /// default (8.0); `set_pixels_per_unit` lets a caller that actually has
     /// the project's settings (`app.rs`) override it after construction.
     pixels_per_unit: f32,
+    /// Step 9-3 (docs/ember2d-master-plan.md §5.8): the bundled Cascadia
+    /// Mono that script menus and dialogue draw with — loaded on the first
+    /// frame that has one open. `None` if it failed to parse (they then
+    /// don't draw; the simulation still runs them).
+    ui_font: Option<crate::renderer::TtfFont>,
+    ui_font_tried: bool,
 }
 
 /// A different constant offset from the level's seed for `PlayState::rng`
@@ -185,6 +195,8 @@ impl PlayState {
             rng: SmallRng::seed_from_u64(seed.wrapping_add(PLAYSTATE_RNG_SEED_OFFSET)),
             render_rng: SmallRng::seed_from_u64(seed ^ RENDER_RNG_SEED_OFFSET),
             pixels_per_unit: crate::project::default_pixels_per_unit(),
+            ui_font: None,
+            ui_font_tried: false,
         }
     }
 
@@ -222,6 +234,16 @@ impl PlayState {
     /// Step 9-1: the scenes a loaded save had open (`SaveState::scenes`).
     pub fn set_saved_scenes(&mut self, scenes: Vec<SceneFrame>) {
         self.sim.set_saved_scenes(scenes);
+    }
+
+    /// Step 9-3: the menus/dialogue a loaded save had open (`SaveState::ui`).
+    pub fn set_saved_ui(&mut self, ui: ember2d_sim::ui::UiModel) {
+        self.sim.set_saved_ui(ui);
+    }
+
+    /// Step 9-3: open menus and the dialogue box (tests, debugging).
+    pub fn ui(&self) -> &ember2d_sim::ui::UiModel {
+        self.sim.ui()
     }
 
     /// Step 9-1: the scene stack's names, bottom to top (tests, debugging).
@@ -630,6 +652,22 @@ impl GameState for PlayState {
         draw_hud_queue(renderer, self.sim.pending_hud_draws().iter());
         // Step 9-1: scene scripts' HUD, above the level's.
         draw_hud_queue(renderer, self.sim.scene_hud_draws().iter());
+
+        // Step 9-3: script menus and the dialogue box, above every HUD.
+        let ui = self.sim.ui();
+        if ui.open_dialogue().is_some() || ui.active_menu().is_some() {
+            if !self.ui_font_tried {
+                self.ui_font_tried = true;
+                match crate::renderer::font::bundled_ui_font() {
+                    Ok(f) => self.ui_font = Some(f),
+                    Err(e) => self.script_log.push(LogEntry::error(format!("UI font: {e}"))),
+                }
+            }
+            if let Some(font) = self.ui_font.as_mut() {
+                let (vw, vh) = (renderer.width, renderer.height);
+                ui_draw::draw_ui(renderer, font, self.sim.ui(), vw, vh);
+            }
+        }
         // Not cleared here anymore (Step 4g) — see
         // ScriptEngine::run_scripts's own clear for why: clearing on every
         // render, regardless of whether a script actually ran that frame,

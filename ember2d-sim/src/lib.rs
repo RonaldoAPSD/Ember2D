@@ -55,6 +55,8 @@
 #![warn(clippy::disallowed_methods, clippy::disallowed_types)]
 
 pub mod clip_asset;
+// Step 9-3: engine-owned menus and dialogue — see that file's header.
+pub mod ui;
 pub mod color;
 pub mod command;
 pub mod components;

@@ -83,7 +83,7 @@ own comment on this for the full explanation.
   until Phase 7.
 - **Engine loop** — `ember2d/src/engine.rs`: `winit` via `pump_events`, fixed-timestep accumulator, state stack (push/pop/pause/resume). The actual per-step sequence (consume input, update, conditionally physics/collisions/late_update) lives in `ember2d/src/sim.rs` (Step 5d) — shared with the headless `TurnHarness` test harness so there's only one copy of it.
 - **Level format** — RON via `serde`/`ron`, `.level` files, `LEVEL_FORMAT_VERSION` (currently 6 — master plan step 8-1 added the baked `tilemap` section, every static tile in one compact `Tilemap` grid on one entity instead of an entity per tile (a v3 level still loads and collapses at load); step 8-2 added `TileRecord::sprite`, a tile drawn from a named region of a tileset (`<project>/assets/tilesets/<name>.ron`, written by the editor's File > Import Tileset...); step 8-3 added `TileRecord::clip`, an animated tile playing a project clip (`<project>/assets/clips/<name>.ron`, built in File > Animation Clips...). Every shipped `roguelike/`/`shooter/` level is regenerated to the current version, and `LevelData::load` rejects a level from a newer format version instead of loading it blind, R8/7A-4).
-- **Scripting** — `ember2d-sim/src/scripting/`: 186 registered functions (`API_VERSION` 7), deferred mutation queue. `on_input`/`on_turn` (Phase 5 Steps 5e/5f) split "read input" from "act" from the older `on_update`/`on_start`/`on_collide` lifecycle — see `docs/ember2d-scripting-api.md`.
+- **Scripting** — `ember2d-sim/src/scripting/`: 197 registered functions (`API_VERSION` 7), deferred mutation queue. `on_input`/`on_turn` (Phase 5 Steps 5e/5f) split "read input" from "act" from the older `on_update`/`on_start`/`on_collide` lifecycle — see `docs/ember2d-scripting-api.md`.
 - **Turn scheduling** — `ember2d-sim/src/scheduler.rs`: `TurnScheduler`, a deterministic min-heap turn queue (Step 5f).
 - **Editor** — `ember2d-editor/src/editor/`: layer-aware grid, float zoom, dockable panels, palette editor, in-engine script editor, node-based visual scripter (generates Rhai via `ember2d-sim/src/graph/`).
 - **Save system** — `ember2d-sim/src/save.rs`: full `World` serialization, plus script `globals`/`clips` (Step 5c, D17 fix).
@@ -96,6 +96,7 @@ own comment on this for the full explanation.
 | Core engine loop | ember2d/src/engine.rs |
 | Shared per-step simulation sequence | ember2d/src/sim.rs |
 | Turn scheduler | ember2d-sim/src/scheduler.rs |
+| Script menus + dialogue (Step 9-3) | ember2d-sim/src/ui.rs, ember2d-sim/src/scripting/widgets.rs, ember2d/src/play/ui_draw.rs |
 | Script camera (Step 9-2) | ember2d-sim/src/scripting/camera.rs, ember2d/src/play/camera_ctl.rs |
 | Scene stack (Step 9-1) | ember2d-sim/src/scripting/scene.rs (+ builtin_pause.rhai), ember2d-sim/src/simulation/scenes.rs |
 | World / ECS | ember2d-sim/src/world.rs |
@@ -156,7 +157,7 @@ The simulation must be reproducible — replay, save/load, and 2-player netcode 
 `main` is trunk at `v0.5.7d`. All work happens on the `claude` branch.
 
 **The authoritative status is `docs/ember2d-master-plan.md` §2 (phase table, baseline numbers)
-and §3 (the one defect register, D1–D22 + R1–R107 + E1–E6, each with a status marker and the
+and §3 (the one defect register, D1–D22 + R1–R108 + E1–E6, each with a status marker and the
 step that fixes it).** Read §2 before starting any work — this section is deliberately not a
 second copy of it (R36, master plan §3.2: this exact paragraph used to fall out of sync with
 the tree and did): don't restate phase/step progress here, keep this section a pointer.
