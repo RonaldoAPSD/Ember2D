@@ -7,6 +7,7 @@ pub mod assets;
 pub mod commands;
 pub mod grid;
 pub mod palette;
+pub mod project_settings;
 pub mod panel;
 pub mod prefs;
 pub mod start_screen;
@@ -35,7 +36,7 @@ use panel::{PanelId, PanelManager};
 use prefs::{EditorPrefs, PrefsStore};
 use theme_loader::{list_available_themes, load_editor_theme_named, DEFAULT_THEME};
 pub use ui::HierarchySelection;
-pub use mode::{EditorMode, Modal, ModalPurpose, TextInputPurpose};
+pub use mode::{EditorMode, InspTarget, Modal, ModalPurpose, TextInputPurpose};
 use ui::{MenuKind, UiFrame};
 
 /// One in-progress freehand paint/scatter/erase-drag batch's accumulated
@@ -362,6 +363,12 @@ pub struct EditorState {
     /// set), read by `load_project_settings`. Every canvas draw and
     /// hit-test goes through `canvas_view`, which carries it.
     pub(super) world_cell: (f32, f32),
+    /// Step 9-6: how many Inspector rows are scrolled off the top (the
+    /// mouse wheel over the Inspector; clamped to the subject's rows).
+    pub(super) inspector_scroll: usize,
+    /// Step 9-6: the project's settings while File > Project Settings is
+    /// open (`project_settings.rs`); `None` otherwise.
+    pub(super) project_settings: Option<ember2d::project::ProjectData>,
 }
 
 const DEFAULT_LEVEL_W: usize = 32;
@@ -495,6 +502,8 @@ impl EditorState {
             mode: EditorMode::default(),
             zoom: 1.0,
             world_cell: ember2d::project::PlaySettings::default().world_cell_px(),
+            inspector_scroll: 0,
+            project_settings: None,
         }
     }
 

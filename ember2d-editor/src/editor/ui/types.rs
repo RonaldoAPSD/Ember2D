@@ -178,6 +178,10 @@ pub enum ToolbarAction {
     ImportTileset,
     /// Step 8-3: File > Animation Clips... (the clip editor).
     OpenClipEditor,
+    /// Step 9-6: File > Project Settings...
+    ProjectSettings,
+    /// Step 9-6: File > New Scene (`scenes/<name>.rhai` from a template).
+    NewScene,
     Play,
     CloseProject,
     RenameLevel,
@@ -210,16 +214,7 @@ pub enum ToolbarAction {
 
 pub const HIER_W: usize = 14;
 
-pub const INSP_NAME_OFF: usize = 2;
-pub const INSP_GLYPH_OFF: usize = 3;
-pub const INSP_TAG_OFF: usize = 5;
-pub const INSP_FG_OFF: usize = 6;
-pub const INSP_BG_OFF: usize = 7;
-pub const INSP_SOLID_OFF: usize = 9;
-pub const INSP_TRIG_OFF: usize = 10;
-pub const INSP_CAM_OFF: usize = 11;
-pub const INSP_SCRIPT_OFF: usize = 13;
-pub const INSP_EXIT_OFF: usize = 14;
-pub const INSP_GRAPH_BTN: usize = 17;
-pub const INSP_LAYER_OFF: usize = 21;
-pub const INSP_MASK_OFF: usize = 23;
+// The `INSP_*_OFF` Inspector row numbers lived here until Step 9-6
+// (docs/ember2d-master-plan.md §5.8): the Inspector is a row LIST now
+// (`ui/panels/inspector.rs::inspector_rows`), so a row's place is its
+// position in that list, not a constant.

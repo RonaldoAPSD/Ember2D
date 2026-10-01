@@ -22,6 +22,7 @@ use super::super::super::ui::{InspectorField, WidgetId};
 use super::super::super::EditorMode;
 use super::super::super::EditorState;
 use super::super::super::TextInputPurpose;
+use super::super::super::{InspTarget, ui};
 use ember2d_sim::graph::NodeGraph;
 
 impl EditorState {
@@ -39,6 +40,30 @@ impl EditorState {
                 }
             }
         };
+        // Step 9-6: the wheel scrolls the Inspector's rows, clamped to the
+        // subject's own row count (`ui::inspector_rows`, what draws them).
+        if self.panels.visible(PanelId::Inspector) && mouse.wheel_y != 0.0 && mouse.in_bounds {
+            let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
+            if self.panels.get(PanelId::Inspector).contains(px, py) {
+                let rows = match (self.hierarchy_sel, insp_tile_pos) {
+                    (Some(HierarchySelection::Player), _) => {
+                        ui::inspector_rows(&ui::InspSubject::Player(&self.grid.player)).len()
+                    }
+                    (_, Some((gx, gy))) => self
+                        .grid
+                        .get(gx, gy, self.active_layer)
+                        .map(|t| ui::inspector_rows(&ui::InspSubject::Tile(t)).len())
+                        .unwrap_or(0),
+                    _ => 0,
+                };
+                let metrics = ui::ChromeMetrics::from_theme(&self.theme);
+                let content = self.panels.get(PanelId::Inspector).content_rect(&metrics);
+                let max = ui::max_inspector_scroll(rows, content.h, self.theme.metrics.row_h);
+                let step = if mouse.wheel_y > 0.0 { -2i32 } else { 2 };
+                self.inspector_scroll =
+                    (self.inspector_scroll as i32 + step).clamp(0, max as i32) as usize;
+            }
+        }
         if self.panels.visible(PanelId::Inspector) && mouse.left_just_pressed() && mouse.in_bounds {
             // 7D-3 checkpoint 7 (master plan §5.4): logical -> points, the
             // input choke point every chrome hit-test in this file goes
@@ -96,8 +121,11 @@ impl EditorState {
                             self.grid.player = after;
                             self.unsaved = true;
                         }
-                        // `Exit`/`GraphBtn` (and any non-Inspector hit) have
-                        // no Player equivalent — no-op, same as before.
+                        // Step 9-6: colours, collider size.
+                        Some(WidgetId::InspectorRow(f)) => {
+                            self.inspector_click_new_field(InspTarget::Player, f);
+                        }
+                        // Any non-Inspector hit: no-op, same as before.
                         _ => {}
                     }
                 } else if let Some((gx, gy)) = insp_tile_pos {
@@ -247,6 +275,10 @@ impl EditorState {
                                     self.grid.place(gx, gy, self.active_layer, new_tile);
                                     self.unsaved = true;
                                 }
+                            }
+                            // Step 9-6: colours, sprite, clip, the Actor section.
+                            Some(WidgetId::InspectorRow(f)) => {
+                                self.inspector_click_new_field(InspTarget::Tile { gx, gy }, f);
                             }
                             _ => {}
                         }

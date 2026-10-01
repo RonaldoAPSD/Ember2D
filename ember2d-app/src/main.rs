@@ -5,27 +5,10 @@ use std::io;
 use std::path::Path;
 
 mod app;
-use app::{run_editor_app, run_play_app};
+use app::{load_project, run_editor_app, run_play_app};
 
 use ember2d::prelude::*;
-use ember2d::project::PlaySettings;
 use ember2d_editor::prelude::{EditorState, PrefsStore, StartScreen};
-
-/// Reads `<folder>/project.ron`, if there is one: applies its visual style
-/// to the renderer and returns its play settings and name. A folder with no
-/// (or a broken) `project.ron` gets the defaults. Step 9-5
-/// (docs/ember2d-master-plan.md §5.8): one function for what all three
-/// launch paths below used to repeat line for line, now that the settings
-/// travel as one `PlaySettings` value instead of three loose arguments.
-fn load_project(engine: &mut Engine, folder: &str) -> (PlaySettings, Option<String>) {
-    match ProjectData::load(folder) {
-        Ok(proj) => {
-            engine.renderer.set_sprite_mode(proj.visual_style == VisualStyle::Sprites2D);
-            (proj.play_settings(), Some(proj.name))
-        }
-        Err(_) => (PlaySettings::default(), None),
-    }
-}
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();

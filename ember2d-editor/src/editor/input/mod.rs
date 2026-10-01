@@ -11,6 +11,8 @@ mod context_menu;
 mod graph;
 // Step 8-2: the tileset importer dialog — see that file's header comment.
 mod importer;
+mod inspector_edit;
+pub(in crate::editor) use inspector_edit::inspector_prompt_label;
 // Step 8-3: the clip editor dialog — see that file's header comment.
 mod clip_editor;
 mod modal;
@@ -105,6 +107,25 @@ impl EditorState {
             }
             EditorMode::ClipEditor => {
                 self.handle_clip_editor_input(input, mouse);
+                return;
+            }
+            // Step 9-6: Escape or Close leaves; a click on a row edits it.
+            EditorMode::ProjectSettings => {
+                self.mode = EditorMode::ProjectSettings;
+                if input.just_pressed(ember2d::input::Key::Escape) {
+                    self.close_project_settings();
+                } else if mouse.left_just_pressed() && mouse.in_bounds {
+                    let (px, py) = self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y);
+                    match self.ui_frame.hit(px, py) {
+                        Some(super::ui::WidgetId::ProjectSettingsRow(f)) => {
+                            self.project_settings_click(f)
+                        }
+                        Some(super::ui::WidgetId::ProjectSettingsClose) => {
+                            self.close_project_settings()
+                        }
+                        _ => {}
+                    }
+                }
                 return;
             }
             EditorMode::Graph { gx, gy } => {

@@ -140,7 +140,7 @@ fn on_start(id, ctx) {
         ctx.set_persistent("depth", 1);
         ctx.set_persistent("turns_taken", 0);
     }
-    ctx.play_music("demos/roguelike/audio/music.ogg");
+    ctx.play_music("audio/music.ogg");
 }
 
 /// Runs every step regardless of whose turn it is (Step 5f) — the HUD and
@@ -169,7 +169,7 @@ fn on_turn(id, ctx) {
             ctx.set_persistent("potions", 1);
             ctx.set_persistent("depth", 1);
             ctx.set_persistent("turns_taken", 0);
-            ctx.load_level("demos/roguelike/floor1.level");
+            ctx.load_level("floor1.level");
         }
         return; // dead: never consumes a turn, restart included — the
                 // level transition (if any) happens regardless.
@@ -241,7 +241,7 @@ fn attack(target, ctx) {
     // demos/roguelike/audio has no dedicated attack sound — hurt.ogg (the only
     // impact-shaped clip available) does double duty for both landing a
     // hit and taking one.
-    ctx.play_sound("demos/roguelike/audio/hurt.ogg");
+    ctx.play_sound("audio/hurt.ogg");
 }
 
 /// `hp`/`hp_max`/`gold`/`potions`/`depth` are passed in rather than

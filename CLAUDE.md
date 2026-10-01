@@ -98,6 +98,7 @@ own comment on this for the full explanation.
 | Turn scheduler | ember2d-sim/src/scheduler.rs |
 | Spawn points + transitions (Step 9-4) | ember2d-sim/src/level/spawns.rs, ember2d-sim/src/simulation.rs (`load_transition`) |
 | World cell size (Step 9-5) | ember2d/src/project.rs (`world_cell`, `PlaySettings`), ember2d/src/camera.rs (`cell_scale`), ember2d-editor/src/editor/ui/canvas.rs (`CanvasView`) |
+| Inspector rows, Project Settings, New Scene (Step 9-6) | ember2d-editor/src/editor/ui/panels/inspector.rs, input/inspector_edit.rs, project_settings.rs, ui/panels/project_settings_panel.rs |
 | Script menus + dialogue (Step 9-3) | ember2d-sim/src/ui.rs, ember2d-sim/src/scripting/widgets.rs, ember2d/src/play/ui_draw.rs |
 | Script camera (Step 9-2) | ember2d-sim/src/scripting/camera.rs, ember2d/src/play/camera_ctl.rs |
 | Scene stack (Step 9-1) | ember2d-sim/src/scripting/scene.rs (+ builtin_pause.rhai), ember2d-sim/src/simulation/scenes.rs |
@@ -159,7 +160,7 @@ The simulation must be reproducible — replay, save/load, and 2-player netcode 
 `main` is trunk at `v0.5.7d`. All work happens on the `claude` branch.
 
 **The authoritative status is `docs/ember2d-master-plan.md` §2 (phase table, baseline numbers)
-and §3 (the one defect register, D1–D22 + R1–R112 + E1–E6, each with a status marker and the
+and §3 (the one defect register, D1–D22 + R1–R115 + E1–E6, each with a status marker and the
 step that fixes it).** Read §2 before starting any work — this section is deliberately not a
 second copy of it (R36, master plan §3.2: this exact paragraph used to fall out of sync with
 the tree and did): don't restate phase/step progress here, keep this section a pointer.

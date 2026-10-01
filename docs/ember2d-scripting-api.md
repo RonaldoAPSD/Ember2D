@@ -150,6 +150,16 @@ Since Step 8-3 a project can also author **sprite-sheet clips** in the editor (F
 > Replaces `set_animation(id,"abc",rate)`, removed in Step 3e — a clip is named and shared, not a bag of fields re-set every call.
 
 ### Entity lifecycle
+> **Paths** (Step 9-6): every path a script passes — `set_script`,
+> `set_texture`, `play_sound`/`play_sound_at`/`play_music`,
+> `load_level`, a scene's `script` — is **project-relative**:
+> `"scripts/bullet.rhai"`, `"audio/hit.ogg"`, `"floor2.level"`. It's
+> looked for beside the current level, then in each folder above it up to
+> the project root (the folder with `project.ron`), then in the working
+> directory — so a project works wherever its folder is, and an older
+> repo-relative path (`"demos/roguelike/..."`) still loads when the game
+> runs from the repo root.
+
 `spawn_entity(glyph,x,y,tag)` → id · `despawn(id)` · `set_script(id,path)`
 
 `set_script` (Step 7.5-5) attaches (or replaces) `id`'s script — deferred

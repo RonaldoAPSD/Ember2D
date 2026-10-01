@@ -86,11 +86,18 @@ fn every_script_and_next_level_path_a_level_references_exists_on_disk() {
     // test file via `TurnHarness::load`; this file has no `TurnHarness`
     // to funnel through, so it sets its own CWD directly.
     let _ = std::env::set_current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/.."));
+    // Step 9-6 (docs/ember2d-master-plan.md §5.8): paths are project-
+    // relative now, so "exists" means "resolves the way the engine
+    // resolves it" — beside the level, up to the project root, then CWD.
+    let exists = |p: &str, level: &str| {
+        let full = ember2d::play::resolve_exit_path(p, level, &|q| Path::new(q).exists());
+        Path::new(&full).exists()
+    };
     for path in LEVELS {
         let data = LevelData::load(path).unwrap_or_else(|e| panic!("load {}: {}", path, e));
         if let Some(ref script) = data.player.script {
             assert!(
-                Path::new(script).exists(),
+                exists(script, path),
                 "{}: player script '{}' does not exist",
                 path,
                 script
@@ -101,7 +108,7 @@ fn every_script_and_next_level_path_a_level_references_exists_on_disk() {
         for tile in &data.all_tiles() {
             if let Some(ref script) = tile.script {
                 assert!(
-                    Path::new(script).exists(),
+                    exists(script, path),
                     "{}: tile ({},{}) script '{}' does not exist",
                     path,
                     tile.x,
@@ -111,7 +118,7 @@ fn every_script_and_next_level_path_a_level_references_exists_on_disk() {
             }
             if let Some(ref next) = tile.next_level {
                 assert!(
-                    Path::new(next).exists(),
+                    exists(next, path),
                     "{}: tile ({},{}) next_level '{}' does not exist",
                     path,
                     tile.x,

@@ -107,6 +107,9 @@ pub enum WidgetId {
     ImporterSheet,
     ImporterImport,
     ImporterCancel,
+    /// Step 9-6: a row of the Project Settings dialog, and its Close.
+    ProjectSettingsRow(crate::editor::project_settings::ProjectField),
+    ProjectSettingsClose,
     /// Step 8-3: the clip editor's widgets — a saved clip in its list (by
     /// index into the project's clips, name order), its text fields, the
     /// loop toggle, the tileset switcher, the sheet (one continuous area;
@@ -195,7 +198,8 @@ pub enum WidgetId {
     StartTemplateItem(usize),
 }
 
-/// See `WidgetId::InspectorRow`.
+/// See `WidgetId::InspectorRow`. Step 9-6 added everything from `Fg` down
+/// (`ui/panels/inspector.rs` says which subject shows which).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InspectorField {
     Glyph,
@@ -208,6 +212,21 @@ pub enum InspectorField {
     Layer,
     Mask,
     GraphBtn,
+    Fg,
+    Bg,
+    Sprite,
+    Clip,
+    /// The player's collider width and height.
+    ColliderSize,
+    /// Give a tile an `ActorRecord`, or take it away.
+    ActorToggle,
+    ActorSpeed,
+    ActorPhysics,
+    TintAware,
+    TintAsleep,
+    /// The `n`th stat, in key order.
+    ActorStat(u16),
+    ActorStatAdd,
 }
 
 pub struct UiHit {

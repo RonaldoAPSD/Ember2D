@@ -32,6 +32,14 @@ pub enum ModalPurpose {
     ConfirmDeleteFile { path: String },
 }
 
+/// What an Inspector prompt edits (Step 9-6): the player, or the tile at
+/// a grid cell on the active layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InspTarget {
+    Player,
+    Tile { gx: i32, gy: i32 },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextInputPurpose {
     LevelName,
@@ -54,6 +62,13 @@ pub enum TextInputPurpose {
     NewScriptName,
     PaletteFgCustom,
     PaletteBgCustom,
+    /// Step 9-6 (docs/ember2d-master-plan.md §5.8): every Inspector field
+    /// that step added — see `input/inspector_edit.rs`.
+    Inspector { target: InspTarget, field: ui::InspectorField },
+    /// Step 9-6: File > New Scene's name.
+    NewSceneName,
+    /// Step 9-6: a Project Settings value row — returns to the dialog.
+    ProjectSetting(super::project_settings::ProjectField),
 }
 
 #[derive(Debug)]
@@ -136,6 +151,9 @@ pub enum EditorMode {
     /// Step 8-3: the animation clip editor dialog. State lives in
     /// `EditorState::clip_editor`, same reasoning as `TilesetImport`.
     ClipEditor,
+    /// Step 9-6: File > Project Settings. State lives in
+    /// `EditorState::project_settings`, same reasoning as `TilesetImport`.
+    ProjectSettings,
 }
 
 impl Default for EditorMode {
@@ -175,6 +193,7 @@ impl EditorMode {
             EditorMode::ContextMenu(_) => "Menu  ",
             EditorMode::TilesetImport => "Import",
             EditorMode::ClipEditor => "Clips ",
+            EditorMode::ProjectSettings => "Project",
         }
     }
 }

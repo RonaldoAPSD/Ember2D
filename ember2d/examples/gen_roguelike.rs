@@ -34,17 +34,19 @@ use ember2d::prelude::*;
 // Every tile of a given kind across every floor shares one script file —
 // Rhai here is built with `no_module` (see Cargo.toml), so scripts can't
 // import shared code; one file per *role*, attached to many tiles, is the
-// only sharing mechanism available.
+// only sharing mechanism available. Paths are PROJECT-relative (Step 9-6,
+// docs/ember2d-master-plan.md §5.8): the engine resolves them beside the
+// level, so the demo folder works wherever it's copied to.
 
-const PLAYER_SCRIPT: &str = "demos/roguelike/scripts/player.rhai";
-const PICKUP_SCRIPT: &str = "demos/roguelike/scripts/pickup.rhai";
-const STAIRS_SCRIPT: &str = "demos/roguelike/scripts/stairs.rhai";
+const PLAYER_SCRIPT: &str = "scripts/player.rhai";
+const PICKUP_SCRIPT: &str = "scripts/pickup.rhai";
+const STAIRS_SCRIPT: &str = "scripts/stairs.rhai";
 // Step 7.5-4 (docs/ember2d-master-plan.md §5.6): rat and boss share ONE
 // script now — the numbers that used to make them separate files (hp, atk,
 // awareness range, tint) are authored as data on each tile's own
 // `ActorRecord` (`rat()`/`boss()` below) instead.
-const ENEMY_SCRIPT: &str = "demos/roguelike/scripts/enemy.rhai";
-const VICTORY_SCRIPT: &str = "demos/roguelike/scripts/victory.rhai";
+const ENEMY_SCRIPT: &str = "scripts/enemy.rhai";
+const VICTORY_SCRIPT: &str = "scripts/victory.rhai";
 
 // Fixed per floor so every run of this generator — and every play of the
 // game — draws `random_*` (particles, etc.) from the same sequence.
@@ -252,7 +254,7 @@ fn floor1() -> LevelData {
         item(10, 6, '$', Color::Yellow, "gold"),
         item(20, 10, '$', Color::Yellow, "gold"),
         item(30, 5, '!', Color::Magenta, "potion"),
-        stairs((w - 4) as i32, (h - 4) as i32, "demos/roguelike/floor2.level"),
+        stairs((w - 4) as i32, (h - 4) as i32, "floor2.level"),
     ];
 
     let mut data = build_level("Floor 1", &map, SEED_FLOOR1, spawn, features);
@@ -285,7 +287,7 @@ fn floor2() -> LevelData {
         item(50, 18, '$', Color::Yellow, "gold"),
         item(66, 4, '$', Color::Yellow, "gold"),
         item(55, 27, '!', Color::Magenta, "potion"),
-        stairs(65, 27, "demos/roguelike/floor3.level"),
+        stairs(65, 27, "floor3.level"),
     ];
 
     let mut data = build_level("Floor 2", &map, SEED_FLOOR2, spawn, features);
@@ -315,7 +317,7 @@ fn floor3() -> LevelData {
         rat(45, 15),
         boss(40, 10),
         item(48, 4, '$', Color::Yellow, "gold"),
-        stairs(49, 18, "demos/roguelike/victory.level"),
+        stairs(49, 18, "victory.level"),
     ];
 
     let mut data = build_level("Floor 3", &map, SEED_FLOOR3, spawn, features);

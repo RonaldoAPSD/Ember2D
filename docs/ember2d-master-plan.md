@@ -424,6 +424,9 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R110 | S3 | A newly pushed scene ran `on_start` and its first `on_update` in the same step, and that `on_update` read the snapshot taken BEFORE `on_start` — so a var `on_start` had just set (`ctx.set_var(id, "menu", ...)`) read back as `()`. The built-in pause scene only worked because it guarded `m == ()`; the first project scene written without that guard errored. Found in the Phase 9 gate's live pass | `ember2d-sim/src/simulation/scenes.rs` (`run_scene_step`) | `[x]` Phase 9 gate (`f89d8bd`) — a scene's first `on_update` is the step after its `on_start`; test `r110_a_scene_sees_the_vars_its_on_start_set` |
 | R111 | S2 | A world-pausing scene whose script failed at runtime (and was disabled, as every failing script is) stayed on the stack forever: nothing could pop it, Esc opens a pause only when no scene is open, so the game was frozen behind it — against CLAUDE.md's "a broken script must never hang" rule. Found in the Phase 9 gate's live pass | `ember2d-sim/src/simulation/scenes.rs` (`run_scene_step`) | `[x]` Phase 9 gate (`f89d8bd`) — a scene whose script is disabled is closed with an error logged ("Scene 'x' closed: its script failed"); test `r111_a_scene_whose_script_fails_is_closed_and_the_level_resumes` |
 | R112 | S3 | The HUD the last open scene drew stayed on screen after it popped: the scene HUD queue was cleared only by a scene's `on_update`, and with the stack empty none runs. Invisible with the built-in pause (it draws no HUD); a project pause scene's HUD lingered over the resumed game. Found in the Phase 9 gate's live pass | `ember2d-sim/src/simulation/scenes.rs` (`run_scene_step`) | `[x]` Phase 9 gate (`f89d8bd`) — cleared when no scene is left; test `r112_a_popped_scenes_hud_goes_with_it` |
+| R113 | S2 | Export Game dropped a project's `scenes/` folder (9-1's scene scripts), its `art/` folder (loose images 8-4 imports) and the node-graph sidecar scripts (`<level>_graph_x_y_l.rhai`) that sit beside the levels — an exported game lost its custom pause scene, images and every graph tile's logic. Found reviewing export for Step 9-6 | `ember2d-editor/src/editor/impl_state/export.rs` | `[x]` 9-6 (`HASH96`) — the copy is `copy_project_files` (testable without the OS folder picker) and takes all three; test `r113_export_copies_scenes_art_and_graph_sidecars` |
+| R114 | S3 | File > New Script into a folder that didn't exist yet (`scripts/ai.rhai` in a fresh project) did nothing at all — `fs::write` failed and its error was discarded. Found building Step 9-6's New Scene | `ember2d-editor/src/editor/input/text.rs` (`NewScriptName`) | `[x]` 9-6 (`HASH96`) — `create_project_file` makes the folders and reports any failure; test `r114_new_script_creates_the_folder_it_names` |
+| R115 | S2 | A project only worked when the game ran from the repo root: every shipped level, demo script and generator used repo-relative paths (`demos/roguelike/scripts/player.rhai`, `play_sound("demos/roguelike/audio/hurt.ogg")`), `resolve_exit_path` tried the working directory FIRST, `set_script`/`set_texture` paths weren't resolved at all, and sounds were loaded from the working directory — so a copied or exported project silently ran (or failed to find) the ORIGINAL repo's files | `ember2d-sim/src/simulation.rs` (`resolve_exit_path`), `scripting/apply.rs`, `ember2d/src/play/outcome.rs`, the demos and generators | `[x]` 9-6 (`HASH96`) — paths are project-relative and resolve beside the level, then up to the project root, then the working directory (old paths still load); tests `r115_a_copied_project_runs_its_own_scripts_and_finds_its_own_audio` plus 5 unit tests of the search order |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -5196,7 +5199,7 @@ grid.
     16×16 draws square tiles, sprites and glyphs in the editor and in
     play, with the HUD unchanged.
 
-#### `[ ]` 9-6 — Editor authoring completeness
+#### `[x]` 9-6 — Editor authoring completeness (`HASH96`)
 A focused subset of 7E-2, enough that no demo needs a generator: an
 inspector Actor section (speed, physics, stats add/edit/remove, aware/
 asleep tints); per-tile fg/bg and sprite/clip pick; player fg/bg and
@@ -5205,6 +5208,57 @@ cell, pixels per unit); File > New Scene (creates `scenes/`); New Script
 creates folders; export copies `scenes/`; project-relative script/audio/
 level paths throughout (the demos' `"demos/..."` paths fixed; a project
 copied elsewhere still plays).
+
+- **Scoped (2026-10-01, by the agent):** "Project > Settings" became
+  **File > Project Settings...** (there is no Project menu; File already
+  holds the project-wide actions). The Inspector became a scrolling row
+  list rather than gaining more fixed row numbers — the fields don't fit
+  the old layout. New Script still defaults to the project root; typing
+  `scripts/ai` puts it in `scripts/` (the folder is created).
+- **Landed as** (`HASH96`):
+  - **Paths (R115):** `resolve_exit_path` searches beside the level, then
+    each folder up to the project root (the first with `project.ron`, at
+    most 8 up), then the working directory. The script engine resolves
+    `set_script`/`set_texture` the same way (`ScriptEngine::resolve_path`,
+    sharing `Simulation`'s level source, now an `Rc`), play mode resolves
+    sounds and music the same way (`play/outcome.rs`). Every demo script,
+    level and generator now uses project-relative paths
+    (`scripts/player.rhai`, `audio/hurt.ogg`, `floor2.level`).
+  - **Inspector:** `ui/panels/inspector.rs` (moved out of `dock.rs`):
+    `inspector_rows` builds the rows for a tile or the player, the panel
+    scrolls with the mouse wheel, every visible clickable row registers
+    its hit rect. New rows: tile fg/bg, sprite (`tileset:region`), clip;
+    an Actor section (on/off, speed, physics, aware/asleep tints, each
+    stat, `+ add stat`); the player's fg/bg and collider size. The player
+    is its own subject now (`make_player_tile_record` is gone). All new
+    fields share one prompt (`TextInputPurpose::Inspector { target,
+    field }`) and one commit (`input/inspector_edit.rs`), one undo step
+    each; a value that doesn't parse changes nothing and says why.
+  - **Project Settings:** `editor/project_settings.rs` +
+    `ui/panels/project_settings_panel.rs`: name, gameplay loop, turn
+    order, visual style, start level (cycles through the project's
+    levels), world cell, pixels per unit; saved on every change. The
+    editor applies the name and world cell at once; `ember2d-app`
+    re-reads `project.ron` at every F5 (`load_project` moved into
+    `app.rs`).
+  - **Files:** File > New Scene writes `scenes/<name>.rhai` from a
+    working template (`scene_template`) and opens it; New Script and New
+    Scene share `create_project_file` (folders, no overwrite, errors
+    reported — R114). Export copies `scenes/`, `art/` and graph
+    sidecars (R113).
+  - **Tests (21 new):** 4 inspector row-model unit tests, 3 parser unit
+    tests, 3 `tests/editor_inspector.rs` (the Actor section authored by
+    clicks and typing; a colour change is one undo step; the player's
+    colours and collider), 2 project-settings unit tests, 3
+    `tests/editor_project.rs` (the dialog from the File menu; New Scene;
+    R114), R113, 5 path-order unit tests, R115 (a copied roguelike runs
+    its own scripts). Three existing tests now resolve paths the way the
+    engine does.
+  - **Live-verified:** a rat's Actor section, colours and sprite/clip rows
+    in the Inspector; the Project Settings dialog; New Scene opening the
+    template; setting the world cell to 16x16 in the dialog switched the
+    canvas at once and the next F5 played square; a copy of the roguelike
+    run from an unrelated working directory plays.
 
 #### `[ ]` 9-7 — Sprite scripting API
 `set_size(id,w,h)`, `set_flip(id,fx,fy)`, `set_sprite(id,tileset,

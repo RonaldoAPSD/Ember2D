@@ -112,7 +112,7 @@ fn on_turn(id, ctx) {
         let dmg = ctx.get_stat(id, "atk");
         ctx.add_persistent("hp", -dmg);
         ctx.shake_camera(2.0, 0.2);
-        ctx.play_sound("demos/roguelike/audio/hurt.ogg");
+        ctx.play_sound("audio/hurt.ogg");
     } else {
         let step_x = 0.0;
         let step_y = 0.0;

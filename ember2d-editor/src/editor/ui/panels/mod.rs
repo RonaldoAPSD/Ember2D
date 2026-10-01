@@ -23,13 +23,17 @@ mod clip_editor_panel;
 mod dock;
 mod file_browser;
 mod importer_panel;
+mod inspector;
 mod modals;
 mod palette_panel;
+mod project_settings_panel;
 
 pub use chrome::*;
 pub use clip_editor_panel::*;
 pub use dock::*;
 pub use file_browser::*;
 pub use importer_panel::*;
+pub use inspector::*;
 pub use modals::*;
 pub use palette_panel::*;
+pub use project_settings_panel::*;

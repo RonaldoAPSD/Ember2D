@@ -56,10 +56,18 @@ fn every_audio_path_a_demo_script_references_exists_on_disk() {
             }
             let source = std::fs::read_to_string(&path)
                 .unwrap_or_else(|e| panic!("read {}: {}", path.display(), e));
+            // Step 9-6: project-relative — resolved as play mode resolves
+            // it (`play/outcome.rs::flush_audio`), against a level in the
+            // demo's own folder (the scripts dir's parent).
+            let project = Path::new(demo_dir).parent().unwrap_or(Path::new("."));
+            let level = project.join("any.level").to_string_lossy().into_owned();
             for audio_path in audio_paths_referenced(&source) {
                 checked += 1;
+                let full = ember2d::play::resolve_exit_path(&audio_path, &level, &|q| {
+                    Path::new(q).exists()
+                });
                 assert!(
-                    Path::new(&audio_path).exists(),
+                    Path::new(&full).exists(),
                     "{}: references audio path '{}', which does not exist",
                     path.display(),
                     audio_path

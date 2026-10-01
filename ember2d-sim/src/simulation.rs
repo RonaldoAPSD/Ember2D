@@ -58,6 +58,7 @@ use crate::layers::LayerRegistry;
 use crate::level::LevelData;
 use crate::level_source::{LevelSource, NullLevelSource};
 use crate::math::Vec2;
+use std::rc::Rc;
 use crate::save::SaveState;
 use crate::scheduler::{TurnModel, TurnScheduler};
 use crate::scripting::{HudDraw, LogEntry, PassArgs, ScriptEngine, ShakeState};
@@ -82,6 +83,22 @@ use crate::world::{EntityId, World};
 // access — it isn't `ember2d-sim`) passes a plain `Path::new(p).exists()`
 // closure directly. Neither side needs to know about the other's own
 // notion of "exists."
+//
+// Step 9-6 (docs/ember2d-master-plan.md §5.8): a project's own paths are
+// PROJECT-relative now (`scripts/player.rhai`, `audio/hit.ogg`,
+// `floor2.level`), so a project works wherever its folder sits and
+// whatever directory the game was started from. The level's own folder is
+// tried first, then each folder above it up to the project root (the first
+// one holding a `project.ron` — so a level in `levels/` still finds
+// `scripts/`), and only then the working directory. The working-directory
+// fallback is what keeps an old repo-relative path (`demos/roguelike/
+// scripts/player.rhai`, every shipped level before this step) loading
+// when the game runs from the repo root. It used to be tried FIRST, which
+// is why such paths were the only ones that worked.
+/// How many folders above a level `resolve_exit_path` looks in for the
+/// project root before giving up.
+const PROJECT_ROOT_SEARCH_DEPTH: usize = 8;
+
 pub fn resolve_exit_path(
     next: &str,
     current_level_path: &str,
@@ -90,12 +107,27 @@ pub fn resolve_exit_path(
     if Path::new(next).is_absolute() || current_level_path.is_empty() {
         return next.to_string();
     }
+    let level_dir = Path::new(current_level_path).parent().filter(|d| *d != Path::new(""));
+    let mut dir = level_dir;
+    for _ in 0..PROJECT_ROOT_SEARCH_DEPTH {
+        let Some(d) = dir else { break };
+        let candidate = d.join(next).to_string_lossy().into_owned();
+        if exists(&candidate) {
+            return candidate;
+        }
+        if exists(&d.join("project.ron").to_string_lossy()) {
+            break; // the project root: nothing above it is ours
+        }
+        dir = d.parent().filter(|p| *p != Path::new(""));
+    }
     if exists(next) {
         return next.to_string();
     }
-    match Path::new(current_level_path).parent() {
-        Some(dir) if dir != Path::new("") => dir.join(next).to_string_lossy().into_owned(),
-        _ => next.to_string(),
+    // Found nowhere: name the place it was expected, beside the level, so
+    // the "not found" error points somewhere useful.
+    match level_dir {
+        Some(d) => d.join(next).to_string_lossy().into_owned(),
+        None => next.to_string(),
     }
 }
 
@@ -296,7 +328,9 @@ pub struct Simulation {
     /// default is a working-nothing `NullLevelSource`, not real disk
     /// access, and `set_level_source`'s own doc comment for who's expected
     /// to override it.
-    level_source: Box<dyn LevelSource>,
+    /// Step 9-6: an `Rc` (was a `Box`) so the script engine can share it
+    /// to resolve the paths scripts pass to `set_script`/`set_texture`.
+    level_source: Rc<dyn LevelSource>,
     /// Step 9-1 (docs/ember2d-master-plan.md §5.8): the scene stack, bottom
     /// to top — see `simulation/scenes.rs`.
     scenes: Vec<scenes::SceneFrame>,
@@ -335,7 +369,7 @@ impl Simulation {
             pending_scheduler: Vec::new(),
             layers,
             turn_model: TurnModel::default(),
-            level_source: Box::new(NullLevelSource),
+            level_source: Rc::new(NullLevelSource),
             scenes: Vec::new(),
             editor_preview: false,
             paused_this_step: false,
@@ -374,7 +408,10 @@ impl Simulation {
     /// already expect from a level exit that was never meant to resolve
     /// (e.g. `actor_physics.rs`'s deliberately-bogus `"unused.level"`).
     pub fn set_level_source(&mut self, source: Box<dyn LevelSource>) {
-        self.level_source = source;
+        self.level_source = Rc::from(source);
+        // Step 9-6: scripts' own paths resolve the same way the level's do.
+        self.script_engine
+            .set_path_resolver(self.level.path.clone(), Rc::clone(&self.level_source));
     }
 
     /// A small forwarding helper so `resolve_exit_path`'s injected `exists`
@@ -672,3 +709,7 @@ impl Simulation {
     // per-step execution was the single largest, most self-contained unit
     // left to pull out. See that file's own header comment.
 }
+
+#[cfg(test)]
+#[path = "simulation/path_tests.rs"]
+mod path_tests;

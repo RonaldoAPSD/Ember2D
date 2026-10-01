@@ -110,6 +110,12 @@ impl EditorState {
                         self.unsaved = true;
                     }
                 }
+                TextInputPurpose::ProjectSetting(field) => {
+                    self.commit_project_setting(field, &buffer);
+                }
+                TextInputPurpose::Inspector { target, field } => {
+                    self.commit_inspector_edit(target, field, buffer);
+                }
                 TextInputPurpose::TileTag { gx, gy } => {
                     if gx == -1 {
                         let sel = self.palette.selected;
@@ -129,23 +135,28 @@ impl EditorState {
                     }
                 }
                 TextInputPurpose::NewScriptName => {
-                    if let Some(ref folder) = self.project_folder {
-                        let mut name = buffer.trim().to_string();
-                        if !name.is_empty() {
-                            if !name.ends_with(".rhai") {
-                                name.push_str(".rhai");
-                            }
-                            let path = format!("{}/{}", folder, name);
-                            if !std::path::Path::new(&path).exists() {
-                                let _ = std::fs::write(&path, "");
-                                self.load_script(&name);
-                                self.refresh_project_files();
-                            } else {
-                                self.console_log.push(ember2d_sim::scripting::LogEntry::error(
-                                    "Script already exists!",
-                                ));
-                            }
+                    let mut name = buffer.trim().to_string();
+                    if !name.is_empty() {
+                        if !name.ends_with(".rhai") {
+                            name.push_str(".rhai");
                         }
+                        // Step 9-6: through `create_project_file`, which
+                        // makes the folders a name like `scripts/ai.rhai`
+                        // needs (this used to fail silently without them).
+                        self.create_project_file(&name, "");
+                    }
+                }
+                // Step 9-6 (docs/ember2d-master-plan.md §5.8): File > New
+                // Scene — `scenes/<name>.rhai`, from a working template.
+                TextInputPurpose::NewSceneName => {
+                    let name = buffer.trim().trim_end_matches(".rhai").to_string();
+                    if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                        self.console_log.push(LogEntry::warn(format!(
+                            "New Scene: '{name}' — use letters, digits and _ (it's the name push_scene takes)"
+                        )));
+                    } else {
+                        let text = super::super::project_settings::scene_template(&name);
+                        self.create_project_file(&format!("scenes/{name}.rhai"), &text);
                     }
                 }
                 TextInputPurpose::PaletteName => {

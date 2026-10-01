@@ -110,6 +110,17 @@ completely separate system — checked in §8 instead.)*
       `ember2d/tests/collision_layers.rs`'s save→load test is the automated
       form of this check; this is the manual editor-side cross-check)
 - [ ] Player properties: glyph, tag, script, camera follow, texture
+- [✓] Step 9-6: a tile's fg/bg, sprite and clip; the Actor section (on/off,
+      speed, physics, tints, stats add/edit/remove); the player's fg/bg
+      and collider size — all from the Inspector, scrolled with the wheel
+      (9-6, 2026-10-01; automated in `tests/editor_inspector.rs`)
+- [✓] Step 9-6: File > Project Settings — every row cycles or prompts and
+      is saved; the world cell changes the canvas at once and play at the
+      next F5 (9-6, 2026-10-01)
+- [✓] Step 9-6: File > New Scene writes `scenes/<name>.rhai` and opens it;
+      New Script `scripts/x` creates the folder (9-6, 2026-10-01)
+- [✓] Step 9-6: a copy of a demo, run from another working directory,
+      plays (project-relative paths) (9-6, 2026-10-01)
 - [ ] Move player spawn; add named spawn
 - [ ] Text input: typing, backspace, Enter, Escape — for every `TextInputPurpose`
 - [✓] Modal confirm (switch level with unsaved changes) behaves correctly — found R104 (clicking [ YES ] painted on the new level), fixed (8 gate, 2026-10-01)

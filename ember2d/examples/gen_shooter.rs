@@ -63,8 +63,8 @@
 
 use ember2d::prelude::*;
 
-const PLAYER_SCRIPT: &str = "demos/shooter/scripts/player.rhai";
-const DIRECTOR_SCRIPT: &str = "demos/shooter/scripts/director.rhai";
+const PLAYER_SCRIPT: &str = "scripts/player.rhai";
+const DIRECTOR_SCRIPT: &str = "scripts/director.rhai";
 
 // The arena is exactly the launch viewport (`Engine::new(80, 24, ...)` in
 // ember2d-app/src/main.rs), so the whole playfield is visible at once with no

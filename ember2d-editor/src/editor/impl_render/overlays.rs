@@ -97,6 +97,20 @@ impl EditorState {
             );
         }
 
+        // Step 9-6: Project Settings — see ui/panels/project_settings_panel.rs.
+        if let (EditorMode::ProjectSettings, Some(p)) = (&self.mode, &self.project_settings) {
+            ui::draw_project_settings_modal(
+                painter,
+                self.font.as_mut(),
+                &self.theme,
+                &self.theme_chrome_tex,
+                p,
+                screen_w,
+                screen_h,
+                &mut self.ui_frame,
+            );
+        }
+
         // Step 8-3: the clip editor — see ui/panels/clip_editor_panel.rs.
         if let (EditorMode::ClipEditor, Some(ce)) = (&self.mode, &self.clip_editor) {
             ui::draw_clip_editor_modal(

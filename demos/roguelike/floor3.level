@@ -17,7 +17,7 @@
             trigger: true,
             tag: "gold",
             layer: 1,
-            script: Some("demos/roguelike/scripts/pickup.rhai"),
+            script: Some("scripts/pickup.rhai"),
         ),
         (
             x: 32,
@@ -29,7 +29,7 @@
             trigger: false,
             tag: "enemy",
             layer: 1,
-            script: Some("demos/roguelike/scripts/enemy.rhai"),
+            script: Some("scripts/enemy.rhai"),
             actor: Some((
                 speed: 100,
                 stats: {"atk": 2.0, "awareness_range": 8.0, "hp": 6.0},
@@ -48,7 +48,7 @@
             trigger: true,
             tag: "gold",
             layer: 1,
-            script: Some("demos/roguelike/scripts/pickup.rhai"),
+            script: Some("scripts/pickup.rhai"),
         ),
         (
             x: 9,
@@ -60,7 +60,7 @@
             trigger: true,
             tag: "potion",
             layer: 1,
-            script: Some("demos/roguelike/scripts/pickup.rhai"),
+            script: Some("scripts/pickup.rhai"),
         ),
         (
             x: 40,
@@ -72,7 +72,7 @@
             trigger: false,
             tag: "boss",
             layer: 1,
-            script: Some("demos/roguelike/scripts/enemy.rhai"),
+            script: Some("scripts/enemy.rhai"),
             actor: Some((
                 speed: 100,
                 stats: {"atk": 3.0, "awareness_range": 10.0, "hp": 15.0},
@@ -91,7 +91,7 @@
             trigger: false,
             tag: "enemy",
             layer: 1,
-            script: Some("demos/roguelike/scripts/enemy.rhai"),
+            script: Some("scripts/enemy.rhai"),
             actor: Some((
                 speed: 100,
                 stats: {"atk": 2.0, "awareness_range": 8.0, "hp": 6.0},
@@ -110,8 +110,8 @@
             trigger: true,
             tag: "stairs",
             layer: 1,
-            script: Some("demos/roguelike/scripts/stairs.rhai"),
-            next_level: Some("demos/roguelike/victory.level"),
+            script: Some("scripts/stairs.rhai"),
+            next_level: Some("victory.level"),
         ),
     ],
     player: (
@@ -122,7 +122,7 @@
         trigger: false,
         tag: "player",
         camera_follow: true,
-        script: Some("demos/roguelike/scripts/player.rhai"),
+        script: Some("scripts/player.rhai"),
         collider_layer: "",
         collider_mask: [],
         collider_w: 0.75,

@@ -91,7 +91,7 @@ fn on_input(id, ctx) {
         // until something overwrites it, so skipping this would leave the
         // corpse drifting into a wall.
         ctx.set_velocity(id, 0.0, 0.0);
-        if ctx.just_pressed("r") { ctx.load_level("demos/shooter/arena.level"); }
+        if ctx.just_pressed("r") { ctx.load_level("arena.level"); }
         return;
     }
     do_move(id, ctx);
@@ -199,7 +199,7 @@ fn do_shoot(id, ctx) {
     // setter — bullet.rhai's own on_start (it has none) would run the step
     // after this one regardless; its on_update picks up on the same step
     // director.rhai's other scripted entities' on_update already runs on.
-    ctx.set_script(b, "demos/shooter/scripts/bullet.rhai");
+    ctx.set_script(b, "scripts/bullet.rhai");
     ctx.set_global("fire_ready", now + fire_cooldown());
 }
 

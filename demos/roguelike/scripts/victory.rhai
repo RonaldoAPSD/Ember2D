@@ -50,7 +50,7 @@ fn on_turn(id, ctx) {
 /// a different track from every other level's), but the same convention
 /// player.rhai's own on_start already established.
 fn on_start(id, ctx) {
-    ctx.play_music("demos/roguelike/audio/victory.ogg");
+    ctx.play_music("audio/victory.ogg");
 }
 
 fn on_update(id, ctx) {

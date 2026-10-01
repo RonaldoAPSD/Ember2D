@@ -155,20 +155,16 @@ impl EditorState {
         };
 
         // ── Inspector tile / position resolution ──────────────────────────────
-        let player_tile: Option<ember2d_sim::level::TileRecord> =
-            if matches!(self.hierarchy_sel, Some(HierarchySelection::Player)) {
-                Some(self.make_player_tile_record())
-            } else {
-                None
-            };
-        let (insp_tile, insp_pos, insp_mode_tag): (
-            Option<&ember2d_sim::level::TileRecord>,
+        // Step 9-6: the player is its own subject now (with its colours and
+        // collider), not a `TileRecord` copied from it.
+        let (insp_subject, insp_pos, insp_mode_tag): (
+            Option<ui::InspSubject>,
             Option<(i32, i32)>,
             &str,
         ) = match self.hierarchy_sel {
             Some(HierarchySelection::Player) => {
                 let pos = Some((self.grid.spawn_point.0 as i32, self.grid.spawn_point.1 as i32));
-                (player_tile.as_ref(), pos, "PLAYER")
+                (Some(ui::InspSubject::Player(&self.grid.player)), pos, "PLAYER")
             }
             Some(HierarchySelection::Spawn(i)) => {
                 let pos = self.grid.extra_spawns.get(i).map(|(_, x, y)| (*x as i32, *y as i32));
@@ -179,7 +175,7 @@ impl EditorState {
                 let pos = if inspecting { self.selected_pos } else { self.inspected_pos };
                 let tile = pos.and_then(|(gx, gy)| self.grid.get(gx, gy, self.active_layer));
                 let tag = if inspecting { "[SEL]" } else { "[EDT]" };
-                (tile, pos, tag)
+                (tile.map(ui::InspSubject::Tile), pos, tag)
             }
         };
 
@@ -402,11 +398,12 @@ impl EditorState {
                         &mut painter,
                         self.font.as_mut(),
                         &self.theme,
-                        insp_tile,
+                        insp_subject,
                         insp_pos,
                         insp_mode_tag,
                         panel.content_rect(&metrics).into(),
                         &mut self.ui_frame,
+                        self.inspector_scroll,
                     );
                 }
                 PanelId::Console => {
@@ -643,9 +640,14 @@ impl EditorState {
                 TextInputPurpose::TileColliderMask { .. } => "Mask (comma-separated, empty=all)",
                 TextInputPurpose::PlayerColliderLayer => "Player layer",
                 TextInputPurpose::PlayerColliderMask => "Player mask (comma-separated)",
-                TextInputPurpose::NewScriptName => "New script name (e.g. ai.rhai)",
+                TextInputPurpose::NewScriptName => "New script name (e.g. scripts/ai.rhai)",
+                TextInputPurpose::NewSceneName => "Scene name (e.g. pause, inventory)",
                 TextInputPurpose::PaletteFgCustom => "Custom FG Hex (e.g. #FF8C00)",
                 TextInputPurpose::PaletteBgCustom => "Custom BG Hex (e.g. #222222)",
+                TextInputPurpose::ProjectSetting(field) => field.prompt(),
+                TextInputPurpose::Inspector { field, .. } => {
+                    crate::editor::input::inspector_prompt_label(*field)
+                }
             };
             ui::draw_text_input(
                 &mut painter,

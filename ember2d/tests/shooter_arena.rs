@@ -294,7 +294,14 @@ fn two_bullets_landing_in_one_pass_both_count_against_an_enemy() {
         h.world.add_transform(b, Transform::new(pos.x, pos.y));
         h.world.add_collider(b, Collider::trigger(0.4, 0.4));
         h.world.add_tag(b, Tag::new("bullet"));
-        h.world.add_script(b, Script::new("demos/shooter/scripts/bullet.rhai"));
+        // Step 9-6: the path `ctx.set_script("scripts/bullet.rhai")`
+        // resolved to (and compiled under) — beside the level.
+        let bullet = ember2d::play::resolve_exit_path(
+            "scripts/bullet.rhai",
+            &h.sim.level().path,
+            &|p| std::path::Path::new(p).exists(),
+        );
+        h.world.add_script(b, Script::new(&bullet));
         h.world.vars.insert(b, Vars {
             values: BTreeMap::from([("armed".to_string(), rhai::Dynamic::from(true))]),
         });

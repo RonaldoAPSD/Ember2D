@@ -17,7 +17,7 @@
             trigger: true,
             tag: "potion",
             layer: 1,
-            script: Some("demos/roguelike/scripts/pickup.rhai"),
+            script: Some("scripts/pickup.rhai"),
         ),
         (
             x: 10,
@@ -29,7 +29,7 @@
             trigger: true,
             tag: "gold",
             layer: 1,
-            script: Some("demos/roguelike/scripts/pickup.rhai"),
+            script: Some("scripts/pickup.rhai"),
         ),
         (
             x: 20,
@@ -41,7 +41,7 @@
             trigger: true,
             tag: "gold",
             layer: 1,
-            script: Some("demos/roguelike/scripts/pickup.rhai"),
+            script: Some("scripts/pickup.rhai"),
         ),
         (
             x: 36,
@@ -53,8 +53,8 @@
             trigger: true,
             tag: "stairs",
             layer: 1,
-            script: Some("demos/roguelike/scripts/stairs.rhai"),
-            next_level: Some("demos/roguelike/floor2.level"),
+            script: Some("scripts/stairs.rhai"),
+            next_level: Some("floor2.level"),
         ),
     ],
     player: (
@@ -65,7 +65,7 @@
         trigger: false,
         tag: "player",
         camera_follow: true,
-        script: Some("demos/roguelike/scripts/player.rhai"),
+        script: Some("scripts/player.rhai"),
         collider_layer: "",
         collider_mask: [],
         collider_w: 0.75,

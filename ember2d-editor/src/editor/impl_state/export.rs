@@ -55,37 +55,11 @@ impl EditorState {
                 }
             }
 
-            // 2. Copy assets (recursive). `assets` since Step 8-2 — the
-            // project's tilesets (`assets/tilesets/*.ron` + their sheet
-            // images); without it an exported game's sprite tiles would all
-            // fall back to their glyphs.
-            let asset_folders = ["audio", "scripts", "assets"];
-            for folder in asset_folders {
-                let src = std::path::Path::new(&project_path).join(folder);
-                if src.exists() {
-                    let dst = export_root.join(folder);
-                    if let Err(e) = copy_dir_all(&src, &dst) {
-                        self.console_log
-                            .push(LogEntry::warn(format!("Failed to copy {}: {}", folder, e)));
-                    }
-                }
-            }
-
-            // 3. Copy project.ron, palette, and all levels
-            if let Ok(entries) = std::fs::read_dir(&project_path) {
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    if p.is_file() {
-                        let name = p.file_name().unwrap().to_string_lossy();
-                        if name == "project.ron"
-                            || name.ends_with(".level")
-                            || name.ends_with(".palette.ron")
-                        {
-                            let _ = std::fs::copy(&p, export_root.join(&*name));
-                        }
-                    }
-                }
-            }
+            // 2–3. The project's own files — `copy_project_files` below
+            // (Step 9-6 split it out so it's testable without the OS
+            // folder picker above).
+            let warnings = copy_project_files(std::path::Path::new(&project_path), &export_root);
+            self.console_log.extend(warnings.into_iter().map(LogEntry::warn));
 
             // 4. Create .standalone marker
             if let Err(e) = std::fs::write(export_root.join(".standalone"), "") {
@@ -97,6 +71,46 @@ impl EditorState {
             }
         }
     }
+}
+
+/// Copies everything an exported game needs from `project` into `out`,
+/// returning a warning per folder it couldn't copy:
+/// 2. the asset folders, recursively — `assets` since Step 8-2 (tilesets;
+///    without it sprite tiles all fall back to their glyphs), and since
+///    Step 9-6 `scenes` (9-1's scene scripts) and `art` (loose images 8-4
+///    imports), which an exported game used to lose;
+/// 3. `project.ron`, the palette, every level, and (Step 9-6) the
+///    `.rhai` files beside them — node-graph sidecars
+///    (`<level>_graph_x_y_l.rhai`) live there, so an exported game's graph
+///    tiles used to lose their scripts.
+pub(crate) fn copy_project_files(project: &std::path::Path, out: &std::path::Path) -> Vec<String> {
+    let mut warnings = Vec::new();
+    for folder in ["audio", "scripts", "assets", "scenes", "art"] {
+        let src = project.join(folder);
+        if src.exists() {
+            if let Err(e) = copy_dir_all(&src, &out.join(folder)) {
+                warnings.push(format!("Failed to copy {}: {}", folder, e));
+            }
+        }
+    }
+    if let Ok(entries) = std::fs::read_dir(project) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            let Some(name) = p.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+                continue;
+            };
+            let wanted = name == "project.ron"
+                || name.ends_with(".level")
+                || name.ends_with(".palette.ron")
+                || name.ends_with(".rhai");
+            if p.is_file() && wanted {
+                if let Err(e) = std::fs::copy(&p, out.join(&name)) {
+                    warnings.push(format!("Failed to copy {}: {}", name, e));
+                }
+            }
+        }
+    }
+    warnings
 }
 
 fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {

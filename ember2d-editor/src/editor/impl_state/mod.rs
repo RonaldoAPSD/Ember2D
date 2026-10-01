@@ -470,36 +470,9 @@ impl EditorState {
         }
     }
 
-    pub(super) fn make_player_tile_record(&self) -> ember2d_sim::level::TileRecord {
-        let sp = self.grid.spawn_point;
-        let pr = &self.grid.player;
-        ember2d_sim::level::TileRecord {
-            x: sp.0 as i32,
-            y: sp.1 as i32,
-            layer: 1,
-            glyph: pr.glyph,
-            fg: pr.fg,
-            bg: pr.bg,
-            solid: pr.solid,
-            trigger: pr.trigger,
-            tag: pr.tag.clone(),
-            script: pr.script.clone(),
-            collider_layer: pr.collider_layer.clone(),
-            collider_mask: pr.collider_mask.clone(),
-            camera_follow: pr.camera_follow,
-            next_level: None,
-            graph: None,
-            texture: pr.texture.clone(),
-            // Step 8-2: the player record has no tileset sprite of its own
-            // (it's not painted from the palette).
-            sprite: None,
-            clip: None,
-            // The editor never authors an actor on the player tile — the
-            // player is implicitly Local(0) always (see
-            // TileRecord::actor's doc comment).
-            actor: None,
-        }
-    }
+    // `make_player_tile_record` (a `TileRecord` copy of the player for
+    // the Inspector to draw) was removed at Step 9-6 — the Inspector shows
+    // the `PlayerRecord` itself now (`ui::InspSubject::Player`).
 
     pub(super) fn start_text_input(&mut self, purpose: super::TextInputPurpose) {
         self.prompt_buffer = match &purpose {
@@ -610,6 +583,10 @@ impl EditorState {
             ToolbarAction::OpenClipEditor => {
                 self.open_clip_editor();
             }
+            // Step 9-6 — see project_settings.rs.
+            ToolbarAction::ProjectSettings => {
+                self.open_project_settings();
+            }
             ToolbarAction::NewLevel => {
                 self.grid = LevelGrid::new(super::DEFAULT_LEVEL_W, super::DEFAULT_LEVEL_H);
                 self.undo = UndoStack::new();
@@ -620,6 +597,10 @@ impl EditorState {
             ToolbarAction::NewScript => {
                 self.prompt_buffer.clear();
                 self.mode = EditorMode::Prompt(TextInputPurpose::NewScriptName);
+            }
+            ToolbarAction::NewScene => {
+                self.prompt_buffer.clear();
+                self.mode = EditorMode::Prompt(TextInputPurpose::NewSceneName);
             }
             ToolbarAction::Play => {
                 let mut data = self.grid.to_level_data();

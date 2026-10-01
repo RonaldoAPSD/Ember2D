@@ -140,6 +140,8 @@ impl ScriptEngine {
             if !world.transforms.contains_key(&(id as EntityId)) {
                 continue;
             }
+            // Step 9-6: project-relative, like the level's own scripts.
+            let path = self.resolve_path(&path);
             if self.compile(&path, log) {
                 world.scripts.insert(id as EntityId, Script::new(path));
                 self.pending_on_start.push(id as EntityId);
@@ -183,6 +185,8 @@ impl ScriptEngine {
         // real usage needs it.
         for (id, p) in state.pending_textures.drain(..) {
             if let Some(path) = p {
+                // Step 9-6: project-relative, like a tile's own texture.
+                let path = self.resolve_path(&path);
                 if let Some(sp) = world.sprites.get_mut(&(id as EntityId)) {
                     sp.source = SpriteSource::Texture { path, src: None };
                 }

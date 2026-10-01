@@ -66,7 +66,22 @@ impl PlayState {
     /// `UpdateContext::audio` rather than owned here — see that field's own
     /// doc comment for why.
     pub(super) fn flush_audio(&mut self, audio: &mut AudioEngine) {
-        let reqs = self.sim.take_audio_requests();
+        let mut reqs = self.sim.take_audio_requests();
+        // Step 9-6 (docs/ember2d-master-plan.md §5.8): a script's sound
+        // path is project-relative (`audio/hit.ogg`), resolved like the
+        // level's own files — beside the level, then up to the project
+        // root, then the working directory (old repo-relative paths).
+        let level = self.sim.level().path.clone();
+        let resolve = |p: &str| {
+            ember2d_sim::simulation::resolve_exit_path(p, &level, &|q| {
+                std::path::Path::new(q).exists()
+            })
+        };
+        reqs.sounds = reqs.sounds.iter().map(|p| resolve(p)).collect();
+        for s in &mut reqs.spatial_sounds {
+            s.0 = resolve(&s.0);
+        }
+        reqs.music = reqs.music.map(|p| resolve(&p));
         for path in reqs.sounds {
             audio.play_sound(&path, 1.0, 0.0);
         }

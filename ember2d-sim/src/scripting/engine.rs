@@ -119,6 +119,12 @@ pub struct ScriptEngine {
     /// Step 9-5: glyph cells per world unit at zoom 1 — see
     /// `Simulation::set_world_cell_scale`.
     pub(super) world_cell_scale: (f32, f32),
+    /// Step 9-6 (docs/ember2d-master-plan.md §5.8): the level's path and
+    /// the `LevelSource` it was loaded through — what `resolve_path` uses
+    /// so a script's `set_script("scripts/bullet.rhai")` finds the file
+    /// beside the project, the same way the level's own tile scripts do.
+    /// `None` (tests that never set a source) leaves paths as given.
+    pub(super) path_base: Option<(String, Rc<dyn crate::level_source::LevelSource>)>,
     pub pending_sounds: Vec<String>,
     pub pending_spatial_sounds: Vec<(String, f32, f32)>,
     pub pending_music: Option<String>,
@@ -170,6 +176,7 @@ impl ScriptEngine {
             camera_view: Default::default(),
             ui_view: Rc::new(Default::default()),
             world_cell_scale: (1.0, 1.0),
+            path_base: None,
             pending_sounds: Vec::new(),
             pending_spatial_sounds: Vec::new(),
             pending_music: None,

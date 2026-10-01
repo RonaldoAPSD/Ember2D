@@ -101,6 +101,26 @@ impl ScriptEngine {
         self.camera_view = settings;
     }
 
+    /// Step 9-6: see `path_base`. Set by `Simulation::set_level_source`.
+    pub fn set_path_resolver(
+        &mut self,
+        level_path: String,
+        source: std::rc::Rc<dyn crate::level_source::LevelSource>,
+    ) {
+        self.path_base = Some((level_path, source));
+    }
+
+    /// A path a script handed over, resolved against the level's folder
+    /// and project root (`crate::simulation::resolve_exit_path`).
+    pub(super) fn resolve_path(&self, path: &str) -> String {
+        match &self.path_base {
+            Some((level, source)) => {
+                crate::simulation::resolve_exit_path(path, level, &|p| source.exists(p))
+            }
+            None => path.to_string(),
+        }
+    }
+
     /// Step 9-5: see `Simulation::set_world_cell_scale`.
     pub fn set_world_cell_scale(&mut self, scale: (f32, f32)) {
         self.world_cell_scale = scale;

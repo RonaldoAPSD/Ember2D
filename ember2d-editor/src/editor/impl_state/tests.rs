@@ -415,3 +415,42 @@ fn a_projects_world_cell_reaches_the_canvas() {
     assert_eq!(view.pixel_to_grid(px as f32 + 1.0, py as f32 + 1.0), (3, 2));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ── Test: R113 (Step 9-6, docs/ember2d-master-plan.md §5.8) — an exported
+// game lost its scene scripts, loose art and node-graph sidecars. ─────────
+
+#[test]
+fn r113_export_copies_scenes_art_and_graph_sidecars() {
+    let base = std::env::temp_dir().join(format!("ember2d-{}", std::process::id())).join("r113");
+    let _ = std::fs::remove_dir_all(&base);
+    let (proj, out) = (base.join("proj"), base.join("out"));
+    for dir in ["scenes", "art", "scripts"] {
+        std::fs::create_dir_all(proj.join(dir)).unwrap();
+    }
+    std::fs::create_dir_all(&out).unwrap();
+    for file in [
+        "scenes/pause.rhai",
+        "art/coin.png",
+        "scripts/player.rhai",
+        "main.level",
+        "main_graph_3_4_1.rhai",
+        "project.ron",
+        "notes.txt",
+    ] {
+        std::fs::write(proj.join(file), "x").unwrap();
+    }
+    let warnings = super::export::copy_project_files(&proj, &out);
+    assert!(warnings.is_empty(), "{warnings:?}");
+    for file in [
+        "scenes/pause.rhai",
+        "art/coin.png",
+        "scripts/player.rhai",
+        "main.level",
+        "main_graph_3_4_1.rhai",
+        "project.ron",
+    ] {
+        assert!(out.join(file).exists(), "{file} wasn't exported");
+    }
+    assert!(!out.join("notes.txt").exists(), "only game files are copied");
+    let _ = std::fs::remove_dir_all(&base);
+}
