@@ -5719,7 +5719,7 @@ live bullets and enemies at 60 FPS in the debug build, plus a
     director tile with its script, three scripts typed in the Scripter;
     F5, then grunts chasing and shot down.
 
-#### `[x]` Between 9.5-5 and 9.5-6 — The Visual Style option removed (`PENDING`)
+#### `[x]` Between 9.5-5 and 9.5-6 — The Visual Style option removed (`cccd508`)
 Asked for by the user (2026-10-01): a level mixes glyphs and sprites
 freely, so choosing "Classic ASCII" or "2D Sprites" selected nothing. All
 the choice did was pick a new project's starting world cell (9-8), and
