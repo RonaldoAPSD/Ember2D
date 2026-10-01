@@ -411,8 +411,8 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R98 | S4 | Stats panel counts tiles per palette def by `def.tag`, but the default palette's defs all have an empty tag — so every category reads 0 on a real level while Total (2,569 on floor2) is right | `ember2d-editor/src/editor/ui/panels/dock.rs:241` | `[ ]` unscheduled |
 | R99 | S3 | View → API Docs runs `cmd /C start index.html` relative to CWD; no `index.html` exists anywhere in the repo, so the menu item silently does nothing (no error surfaced) | `ember2d-editor/src/editor/impl_state/mod.rs:649-660` | `[ ]` unscheduled — point it at `docs/ember2d-scripting-api.md` or remove the item |
 | R100 | S4 | Two editor observations not root-caused in the 8-1 live pass: (1) toggling the grid (Tab / View → Grid) showed no visible overlay in either build; (2) the Files panel shows ~5 rows with no scroll affordance, so a project's `.level` files can sit below the fold with no hint they exist | `impl_render/mod.rs:265` (grid), Files panel | `[ ]` unscheduled — investigate before fixing; may be by design |
-| R101 | S3 | Paint tool: the "already the same tile" check compared only glyph/solid/trigger/tag, never `sprite` (8-2) or `clip` (8-3) — two sprite entries sharing a fallback glyph (`brick`/`barrel`, both 'b') counted as identical, so painting one over the other silently did nothing. Found while building 8-4 | `ember2d-editor/src/editor/input/canvas.rs` (left-click paint) | `[x]` 8-4 (`HASH84`) — the check compares `sprite` and `clip` too; test `r101_painting_a_sprite_over_another_with_the_same_glyph_replaces_it` |
-| R102 | S3 | Tileset importer: the copied sheet was always named `<name>.png`, whatever the source format — a JPG/BMP/GIF sheet became a `.png` file its loader refuses ("Invalid PNG signature"), so the import "succeeded" and every tile drew its fallback glyph. Confirmed by loading a JPG copied to a `.png` name. Found while building 8-4 (which routes any dropped image to the importer) | `ember2d-editor/src/editor/importer.rs` (`to_tileset`) | `[x]` 8-4 (`HASH84`) — the copy keeps the source's extension; test `r102_a_non_png_sheet_keeps_its_extension` |
+| R101 | S3 | Paint tool: the "already the same tile" check compared only glyph/solid/trigger/tag, never `sprite` (8-2) or `clip` (8-3) — two sprite entries sharing a fallback glyph (`brick`/`barrel`, both 'b') counted as identical, so painting one over the other silently did nothing. Found while building 8-4 | `ember2d-editor/src/editor/input/canvas.rs` (left-click paint) | `[x]` 8-4 (`cb467bf`) — the check compares `sprite` and `clip` too; test `r101_painting_a_sprite_over_another_with_the_same_glyph_replaces_it` |
+| R102 | S3 | Tileset importer: the copied sheet was always named `<name>.png`, whatever the source format — a JPG/BMP/GIF sheet became a `.png` file its loader refuses ("Invalid PNG signature"), so the import "succeeded" and every tile drew its fallback glyph. Confirmed by loading a JPG copied to a `.png` name. Found while building 8-4 (which routes any dropped image to the importer) | `ember2d-editor/src/editor/importer.rs` (`to_tileset`) | `[x]` 8-4 (`cb467bf`) — the copy keeps the source's extension; test `r102_a_non_png_sheet_keeps_its_extension` |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -4855,7 +4855,7 @@ Build clips, scrub frames, preview looping; clips serialised to the project
     show different frames on the canvas and again in play (F5); the saved
     level is v6 with `clip: Some("pulse")`.
 
-#### `[x]` 8-4 — Asset preview and drag-and-drop (`HASH84`)
+#### `[x]` 8-4 — Asset preview and drag-and-drop (`cb467bf`)
 Roadmap V0.5.5: file browser thumbnails, drag a texture onto the palette or
 a tile.
 
@@ -4872,7 +4872,7 @@ a tile.
   the file). Dragging files in from the OS (Explorer) is **not** in scope —
   winit delivers them, but nothing else in the editor accepts OS drops yet;
   noted for the parking lot.
-- **Landed as** (`HASH84`):
+- **Landed as** (`cb467bf`):
   - `ember2d-editor/src/editor/assets.rs` — `AssetRef` (image / tileset /
     clip), `AssetDrag`, which row is which asset (`asset_prefix`/`classify`,
     riding the File Browser's existing 3-character row prefixes: `<> ` image,
