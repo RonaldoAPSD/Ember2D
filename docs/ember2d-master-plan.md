@@ -418,7 +418,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R105 | S4 | Start screen (never themed, R80): New Project step 1's hint line runs past the dialog's right border and step 4's footer is clipped at the window edge; on the main menu, a mouse resting over an item re-selects it every frame, so Up/Down does nothing until the mouse moves | `ember2d-editor/src/editor/start_screen/` | `[ ]` unscheduled |
 | R106 | S3 | File > Close Project QUIT the app when the editor was launched as `ember2d --editor path/to.level` — `main.rs` dropped `run_editor_app`'s "back to start" result in that branch (only the no-argument launch reached the start screen). Found in the Phase 8 gate's live pass | `ember2d-app/src/main.rs` | `[x]` Phase 8 gate (`8eff030`) — both launch paths share `run_start_screen` and one `after_editor` rule; test `r106_close_project_goes_to_the_start_screen_and_quit_exits`; live re-check reached the start screen |
 | R107 | S4 | Editor chrome cosmetics seen in the Phase 8 gate pass, all pre-existing (identical on the pre-8-2 binary where checked): the palette editor's and colour picker's labels start ~8 pt left of their frame; a long save path in the title-bar flash overlaps the "EMBER2D EDITOR" label; the node graph's Add Node menu isn't clamped to the window bottom when opened low (rows run off-screen; opened higher it scrolls with "v more"); the confirm modal ignores Enter although [ YES ] is drawn as the default; dock-tab and hierarchy context menus draw a blank first row | various `ember2d-editor/src/editor/ui/` | `[ ]` unscheduled |
-| R108 | S2 | Scripts could read only twelve letter keys (W/A/S/D, Q/E/R/F, Z/X/C/V): `InputManager::snapshot`'s `KEY_MAP` listed just the letters the demos used, so `just_pressed("t")`, `("m")`, `("i")` and eleven more silently never fired. Found building Step 9-3's dialogue test bed | `ember2d/src/input.rs` (`snapshot`) | `[x]` 9-3 (`HASH93`) — all 26 letters; test `r108_every_letter_key_reaches_scripts` |
+| R108 | S2 | Scripts could read only twelve letter keys (W/A/S/D, Q/E/R/F, Z/X/C/V): `InputManager::snapshot`'s `KEY_MAP` listed just the letters the demos used, so `just_pressed("t")`, `("m")`, `("i")` and eleven more silently never fired. Found building Step 9-3's dialogue test bed | `ember2d/src/input.rs` (`snapshot`) | `[x]` 9-3 (`110b760`) — all 26 letters; test `r108_every_letter_key_reaches_scripts` |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -5042,7 +5042,7 @@ via animation), `set_camera_bounds`. Lerp stays presentation-side (its
   - **Live-verified:** a test tile toggling zoom 2 and panning to itself
     in floor 2 — glyphs, tilemap and HUD all correct at zoom 2.
 
-#### `[x]` 9-3 — UI widgets with input (`HASH93`)
+#### `[x]` 9-3 — UI widgets with input (`110b760`)
 `draw_menu` gains a real model: `menu_open(items) -> menu_id`,
 `menu_selection(menu_id)`, `menu_closed`, arrow/confirm/cancel handled by
 the engine with buffered input. `draw_dialogue(text, speaker)` with
@@ -5062,7 +5062,7 @@ HUD API, additive beside the cell-based one.
   `menu_close`, `dialogue_open`, `dialogue_done`, `close_dialogue`, and a
   script-visible `wrap_text`; menu options `title`/`x`/`y`/`width`/
   `cancelable`/`selected`.
-- **Landed as** (`HASH93`):
+- **Landed as** (`110b760`):
   - `ember2d-sim/src/ui.rs`: `UiModel` (menus by id, the dialogue box,
     the id counter), `handle_input` (dialogue first, else the newest open
     menu; the keys used are removed from that step's input, pressed and
