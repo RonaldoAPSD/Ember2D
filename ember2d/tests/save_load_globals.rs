@@ -26,8 +26,8 @@ use common::TurnHarness;
 // own comment on this (Step 5i's workspace split moved this crate below
 // `demos/roguelike/`, and `cargo test` runs each integration test binary with
 // CWD set to the package's own directory).
-const FLOOR1: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/floor1.level");
-const FLOOR2: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/floor2.level");
+const FLOOR1: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/classic_roguelike/floor1.level");
+const FLOOR2: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/classic_roguelike/floor2.level");
 
 #[test]
 fn a_scripts_set_global_survives_a_real_ron_round_trip_through_save_and_load() {

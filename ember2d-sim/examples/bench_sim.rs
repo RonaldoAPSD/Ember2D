@@ -139,7 +139,7 @@ fn synth_level(n_tiles: usize, n_actors: usize, seed: u64) -> LevelData {
     if let Some(&(sx, sy)) = floor_cells.first() {
         data.set_player_spawn((sx as f32, sy as f32));
     }
-    data.player.script = Some("demos/roguelike/scripts/player.rhai".to_string());
+    data.player.script = Some("ember2d/tests/fixtures/classic_roguelike/scripts/player.rhai".to_string());
 
     for &(ax, ay) in floor_cells.iter().skip(1).take(n_actors) {
         if let Some(tile) = data.tiles.iter_mut().find(|t| t.x == ax && t.y == ay) {
@@ -147,7 +147,7 @@ fn synth_level(n_tiles: usize, n_actors: usize, seed: u64) -> LevelData {
             tile.solid = true;
             tile.collider_layer = "solid".to_string();
             tile.tag = "enemy".to_string();
-            tile.script = Some("demos/roguelike/scripts/enemy.rhai".to_string());
+            tile.script = Some("ember2d/tests/fixtures/classic_roguelike/scripts/enemy.rhai".to_string());
             // Step 7.5-4: enemy.rhai reads its numbers from `stats`, not
             // hardcoded constants — mirror gen_roguelike.rs's real rat()
             // values so this still exercises a live, undying-on-turn-0
@@ -352,6 +352,28 @@ fn bench_synthetic(n_tiles: usize, n_actors: usize, n_steps: usize) {
     bench_phases(&world, sim.layers(), 20);
 }
 
+/// The filesystem, as the game reads it (`ember2d::level_source::
+/// FsLevelSource`, which this crate can't depend on). Step 9.5-3: without
+/// one, a path a script attaches at runtime (`set_script("scripts/
+/// monster.rhai")`) isn't resolved beside the level — the generated
+/// dungeon's monsters would load no script at all.
+struct FsSource;
+
+// An example binary — a tool, not the simulation library — may touch the
+// filesystem; the crate's `disallowed_methods` lint is for the library.
+#[allow(clippy::disallowed_methods)]
+impl ember2d_sim::level_source::LevelSource for FsSource {
+    fn exists(&self, path: &str) -> bool {
+        Path::new(path).exists()
+    }
+    fn read_to_string(&self, path: &str) -> Result<String, String> {
+        std::fs::read_to_string(path).map_err(|e| e.to_string())
+    }
+    fn load_level(&self, path: &str) -> Result<LevelData, String> {
+        LevelData::load(path).map_err(|e| e.to_string())
+    }
+}
+
 fn bench_real_level(path: &str, n_steps: usize) {
     if !Path::new(path).exists() {
         eprintln!("skipping {} (not found — run from the repo root)", path);
@@ -367,6 +389,7 @@ fn bench_real_level(path: &str, n_steps: usize) {
     let mut world = World::new();
     let mut persistent = BTreeMap::new();
     let mut sim = Simulation::new(data);
+    sim.set_level_source(Box::new(FsSource));
     let viewport = (80, 24);
     let logs = sim.on_start(&mut world, viewport.0, viewport.1, &mut persistent);
     if load_problems(path, &logs) {
@@ -426,9 +449,14 @@ fn main() {
 
     println!("\n--- shipped content ---");
     for path in &[
-        "demos/roguelike/floor1.level",
-        "demos/roguelike/floor2.level",
-        "demos/roguelike/floor3.level",
+        "ember2d/tests/fixtures/classic_roguelike/floor1.level",
+        "ember2d/tests/fixtures/classic_roguelike/floor2.level",
+        "ember2d/tests/fixtures/classic_roguelike/floor3.level",
+        // Step 9.5-3: the generated dungeon — an 80x43 floor built by
+        // script at load (seed 1, depth 1: no run in persistent state),
+        // its monsters asleep until the player moves. (The three above are
+        // the classic hand-built floors, test fixtures since this step.)
+        "demos/roguelike/dungeon.level",
     ] {
         bench_real_level(path, steps);
     }

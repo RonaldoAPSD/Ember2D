@@ -40,5 +40,7 @@ fn every_demo_level_round_trips_through_the_editor_unchanged() {
             checked += 1;
         }
     }
-    assert!(checked >= 9, "every demo's levels were checked ({checked})");
+    // The RPG's four, the roguelike's title + generated dungeon (9.5-3),
+    // the shooter's arena.
+    assert!(checked >= 7, "every demo's levels were checked ({checked})");
 }

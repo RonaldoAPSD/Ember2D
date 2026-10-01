@@ -1,0 +1,42 @@
+(
+    version: 7,
+    name: "The Depths",
+    width: 80,
+    height: 43,
+    spawns: {
+        "player": (40.0, 21.0),
+    },
+    tiles: [
+        (
+            x: 0,
+            y: 0,
+            glyph: ' ',
+            fg: Reset,
+            bg: Reset,
+            solid: false,
+            trigger: false,
+            tag: "dungeon",
+            layer: 0,
+            script: Some("scripts/dungeon.rhai"),
+        ),
+    ],
+    player: (
+        glyph: '@',
+        fg: White,
+        bg: Reset,
+        solid: false,
+        trigger: false,
+        tag: "player",
+        camera_follow: true,
+        script: Some("scripts/player.rhai"),
+        collider_layer: "",
+        collider_mask: [],
+        collider_w: 0.75,
+        collider_h: 0.75,
+        layer: 15,
+    ),
+    seed: 3555131394,
+    collision_layers: [
+        "solid",
+    ],
+)

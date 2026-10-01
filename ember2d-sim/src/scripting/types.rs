@@ -128,6 +128,9 @@ pub struct ScriptUpdateResult {
     /// Step 9.5-2: `compute_fov`/`fov_reset`/`set_fov_visibility`, in call
     /// order — applied after `tile_ops` (simulation/tiles.rs).
     pub fov_ops: Vec<super::fov_api::FovOp>,
+    /// Step 9.5-3: entities `make_actor` just made actors — `Simulation`
+    /// adds them to its turn scheduler.
+    pub actors_added: Vec<EntityId>,
 }
 
 /// A queued write to `ScriptState::pending_globals`/`pending_persistent`

@@ -19,3 +19,8 @@
 # its entries paint with the demo's tileset regions, so it's shipped
 # content a reader needs to edit the demo, not a personal colour scheme.
 !demos/rpg/project.palette.ron
+
+# Save files the demos write into the working directory when played
+# (`save_game("depths.sav")`, `"emberfall.sav"`) — a player's own progress,
+# never shipped content.
+*.sav

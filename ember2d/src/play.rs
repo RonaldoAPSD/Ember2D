@@ -274,6 +274,7 @@ impl PlayState {
     pub fn apply_play_settings(&mut self, settings: &crate::project::PlaySettings) {
         self.set_pixels_per_unit(settings.pixels_per_unit);
         self.set_turn_model(settings.turn_model);
+        self.sim.set_ai_turns_per_step(settings.ai_turns_per_step); // Step 9.5-3
         self.set_world_cell(settings);
     }
 

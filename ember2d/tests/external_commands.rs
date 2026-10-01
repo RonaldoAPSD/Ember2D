@@ -20,7 +20,7 @@ use ember2d_sim::simulation::StepInput;
 // own comment on this (Step 5i's workspace split moved this crate below
 // `demos/roguelike/`, and `cargo test` runs each integration test binary with
 // CWD set to the package's own directory).
-const FLOOR1: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/floor1.level");
+const FLOOR1: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/classic_roguelike/floor1.level");
 
 #[test]
 fn an_externally_supplied_command_resolves_a_turn_with_no_key_ever_pressed() {

@@ -101,8 +101,11 @@ A phase is done when all of these hold:
 4. `cargo test --test replay` passes 3× as fresh processes, locally and in CI
    on both OSes.
 5. The regression checklist sections named in the phase are run and ticked.
-6. Both demos play: `cargo run -- demos/roguelike/floor2.level`,
-   `cargo run -- demos/shooter/arena.level`.
+6. Every demo plays: `cargo run -- demos/roguelike/title.level`,
+   `cargo run -- demos/shooter/arena.level`, `cargo run --
+   demos/rpg/title.level` (the classic hand-built roguelike floors used
+   before Step 9.5-3 are test fixtures now, in
+   `ember2d/tests/fixtures/classic_roguelike/`).
 7. CLAUDE.md "Current State" and this file's §2 are updated in the same
    commit as the tag.
 
@@ -184,7 +187,7 @@ start screen's New/Open Project browsers start from.
 | 7.5 | Scripting completeness | `[~]` — §5.6: all 13 steps `[x]`; gate open, awaiting the user's live checklist §11–§13 pass (shooter LOC exception accepted 2026-09-29) |
 | 8 | Tilemap, assets, animation authoring | `[~]` — §5.7: all 4 steps `[x]`; gate pass run 2026-10-01 (automated + live, R103/R104/R106 fixed in it), awaiting the user's OK to tag `v0.5.9` |
 | 9 | Scene and UI layer + RPG demo | `[~]` — §5.8: 9-1 to 9-8 landed and the gate pass is done (2026-10-01): all three demos play, the RPG tutorial replayed in a fresh project. Awaiting the user's OK to tag `v0.5.10` |
-| 9.5 | Demo expansion as engine stress tests | `[~]` — §5.8.5: 9.5-1 script tilemap API (`c07dc73`) and 9.5-2 field of view (`fc7e0a4`) landed; next the 20-floor procedural roguelike, the shooter as a stress test, tutorials (planned 2026-10-01) |
+| 9.5 | Demo expansion as engine stress tests | `[~]` — §5.8.5: 9.5-1 tilemap API (`c07dc73`), 9.5-2 field of view (`fc7e0a4`) and 9.5-3 the generated roguelike landed; next the 20-floor procedural roguelike, the shooter as a stress test, tutorials (planned 2026-10-01) |
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
 
@@ -5476,7 +5479,7 @@ calls `compute_fov(x, y, r)` — opt-in, other demos untouched. `is_in_fov`,
 view, hides actors out of view and remembers items dimmed. Saved with the
 world.
 
-- **Landed as:** `ember2d-sim/src/fov.rs`.
+- **Landed as** (`fc7e0a4`): `ember2d-sim/src/fov.rs`.
   - **The algorithm.** Albert Ford's symmetric shadowcasting with every
     slope an exact `(num, den)` pair compared by cross-multiplying (no
     floats), limited to a disc (`d² ≤ r² + r`), radius capped at 256.
@@ -5514,13 +5517,76 @@ world.
     - Stepping back past the 8-cell radius dims the far side, keeps the
       potion dimmed and hides the rat.
 
-#### `[ ]` 9.5-3 — Roguelike rebuild, part 1: the dungeon
+#### `[x]` 9.5-3 — Roguelike rebuild, part 1: the dungeon
 A title scene (New / Continue / Quit); one `dungeon.level` whose script
 builds each floor (rooms and corridors, 80×45) from the run seed and the
 depth; player FOV; monster tables by depth up to a floor-20 guardian;
 melee with power and defense; a message log; mouse-look; a death screen;
 stairs to depth + 1; save on quit and Continue. Replaces the four hand
 levels and retires `gen_roguelike.rs` as the content source.
+
+- **Landed as:** "Depths of Ember", `demos/roguelike/`.
+  - **What's in the project.**
+    - `project.ron`: TurnBased, Energy turn order, `ai_turns_per_step` 256,
+      start level `title.level`.
+    - `title.level` + `scripts/title.rhai`: a banner, New game / Continue /
+      Quit. The run's seed comes from the frame count, so it's different
+      every game yet replayable.
+    - `dungeon.level`: an empty 80×43 level with
+      `scripts/dungeon.rhai` on one invisible tile. Each load reseeds the
+      script RNG from (run seed, depth) and builds the floor:
+      libtcod-style rooms and L-corridors, monsters and items from
+      depth-weighted tables (rats and kobolds through orcs, trolls, ogres
+      and wraiths to dragon whelps), and the stairs. Floor 20 has the
+      Ember Drake, the Amulet and the way back up. Then the first view.
+    - `scripts/monster.rhai`: monsters sleep until in view (sight is
+      symmetric), path with `get_path`, attack with power minus defense,
+      and stumble while confused.
+    - `scripts/player.rhai`:
+      - bump-to-attack, corpses, XP;
+      - G pick up, Q quaff, Enter stairs;
+      - a bottom panel with an HP bar, stats, a word-wrapped colour
+        message log and mouse-look;
+      - the death screen.
+    - `scenes/pause.rhai`: Continue / Save and quit / Quit without saving.
+      A death overwrites the save (permadeath).
+  - **Engine additions the demo needed** (additive, beyond the plan's
+    list):
+    - `make_actor(id, speed)`: a spawned entity joins the turn order.
+      Before, only level tiles could take turns.
+    - `set_random_seed(n)`.
+    - The project setting `ai_turns_per_step`: `Simulation` keeps
+      resolving AI turns in the same step, each with a fresh snapshot,
+      until the player is due. Without it 40 monsters answer a move one
+      per frame (0.7 s). It's in Project Settings; new turn-based projects
+      default to 256.
+  - **The old demo.** The classic hand-built floors and scripts moved to
+    `ember2d/tests/fixtures/classic_roguelike/`; the 9 test files and the
+    bench that use them are repointed. `gen_roguelike.rs` is deleted.
+    `.gitignore` gains `*.sav`. `bench_sim` gained a real filesystem
+    source (script paths attached at runtime didn't resolve without one;
+    R118's guard caught it) and the dungeon scenario: 0.072 ms/step with
+    17 entities.
+  - **Tests (9 new):**
+    - `tests/turn_batch.rs` (3): `make_actor`; one versus all AI turns per
+      step; refusals.
+    - `tests/roguelike_dungeon.rs` (6):
+      - floors 1, 10 and 20 are 80×43, fully connected, stocked by depth,
+        with the stairs (or Amulet and Drake) reachable;
+      - the same seed and depth give the same floor;
+      - a bump kill pays XP and leaves remains;
+      - the stairs lead one deeper;
+      - death, then Enter, goes to the title;
+      - a bot plays ten floors from real key presses (524 turns, 12 kills)
+        with no script warning.
+
+    `TurnHarness` now keeps the logs.
+  - **Live, every checklist item:** the title and New game; a floor
+    revealing room by room; a kobold waking, the fight, the kill with a
+    corpse and XP; mouse-look; pick up and quaff; the stairs to depth 2;
+    Esc then Save and quit, then Continue back to the same spot; death,
+    the death screen, Enter to the title, and Continue loading the dead
+    run.
 
 #### `[ ]` 9.5-4 — Roguelike rebuild, part 2: items and progression
 Inventory, drop and a character screen through `menu_open`; healing

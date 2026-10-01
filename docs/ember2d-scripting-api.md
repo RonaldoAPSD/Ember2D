@@ -465,6 +465,24 @@ scheduling functions:
   — see `TurnModel` below — and a real, honestly-functioning read/write
   regardless of model, so switching a project's `TurnModel` needs no
   scripting-API change on either side.
+- `make_actor(id, speed)` (Step 9.5-3) — makes `id` an AI actor that takes
+  turns: its script's `on_turn` runs whenever the scheduler reaches it,
+  starting at once. Before this only a level tile could be an actor, so a
+  script-generated level couldn't have monsters that act. Deferred; does
+  nothing to an entity that's already an actor (use `set_speed`) or doesn't
+  exist. Spawn, `set_script`, then `make_actor`: the first turn may come
+  before the script attaches (`set_script` lands a step later) and does
+  nothing, which is harmless.
+- **`ai_turns_per_step`** (project setting, `project.ron` / File > Project
+  Settings, Step 9.5-3) — how many turns one simulation step may resolve
+  while the next actor due is AI. The scheduler hands out one turn at a
+  time, and by default (1, every project before this step) one per step,
+  so a level with forty monsters answers each player move one monster per
+  frame, about two-thirds of a second. A higher number (the roguelike uses
+  256; a new turn-based project starts there) resolves them all in the
+  player's own step; it always stops when the player is due, the level
+  changes or a scene pauses. Each extra turn gets a fresh snapshot, so
+  every monster sees the moves the ones before it made.
 
 **`TurnModel` (Step 7.5-7): what `act`'s cost defaults to when a script
 doesn't call it at all.** A project selects one via `ProjectData::turn_model`
@@ -712,6 +730,12 @@ engine-owned state now, not smuggled through each entity's Rhai `Scope` as
 > `min`/`max` used to panic) and `random_bool`'s chance against non-finite
 > input (a `NaN` used to panic).
 
+`set_random_seed(seed)` (Step 9.5-3) restarts the stream from `seed`, at
+once. It isn't a deferred write: every later `random_*` call, this pass and
+after, follows from it. A generated level can then be a function of its own
+inputs. The roguelike seeds each floor from the run's seed and the depth,
+so floor 10 of a run is the same floor 10 however the run got there.
+
 ### HUD
 `draw_hud(x,y,text,fg,bg)` · `draw_box(x,y,w,h,fg,bg)` · `fill_rect(x,y,w,h,ch,fg,bg)` · `draw_panel(x,y,w,h,title,fg,bg)` · `draw_menu(x,y,w,options,selected,fg,bg,sel_fg,sel_bg)` · `clear_hud()`
 
@@ -942,6 +966,7 @@ Rhai (`go` is one) and can't name a function.
 | 9 | Step 9-4: `load_level(path, spawn)`; exit targets `path#spawn`; `get_spawn_point("player")` now returns the player's start | **No** — additive. Level format v7 (`spawns`) is a level-file change, not an API one; older levels are migrated when they load. |
 | 9 | Step 9-5: `project.ron`'s `world_cell` — `get_mouse_world_x/y` divide by it | **No** — additive; a project without `world_cell` behaves exactly as before. |
 | 9 | Step 9-7: `set_size`, `set_flip`, `set_sprite`, `play_project_clip`/`play_project_clip_once`, `set_y_sort` | **No** — additive. |
+| 9.5 | Step 9.5-3: `make_actor`, `set_random_seed`; the project setting `ai_turns_per_step` | **No** — additive; a project without the setting resolves one actor per step, exactly as before. |
 | 9.5 | Step 9.5-2: `compute_fov`, `is_in_fov`, `is_explored`, `fov_reset`, `set_fov_visibility` | **No** — additive; a level that never calls `compute_fov` draws exactly as before. A save gains `World::fov`/`fov_visibility` (`serde(default)`). |
 | 9.5 | Step 9.5-1: `tile_def`, `tilemap_resize`, `tile_set`/`tile_set_layer`, `tile_fill`/`tile_fill_layer`, `tile_clear`/`tile_clear_layer`, `tile_clear_rect`/`tile_clear_rect_layer`, `get_tile` | **No** — additive. A save gains `World::tile_defs` (`serde(default)`; older saves load without it). |
 

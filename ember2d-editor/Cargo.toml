@@ -31,9 +31,9 @@ rhai = { version = "1", features = ["no_module", "no_closure", "serde"] }
 rfd = "0.17.2"
 
 # rand: a fresh level's seed (grid.rs, `LevelGrid::new`) — a real, separate
-# `rand::random()` call, not shared with any sim-side seeded stream (see
-# examples/gen_roguelike.rs's own header comment on why a generator must
-# NOT do this, but an interactively-created level should).
+# `rand::random()` call, not shared with any sim-side seeded stream (a
+# level generator must NOT do this — its output has to be reproducible —
+# but an interactively-created level should).
 rand = { version = "0.8", features = ["small_rng"] }
 
 # arboard: best-effort OS clipboard sync for the script editor's cut/copy

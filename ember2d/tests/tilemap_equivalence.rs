@@ -21,7 +21,7 @@ use ember2d_sim::command::{GamepadSnapshot, InputSnapshot, MouseSnapshot};
 use ember2d_sim::simulation::{Simulation, StepInput};
 use std::collections::{BTreeMap, BTreeSet};
 
-const FLOOR2: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/floor2.level");
+const FLOOR2: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/classic_roguelike/floor2.level");
 
 /// Writes the probe script to a per-process temp file (7A-8's convention —
 /// two `cargo test` processes never share a path) and returns its path.

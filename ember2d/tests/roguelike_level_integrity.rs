@@ -2,7 +2,8 @@
 // hold for every generated roguelike level (Step 4j, docs/HANDOFF.md /
 // the Phase 4 plan file's "Tests to write now" list). These check
 // LevelData directly, no PlayState/TurnHarness needed — pure data checks
-// on what examples/gen_roguelike.rs produces.
+// on the classic levels in tests/fixtures/classic_roguelike/ (written by
+// the since-retired examples/gen_roguelike.rs; fixtures since Step 9.5-3).
 
 use ember2d::prelude::*;
 use ember2d_sim::level::LEVEL_FORMAT_VERSION;
@@ -13,10 +14,10 @@ use std::path::Path;
 // tests/replay.rs's own comment on this (Step 5i's workspace split,
 // docs/ember2d-phase5-plan.md).
 const LEVELS: &[&str] = &[
-    concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/floor1.level"),
-    concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/floor2.level"),
-    concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/floor3.level"),
-    concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/victory.level"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/classic_roguelike/floor1.level"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/classic_roguelike/floor2.level"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/classic_roguelike/floor3.level"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/classic_roguelike/victory.level"),
 ];
 
 #[test]
@@ -57,7 +58,7 @@ fn every_level_is_the_current_format_version_with_collision_layers() {
 
 #[test]
 fn every_levels_tiles_are_sorted_by_layer_then_y_then_x() {
-    // examples/gen_roguelike.rs::build_level sorts explicitly because
+    // The (retired) examples/gen_roguelike.rs::build_level sorted explicitly because
     // LevelData.tiles is a Vec but the generator assembles it by iterating
     // a 2D array plus a features Vec — two runs would otherwise produce
     // different orders, and therefore different entity-id assignment in

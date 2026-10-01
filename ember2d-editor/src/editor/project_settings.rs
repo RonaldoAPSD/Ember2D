@@ -23,6 +23,8 @@ pub enum ProjectField {
     Name,
     GameplayLoop,
     TurnModel,
+    /// Step 9.5-3: `ai_turns_per_step`.
+    AiTurns,
     VisualStyle,
     StartLevel,
     WorldCell,
@@ -30,10 +32,11 @@ pub enum ProjectField {
 }
 
 impl ProjectField {
-    pub const ALL: [ProjectField; 7] = [
+    pub const ALL: [ProjectField; 8] = [
         ProjectField::Name,
         ProjectField::GameplayLoop,
         ProjectField::TurnModel,
+        ProjectField::AiTurns,
         ProjectField::VisualStyle,
         ProjectField::StartLevel,
         ProjectField::WorldCell,
@@ -46,6 +49,7 @@ impl ProjectField {
             ProjectField::Name => "Name",
             ProjectField::GameplayLoop => "Gameplay",
             ProjectField::TurnModel => "Turn order",
+            ProjectField::AiTurns => "AI turns/step",
             ProjectField::VisualStyle => "Visual style",
             ProjectField::StartLevel => "Start level",
             ProjectField::WorldCell => "World cell (px)",
@@ -71,6 +75,7 @@ impl ProjectField {
             ProjectField::Name => "Project name",
             ProjectField::WorldCell => "World cell as width,height in pixels (8,16 or 16,16)",
             ProjectField::PixelsPerUnit => "Source pixels per world unit (e.g. 16)",
+            ProjectField::AiTurns => "AI turns one step may resolve (1 = one actor per step; 256 = all at once)",
             _ => "Value",
         }
     }
@@ -85,6 +90,7 @@ pub fn project_field_value(p: &ProjectData, field: ProjectField) -> String {
             GameplayLoop::TurnBased => "Turn-based".into(),
         },
         ProjectField::TurnModel => format!("{:?}", p.turn_model),
+        ProjectField::AiTurns => p.ai_turns_per_step.to_string(),
         ProjectField::VisualStyle => match p.visual_style {
             VisualStyle::ClassicASCII => "ASCII".into(),
             VisualStyle::Sprites2D => "Sprites".into(),
@@ -146,6 +152,10 @@ pub fn set_project_field(p: &mut ProjectData, field: ProjectField, text: &str) -
                 _ => return Err(format!("'{t}' isn't a size like 16,16")),
             }
         }
+        ProjectField::AiTurns => match t.parse::<u32>() {
+            Ok(n) if (1..=1024).contains(&n) => p.ai_turns_per_step = n,
+            _ => return Err(format!("'{t}' isn't a whole number from 1 to 1024")),
+        },
         ProjectField::PixelsPerUnit => match t.parse::<f32>() {
             Ok(v) if v.is_finite() && v > 0.0 => p.pixels_per_unit = v,
             _ => return Err(format!("'{t}' isn't a positive number")),

@@ -324,6 +324,9 @@ pub struct Simulation {
     /// or `LevelData` — it's a project-level setting, not per-run state,
     /// same category as `pixels_per_unit`.
     turn_model: TurnModel,
+    /// Step 9.5-3: how many turns one step may resolve while the next
+    /// actor due is AI (project setting; 1 = one actor per step, as ever).
+    ai_turns_per_step: u32,
     /// Step 7.5-9 (docs/ember2d-master-plan.md §5.6, R17 fix): the one
     /// seam through which this `Simulation` can ever touch a file — see
     /// `LevelSource`'s own doc comment (level_source.rs) for why the
@@ -378,6 +381,7 @@ impl Simulation {
             pending_scheduler: Vec::new(),
             layers,
             turn_model: TurnModel::default(),
+            ai_turns_per_step: 1,
             level_source: Rc::new(NullLevelSource),
             scenes: Vec::new(),
             editor_preview: false,
@@ -462,6 +466,13 @@ impl Simulation {
     /// (`ember2d::play::PlayState::set_turn_model` forwards here).
     pub fn set_turn_model(&mut self, model: TurnModel) {
         self.turn_model = model;
+    }
+
+    /// Step 9.5-3: see `ai_turns_per_step` and `step`'s turn loop. Clamped
+    /// to 1..=1024 — a cap so a level of actors that never wait can't hang
+    /// a frame.
+    pub fn set_ai_turns_per_step(&mut self, n: u32) {
+        self.ai_turns_per_step = n.clamp(1, 1024);
     }
 
     /// `globals`/`clips` come from a loaded `SaveState` — defect D17 fix

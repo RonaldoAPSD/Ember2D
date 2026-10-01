@@ -40,7 +40,7 @@ use ember2d::prelude::*;
 // directory rather than wherever the test was invoked from. A bare
 // `"demos/roguelike/..."` literal would only resolve for `cargo run`; this
 // resolves for both.
-const FLOOR2: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/floor2.level");
+const FLOOR2: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/classic_roguelike/floor2.level");
 
 /// Checkpoint interval, in scripted-session actions — not raw sim steps.
 /// `TurnHarness::turn` itself already spans however many follow-up frames

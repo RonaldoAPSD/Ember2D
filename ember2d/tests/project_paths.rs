@@ -26,7 +26,7 @@ fn copy_dir(from: &Path, to: &Path) {
 
 #[test]
 fn r115_a_copied_project_runs_its_own_scripts_and_finds_its_own_audio() {
-    let demo = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike"));
+    let demo = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/classic_roguelike"));
     let copy = common::test_temp_dir().join("project_paths_copy");
     let _ = std::fs::remove_dir_all(&copy);
     copy_dir(demo, &copy);

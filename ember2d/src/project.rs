@@ -100,6 +100,18 @@ pub struct ProjectData {
     /// (8 and 16) for crisp glyphs; `cell_scale` accepts anything positive.
     #[serde(default = "default_world_cell")]
     pub world_cell: (u32, u32),
+
+    /// Step 9.5-3: how many turns one simulation step may resolve while
+    /// the next actor due is an AI one (`Simulation::
+    /// set_ai_turns_per_step`). 1 — every project before this step — is one
+    /// actor per step; a turn-based game with many monsters sets it high
+    /// (the roguelike: 256) so they all answer the player's move at once.
+    #[serde(default = "default_ai_turns_per_step")]
+    pub ai_turns_per_step: u32,
+}
+
+fn default_ai_turns_per_step() -> u32 {
+    1
 }
 
 /// Play-mode settings a project carries, bundled — Step 9-5: these used to
@@ -112,6 +124,7 @@ pub struct PlaySettings {
     pub pixels_per_unit: f32,
     pub turn_model: ember2d_sim::scheduler::TurnModel,
     pub world_cell: (u32, u32),
+    pub ai_turns_per_step: u32, // Step 9.5-3
 }
 
 impl Default for PlaySettings {
@@ -121,6 +134,7 @@ impl Default for PlaySettings {
             pixels_per_unit: default_pixels_per_unit(),
             turn_model: Default::default(),
             world_cell: default_world_cell(),
+            ai_turns_per_step: default_ai_turns_per_step(),
         }
     }
 }
@@ -214,6 +228,13 @@ impl ProjectData {
                 VisualStyle::ClassicASCII => default_world_cell(),
                 VisualStyle::Sprites2D => (16, 16),
             },
+            // A new turn-based game answers the player's move with every
+            // monster at once (Step 9.5-3); a `project.ron` without the key
+            // keeps 1, one actor per step, as it always ran.
+            ai_turns_per_step: match gameplay_loop {
+                GameplayLoop::TurnBased => 256,
+                GameplayLoop::RealTime => default_ai_turns_per_step(),
+            },
         }
     }
 
@@ -224,6 +245,7 @@ impl ProjectData {
             pixels_per_unit: self.pixels_per_unit,
             turn_model: self.turn_model,
             world_cell: self.world_cell,
+            ai_turns_per_step: self.ai_turns_per_step,
         }
     }
 

@@ -173,6 +173,17 @@ impl ScriptEngine {
                 col.set_mask(&self.layers, m);
             }
         }
+        // Step 9.5-3: `make_actor` — before `set_speed`, so a speed set in
+        // the same pass lands on the new actor. `Simulation` puts each new
+        // actor in the turn scheduler (`actors_added`).
+        let mut actors_added = Vec::new();
+        for (id, speed) in state.pending_actors.drain(..) {
+            let id = id as EntityId;
+            if world.transforms.contains_key(&id) && !world.actors.contains_key(&id) {
+                world.add_actor(id, crate::components::Actor::ai(speed));
+                actors_added.push(id);
+            }
+        }
         for (id, speed) in state.pending_speed.drain(..) {
             if let Some(actor) = world.actors.get_mut(&(id as EntityId)) {
                 actor.speed = speed;
@@ -374,6 +385,7 @@ impl ScriptEngine {
             // Step 9.5-1: all of them go up to `Simulation`, which has the
             // layer registry and the tileset loader they need.
             tile_ops: std::mem::take(&mut state.tile_ops),
+            actors_added,
             fov_ops: std::mem::take(&mut state.fov_ops), // Step 9.5-2
         };
         // Phase 6 Step 9: the matching half of every call site's own

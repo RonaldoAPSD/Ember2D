@@ -1,0 +1,29 @@
+(
+    version: 7,
+    name: "Title",
+    width: 80,
+    height: 24,
+    spawns: {
+        "player": (40.0, 12.0),
+    },
+    tiles: [],
+    player: (
+        glyph: '@',
+        fg: White,
+        bg: Reset,
+        solid: false,
+        trigger: false,
+        tag: "player",
+        camera_follow: false,
+        script: Some("scripts/title.rhai"),
+        collider_layer: "",
+        collider_mask: [],
+        collider_w: 0.75,
+        collider_h: 0.75,
+        layer: 15,
+    ),
+    seed: 3555131393,
+    collision_layers: [
+        "solid",
+    ],
+)

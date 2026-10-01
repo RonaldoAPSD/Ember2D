@@ -1,0 +1,283 @@
+// demos/roguelike/scripts/player.rhai — player controller: turn-gated grid
+// movement, bump-to-attack, quaffing, and the HUD.
+//
+// Phase 4 (docs/ember2d-refactor-plan.md) moves all of this out of Rust —
+// see the Phase 4 plan for the staged steps this script is part of.
+//
+// STATE OWNERSHIP:
+//   Rhai's per-entity `let` does NOT persist between on_update/on_turn/
+//   on_input calls — ScriptEngine calls Engine::call_fn, whose default
+//   CallFnOptions rewinds the scope after every call. So:
+//     - GLOBALS (ctx.set_global/get_global) are level-scoped: they reset to
+//       empty on every level load.
+//     - PERSISTENT (ctx.set_persistent/get_persistent) survives level
+//       transitions — this run's stats live here.
+//
+// PERSISTENT this run's stats (survive next_level; reset on death/restart):
+//   "hp", "hp_max", "gold", "potions", "depth", "turns_taken"
+//
+// STEP 5e (docs/ember2d-phase5-plan.md) SPLIT INPUT FROM ACTION: on_input
+// runs first each step and is the only place this script reads raw key
+// state (ctx.is_held/just_pressed) — it just translates keys into a
+// ctx.submit()'d Command ("move" with [dx, dy], "wait", "quaff", or
+// "restart"), never touching persistent/global state itself.
+//
+// on_input submits "restart" purely from whether "r" is down — it has no
+// idea whether the player is alive. on_turn (below) is what decides
+// "restart" means anything, and only inside its hp<=0 branch. A command
+// on_turn doesn't recognize for the player's current state (a stray
+// "restart" while alive, or an empty "" when nothing was pressed) falls
+// through to the same "no turn consumed" outcome as no input at all — see
+// the `else if action != "wait"` guard near the bottom of on_turn.
+//
+// STEP 5f (docs/ember2d-phase5-plan.md) SPLIT ACTION FROM HOUSEKEEPING:
+// on_turn now does move/attack/quaff/restart — called exactly once, only
+// when TurnScheduler hands this actor the turn, so there's no more need for
+// the old "turn"/"acted_<id>" bookkeeping enemy scripts used to gate
+// themselves to once per player turn. on_update keeps only what must run
+// every single step regardless of whose turn it is: the HUD and the death
+// screen.
+//
+// DAMAGE MODEL CHANGED WITH IT: an enemy's on_turn now writes this script's
+// own "hp" persistent value DIRECTLY (see enemy_rat.rhai/enemy_boss.rhai),
+// instead of publishing an atk_turn_<id>/atk_dmg_<id> pair for this script
+// to sum up later. That indirection existed only because the old model ran
+// every entity's on_update in the SAME pass, where two attackers writing
+// "hp" in the same pass would silently cost only one hit (a get_* never
+// observes a set_* from earlier in the same pass) — under the scheduler,
+// each actor's on_turn is its own separate pass, fully committed before the
+// next one starts, so a direct write from whichever enemy just acted is
+// already visible by the time the next actor (enemy or player) reads "hp".
+// This is also what deleted the "last_resolved_turn" scanning this file
+// used to do every single frame.
+//
+// POTIONS WERE COLLECTIBLE BUT UNUSABLE UNTIL PHASE 4 — found by the user
+// actually playing through to floor 3 at 2 hp with potions sitting unused
+// in inventory. "Q" quaffs one (if any) for +6 hp (capped at hp_max),
+// costing a turn like waiting does.
+//
+// RUN INIT MOVED TO on_start (Step 7.5-5, docs/ember2d-master-plan.md §5.6):
+// this used to be lazy-initialized inside on_update, guarded by
+// `!ctx.has_persistent("hp_max")`, specifically because `Simulation::
+// on_start`'s loading-save branch never called a script's own `on_start` —
+// so a real `on_start` would never fire for a script whose only chance to
+// init was a fresh spawn OR a loaded save, and lazy-init-on-first-on_update
+// was the one hook guaranteed to run on both. Step 7.5-5 didn't change that
+// on_start still never re-runs on a loaded save (R7, 7A-3 — deliberate: this
+// run's stats already survived the save faithfully, and re-seeding them
+// would reset a run in progress) — it just gives on_update its `on_start`
+// back for the ONE case that actually needed it: a fresh spawn, which
+// `on_start` already always ran for uniquely, everywhere else in this
+// engine. `on_load` (7.5-5's other half, docs/ember2d-scripting-api.md) is
+// the loaded-save equivalent and isn't needed here at all — this script has
+// no presentation-only state to re-derive after a load that `persistent`
+// doesn't already cover.
+//
+// R96 (docs/ember2d-master-plan.md §3.2): that move dropped the
+// `!has_persistent(..)` guard along with the lazy-init, which was wrong in a
+// way 7.5-5 didn't see — "a fresh spawn" isn't only a new run. Every level
+// LOAD is a fresh spawn of this player entity (Simulation::do_on_start runs
+// per level), so taking the stairs re-ran on_start and reset hp, gold,
+// potions and depth: floor 2 always read "Depth 1", and the run's gold and
+// damage vanished at every descent. The guard is back (on "hp_max", the key
+// only this init ever writes): on_start seeds the run once, and a new level
+// of the same run finds it already there. A NEW run still starts clean —
+// the restart command below re-seeds explicitly, and the editor clears the
+// whole persistent store on each fresh F5 (ember2d-app/src/app.rs).
+//
+// `or_zero()` used to paper over both the fresh-spawn and loaded-save cases
+// uniformly inside the lazy-init check above (and, for "hp"/"hp_max",
+// incorrectly — a wrong default there isn't cosmetic, 0 reads as "already
+// dead"); it was already gone as of 7.5-2, replaced by `add_persistent`/
+// `add_global` (docs/ember2d-scripting-api.md) for every write that used to
+// be a hand-rolled `set_x(get_x() + d)` — unrelated to this step's change,
+// just no longer entangled with it now that on_update never lazy-inits.
+
+/// The only place this script reads raw input (see the Step 5e header note
+/// above). Priority mirrors on_turn's if/else-if chain exactly: restart
+/// beats movement beats waiting beats quaffing, and only the first matching
+/// key each step produces a command.
+fn on_input(id, ctx) {
+    if ctx.just_pressed("r") {
+        ctx.submit(id, "restart", []);
+        return;
+    }
+
+    let dx = 0.0;
+    let dy = 0.0;
+    if ctx.just_pressed("w") || ctx.just_pressed("up") { dy = -1.0; }
+    else if ctx.just_pressed("s") || ctx.just_pressed("down") { dy = 1.0; }
+    else if ctx.just_pressed("a") || ctx.just_pressed("left") { dx = -1.0; }
+    else if ctx.just_pressed("d") || ctx.just_pressed("right") { dx = 1.0; }
+    if dx != 0.0 || dy != 0.0 {
+        ctx.submit(id, "move", [dx, dy]);
+        return;
+    }
+
+    if ctx.just_pressed("space") {
+        ctx.submit(id, "wait", []);
+        return;
+    }
+
+    if ctx.just_pressed("q") {
+        ctx.submit(id, "quaff", []);
+        return;
+    }
+}
+
+/// Runs on every fresh spawn of the player — every level load (Step
+/// 7.5-5) — never on a loaded save (R7, 7A-3; see the header's "RUN INIT
+/// MOVED TO on_start" note for why that's still correct). Seeds this run's
+/// stats only if the run hasn't started yet (R96 — see the header note:
+/// without the guard, every staircase reset the run), and (re)starts the
+/// level music every time.
+fn on_start(id, ctx) {
+    if !ctx.has_persistent("hp_max") {
+        ctx.set_persistent("hp", 12);
+        ctx.set_persistent("hp_max", 12);
+        ctx.set_persistent("gold", 0);
+        ctx.set_persistent("potions", 1);
+        ctx.set_persistent("depth", 1);
+        ctx.set_persistent("turns_taken", 0);
+    }
+    ctx.play_music("audio/music.ogg");
+}
+
+/// Runs every step regardless of whose turn it is (Step 5f) — the HUD and
+/// the death screen. Never mutates gameplay state (that's on_turn's job).
+fn on_update(id, ctx) {
+    let hp = ctx.get_persistent("hp");
+    let hp_max = ctx.get_persistent("hp_max");
+    let gold = ctx.get_persistent("gold");
+    let potions = ctx.get_persistent("potions");
+    let depth = ctx.get_persistent("depth");
+
+    draw_hud(ctx, hp, hp_max, gold, potions, depth);
+    if hp <= 0 { draw_death_screen(ctx); }
+}
+
+/// Runs exactly once, only when TurnScheduler hands this actor the turn
+/// (Step 5f) — move/attack/quaff/restart, whichever `ctx.command_action()`
+/// (queued by this same step's on_input) names.
+fn on_turn(id, ctx) {
+    let hp = ctx.get_persistent("hp");
+
+    if hp <= 0 {
+        if ctx.command_action() == "restart" {
+            ctx.set_persistent("hp", 12);
+            ctx.set_persistent("gold", 0);
+            ctx.set_persistent("potions", 1);
+            ctx.set_persistent("depth", 1);
+            ctx.set_persistent("turns_taken", 0);
+            ctx.load_level("floor1.level");
+        }
+        return; // dead: never consumes a turn, restart included — the
+                // level transition (if any) happens regardless.
+    }
+
+    let action = ctx.command_action();
+    let hp_max = ctx.get_persistent("hp_max");
+
+    // "move"/"quaff" are their own functions (not inlined here) specifically
+    // to keep this if/else-if chain shallow — an earlier version nested
+    // each action's own logic directly in these branches and tripped Rhai's
+    // "Expression exceeds maximum complexity" guard (see draw_hud's `s +=`
+    // chain below for the same class of hazard, just from nesting depth
+    // instead of a long `+` chain).
+    if action == "move" {
+        if !do_move(id, ctx) { return; } // wall bump: no turn consumed
+    } else if action == "quaff" {
+        if !do_quaff(id, ctx, hp, hp_max) { return; } // nothing to quaff, or already full: no turn consumed
+    } else if action != "wait" {
+        // No command this step (action == ""), or one this state doesn't
+        // recognize (e.g. "restart" while alive) — either way, no turn.
+        return;
+    }
+
+    ctx.add_persistent("turns_taken", 1);
+    ctx.act(100.0);
+}
+
+/// One step of bump-movement: attacks an adjacent enemy/boss instead of
+/// moving onto it, refuses to move into a wall, otherwise moves. Returns
+/// `false` only for the wall-bump case — the standard roguelike rule that a
+/// bumped wall costs no turn, unlike a bumped enemy (which does).
+fn do_move(id, ctx) {
+    let dx = ctx.command_param(0);
+    let dy = ctx.command_param(1);
+    let tx = ctx.get_x(id) + dx;
+    let ty = ctx.get_y(id) + dy;
+    let target = ctx.get_entity_at(tx, ty);
+    if target != -1 && (ctx.has_tag(target, "enemy") || ctx.has_tag(target, "boss")) {
+        attack(target, ctx);
+        return true;
+    }
+    if ctx.is_solid_at(tx, ty) { return false; }
+    ctx.set_position(id, tx, ty);
+    true
+}
+
+/// Drink a potion for +6 hp (capped at `hp_max`). Returns `false` (no turn
+/// consumed) if there's no potion to drink or the player is already at full
+/// hp — guards against a stray "q" press wasting one.
+fn do_quaff(id, ctx, hp, hp_max) {
+    if ctx.get_persistent("potions") <= 0 || hp >= hp_max { return false; }
+    ctx.add_persistent("potions", -1);
+    let healed = hp + 6;
+    if healed > hp_max { healed = hp_max; }
+    ctx.set_persistent("hp", healed);
+    ctx.emit_particles(ctx.get_x(id), ctx.get_y(id), "+", "Green");
+    true
+}
+
+/// The player bump-attacking an enemy/boss — the reverse direction
+/// (enemy/boss attacking the player) lives in enemy_rat.rhai/
+/// enemy_boss.rhai's own on_turn, writing this script's "hp" persistent
+/// value directly (see the header comment's "DAMAGE MODEL CHANGED" note).
+fn attack(target, ctx) {
+    ctx.add_var(target, "hp", -3);
+    ctx.emit_particles(ctx.get_x(target), ctx.get_y(target), "*", "Red");
+    ctx.shake_camera(1.0, 0.1);
+    // demos/roguelike/audio has no dedicated attack sound — hurt.ogg (the only
+    // impact-shaped clip available) does double duty for both landing a
+    // hit and taking one.
+    ctx.play_sound("audio/hurt.ogg");
+}
+
+/// `hp`/`hp_max`/`gold`/`potions`/`depth` are passed in rather than
+/// re-read — on_update already read all five once for its own hp<=0 check,
+/// so this just reuses them instead of five redundant get_persistent
+/// calls. Each is cast with `.to_int()` before it's concatenated because
+/// `add_persistent`
+/// (docs/ember2d-scripting-api.md, 7.5-2) always stores its result as a
+/// float — Rhai's string concatenation renders a whole-number float with a
+/// trailing ".0" (`"HP " + 12.0` is `"HP 12.0"`, not `"HP 12"`), which
+/// would otherwise flicker into the HUD the first time any of these fields
+/// gets touched by an add_persistent/add_global write instead of the
+/// original int literal from lazy-init.
+fn draw_hud(ctx, hp, hp_max, gold, potions, depth) {
+    let turn = ctx.get_turn_number();
+
+    // Built incrementally rather than as one long `a + b + c + ...` chain:
+    // Rhai parses that as a single deeply-nested binary expression tree,
+    // and a line with this many concatenations trips the engine's default
+    // max-expression-depth guard ("Expression exceeds maximum complexity")
+    // at compile time. Each `+=` below is its own small statement instead.
+    let s = "HP " + hp.to_int();
+    s += "/" + hp_max.to_int();
+    s += "   Gold " + gold.to_int();
+    s += "   Potions " + potions.to_int();
+    s += "   Depth " + depth.to_int();
+    s += "   Turn " + turn;
+    ctx.draw_hud(1, 0, s, "White", "Reset");
+
+    let vh = ctx.get_viewport_height();
+    ctx.draw_hud(1, vh - 1, "WASD/Arrows: Move   Space: Wait   Q: Potion   Esc: Pause", "Grey", "Reset");
+}
+
+fn draw_death_screen(ctx) {
+    ctx.fill_rect(10, 8, 30, 6, " ", "White", "DarkRed");
+    ctx.draw_box(10, 8, 30, 6, "White", "DarkRed");
+    ctx.draw_hud(14, 10, "YOU DIED", "Yellow", "DarkRed");
+    ctx.draw_hud(14, 12, "Press R to restart", "White", "DarkRed");
+}

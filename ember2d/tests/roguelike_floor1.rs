@@ -8,8 +8,10 @@
 // integrate_physics/detect_collisions in the same frame", which is the
 // single most load-bearing assumption the whole turn-based design rests on.
 //
-// Coordinates below are pinned to examples/gen_roguelike.rs's floor1()
-// layout: spawn (4,4), gold at (10,6) and (20,10), potion at (30,5),
+// Coordinates below are pinned to the classic floor1's layout (tests/
+// fixtures/classic_roguelike/, written by the since-retired
+// examples/gen_roguelike.rs — Step 9.5-3 moved these levels here as test
+// fixtures when the demo became a generated 20-floor game): spawn (4,4), gold at (10,6) and (20,10), potion at (30,5),
 // stairs at (36,16), open floor everywhere in x:[2,38) / y:[2,18).
 // Level-integrity tests (do these coordinates still make sense, is the
 // level well-formed) are Step 4j's job, not this file's — this file only
@@ -21,7 +23,7 @@ use ember2d::prelude::*;
 
 // `CARGO_MANIFEST_DIR`-relative, not CWD-relative — see tests/replay.rs's
 // own comment on this (Step 5i's workspace split, docs/ember2d-phase5-plan.md).
-const FLOOR1: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../demos/roguelike/floor1.level");
+const FLOOR1: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/classic_roguelike/floor1.level");
 
 #[test]
 fn pressing_w_moves_the_player_one_cell_up_and_triggers_a_turn() {

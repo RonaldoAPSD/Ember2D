@@ -14,7 +14,11 @@ stale the next time a step adds tests. This list is no longer the *only*
 safety net the way it was through Phase 3, but it's still the right net
 for anything automated tests can't reach.
 
-**Before first use:** open `demos/roguelike/floor1.level` (or `--editor` it) —
+**Before first use:** open `demos/roguelike/title.level` (or `--editor` a
+level) — the sections below that name `floor1`/`floor2`/`floor3` mean the
+classic hand-built floors, test fixtures since Step 9.5-3 in
+`ember2d/tests/fixtures/classic_roguelike/` (the demo itself is a generated
+dungeon now) —
 the original `demo/` this checklist targeted is archived at
 `docs/archive/demo/` (Phase 4; see that folder's own README) and isn't run
 by anything anymore.
@@ -170,7 +174,7 @@ completely separate system — checked in §8 instead.)*
 - [ ] Native file dialog (`rfd`) opens where wired
 - [✓] Grid overlay, physics overlay, help screen toggles; Escape closes help — the grid draws under tiles (R100) (8 gate, 2026-10-01)
 - [✓] Console shows script log; auto-opens on errors (8 gate, 2026-10-01)
-- [✓] (8 gate, 2026-10-01: Save, New Script, Close Project — found R106, Close Project quit the app after an `--editor <level>` launch, fixed) Save, Save-As, New, Open, Close Project — **known gap, see D18** (§14): saving scrambles the level's tile order (`LevelGrid.tiles` is a `HashMap`, not sorted before writing `LevelData.tiles`). Not a reason to fail this item — tile *content* survives correctly, only *order* is unspecified — but don't use an editor-saved level to check for a clean diff, and re-run `cargo run --example gen_roguelike` if a `demos/roguelike/*.level` file gets touched by the editor.
+- [✓] (8 gate, 2026-10-01: Save, New Script, Close Project — found R106, Close Project quit the app after an `--editor <level>` launch, fixed) Save, Save-As, New, Open, Close Project — **known gap, see D18** (§14): saving scrambles the level's tile order (`LevelGrid.tiles` is a `HashMap`, not sorted before writing `LevelData.tiles`). Not a reason to fail this item — tile *content* survives correctly, only *order* is unspecified — but don't use an editor-saved level to check for a clean diff, (The classic roguelike floors are test fixtures in `ember2d/tests/fixtures/classic_roguelike/` since Step 9.5-3; their generator is retired.)
 
 ## 10. Editor — node graph
 
@@ -289,6 +293,25 @@ Only until visual scripting is shelved. Afterwards, confirm old levels with grap
 - [✓] Esc opens the RPG's own menu (Party / Items / Save / Title / Close);
       Save shows "Game saved"; Title screen > Continue returns to the
       spot it was saved at
+
+### Phase 9.5 — the roguelike demo (`cargo run -- demos/roguelike/title.level`, Step 9.5-3)
+
+- [✓] Title: the "DEPTHS OF EMBER" banner; New game starts depth 1;
+      Continue with no save says so; Quit quits
+- [✓] A generated floor: rooms and corridors, the first room in view,
+      the rest black until seen, seen-but-out-of-view cells dimmed
+- [✓] Arrows move; walls block; monsters wake when they come into view,
+      chase and attack; bumping a monster attacks it; the log reports
+      every hit in colour; a kill leaves a `%` and pays XP
+- [✓] G picks up the item underfoot; Q drinks a healing potion
+- [✓] Enter on `>` goes one floor deeper (depth in the panel goes up);
+      floors get nastier with depth (the latter by test:
+      `floors_1_10_and_20_are_whole_connected_and_stocked_by_depth`)
+- [✓] Dying shows the death screen; Enter returns to the title; a death
+      overwrites the save (Continue can't undo it)
+- [✓] Esc: Continue / Save and quit / Quit without saving; Continue on the
+      title returns to the saved floor, log and all
+- [✓] Mouse-look names what's under the mouse when it's in view
 
 ## 12. Turn-based mode
 
@@ -435,7 +458,7 @@ baseline table in `docs/ember2d-phase6-plan.md` §1.
       sweep-and-prune (Step 8) land, most visibly at the 10,000-entity
       synthetic level. **Final: floor2 65% → 17%; n=10,000 synthetic 86% →
       22%.**
-- [x] Manual: `cargo run -- demos/roguelike/floor2.level` with the F3 debug
+- [x] Manual: `cargo run -- ember2d/tests/fixtures/classic_roguelike/floor2.level` (was `demos/roguelike/`, before Step 9.5-3) with the F3 debug
       overlay feels smooth (informal cross-check against the bench numbers,
       not a replacement for them — the bench doesn't see the render path).
       **Confirmed at Step 13's conditional check: F3 overlay read `FPS:59`

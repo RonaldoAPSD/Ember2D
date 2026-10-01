@@ -233,6 +233,19 @@ impl ScriptCtx {
     pub fn set_speed(&mut self, id: i64, n: f64) {
         self.inner.borrow_mut().pending_speed.push((id, n.max(0.0) as u32));
     }
+    /// Step 9.5-3: make `id` (usually just spawned) an AI actor that takes
+    /// turns at `speed` — its script's `on_turn` runs whenever the turn
+    /// scheduler reaches it. Before this only a level tile could be an
+    /// actor, so a generated dungeon couldn't have monsters that act.
+    /// Deferred like every write; does nothing to an entity that's
+    /// already an actor (use `set_speed`) or doesn't exist.
+    pub fn make_actor(&mut self, id: i64, speed: i64) {
+        let speed = speed.clamp(1, u32::MAX as i64) as u32;
+        self.inner.borrow_mut().pending_actors.push((id, speed));
+    }
+    pub fn make_actor_f(&mut self, id: i64, speed: f64) {
+        self.make_actor(id, if speed.is_finite() { speed as i64 } else { 100 });
+    }
 
     /// A numeric stat authored on this actor's tile via `TileRecord.actor.
     /// stats` (Step 7.5-4, docs/ember2d-master-plan.md §5.6) — e.g.

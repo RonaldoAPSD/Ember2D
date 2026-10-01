@@ -93,6 +93,7 @@ pub(super) fn register_all(engine: &mut Engine) {
     engine.register_fn("add_global", ScriptCtx::add_global);
     engine.register_fn("add_global", ScriptCtx::add_global_i);
     engine.register_fn("random_int", ScriptCtx::random_int);
+    engine.register_fn("set_random_seed", ScriptCtx::set_random_seed); // Step 9.5-3
     engine.register_fn("random_float", ScriptCtx::random_float);
     engine.register_fn("random_bool", ScriptCtx::random_bool);
     engine.register_fn("random_choice", ScriptCtx::random_choice);
@@ -220,6 +221,8 @@ pub(super) fn register_all(engine: &mut Engine) {
     engine.register_fn("get_turn_number", ScriptCtx::get_turn_number);
     engine.register_fn("get_speed", ScriptCtx::get_speed);
     engine.register_fn("set_speed", ScriptCtx::set_speed);
+    engine.register_fn("make_actor", ScriptCtx::make_actor); // Step 9.5-3
+    engine.register_fn("make_actor", ScriptCtx::make_actor_f);
 
     // Step 7.5-4 (docs/ember2d-master-plan.md §5.6): data-driven actor
     // stats/tint — `TileRecord.actor.stats`/`tint_aware`/`tint_asleep`,

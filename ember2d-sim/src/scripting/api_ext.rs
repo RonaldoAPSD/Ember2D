@@ -83,6 +83,16 @@ impl ScriptCtx {
     /// R2 (7A-1): `gen_range` panics on an empty range (`max < min`) —
     /// swapping the bounds first means every argument order a script passes
     /// produces a value, same as if it had asked correctly.
+    /// Step 9.5-3: restart the `random_*` stream from `seed`, at once (the
+    /// stream isn't a deferred write — every later `random_*` call, this
+    /// pass and after, follows from it). What lets a generated level be a
+    /// function of its own inputs: the roguelike seeds each floor from the
+    /// run's seed and the depth, so floor 10 of a run is the same floor 10
+    /// however the run got there.
+    pub fn set_random_seed(&mut self, seed: i64) {
+        use rand::SeedableRng;
+        *self.rng.borrow_mut() = rand::rngs::SmallRng::seed_from_u64(seed as u64);
+    }
     pub fn random_int(&mut self, min: i64, max: i64) -> i64 {
         let (min, max) = if max < min { (max, min) } else { (min, max) };
         self.rng.borrow_mut().gen_range(min..=max)

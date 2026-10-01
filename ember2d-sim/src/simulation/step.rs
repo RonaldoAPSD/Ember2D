@@ -215,6 +215,39 @@ impl Simulation {
             }
         }
 
+        // Step 9.5-3: with the project's `ai_turns_per_step` above 1, keep
+        // resolving turns this step while the next actor due is AI — so a
+        // floor of forty monsters answers the player's move in the same
+        // frame, instead of one monster per frame (two-thirds of a second
+        // of waiting at 60 fps). Each extra turn gets a fresh snapshot: the
+        // last one changed the world. A level change or a pause ends it.
+        let mut turns = u32::from(outcome.turn_triggered);
+        while turns < self.ai_turns_per_step && outcome.pending_level.is_none() && !self.world_paused() {
+            let Some(next) = self.scheduler.peek() else { break };
+            if !matches!(world.actors.get(&next).map(|a| a.controller), Some(Controller::Ai)) {
+                break;
+            }
+            let snapshot =
+                std::rc::Rc::new(WorldSnapshot::build(world, &self.layers, &self.level.spawns));
+            self.run_actor_turn(
+                world,
+                snapshot,
+                next,
+                false,
+                BTreeMap::new(),
+                sim_dt,
+                elapsed,
+                persistent,
+                camera_origin,
+                viewport_w,
+                viewport_h,
+                animating,
+                &mut logs,
+                &mut outcome,
+            );
+            turns += 1;
+        }
+
         drain_diagnostics_into(world, &mut logs);
         outcome.logs = logs;
         outcome
@@ -476,6 +509,11 @@ impl Simulation {
         // A despawned actor must not keep cycling a dead turn slot forever.
         for &id in &res.despawned {
             self.scheduler.remove(id);
+        }
+        // Step 9.5-3: a `make_actor` joins the turn order — due now, like
+        // every actor at level start.
+        for &id in &res.actors_added {
+            self.scheduler.insert(id, crate::components::Controller::Ai);
         }
         if let Some(level_path) = res.pending_level {
             match self.load_transition(&level_path) {

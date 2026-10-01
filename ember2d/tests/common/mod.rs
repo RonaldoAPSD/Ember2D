@@ -37,6 +37,9 @@ pub struct TurnHarness {
     /// The most recent `load_level`/`load_game` request either `step` or
     /// `late_step` produced, if any — see `take_pending_level`.
     pending_level: Option<LevelData>,
+    /// Step 9.5-3: every log line `on_start` and each step produced, so a
+    /// test can assert a level's scripts ran without warnings or errors.
+    pub logs: Vec<ember2d_sim::scripting::LogEntry>,
 }
 
 /// Fixed per-frame time this harness advances by — there's no real
@@ -71,6 +74,7 @@ fn ensure_workspace_root_cwd() {
 impl TurnHarness {
     /// Load a real `.level` file and run its `on_start` scripts, the same
     /// way `app.rs::run_play_app` does before the engine's first frame.
+    #[allow(dead_code)]
     pub fn load(path: &str) -> Self {
         ensure_workspace_root_cwd();
         let data = LevelData::load(path).unwrap_or_else(|e| panic!("load {}: {}", path, e));
@@ -100,7 +104,7 @@ impl TurnHarness {
         // against the level's own directory instead of used as-is).
         sim.set_level_source(Box::new(ember2d::level_source::FsLevelSource));
         let (viewport_width, viewport_height) = (80, 24);
-        sim.on_start(&mut world, viewport_width, viewport_height, &mut persistent);
+        let logs = sim.on_start(&mut world, viewport_width, viewport_height, &mut persistent);
 
         TurnHarness {
             world,
@@ -110,6 +114,7 @@ impl TurnHarness {
             viewport_width,
             viewport_height,
             pending_level: None,
+            logs,
         }
     }
 
@@ -130,7 +135,7 @@ impl TurnHarness {
         // must happen before `on_start`.
         sim.set_level_source(Box::new(ember2d::level_source::FsLevelSource));
         let (viewport_width, viewport_height) = (80, 24);
-        sim.on_start(&mut world, viewport_width, viewport_height, &mut persistent);
+        let logs = sim.on_start(&mut world, viewport_width, viewport_height, &mut persistent);
 
         TurnHarness {
             world,
@@ -140,6 +145,7 @@ impl TurnHarness {
             viewport_width,
             viewport_height,
             pending_level: None,
+            logs,
         }
     }
 
@@ -180,6 +186,7 @@ impl TurnHarness {
         if outcome.pending_level.is_some() {
             self.pending_level = outcome.pending_level;
         }
+        self.logs.extend(outcome.logs);
         let turn_triggered = outcome.turn_triggered;
 
         // Mirrors `ember2d::sim::step`'s TurnBased branch: the late phase
@@ -204,6 +211,7 @@ impl TurnHarness {
             if late_outcome.pending_level.is_some() {
                 self.pending_level = late_outcome.pending_level;
             }
+            self.logs.extend(late_outcome.logs);
         }
 
         self.elapsed += HARNESS_DT;
