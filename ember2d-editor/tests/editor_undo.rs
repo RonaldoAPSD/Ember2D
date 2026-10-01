@@ -442,6 +442,47 @@ fn switching_levels_with_unsaved_edits_confirms_first() {
     assert_eq!(h.state.grid().width, 4, "confirming must actually load the other (4-wide) level");
 }
 
+/// R104: confirming "Switch Level?" with a mouse click on [ YES ] (which
+/// sits over the canvas) used to paint the selected tile onto the NEW
+/// level under the mouse while the button was still held — the freshly
+/// loaded level showed as edited before anyone touched it.
+#[test]
+fn r104_clicking_yes_to_switch_levels_does_not_paint_on_the_new_level() {
+    ensure_workspace_root_cwd(); // before EditorState::new, below — see its own doc comment
+    let dir = std::env::temp_dir()
+        .join(format!("ember2d-{}", std::process::id()))
+        .join("r104_switch_level_click_bleed");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+    // Big enough that [ YES ] lands over one of its cells.
+    ember2d_editor::editor::grid::LevelGrid::new(60, 40)
+        .to_level_data()
+        .save(dir.join("other.level").to_str().unwrap())
+        .expect("seed level must save");
+
+    let current_path = dir.join("current.level").to_string_lossy().into_owned();
+    let mut h = EditorHarness::with_state(ember2d_editor::editor::EditorState::new(&current_path));
+    h.state.open_project_folder(dir.to_string_lossy().into_owned());
+    let (cx, cy) = canvas_pixel_for_grid(&h, 5, 5);
+    h.click(cx, cy); // an unsaved edit, so switching confirms
+    select_dock_tab(&mut h, ember2d_editor::editor::panel::PanelId::FileBrowser);
+    let row = h.state.ui_frame().rect_of(WidgetId::FileBrowserRow(0)).expect("row drawn");
+    h.click(row.x + 1.0, row.y + 1.0);
+    assert!(matches!(h.state.mode(), EditorMode::Modal(_)));
+
+    let yes = h.state.ui_frame().rect_of(WidgetId::ConfirmYes).expect("[ YES ] drawn");
+    let (yx, yy) = h.state.ui_space().to_logical(yes.x + yes.w * 0.5, yes.y + yes.h * 0.5);
+    h.press_left_at(yx, yy);
+    h.move_held(yx, yy); // a real click is held for a few frames
+    h.move_held(yx, yy);
+    h.release_left();
+    h.frame();
+
+    assert_eq!(h.state.grid().width, 60, "the switch happened");
+    assert!(!h.state.unsaved(), "R104: the freshly loaded level is untouched");
+    assert_eq!(h.state.undo_len(), 0);
+}
+
 // ── Repro: user report, 2026-09-12 — switching levels with an unsaved
 // script edit (no grid edit at all) silently discards it ──────────────────
 

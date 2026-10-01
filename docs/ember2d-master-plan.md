@@ -182,7 +182,7 @@ start screen's New/Open Project browsers start from.
 | 7D | Theme and restyle | `[x]` `v0.5.7d` — A.13 (7D-1/7D-4's own deferred remainder — `themes/ember-pixel` — stays unbuilt by design, not a gap; R88/R89 and the `UI Scale: 1.5x` follow-up landed as part of this same closing pass) |
 | 7E | Editor features | `[-]` deferred, 2026-09-13 (by user direction) — §5.5. Feature/UX polish (rulers, Inspector 2.0, toasts, command palette, rendering perf, undo audit) rather than refactoring work; revisit as a future update, not blocking the phase sequence below |
 | 7.5 | Scripting completeness | `[~]` — §5.6: all 13 steps `[x]`; gate open, awaiting the user's live checklist §11–§13 pass (shooter LOC exception accepted 2026-09-29) |
-| 8 | Tilemap, assets, animation authoring | `[ ]` — §5.7 |
+| 8 | Tilemap, assets, animation authoring | `[~]` — §5.7: all 4 steps `[x]`; gate pass run 2026-10-01 (automated + live, R103/R104/R106 fixed in it), awaiting the user's OK to tag `v0.5.9` |
 | 9 | Scene and UI layer + RPG demo | `[ ]` — §5.8 |
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
@@ -410,9 +410,14 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R97 | S4 | Keyboard-shortcuts overlay: the "Press ? or Esc to close" hint is drawn on top of the LEVEL column heading (fixed y, not laid out after the columns) | `ember2d-editor/src/editor/ui/panels/modals.rs:632` | `[ ]` unscheduled |
 | R98 | S4 | Stats panel counts tiles per palette def by `def.tag`, but the default palette's defs all have an empty tag — so every category reads 0 on a real level while Total (2,569 on floor2) is right | `ember2d-editor/src/editor/ui/panels/dock.rs:241` | `[ ]` unscheduled |
 | R99 | S3 | View → API Docs runs `cmd /C start index.html` relative to CWD; no `index.html` exists anywhere in the repo, so the menu item silently does nothing (no error surfaced) | `ember2d-editor/src/editor/impl_state/mod.rs:649-660` | `[ ]` unscheduled — point it at `docs/ember2d-scripting-api.md` or remove the item |
-| R100 | S4 | Two editor observations not root-caused in the 8-1 live pass: (1) toggling the grid (Tab / View → Grid) showed no visible overlay in either build; (2) the Files panel shows ~5 rows with no scroll affordance, so a project's `.level` files can sit below the fold with no hint they exist | `impl_render/mod.rs:265` (grid), Files panel | `[ ]` unscheduled — investigate before fixing; may be by design |
+| R100 | S4 | Two editor observations not root-caused in the 8-1 live pass: (1) toggling the grid (Tab / View → Grid) showed no visible overlay in either build; (2) the Files panel shows ~5 rows with no scroll affordance, so a project's `.level` files can sit below the fold with no hint they exist | `impl_render/mod.rs:265` (grid), Files panel | `[ ]` unscheduled — (1) diagnosed in the Phase 8 gate pass: the grid IS drawn, but under the tiles, so it only shows outside the level's bounds or between glyphs at higher zoom. Investigate before fixing; may be by design |
 | R101 | S3 | Paint tool: the "already the same tile" check compared only glyph/solid/trigger/tag, never `sprite` (8-2) or `clip` (8-3) — two sprite entries sharing a fallback glyph (`brick`/`barrel`, both 'b') counted as identical, so painting one over the other silently did nothing. Found while building 8-4 | `ember2d-editor/src/editor/input/canvas.rs` (left-click paint) | `[x]` 8-4 (`cb467bf`) — the check compares `sprite` and `clip` too; test `r101_painting_a_sprite_over_another_with_the_same_glyph_replaces_it` |
 | R102 | S3 | Tileset importer: the copied sheet was always named `<name>.png`, whatever the source format — a JPG/BMP/GIF sheet became a `.png` file its loader refuses ("Invalid PNG signature"), so the import "succeeded" and every tile drew its fallback glyph. Confirmed by loading a JPG copied to a `.png` name. Found while building 8-4 (which routes any dropped image to the importer) | `ember2d-editor/src/editor/importer.rs` (`to_tileset`) | `[x]` 8-4 (`cb467bf`) — the copy keeps the source's extension; test `r102_a_non_png_sheet_keeps_its_extension` |
+| R103 | S3 | Paste mode: H is "flip X" (`handle_paste_input`), but the global shortcut handler ran too and toggled the Hierarchy panel on every flip — the docked panel vanished and the canvas jumped left under the cursor. Found in the Phase 8 gate's live pass | `ember2d-editor/src/editor/input/shortcuts.rs` (H) | `[x]` Phase 8 gate (`HASHGATE`) — H toggles the Hierarchy only outside Paste mode; test `r103_flipping_a_paste_with_h_does_not_hide_the_hierarchy` (new `tests/editor_clipboard.rs`, which also covers copy/flip/rotate/cut, previously untested) |
+| R104 | S2 | Confirming "Switch Level?" by CLICKING [ YES ] (which sits over the canvas) painted the selected palette tile onto the newly loaded level under the mouse while the button was still held — the fresh `EditorState` started with `ignore_drag: false`. The new level opened already modified (`*`, one undo step). Confirming with the Y key was clean. Found in the Phase 8 gate's live pass | `ember2d-editor/src/editor/impl_state/mod.rs` (`switch_to_level`) | `[x]` Phase 8 gate (`HASHGATE`) — `switch_to_level` sets `ignore_drag`; test `r104_clicking_yes_to_switch_levels_does_not_paint_on_the_new_level` |
+| R105 | S4 | Start screen (never themed, R80): New Project step 1's hint line runs past the dialog's right border and step 4's footer is clipped at the window edge; on the main menu, a mouse resting over an item re-selects it every frame, so Up/Down does nothing until the mouse moves | `ember2d-editor/src/editor/start_screen/` | `[ ]` unscheduled |
+| R106 | S3 | File > Close Project QUIT the app when the editor was launched as `ember2d --editor path/to.level` — `main.rs` dropped `run_editor_app`'s "back to start" result in that branch (only the no-argument launch reached the start screen). Found in the Phase 8 gate's live pass | `ember2d-app/src/main.rs` | `[x]` Phase 8 gate (`HASHGATE`) — both launch paths share `run_start_screen` and one `after_editor` rule; test `r106_close_project_goes_to_the_start_screen_and_quit_exits`; live re-check reached the start screen |
+| R107 | S4 | Editor chrome cosmetics seen in the Phase 8 gate pass, all pre-existing (identical on the pre-8-2 binary where checked): the palette editor's and colour picker's labels start ~8 pt left of their frame; a long save path in the title-bar flash overlaps the "EMBER2D EDITOR" label; the node graph's Add Node menu isn't clamped to the window bottom when opened low (rows run off-screen; opened higher it scrolls with "v more"); the confirm modal ignores Enter although [ YES ] is drawn as the default; dock-tab and hierarchy context menus draw a blank first row | various `ember2d-editor/src/editor/ui/` | `[ ]` unscheduled |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -4918,6 +4923,34 @@ a tile.
 
 **Phase 8 gate:** §0.5, checklist §4, §7, §11; tag `v0.5.9`.
 
+- **Gate pass (2026-10-01, by the agent; not tagged — tagging waits on the
+  user, and `v0.5.8` (Phase 7.5) is itself still untagged):**
+  - Automated: 538 tests pass (`cargo test --workspace`); clippy
+    `--all-targets` 192 with a message-by-message diff showing zero new
+    warnings across 8-1..8-4; `scripts/check.ps1` clean; `tests/replay.rs`
+    5× as independent processes, identical; `bench_sim --release` clean
+    (floor2 0.009 ms/step, 70 allocs/step; synthetic n=10,000 0.064 ms).
+  - Live (real exe, synthetic input, screenshots): checklist §1 (launch,
+    bad path, usage), §3 (New Project wizard end to end, Open Project,
+    Quit), §4 (paint/drag, erase, eraser sizes, Shift-rect, line, flood,
+    Alt-scatter, layers, wheel zoom, middle-drag pan, arrows, Home), §5
+    (copy, paste, flip, cut, undo/redo, redo cleared by a new edit, save
+    then undo re-marks unsaved), §6 (inspector, solid toggle, tag / exit
+    prompts, rename (moves the file), resize, set spawn, the unsaved
+    "Switch Level?" modal both ways), §7 (palette search, palette editor,
+    HSV picker, save to `project.palette.ron` and reload), §8 (open a
+    script, syntax-error highlight, undo, find, new script), §9 (all seven
+    menus, stats, grid/physics overlays, help, undock a panel, three
+    context menus, UI scale 2x applied live and persisted, Close
+    Project), §10 (graph editor: add two nodes, wire them, undo back in
+    the editor), §11/§12 (F5, F3 overlay, pause, Back to Editor (keyboard —
+    the pause menu has no mouse support), floor2 rats waking, combat,
+    potion, the shooter's countdown/wave/shooting), plus every Phase 8
+    feature (tilemap 200x200 stress at 60 FPS, importer, clip editor,
+    asset thumbnails/preview/drag, and clip + sprite tiles in play).
+  - Found and fixed in this pass: R103, R104, R106 (`HASHGATE`). Logged,
+    unscheduled: R105, R107; R100's grid half diagnosed.
+
 ---
 
 ### 5.8 `[ ]` Phase 9 — Scene and UI layer, and the RPG demo
@@ -5204,7 +5237,7 @@ the commit message. "Appearance unchanged" is a claim that needs evidence.
 | `v0.5.7d` | Phase 7D | 2026-09-13 | 381, same as `v0.5.7c` (tagged together — R88/R89 and the `UI Scale: 1.5x` follow-up landed as part of this same closing pass) | 43/55, unchanged from `v0.5.7c` | not re-measured (no sim-path change) | local only, same as `v0.5.7c` |
 | `v0.5.7` | Phase 7E | | | | | |
 | `v0.5.8` | Phase 7.5 | *pending — not tagged, see §5.6's own gate note* | 455 (was 381 at `v0.5.7d`) | 217 at `--all-targets` (was 55 at `v0.5.7d`; the jump is almost entirely 7.5-9's new `disallowed_types`/`disallowed_methods` lint categories firing on pre-existing lookup-only `HashMap`/`HashSet` and test-only `std::fs` use — R91/R92, already tracked, unscheduled — not a regression: message-by-message diffing at every step since 7.5-9 found zero new warnings from that step's own changes) | not re-measured (no sim-path perf change across 7.5) | local only — CI still blocked by the account billing lock (R37/R40) |
-| `v0.5.9` | Phase 8 | | | | | |
+| `v0.5.9` | Phase 8 | *pending — gate pass run 2026-10-01, see §5.7; awaiting the user's OK* | 538 | 192 at `--all-targets`, zero new across 8-1..8-4 | floor2 0.009 ms/step, 70 allocs/step (`bench_sim --release`) | local only — CI still blocked by the account billing lock (R37/R40) |
 | `v0.5.10` | Phase 9 | | | | | |
 | `v0.5.11` | Phase 10 | | | | | |
 | `v0.6.0` | Phase 11 | | | | | |

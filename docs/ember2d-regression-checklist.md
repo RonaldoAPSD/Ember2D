@@ -62,27 +62,27 @@ place to notice if it doesn't.
 
 ## 3. Start screen and projects
 
-- [ ] Create project: name, visual style, gameplay loop all selectable
-- [ ] `project.ron` written with all four fields
+- [✓] Create project: name, visual style, gameplay loop all selectable (8 gate, 2026-10-01)
+- [✓] `project.ron` written with all four fields (8 gate, 2026-10-01)
 - [ ] `BasicRoom` template generates walls, floor, centred spawn
-- [ ] Empty template gives a blank grid
-- [ ] Open project lists folders with `project.ron` or any `.level`
+- [✓] Empty template gives a blank grid (8 gate, 2026-10-01)
+- [✓] Open project lists folders with `project.ron` or any `.level` (8 gate, 2026-10-01)
 - [ ] Project name falls back to folder name when `project.ron` is missing
-- [ ] `project.palette.ron` loads if present
-- [ ] Escape exits cleanly
+- [✓] `project.palette.ron` loads if present (8 gate, 2026-10-01)
+- [✓] Escape exits cleanly — Esc backs out of every wizard/browser screen; the main menu itself has no Esc (its Quit item exits cleanly) (8 gate, 2026-10-01)
 
 ## 4. Editor — painting and tools
 
-- [ ] Left-click/drag paints; right-click/drag erases
-- [ ] Eraser brush size cycles 1 → 3 → 5
-- [ ] Rectangle fill, line tool (Bresenham), flood fill
-- [ ] Scatter paint
-- [ ] Palette selection by number and by click
-- [ ] **Layers:** active layer switching; painting only affects the active layer
+- [✓] Left-click/drag paints; right-click/drag erases (8 gate, 2026-10-01)
+- [✓] Eraser brush size cycles 1 → 3 → 5 (8 gate, 2026-10-01)
+- [✓] Rectangle fill, line tool (Bresenham), flood fill (8 gate, 2026-10-01)
+- [✓] Scatter paint (8 gate, 2026-10-01)
+- [✓] Palette selection by number and by click (8 gate, 2026-10-01)
+- [✓] **Layers:** active layer switching; painting only affects the active layer (8 gate, 2026-10-01)
 - [ ] Tiles on different layers at the same (x, y) coexist
-- [ ] **Zoom** in/out; painting lands on the correct tile at every zoom level
-- [ ] Smooth scroll/pan reaches the target and clamps at bounds
-- [ ] Middle-drag pans
+- [✓] **Zoom** in/out; painting lands on the correct tile at every zoom level (8 gate, 2026-10-01)
+- [✓] Smooth scroll/pan reaches the target and clamps at bounds (8 gate, 2026-10-01)
+- [✓] Middle-drag pans (8 gate, 2026-10-01)
 
 ## 5. Editor — clipboard and undo
 
@@ -90,18 +90,18 @@ place to notice if it doesn't.
 tile-shaped. The script editor's text clipboard/undo, added 7C-8, is a
 completely separate system — checked in §8 instead.)*
 
-- [ ] Copy-select, cut-select, paste
-- [ ] Paste flip-X, flip-Y, rotate CW/CCW
-- [ ] Undo/redo single edits
+- [✓] Copy-select, cut-select, paste (8 gate, 2026-10-01)
+- [✓] Paste flip-X, flip-Y, rotate CW/CCW — found R103 (H also hid the Hierarchy), fixed (8 gate, 2026-10-01)
+- [✓] Undo/redo single edits (8 gate, 2026-10-01)
 - [ ] Rect fill, line, flood fill, paste, multi-erase each undo as **one** batch
-- [ ] Redo stack clears after a new edit
-- [ ] Undo after save re-marks unsaved
+- [✓] Redo stack clears after a new edit (8 gate, 2026-10-01)
+- [✓] Undo after save re-marks unsaved (8 gate, 2026-10-01)
 
 ## 6. Editor — properties and inspector
 
-- [ ] Rename level; resize level (tiles outside new bounds dropped, spawns clamped)
+- [✓] Rename level; resize level (tiles outside new bounds dropped, spawns clamped) (8 gate, 2026-10-01)
 - [ ] Attach script path to a tile; set tag; set glyph; set next-level exit
-- [ ] Toggle solid / trigger
+- [✓] Toggle solid / trigger (8 gate, 2026-10-01)
 - [ ] Set collider layer and collider mask on a tile and on the player
 - [ ] Save, close, and reopen a level whose tiles use non-default collider
       layers/masks — layer/mask filtering behavior survives the round trip
@@ -112,23 +112,23 @@ completely separate system — checked in §8 instead.)*
 - [ ] Player properties: glyph, tag, script, camera follow, texture
 - [ ] Move player spawn; add named spawn
 - [ ] Text input: typing, backspace, Enter, Escape — for every `TextInputPurpose`
-- [ ] Modal confirm (switch level with unsaved changes) behaves correctly
+- [✓] Modal confirm (switch level with unsaved changes) behaves correctly — found R104 (clicking [ YES ] painted on the new level), fixed (8 gate, 2026-10-01)
 
 ## 7. Editor — palette
 
-- [ ] Palette scrolls; search field focuses and filters
-- [ ] Palette editor opens; name/tag/glyph fields editable
-- [ ] HSV colour picker sets fg and bg; custom colour entry works
-- [ ] Palette saves to `project.palette.ron` and reloads
+- [✓] Palette scrolls; search field focuses and filters (8 gate, 2026-10-01)
+- [✓] Palette editor opens; name/tag/glyph fields editable (8 gate, 2026-10-01)
+- [✓] HSV colour picker sets fg and bg; custom colour entry works (8 gate, 2026-10-01)
+- [✓] Palette saves to `project.palette.ron` and reloads (8 gate, 2026-10-01)
 
 ## 8. Editor — script editor
 
-- [ ] Open a `.rhai` file in the built-in editor
+- [✓] Open a `.rhai` file in the built-in editor (8 gate, 2026-10-01)
 - [ ] Type, navigate with cursor keys, scroll
-- [ ] Save; unsaved indicator clears
-- [ ] Create a new script from the file browser
+- [✓] Save; unsaved indicator clears (8 gate, 2026-10-01)
+- [✓] Create a new script from the file browser (8 gate, 2026-10-01)
 - [ ] Edited script takes effect on next play
-- [ ] Saving a script with a syntax error highlights the erroring line and
+- [✓] Saving a script with a syntax error highlights the erroring line and
       shows the message; fixing it and saving again clears both (7C-7)
 - [ ] Leaving the script unsaved and idle for ~1s also triggers the same
       check, with no explicit save (7C-7)
@@ -152,20 +152,20 @@ completely separate system — checked in §8 instead.)*
 ## 9. Editor — panels, menus, files
 
 - [ ] Panels dock, undock, resize, toggle, focus
-- [ ] Panels don't swallow canvas clicks
-- [ ] Menu bar opens; context menus on file browser, tabs, hierarchy
-- [ ] `Theme > UI Scale` (7D-3, docs/ember2d-master-plan.md §5.4): `Auto`/`1x`/`2x`/`3x`/`4x` entries listed after a separator, checkmark on the active one; picking one takes effect immediately (no restart) and persists across a restart (`%APPDATA%\Ember2D\editor_prefs.ron` on Windows). Every panel, bar, dock tab, modal, and the script editor (docked and fullscreen) visibly scales; the level canvas/viewport content does not. A click on any chrome widget still lands correctly at a non-default scale, including one that diverges from the display's own DPI-derived render scale (e.g. `1x` on a 200%-scaled display) — dragging/resizing a panel, opening a dropdown, clicking a file-browser row all still work. A floating (undocked) panel stays fully on-screen after changing scale, even if it was previously positioned near an edge. Chrome text overlapping at an extreme scale on a small window (e.g. `4x` at 1280×720) is expected, not a failure — a mis-click somewhere the overlapping text visually suggests IS one
-- [ ] File browser navigates folders; creates `.level`, `.rhai`, folders
+- [✓] Panels don't swallow canvas clicks (8 gate, 2026-10-01)
+- [✓] Menu bar opens; context menus on file browser, tabs, hierarchy (8 gate, 2026-10-01)
+- [✓] (8 gate, 2026-10-01: 2x applied live and persisted) `Theme > UI Scale` (7D-3, docs/ember2d-master-plan.md §5.4): `Auto`/`1x`/`2x`/`3x`/`4x` entries listed after a separator, checkmark on the active one; picking one takes effect immediately (no restart) and persists across a restart (`%APPDATA%\Ember2D\editor_prefs.ron` on Windows). Every panel, bar, dock tab, modal, and the script editor (docked and fullscreen) visibly scales; the level canvas/viewport content does not. A click on any chrome widget still lands correctly at a non-default scale, including one that diverges from the display's own DPI-derived render scale (e.g. `1x` on a 200%-scaled display) — dragging/resizing a panel, opening a dropdown, clicking a file-browser row all still work. A floating (undocked) panel stays fully on-screen after changing scale, even if it was previously positioned near an edge. Chrome text overlapping at an extreme scale on a small window (e.g. `4x` at 1280×720) is expected, not a failure — a mis-click somewhere the overlapping text visually suggests IS one
+- [✓] File browser navigates folders; creates `.level`, `.rhai`, folders (8 gate, 2026-10-01)
 - [ ] Native file dialog (`rfd`) opens where wired
-- [ ] Grid overlay, physics overlay, help screen toggles; Escape closes help
-- [ ] Console shows script log; auto-opens on errors
-- [ ] Save, Save-As, New, Open, Close Project — **known gap, see D18** (§14): saving scrambles the level's tile order (`LevelGrid.tiles` is a `HashMap`, not sorted before writing `LevelData.tiles`). Not a reason to fail this item — tile *content* survives correctly, only *order* is unspecified — but don't use an editor-saved level to check for a clean diff, and re-run `cargo run --example gen_roguelike` if a `demos/roguelike/*.level` file gets touched by the editor.
+- [✓] Grid overlay, physics overlay, help screen toggles; Escape closes help — the grid draws under tiles (R100) (8 gate, 2026-10-01)
+- [✓] Console shows script log; auto-opens on errors (8 gate, 2026-10-01)
+- [✓] (8 gate, 2026-10-01: Save, New Script, Close Project — found R106, Close Project quit the app after an `--editor <level>` launch, fixed) Save, Save-As, New, Open, Close Project — **known gap, see D18** (§14): saving scrambles the level's tile order (`LevelGrid.tiles` is a `HashMap`, not sorted before writing `LevelData.tiles`). Not a reason to fail this item — tile *content* survives correctly, only *order* is unspecified — but don't use an editor-saved level to check for a clean diff, and re-run `cargo run --example gen_roguelike` if a `demos/roguelike/*.level` file gets touched by the editor.
 
 ## 10. Editor — node graph
 
 Only until visual scripting is shelved. Afterwards, confirm old levels with graphs still load.
 
-- [ ] Graph editor opens for a tile; add/drag/connect/delete nodes
+- [✓] Graph editor opens for a tile; add/drag/connect/delete nodes (8 gate, 2026-10-01)
 - [ ] Inline parameter editing; node copy/paste
 - [ ] Graph saves into the `.level` and reloads
 - [ ] Generated Rhai runs in play mode
@@ -173,7 +173,7 @@ Only until visual scripting is shelved. Afterwards, confirm old levels with grap
 ## 11. Play mode
 
 - [✓] F5 enters play; Escape opens the pause menu (7B gate, 2026-09-07)
-- [ ] F5 from the editor shows ONLY the play screen — no editor panels,
+- [✓] F5 from the editor shows ONLY the play screen — no editor panels,
       bars, dock tabs, or the editor's own viewport bleeding through where
       play draws nothing (R51, master plan §3.2: the paused editor used to
       be drawn underneath every preview). Esc's pause panel draws OVER the
@@ -275,8 +275,8 @@ this step, not on a script explicitly flagging one.
 - [ ] Scripts still run each frame in turn mode (current behaviour — confirmed intended: it's what lets a rat's hp/death check and a stairs tile's lock-state update every frame, even between player turns)
 - [ ] One keypress moves the player exactly one cell and advances exactly one turn — no double-moves on a slow frame, no dropped presses on a fast one (automated: `tests/roguelike_floor1.rs`)
 - [ ] Enemies visibly act on the frame(s) *after* your turn, not the same frame — should read as "they wait for you," not simultaneous. As of Step 5f each enemy resolves its own turn on its own frame (`TurnScheduler`'s "one actor per step"), so a floor with several enemies takes that many extra frames to finish a round — at 60fps this should still read as instantaneous, not as a visible stagger
-- [ ] An asleep enemy (no line of sight yet, Step 4h's amendment) visibly does nothing until it wakes — tinted differently while asleep vs. awake (`DarkRed`/`DarkMagenta` vs `Red`/`Magenta`)
-- [ ] Waiting (Space) and quaffing (Q) both visibly cost a turn, same as moving does
+- [✓] An asleep enemy (no line of sight yet, Step 4h's amendment) visibly does nothing until it wakes — tinted differently while asleep vs. awake (`DarkRed`/`DarkMagenta` vs `Red`/`Magenta`)
+- [✓] Waiting (Space) and quaffing (Q) both visibly cost a turn, same as moving does
 - [ ] Death screen appears the instant hp reaches 0; R restarts from floor 1
 - [ ] A rat/boss's move visibly slides one cell rather than teleporting (Phase 5.5 Part 3's animation queue, `docs/ember2d-phase5.5-plan.md` — `enemy.rhai` calls `ctx.animate_move` alongside `ctx.set_position`); the player's own movement is deliberately left un-animated (instant, as before) — not a bug if it looks different from an enemy's move
 - [ ] The SAME actor's next turn does not advance while its own move animation is still playing (no double-move, no enemy acting twice on top of itself) — automated: `tests/turn_animation.rs`

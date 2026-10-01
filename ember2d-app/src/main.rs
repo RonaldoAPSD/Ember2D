@@ -69,7 +69,20 @@ fn main() -> io::Result<()> {
             if !path.is_empty() {
                 editor.open_project_folder(project_dir.to_string_lossy().into_owned());
             }
-            run_editor_app(&mut engine, editor, play_gameplay_loop, pixels_per_unit, turn_model)?;
+            let back_to_start = run_editor_app(
+                &mut engine,
+                editor,
+                play_gameplay_loop,
+                pixels_per_unit,
+                turn_model,
+            )?;
+            // R106 (§3 in the master plan): this return value used to be
+            // dropped, so File > Close Project quit the whole app when the
+            // editor had been launched as `--editor path/to.level` (it only
+            // reached the start screen when launched with no arguments).
+            if after_editor(back_to_start) == AfterEditor::StartScreen {
+                run_start_screen(&mut engine)?;
+            }
         } else if !path.is_empty() {
             let data = match LevelData::load(&path) {
                 Ok(d) => d,
@@ -96,54 +109,83 @@ fn main() -> io::Result<()> {
             print_usage();
         }
     } else {
-        loop {
-            engine.reset_world();
-            // The start screen is chrome, not gameplay — it always runs
-            // realtime (D6), same as the editor. This also undoes whatever
-            // `run_editor_app` last set while play mode was active.
-            engine.gameplay_loop = GameplayLoop::RealTime;
-            engine.push_state(Box::new(StartScreen::new()));
+        run_start_screen(&mut engine)?;
+    }
+    Ok(())
+}
 
-            match engine.run()? {
-                Some(Transition::ToEditorWithResult(res)) => {
-                    engine.pop_state(); // Pop start screen
-                    if let Ok(editor) =
-                        EditorState::new_from_result(res).map(|e| e.with_prefs(PrefsStore::user()))
-                    {
-                        let folder =
-                            editor.project_folder.clone().unwrap_or_else(|| ".".to_string());
-                        let mut play_gameplay_loop = GameplayLoop::RealTime;
-                        let mut pixels_per_unit = project::default_pixels_per_unit();
-                        let mut turn_model = TurnModel::default();
-                        if let Ok(proj) = ProjectData::load(&folder) {
-                            if proj.visual_style == VisualStyle::Sprites2D {
-                                engine.renderer.set_sprite_mode(true);
-                            } else {
-                                engine.renderer.set_sprite_mode(false);
-                            }
-                            play_gameplay_loop = proj.gameplay_loop;
-                            pixels_per_unit = proj.pixels_per_unit;
-                            turn_model = proj.turn_model;
+/// The start screen, then whatever it opens, round and round until the user
+/// quits. Its own function since R106 (master plan §3): both the no-argument
+/// launch and an editor launched with `--editor path/to.level` end up here —
+/// the latter once the user picks File > Close Project.
+fn run_start_screen(engine: &mut Engine) -> io::Result<()> {
+    loop {
+        engine.reset_world();
+        // The start screen is chrome, not gameplay — it always runs
+        // realtime (D6), same as the editor. This also undoes whatever
+        // `run_editor_app` last set while play mode was active.
+        engine.gameplay_loop = GameplayLoop::RealTime;
+        engine.push_state(Box::new(StartScreen::new()));
+
+        match engine.run()? {
+            Some(Transition::ToEditorWithResult(res)) => {
+                engine.pop_state(); // Pop start screen
+                if let Ok(editor) =
+                    EditorState::new_from_result(res).map(|e| e.with_prefs(PrefsStore::user()))
+                {
+                    let folder = editor.project_folder.clone().unwrap_or_else(|| ".".to_string());
+                    let mut play_gameplay_loop = GameplayLoop::RealTime;
+                    let mut pixels_per_unit = project::default_pixels_per_unit();
+                    let mut turn_model = TurnModel::default();
+                    if let Ok(proj) = ProjectData::load(&folder) {
+                        if proj.visual_style == VisualStyle::Sprites2D {
+                            engine.renderer.set_sprite_mode(true);
+                        } else {
+                            engine.renderer.set_sprite_mode(false);
                         }
-                        if !run_editor_app(
-                            &mut engine,
-                            editor,
-                            play_gameplay_loop,
-                            pixels_per_unit,
-                            turn_model,
-                        )? {
-                            break;
-                        } // Quit from editor
+                        play_gameplay_loop = proj.gameplay_loop;
+                        pixels_per_unit = proj.pixels_per_unit;
+                        turn_model = proj.turn_model;
+                    }
+                    let back_to_start = run_editor_app(
+                        engine,
+                        editor,
+                        play_gameplay_loop,
+                        pixels_per_unit,
+                        turn_model,
+                    )?;
+                    if after_editor(back_to_start) == AfterEditor::Exit {
+                        break; // Quit from editor
                     }
                 }
-                Some(Transition::Quit) | None => break,
-                _ => {
-                    engine.pop_state();
-                }
+            }
+            Some(Transition::Quit) | None => break,
+            _ => {
+                engine.pop_state();
             }
         }
     }
     Ok(())
+}
+
+/// What the app does once the editor returns.
+#[derive(Debug, PartialEq)]
+enum AfterEditor {
+    /// File > Close Project: back to the start screen.
+    StartScreen,
+    /// Quit (window closed, or the editor's own Quit).
+    Exit,
+}
+
+/// R106: `run_editor_app`'s `true` ("back to start", Close Project) means
+/// the start screen however the editor was launched — the one rule both
+/// call sites now share instead of each reading the bool its own way.
+fn after_editor(back_to_start: bool) -> AfterEditor {
+    if back_to_start {
+        AfterEditor::StartScreen
+    } else {
+        AfterEditor::Exit
+    }
 }
 
 fn print_usage() {
@@ -152,4 +194,15 @@ fn print_usage() {
     println!("  ember2d --editor             (Launch the editor start screen)");
     println!("  ember2d --editor file.level  (Open a specific level in the editor)");
     println!("  ember2d file.level           (Play a level directly)");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn r106_close_project_goes_to_the_start_screen_and_quit_exits() {
+        assert_eq!(after_editor(true), AfterEditor::StartScreen);
+        assert_eq!(after_editor(false), AfterEditor::Exit);
+    }
 }

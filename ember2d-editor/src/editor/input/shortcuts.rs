@@ -125,7 +125,10 @@ impl EditorState {
         if input.just_pressed(Key::B) {
             self.panels.toggle(PanelId::Palette);
         }
-        if input.just_pressed(Key::H) {
+        // R103 (§3 in the master plan): in Paste mode H is "flip X"
+        // (`handle_paste_input`, which runs first) — it used to ALSO fall
+        // through to here and hide the Hierarchy panel on every flip.
+        if input.just_pressed(Key::H) && !matches!(self.mode, EditorMode::Paste) {
             self.panels.toggle(PanelId::Hierarchy);
         }
         if input.just_pressed(Key::Tab) {

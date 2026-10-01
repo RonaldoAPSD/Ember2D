@@ -59,6 +59,14 @@ impl EditorState {
             self.prefs = ns.prefs;
             self.prefs_store = ns.prefs_store;
             self.ui_space = ns.ui_space;
+            // R104 (§3 in the master plan): the click that got us here —
+            // the "Switch Level?" modal's [ YES ], which sits over the
+            // canvas — is usually still held for a few frames, and the
+            // freshly loaded state started with `ignore_drag: false`, so
+            // the paint tool stamped the selected tile onto the NEW level
+            // under the mouse (an unsaved edit nobody made). Same guard
+            // every other chrome click sets.
+            self.ignore_drag = true;
         }
     }
 
