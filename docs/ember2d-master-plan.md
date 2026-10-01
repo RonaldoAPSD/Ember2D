@@ -427,8 +427,8 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R113 | S2 | Export Game dropped a project's `scenes/` folder (9-1's scene scripts), its `art/` folder (loose images 8-4 imports) and the node-graph sidecar scripts (`<level>_graph_x_y_l.rhai`) that sit beside the levels — an exported game lost its custom pause scene, images and every graph tile's logic. Found reviewing export for Step 9-6 | `ember2d-editor/src/editor/impl_state/export.rs` | `[x]` 9-6 (`239db6c`) — the copy is `copy_project_files` (testable without the OS folder picker) and takes all three; test `r113_export_copies_scenes_art_and_graph_sidecars` |
 | R114 | S3 | File > New Script into a folder that didn't exist yet (`scripts/ai.rhai` in a fresh project) did nothing at all — `fs::write` failed and its error was discarded. Found building Step 9-6's New Scene | `ember2d-editor/src/editor/input/text.rs` (`NewScriptName`) | `[x]` 9-6 (`239db6c`) — `create_project_file` makes the folders and reports any failure; test `r114_new_script_creates_the_folder_it_names` |
 | R115 | S2 | A project only worked when the game ran from the repo root: every shipped level, demo script and generator used repo-relative paths (`demos/roguelike/scripts/player.rhai`, `play_sound("demos/roguelike/audio/hurt.ogg")`), `resolve_exit_path` tried the working directory FIRST, `set_script`/`set_texture` paths weren't resolved at all, and sounds were loaded from the working directory — so a copied or exported project silently ran (or failed to find) the ORIGINAL repo's files | `ember2d-sim/src/simulation.rs` (`resolve_exit_path`), `scripting/apply.rs`, `ember2d/src/play/outcome.rs`, the demos and generators | `[x]` 9-6 (`239db6c`) — paths are project-relative and resolve beside the level, then up to the project root, then the working directory (old paths still load); tests `r115_a_copied_project_runs_its_own_scripts_and_finds_its_own_audio` plus 5 unit tests of the search order |
-| R116 | S2 | A script that compiled in a release build failed to compile in a debug one ("expression exceeds maximum complexity"): Rhai's expression-depth and call-level limits default to 32/16/8 in debug builds and 64/32/64 in release, and the engine set neither — the RPG demo's battle script (a 4-deep `if` inside a `switch` inside a function) hit it. A game that works for players broke for its own developer | `ember2d-sim/src/scripting/engine.rs` (`ScriptEngine::new`), `ember2d-editor/src/editor/impl_state/mod.rs` (`check_script_syntax`) | `[x]` 9-8 — `apply_script_limits` sets 64/32 expressions and 64 call levels on both engines; test `r116_a_script_compiles_the_same_in_a_debug_build_as_in_release` |
-| R117 | S3 | The Fill tool told tiles apart by glyph, solid and tag only. An imported tileset region's glyph is its name's first letter, so `grass` and `grass_b` (both 'g') counted as the same tile: filling `grass_b` over `grass` did nothing at all, and a fill spread across both. Found replaying the RPG tutorial in a fresh project | `ember2d-editor/src/editor/impl_state/mod.rs` (`flood_fill`) | `[x]` 9-8 — compares everything a palette entry paints (`palette::same_paint`: glyph, colours, solid, trigger, tag, sprite, clip); test `r117_fill_tells_sprite_tiles_with_the_same_glyph_apart` |
+| R116 | S2 | A script that compiled in a release build failed to compile in a debug one ("expression exceeds maximum complexity"): Rhai's expression-depth and call-level limits default to 32/16/8 in debug builds and 64/32/64 in release, and the engine set neither — the RPG demo's battle script (a 4-deep `if` inside a `switch` inside a function) hit it. A game that works for players broke for its own developer | `ember2d-sim/src/scripting/engine.rs` (`ScriptEngine::new`), `ember2d-editor/src/editor/impl_state/mod.rs` (`check_script_syntax`) | `[x]` 9-8 (`77f1a55`) — `apply_script_limits` sets 64/32 expressions and 64 call levels on both engines; test `r116_a_script_compiles_the_same_in_a_debug_build_as_in_release` |
+| R117 | S3 | The Fill tool told tiles apart by glyph, solid and tag only. An imported tileset region's glyph is its name's first letter, so `grass` and `grass_b` (both 'g') counted as the same tile: filling `grass_b` over `grass` did nothing at all, and a fill spread across both. Found replaying the RPG tutorial in a fresh project | `ember2d-editor/src/editor/impl_state/mod.rs` (`flood_fill`) | `[x]` 9-8 (`77f1a55`) — compares everything a palette entry paints (`palette::same_paint`: glyph, colours, solid, trigger, tag, sprite, clip); test `r117_fill_tells_sprite_tiles_with_the_same_glyph_apart` |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -5286,7 +5286,7 @@ y-sort. New `scripting/sprite.rs`.
   player became the door region and F flipped it (knob moved sides), a
   1×2 chest and a project clip drew as set.
 
-#### `[x]` 9-8 — The RPG demo
+#### `[x]` 9-8 — The RPG demo (`77f1a55`)
 `demos/rpg/` (world cell 16×16), built in the editor: a title scene (New /
 Continue); a town with three NPCs, paged dialogue and one branching choice;
 houses entered through `house.level#door` and left through
@@ -5300,7 +5300,7 @@ tileset importer, the extra sprites as their own small sheet,
 trip. Tutorial `docs/tutorials/rpg.md`. This is the third genre proof and
 exercises every 9-x item.
 
-- **Landed as:** `demos/rpg/` ("Emberfall": `title`, `town` 48×30,
+- **Landed as** (`77f1a55`): `demos/rpg/` ("Emberfall": `title`, `town` 48×30,
   `inn`, `field` 50×30; world cell 16×16, 16 px per unit).
   - **Art:** Kenney Tiny Town and Tiny Dungeon (CC0, unchanged) as
     the `town`/`dungeon` tilesets, plus an `extras` sheet made for the
