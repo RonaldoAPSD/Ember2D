@@ -37,7 +37,10 @@ use std::fs;
 pub enum VisualStyle {
     /// Character-cell based, using the standard font8x8.
     ClassicASCII,
-    /// Future expansion for sprite-based rendering.
+    /// Pixel-art sprites from imported tilesets. A label for the project
+    /// (and the wizard's choice) more than a mode: what it changes is the
+    /// starting `world_cell` — square 16x16 for a new sprite project
+    /// (`ProjectData::new`, Step 9-8), the size most pixel-art sheets use.
     Sprites2D,
 }
 
@@ -185,7 +188,11 @@ pub struct StartResult {
 }
 
 impl ProjectData {
-    /// Create a new ProjectData with the given settings.
+    /// Create a new ProjectData with the given settings. A `Sprites2D`
+    /// project starts with square 16x16 world cells (Step 9-8: before that
+    /// the style changed nothing, and every sprite project had to fix its
+    /// cell in Project Settings first), and 16 pixels per unit to match;
+    /// an ASCII one keeps the glyph cell and 8.
     pub fn new(
         name: impl Into<String>,
         visual_style: VisualStyle,
@@ -196,9 +203,17 @@ impl ProjectData {
             visual_style,
             gameplay_loop,
             start_level: Some("main.level".to_string()),
-            pixels_per_unit: default_pixels_per_unit(),
+            // One world unit is one world cell, so a 16 px sprite at its
+            // natural size fills exactly one 16x16 cell.
+            pixels_per_unit: match visual_style {
+                VisualStyle::ClassicASCII => default_pixels_per_unit(),
+                VisualStyle::Sprites2D => 16.0,
+            },
             turn_model: ember2d_sim::scheduler::TurnModel::default(),
-            world_cell: default_world_cell(),
+            world_cell: match visual_style {
+                VisualStyle::ClassicASCII => default_world_cell(),
+                VisualStyle::Sprites2D => (16, 16),
+            },
         }
     }
 
@@ -339,5 +354,17 @@ mod tests {
     fn a_zero_or_absurd_world_cell_falls_back_to_the_glyph_cell() {
         let s = PlaySettings { world_cell: (0, 5000), ..Default::default() };
         assert_eq!(s.cell_scale(), (1.0, 1.0));
+    }
+
+    /// Step 9-8: the wizard's "2D Sprites" choice starts the project on
+    /// square cells; "Classic ASCII" on the glyph cell.
+    #[test]
+    fn a_new_sprite_project_starts_with_square_cells() {
+        let p = ProjectData::new("S", VisualStyle::Sprites2D, GameplayLoop::RealTime);
+        assert_eq!(p.world_cell, (16, 16));
+        assert_eq!(p.pixels_per_unit, 16.0);
+        let p = ProjectData::new("A", VisualStyle::ClassicASCII, GameplayLoop::RealTime);
+        assert_eq!(p.world_cell, (8, 16));
+        assert_eq!(p.pixels_per_unit, 8.0);
     }
 }

@@ -131,6 +131,24 @@ pub struct ScriptEngine {
     pub stop_music: bool,
 }
 
+/// R116 (Step 9-8, docs/ember2d-master-plan.md §5.8): the script limits
+/// every Rhai engine that compiles a game script uses — this one, and the
+/// editor's syntax checker (`check_script_syntax`). Rhai's own defaults
+/// depend on the BUILD: with `debug_assertions` on (every dev build) it
+/// allows expressions only 32 deep (16 inside a function) and 8 nested
+/// calls, half or less of a release build's 64/32/64 — so a script that
+/// ran in a released game failed to compile in a dev build ("Expression
+/// exceeds maximum complexity"), the editor flagged it as broken, and
+/// splitting scripts into ever-smaller functions (7.5-4's workaround) only
+/// hid it. These are the release values, set explicitly so every build
+/// agrees. Rhai lowered them in debug to protect unoptimised stacks; this
+/// workspace's dev profile optimises dependencies (root `Cargo.toml`), so
+/// Rhai itself runs optimised either way.
+pub fn apply_script_limits(engine: &mut Engine) {
+    engine.set_max_expr_depths(64, 32);
+    engine.set_max_call_levels(64);
+}
+
 impl ScriptEngine {
     /// `seed` drives every `random_*` call scripts make. Defect D3: this
     /// used to be `SmallRng::from_entropy()`, making script randomness
@@ -150,6 +168,7 @@ impl ScriptEngine {
         // runtime error (not `is_missing_optional_fn`, so it logs and
         // disables the script) — no separate handling needed here.
         engine.set_max_operations(2_000_000);
+        apply_script_limits(&mut engine);
         // 7A-10 (docs/ember2d-master-plan.md §5.1, R43): the full Rhai
         // `register_fn` sequence (Rhai name -> ScriptCtx method) used to be
         // inline here — 7A-9's `cargo fmt --all` alone (no logic change)

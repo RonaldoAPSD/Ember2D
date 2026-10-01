@@ -13,6 +13,7 @@
 // `export.rs` (a different feature).
 
 use super::commands::Command;
+use super::palette::same_paint;
 use super::panel::PanelId;
 use super::ui::{bresenham, transform_offset, ToolbarAction};
 use super::EditorMode;
@@ -249,8 +250,12 @@ impl EditorState {
         let lyr = self.active_layer;
         let target_tile = self.grid.get(sx, sy, lyr).cloned();
         let new_def = self.palette.current();
+        // R117: "same tile" is everything a palette entry paints
+        // (`same_paint`) — it was glyph+solid+tag, and a tileset region's
+        // glyph is only its name's first letter, so filling `grass_b` over
+        // `grass` (both 'g') did nothing, and a fill spread across both.
         if let Some(t) = &target_tile {
-            if t.glyph == new_def.glyph && t.solid == new_def.solid && t.tag == new_def.tag {
+            if same_paint(t, &new_def.to_tile_record(sx, sy)) {
                 return;
             }
         }
@@ -266,7 +271,7 @@ impl EditorState {
             let cell = self.grid.get(gx, gy, lyr).cloned();
             let matches = match (&cell, &target_tile) {
                 (None, None) => true,
-                (Some(a), Some(b)) => a.glyph == b.glyph && a.solid == b.solid && a.tag == b.tag,
+                (Some(a), Some(b)) => same_paint(a, b),
                 _ => false,
             };
             if !matches {
@@ -442,7 +447,10 @@ impl EditorState {
     /// which has nowhere for a line number to go.
     pub(super) fn check_script_syntax(&mut self) {
         let source = self.script_buffer.join("\n");
-        self.script_error = match rhai::Engine::new().compile(&source) {
+        // R116: the game's own limits, so the checker agrees with the game.
+        let mut engine = rhai::Engine::new();
+        ember2d_sim::scripting::apply_script_limits(&mut engine);
+        self.script_error = match engine.compile(&source) {
             Ok(_) => None,
             Err(e) => {
                 let line = e.1.line().map(|l| l.saturating_sub(1)).unwrap_or(0);

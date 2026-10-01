@@ -37,7 +37,7 @@ mod mod_types {
     ];
     pub const STYLE_LABELS: &[(&str, &str)] = &[
         ("Classic ASCII", "The iconic character-cell grid aesthetic"),
-        ("2D Sprites", "Future-ready high resolution pixel art (coming soon)"),
+        ("2D Sprites", "Pixel-art tilesets on square 16x16 world cells"),
     ];
     pub const LOOP_LABELS: &[(&str, &str)] = &[
         ("Real-Time", "Standard updates every frame (action/platformer)"),

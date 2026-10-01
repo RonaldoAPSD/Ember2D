@@ -1,0 +1,11 @@
+(
+    name: "slash",
+    tileset: "extras",
+    frames: [
+        "slash_a",
+        "slash_b",
+        "sparkle",
+    ],
+    fps: 10.0,
+    looping: false,
+)

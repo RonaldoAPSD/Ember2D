@@ -196,6 +196,53 @@ fn flood_fill_batches_the_whole_enclosed_region_into_one_undo_step() {
     }
 }
 
+/// R117 (Step 9-8): the Fill tool tells tileset regions apart by their
+/// sprite, not their fallback glyph — `grass` and `grass_b` are both 'g'.
+#[test]
+fn r117_fill_tells_sprite_tiles_with_the_same_glyph_apart() {
+    use super::tileset_import::region_palette_entry;
+    use ember2d_sim::tileset::SpriteRef;
+    let mut editor = EditorState::new("unused.level");
+    let lyr = editor.active_layer;
+    let wall = editor.palette.current().to_tile_record(0, 0);
+    for gy in 0..=4 {
+        for gx in 0..=4 {
+            if gx == 0 || gx == 4 || gy == 0 || gy == 4 {
+                editor.grid.place(gx, gy, lyr, wall.clone());
+            }
+        }
+    }
+    let first = editor.palette.tiles.len();
+    for region in ["grass", "grass_b", "tree"] {
+        editor.palette.tiles.push(region_palette_entry(SpriteRef::new("town", region)));
+    }
+    let sprite_at = |e: &EditorState, x, y| {
+        e.grid.get(x, y, lyr).and_then(|t| t.sprite.clone()).map(|s| s.region)
+    };
+
+    // Grass over the empty interior, then grass_b over the grass: the
+    // second fill used to stop at once ("already the same tile").
+    editor.palette.selected = first;
+    editor.flood_fill(2, 2);
+    editor.palette.selected = first + 1;
+    editor.flood_fill(2, 2);
+    for (x, y) in [(1, 1), (2, 2), (3, 3)] {
+        assert_eq!(sprite_at(&editor, x, y).as_deref(), Some("grass_b"));
+    }
+
+    // A grass column beside the grass_b: a fill on the grass_b stays
+    // there (it used to spread across both).
+    editor.palette.selected = first;
+    for y in 1..=3 {
+        editor.grid.place(1, y, lyr, editor.palette.current().to_tile_record(1, y));
+    }
+    editor.palette.selected = first + 2;
+    editor.flood_fill(3, 2);
+    assert_eq!(sprite_at(&editor, 1, 2).as_deref(), Some("grass"), "the grass column is untouched");
+    assert_eq!(sprite_at(&editor, 2, 2).as_deref(), Some("tree"));
+    assert_eq!(sprite_at(&editor, 3, 3).as_deref(), Some("tree"));
+}
+
 #[test]
 fn paste_batches_the_whole_clipboard_into_one_undo_step() {
     let mut editor = EditorState::new("unused.level");

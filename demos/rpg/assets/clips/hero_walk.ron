@@ -1,0 +1,10 @@
+(
+    name: "hero_walk",
+    tileset: "extras",
+    frames: [
+        "hero",
+        "hero_step",
+    ],
+    fps: 8.0,
+    looping: true,
+)

@@ -266,8 +266,29 @@ Only until visual scripting is shelved. Afterwards, confirm old levels with grap
       `_2`)
 - [ ] Save mid-scene / mid-menu and load — covered by
       `a_save_made_with_a_scene_open_reopens_it_on_load` and
-      `an_open_menu_survives_a_save_and_load` (automated); not live, no
-      demo binds a save key yet (9-5's RPG demo will)
+      `an_open_menu_survives_a_save_and_load` (automated); not live (the
+      RPG's Save closes its menu first, by design)
+
+### Phase 9 — the RPG demo (`cargo run -- demos/rpg/title.level`, Step 9-8)
+
+- [✓] Title: New Game / Continue / Quit; Continue with no save says so
+- [✓] Town: square 16x16 sprite tiles; the hero walks tile by tile with a
+      two-frame walk clip, faces left/right, and passes in front of or
+      behind trees and people by height (y-sort); Space facing the elder pages his dialogue, the "Help the
+      elder?" menu branches, accepting adds 2 potions; the sign and the
+      shop (buy a potion for 10 gold) talk too
+- [✓] The inn door enters the inn at its doorway; resting costs 5 gold
+      and heals; its door leads back out to the inn's door in town
+- [✓] The east road enters the field; tall grass (drawn over the hero)
+      starts a battle now and then: backdrop, foe and both heroes as
+      sprites, a menu per hero (Lyra has Fire), the slash effect, enemy
+      hits shake the screen; winning pays gold; the map's hint line is
+      blanked during battle
+- [✓] The cyclops at the path's end roars, then fights (no running);
+      losing wakes the party at the inn with half its gold
+- [✓] Esc opens the RPG's own menu (Party / Items / Save / Title / Close);
+      Save shows "Game saved"; Title screen > Continue returns to the
+      spot it was saved at
 
 ## 12. Turn-based mode
 

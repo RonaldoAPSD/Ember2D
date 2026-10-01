@@ -183,7 +183,7 @@ start screen's New/Open Project browsers start from.
 | 7E | Editor features | `[-]` deferred, 2026-09-13 (by user direction) — §5.5. Feature/UX polish (rulers, Inspector 2.0, toasts, command palette, rendering perf, undo audit) rather than refactoring work; revisit as a future update, not blocking the phase sequence below |
 | 7.5 | Scripting completeness | `[~]` — §5.6: all 13 steps `[x]`; gate open, awaiting the user's live checklist §11–§13 pass (shooter LOC exception accepted 2026-09-29) |
 | 8 | Tilemap, assets, animation authoring | `[~]` — §5.7: all 4 steps `[x]`; gate pass run 2026-10-01 (automated + live, R103/R104/R106 fixed in it), awaiting the user's OK to tag `v0.5.9` |
-| 9 | Scene and UI layer + RPG demo | `[~]` — §5.8: 9-1 to 9-4 landed and gate-tested (Phase 9 gate pass, `f89d8bd`); 9-5 to 9-7 (RPG prerequisites: world cell size, editor authoring, sprite API) then 9-8 (the RPG demo), replanned 2026-10-01 |
+| 9 | Scene and UI layer + RPG demo | `[~]` — §5.8: 9-1 to 9-8 landed (9-1..9-4 gate-tested, `f89d8bd`; 9-5..9-7 the RPG prerequisites; 9-8 the RPG demo + its tutorial); the Phase 9 gate pass is next |
 | 9.5 | Demo expansion as engine stress tests | `[ ]` — §5.8.5: script tilemap API, field of view, a 20-floor procedural roguelike, the shooter as a stress test, tutorials (planned 2026-10-01) |
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
@@ -427,6 +427,8 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R113 | S2 | Export Game dropped a project's `scenes/` folder (9-1's scene scripts), its `art/` folder (loose images 8-4 imports) and the node-graph sidecar scripts (`<level>_graph_x_y_l.rhai`) that sit beside the levels — an exported game lost its custom pause scene, images and every graph tile's logic. Found reviewing export for Step 9-6 | `ember2d-editor/src/editor/impl_state/export.rs` | `[x]` 9-6 (`239db6c`) — the copy is `copy_project_files` (testable without the OS folder picker) and takes all three; test `r113_export_copies_scenes_art_and_graph_sidecars` |
 | R114 | S3 | File > New Script into a folder that didn't exist yet (`scripts/ai.rhai` in a fresh project) did nothing at all — `fs::write` failed and its error was discarded. Found building Step 9-6's New Scene | `ember2d-editor/src/editor/input/text.rs` (`NewScriptName`) | `[x]` 9-6 (`239db6c`) — `create_project_file` makes the folders and reports any failure; test `r114_new_script_creates_the_folder_it_names` |
 | R115 | S2 | A project only worked when the game ran from the repo root: every shipped level, demo script and generator used repo-relative paths (`demos/roguelike/scripts/player.rhai`, `play_sound("demos/roguelike/audio/hurt.ogg")`), `resolve_exit_path` tried the working directory FIRST, `set_script`/`set_texture` paths weren't resolved at all, and sounds were loaded from the working directory — so a copied or exported project silently ran (or failed to find) the ORIGINAL repo's files | `ember2d-sim/src/simulation.rs` (`resolve_exit_path`), `scripting/apply.rs`, `ember2d/src/play/outcome.rs`, the demos and generators | `[x]` 9-6 (`239db6c`) — paths are project-relative and resolve beside the level, then up to the project root, then the working directory (old paths still load); tests `r115_a_copied_project_runs_its_own_scripts_and_finds_its_own_audio` plus 5 unit tests of the search order |
+| R116 | S2 | A script that compiled in a release build failed to compile in a debug one ("expression exceeds maximum complexity"): Rhai's expression-depth and call-level limits default to 32/16/8 in debug builds and 64/32/64 in release, and the engine set neither — the RPG demo's battle script (a 4-deep `if` inside a `switch` inside a function) hit it. A game that works for players broke for its own developer | `ember2d-sim/src/scripting/engine.rs` (`ScriptEngine::new`), `ember2d-editor/src/editor/impl_state/mod.rs` (`check_script_syntax`) | `[x]` 9-8 — `apply_script_limits` sets 64/32 expressions and 64 call levels on both engines; test `r116_a_script_compiles_the_same_in_a_debug_build_as_in_release` |
+| R117 | S3 | The Fill tool told tiles apart by glyph, solid and tag only. An imported tileset region's glyph is its name's first letter, so `grass` and `grass_b` (both 'g') counted as the same tile: filling `grass_b` over `grass` did nothing at all, and a fill spread across both. Found replaying the RPG tutorial in a fresh project | `ember2d-editor/src/editor/impl_state/mod.rs` (`flood_fill`) | `[x]` 9-8 — compares everything a palette entry paints (`palette::same_paint`: glyph, colours, solid, trigger, tag, sprite, clip); test `r117_fill_tells_sprite_tiles_with_the_same_glyph_apart` |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -5284,7 +5286,7 @@ y-sort. New `scripting/sprite.rs`.
   player became the door region and F flipped it (knob moved sides), a
   1×2 chest and a project clip drew as set.
 
-#### `[ ]` 9-8 — The RPG demo
+#### `[x]` 9-8 — The RPG demo
 `demos/rpg/` (world cell 16×16), built in the editor: a title scene (New /
 Continue); a town with three NPCs, paged dialogue and one branching choice;
 houses entered through `house.level#door` and left through
@@ -5297,6 +5299,55 @@ tileset importer, the extra sprites as their own small sheet,
 `ember2d/tests/rpg_*.rs` drives a full encounter and a save/load round
 trip. Tutorial `docs/tutorials/rpg.md`. This is the third genre proof and
 exercises every 9-x item.
+
+- **Landed as:** `demos/rpg/` ("Emberfall": `title`, `town` 48×30,
+  `inn`, `field` 50×30; world cell 16×16, 16 px per unit).
+  - **Art:** Kenney Tiny Town and Tiny Dungeon (CC0, unchanged) as
+    the `town`/`dungeon` tilesets, plus an `extras` sheet made for the
+    demo (walk-bob frames, slash, sparkle, battle backdrop). Three clips:
+    `hero_walk`, `mage_idle`, `slash`.
+  - **Scripts:**
+    - `player.rhai`: grid walking, facing, talking (two globals hand the
+      conversation to the NPC), tall-grass encounters off the seeded RNG.
+    - `npc.rhai`: one script for every character, dispatching on the tile
+      tag. Paged dialogue, the elder's branching choice, shop, inn, and a
+      boss that stays beaten (`boss_done`).
+    - `scenes/battle.rhai`: a sprite battle screen; a state machine over
+      dialogue and per-hero menus; win, run or lose (wake at the inn).
+    - `scenes/pause.rhai`: replaces the built-in pause. Party, Items,
+      Save, Title.
+    - `title.rhai`: New Game / Continue / Quit.
+
+    The party, gold, potions and quest live in nested persistent maps.
+  - **Levels:** written once by a scratch generator in exactly the format
+    the editor saves. New test `editor_demo_levels.rs` opens every demo
+    level the way the editor does and saves it back; the text must not
+    change (all 9 pass).
+  - **Engine changes found on the way:** R116 (debug-only Rhai
+    complexity limits); R117 (Fill confused tileset regions sharing a
+    glyph); "2D Sprites" in the New Project wizard now actually means
+    something — a 16×16 world cell and 16 px per unit (its label still
+    said "coming soon").
+  - **Tests:** 641 workspace tests pass (+10). New `tests/rpg_demo.rs`
+    (5) plays with real key presses through `Simulation`: every level
+    runs quietly, a new game takes the elder's quest, a slime battle pays
+    out, a pause-menu save loads back mid-town, the beaten cyclops stays
+    gone. Also the editor round-trip test, R116, R117 and a wizard
+    default test.
+  - **Live:** the whole game on the real exe, about 200 screenshots:
+    title; the elder's talk and choice; the pause menu; the inn (rest);
+    tall-grass battles won; the boss fought and lost (woke at the inn
+    with half the gold); Save then Title > Continue back to the spot.
+  - **Tutorial:** `docs/tutorials/rpg.md`, 14 screenshots. Replayed in a
+    fresh project through the GUI:
+    - the wizard (2D Sprites);
+    - importing the Kenney sheet and naming regions;
+    - Fill and Line on the palette;
+    - New Script typed in the Scripter, New Scene;
+    - the script set in the Inspector;
+    - F5: walking, and the scene opening and closing.
+
+    The replay found R117.
 
 **Phase 9 gate:** §0.5, all three demos play, the RPG tutorial replayed in a fresh project; tag `v0.5.10`.
 

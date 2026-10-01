@@ -815,6 +815,17 @@ accepts either an int or a float literal (Phase 7.5, §6) — write a call's
 numeric literals in one consistent style, though; mixing (`draw_hud(1,
 2.0, ...)`) isn't guaranteed to resolve.
 
+**Limits.** An expression may nest 64 deep (32 inside a function) and
+calls may go 64 levels deep, the same in debug and release builds (R116,
+Step 9-8: a debug build used to keep Rhai's lower debug defaults, 32/16/8,
+so the RPG demo's battle script compiled in a release build and failed
+"too complex" in a debug one).
+
+**Rhai reminders.** A function can't see the script's top-level `let`s
+and `const`s; write a tuning value as a tiny function instead
+(`fn step_time() { 0.14 }`). A few ordinary-looking words are reserved by
+Rhai (`go` is one) and can't name a function.
+
 ---
 
 ## 6. What the refactor changes

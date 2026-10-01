@@ -99,6 +99,21 @@ impl TileDefinition {
     }
 }
 
+/// R117 (Step 9-8): whether two tiles look the same to the Fill tool —
+/// every property a palette entry paints (`to_tile_record` above), and
+/// nothing a tile gets afterwards in the Inspector (script, exit, actor):
+/// filling repaints a region, it doesn't care what's attached to it.
+pub fn same_paint(a: &TileRecord, b: &TileRecord) -> bool {
+    a.glyph == b.glyph
+        && a.fg == b.fg
+        && a.bg == b.bg
+        && a.solid == b.solid
+        && a.trigger == b.trigger
+        && a.tag == b.tag
+        && a.sprite == b.sprite
+        && a.clip == b.clip
+}
+
 // ── TilePalette ───────────────────────────────────────────────────────────────
 
 /// The full palette: a list of tile definitions and a "currently selected" index.

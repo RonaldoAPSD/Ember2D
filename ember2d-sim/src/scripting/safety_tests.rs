@@ -394,3 +394,22 @@ fn play_clip_on_a_missing_entity_does_not_create_a_ghost_entity() {
         "no entity at all should exist at that id afterward"
     );
 }
+
+// ── Test: R116 (Step 9-8, docs/ember2d-master-plan.md §5.8) — a script's
+// expression depth limit no longer depends on whether this is a debug
+// build. ──────────────────────────────────────────────────────────────────
+
+/// 12 nested parentheses inside a function (two depth levels each): over
+/// Rhai's debug-build default (16) and under its release one (32), which
+/// the engine now uses everywhere.
+#[test]
+fn r116_a_script_compiles_the_same_in_a_debug_build_as_in_release() {
+    let deep = format!("fn f() {{ {}1{} }}", "(".repeat(12), ")".repeat(12));
+    // The premise: a stock engine in this (debug) build rejects it.
+    if cfg!(debug_assertions) {
+        assert!(rhai::Engine::new().compile(&deep).is_err(), "Rhai's debug default is 16");
+    }
+    let mut engine = ScriptEngine::new(1, crate::layers::LayerRegistry::new(&[]));
+    let mut log = Vec::new();
+    assert!(engine.compile_str("r116.rhai", &deep, &mut log), "{log:?}");
+}

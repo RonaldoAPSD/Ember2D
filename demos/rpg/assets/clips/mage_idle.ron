@@ -1,0 +1,10 @@
+(
+    name: "mage_idle",
+    tileset: "extras",
+    frames: [
+        "mage",
+        "mage_step",
+    ],
+    fps: 3.0,
+    looping: true,
+)

@@ -15,3 +15,7 @@
 # demos/roguelike, demos/shooter ship with, and load fine from, the default
 # palette (ember2d-editor/src/editor/palette.rs's default_palette()).
 **/*.palette.ron
+# ...except the RPG demo's (Step 9-8, docs/ember2d-master-plan.md §5.8):
+# its entries paint with the demo's tileset regions, so it's shipped
+# content a reader needs to edit the demo, not a personal colour scheme.
+!demos/rpg/project.palette.ron

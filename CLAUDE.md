@@ -16,6 +16,7 @@ Ember2D is a 2D/ASCII game engine and editor in Rust. GPU rendering via `wgpu` w
 | `docs/ember2d-scripting-api.md` | The Rhai API. This is the engine's real public contract — treat breaking it like breaking the level format. |
 | `docs/ember2d-regression-checklist.md` | Manual test checklist. Run the sections named in the phase at every phase gate (master plan §0.5). |
 | `docs/ember2d-theming.md` | Editor chrome theme file format, palette/slice roles, how to author a chrome atlas, runtime theme switching (7D-4, master plan §5.4). |
+| `docs/tutorials/` | Build-along tutorials, one per demo (`rpg.md`: the sprite RPG in `demos/rpg/`). Each is written against the shipped demo and is replayed in a fresh project as its step's acceptance test. |
 | `docs/archive/` | Completed phase plans, the original refactor plan, the RPG feasibility study, the old handoff note. Historical record only — master plan Appendix B says what each still holds. Never update these. |
 
 ## Build & Run
@@ -57,7 +58,8 @@ those aren't reachable from `ember2d` at all anymore; use
 `ember2d_editor::prelude` and `ember2d-app`'s own `app` module.
 
 `demos/` (the `roguelike`/`shooter` demo projects — moved here from the
-repo root, 7C-5 follow-up, docs/ember2d-master-plan.md §5.3 R-series) and
+repo root, 7C-5 follow-up, docs/ember2d-master-plan.md §5.3 R-series —
+and the `rpg` sprite demo, Step 9-8) and
 `docs/` stay at the **repo root**, not inside any crate — `cargo run`'s CWD
 is wherever it's invoked from (the repo root, by convention), so
 `cargo run -- demos/roguelike/floor1.level` keeps working unchanged.
@@ -129,6 +131,7 @@ own comment on this for the full explanation.
 | Project settings | ember2d/src/project.rs |
 | Math utilities | ember2d-sim/src/math.rs |
 | Top-level Editor↔Play orchestration | ember2d-app/src/app.rs |
+| RPG demo (Step 9-8) + its tests | demos/rpg/, ember2d/tests/rpg_demo.rs, ember2d-editor/tests/editor_demo_levels.rs |
 
 ## Development Rules
 
@@ -161,7 +164,7 @@ The simulation must be reproducible — replay, save/load, and 2-player netcode 
 `main` is trunk at `v0.5.7d`. All work happens on the `claude` branch.
 
 **The authoritative status is `docs/ember2d-master-plan.md` §2 (phase table, baseline numbers)
-and §3 (the one defect register, D1–D22 + R1–R115 + E1–E6, each with a status marker and the
+and §3 (the one defect register, D1–D22 + R1–R117 + E1–E6, each with a status marker and the
 step that fixes it).** Read §2 before starting any work — this section is deliberately not a
 second copy of it (R36, master plan §3.2: this exact paragraph used to fall out of sync with
 the tree and did): don't restate phase/step progress here, keep this section a pointer.
