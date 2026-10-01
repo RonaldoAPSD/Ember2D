@@ -9,10 +9,10 @@
 use super::super::frame::{InspectorField, UiFrame, WidgetId};
 use super::super::rect::UiRect;
 use super::super::types::*;
-use super::super::widgets::{draw_row_px, draw_text_row};
+use super::super::widgets::{draw_row_px, draw_text_row, draw_tile_glyph_in};
 use crate::editor::grid::LevelGrid;
 use crate::editor::palette::TilePalette;
-use ember2d::renderer::{color::Color, Font, UiPainter, CELL_H, CELL_W};
+use ember2d::renderer::{color::Color, Font, UiPainter};
 use ember2d::theme::{PaletteRole, Theme};
 use ember2d_sim::level::TileRecord;
 use ember2d_sim::math::{Rect, Vec2};
@@ -101,12 +101,14 @@ pub fn draw_palette_panel(
                 painter.fill(row_rect, row_bg);
 
                 // Indented glyph container [ # ] — the glyph itself stays
-                // on the engine's own bitmap-font pipeline (`draw_char`,
-                // cell-addressed), not the theme's font: it's a literal
-                // preview of how this tile glyph renders in-game, the same
-                // "never themed" reasoning the 7C-9 decision gate applies
-                // to the viewport itself, just for one glyph instead of
-                // the whole canvas.
+                // on the engine's own bitmap-font pipeline, not the theme's
+                // font: it's a literal preview of how this tile glyph
+                // renders in-game, the same "never themed" reasoning the
+                // 7C-9 decision gate applies to the viewport itself, just
+                // for one glyph instead of the whole canvas. R95: placed in
+                // points (`draw_tile_glyph_in`), centered between the
+                // brackets — it used to be cell-addressed, which put it in
+                // the wrong cell at any UI scale but one.
                 let gx = row_rect.x + painter.measure(font, "  ", text_px);
                 let baseline_y = row_rect.y + painter.ascent(font, text_px);
                 painter.text(
@@ -116,16 +118,10 @@ pub fn draw_palette_panel(
                     text_px,
                     if is_selected { accent } else { text_fg },
                 );
-                let glyph_cell_x =
-                    ((gx + painter.measure(font, "[ ", text_px)) / CELL_W as f32).round() as usize;
-                let glyph_cell_y = (row_rect.y / CELL_H as f32).round() as usize;
-                painter.surface().draw_char(
-                    glyph_cell_x,
-                    glyph_cell_y,
-                    tile.glyph,
-                    tile.fg,
-                    tile.bg,
-                );
+                let slot_x = gx + painter.measure(font, "[", text_px);
+                let slot_w = painter.measure(font, "   ", text_px);
+                let slot = Rect::new(slot_x, row_rect.y, slot_w, row_h);
+                draw_tile_glyph_in(painter, slot, tile.glyph, tile.fg, tile.bg);
 
                 // Indented name
                 let name_x = gx + painter.measure(font, "[   ] ", text_px);
@@ -152,7 +148,11 @@ pub fn draw_palette_panel(
                     _ => None,
                 };
                 if let Some(num) = shortcut {
-                    let num_x = row_rect.x + row_rect.w - painter.measure(font, &num, text_px);
+                    // R95: one space of padding from the row's right edge —
+                    // flush right, the panel border clipped the digit.
+                    let num_x = row_rect.x + row_rect.w
+                        - painter.measure(font, &num, text_px)
+                        - painter.measure(font, " ", text_px);
                     painter.text(font, &num, Vec2::new(num_x, baseline_y), text_px, accent);
                 }
             }

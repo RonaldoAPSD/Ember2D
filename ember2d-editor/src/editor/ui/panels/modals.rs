@@ -9,7 +9,9 @@
 
 use super::super::frame::{UiFrame, WidgetId};
 use super::super::rect::UiRect;
-use super::super::widgets::{draw_button_px, draw_swatch_px, draw_text_row, PALETTE_COLORS};
+use super::super::widgets::{
+    draw_button_px, draw_swatch_px, draw_text_row, draw_tile_glyph_in, PALETTE_COLORS,
+};
 use ember2d::renderer::{color::Color, DrawSurface, Font, Texture, UiPainter, CELL_H, CELL_W};
 use ember2d::theme::{PaletteRole, Theme};
 use ember2d_sim::math::Rect;
@@ -122,7 +124,12 @@ pub fn draw_palette_editor_modal(
 
     // Glyph
     let is_glyph_focused = matches!(focus, Some(PaletteField::Glyph));
-    let glyph_val = if is_glyph_focused { '█' } else { pal.glyph };
+    // R95: unfocused, the field's own text leaves a blank between the
+    // quotes and the real tile glyph is drawn into it below (it used to
+    // print the glyph in the theme font AND overlay a cell-addressed
+    // bitmap copy that, at most UI scales, landed somewhere else entirely —
+    // the stray red mark under the Tag field).
+    let glyph_val = if is_glyph_focused { '█' } else { ' ' };
     draw_text_row(painter, font, "Glyph:", row_rect(3), text_px, text_fg, panel_bg);
     let glyph_x = cx + painter.measure(font, "Glyph:", text_px);
     let glyph_field = format!("['{}']", glyph_val);
@@ -140,11 +147,14 @@ pub fn draw_palette_editor_modal(
     frame.push(WidgetId::PaletteEditorField(PaletteField::Glyph), UiRect::new(r.x, r.y, r.w, r.h));
     // The glyph preview stays on the engine's own bitmap-font pipeline —
     // same "literal in-game preview, not chrome" reasoning `dock.rs`'s
-    // `draw_palette_panel` already documents for its own glyph preview.
-    let preview_cell_x =
-        ((glyph_x + painter.measure(font, "['", text_px)) / CELL_W as f32).round() as usize;
-    let preview_cell_y = (row_rect(3).y / CELL_H as f32).round() as usize;
-    painter.surface().draw_char(preview_cell_x, preview_cell_y, pal.glyph, pal.fg, pal.bg);
+    // `draw_palette_panel` already documents for its own glyph preview —
+    // drawn into the blank between the quotes, in points (R95).
+    if !is_glyph_focused {
+        let slot_x = glyph_x + painter.measure(font, "['", text_px);
+        let slot_w = painter.measure(font, " ", text_px);
+        let slot = Rect::new(slot_x, row_rect(3).y, slot_w, row_h);
+        draw_tile_glyph_in(painter, slot, pal.glyph, pal.fg, pal.bg);
+    }
 
     // Toggles — two independent widgets, side by side, each sized to its
     // own measured label (was one shared text row with fixed `cx..cx+10`/
@@ -391,31 +401,39 @@ pub fn draw_color_picker_modal(
     // a hue percentage, rather than a per-column push. The bar itself
     // paints literal HSV-derived RGB, same reasoning as `PALETTE_COLORS`
     // above — it's the color being picked, not decorative chrome.
+    // R95 (master plan §3.2): every swatch below used to be painted on the
+    // CELL grid (`draw_char(cell_x, cell_y, ' ', .., col)` /
+    // `draw_rect_filled(cell ..)`) from a points-space layout divided by
+    // `CELL_W`/`CELL_H` — right only at the one UI scale where points and
+    // cells coincide; at 1.5x the hue bar ran off the dialog's right edge,
+    // the map sat over the buttons, and the preview landed on the
+    // Inspector. They're plain points-space `fill`s now, one `unit_w` x
+    // `row_h` block per step: the same step size (`CELL_W`/`CELL_H`, in
+    // points) the input side (`input/palette_editor.rs`) already divides
+    // the registered rects by, so hit-testing needs no change.
+    let unit_w = CELL_W as f32;
     draw_text_row(painter, font, "Hue:", row_rect(2), text_px, dim, panel_bg);
     let hbar_w = HUE_BAR_STEPS;
-    let hbar_x_cell = ((cx + 5.0 * CELL_W as f32) / CELL_W as f32).round() as usize;
-    let hbar_row_cell = (row_rect(2).y / CELL_H as f32).round() as usize;
+    let hbar_x = cx + 5.0 * unit_w;
+    let hbar_y = row_rect(2).y;
     for i in 0..hbar_w {
         let hue = (i as f32 / hbar_w as f32) * 360.0;
         let col = Color::from_hsv(hue, 1.0, 1.0);
-        painter.surface().draw_char(hbar_x_cell + i, hbar_row_cell, ' ', Color::Reset, col);
+        painter.fill(Rect::new(hbar_x + i as f32 * unit_w, hbar_y, unit_w, row_h), col);
     }
     frame.push(
         WidgetId::ColorPickerHueBar,
-        UiRect::new(
-            hbar_x_cell as f32 * CELL_W as f32,
-            hbar_row_cell as f32 * CELL_H as f32,
-            hbar_w as f32 * CELL_W as f32,
-            CELL_H as f32,
-        ),
+        UiRect::new(hbar_x, hbar_y, hbar_w as f32 * unit_w, row_h),
     );
-    let h_indicator_x = hbar_x_cell + ((h / 360.0) * (hbar_w - 1) as f32).round() as usize;
-    painter.surface().draw_char(
-        h_indicator_x,
-        hbar_row_cell.saturating_sub(1),
+    // The current-hue marker, one row above the bar — a literal glyph on
+    // the bitmap pipeline like the palette previews (`draw_tile_glyph_in`).
+    let h_step = ((h / 360.0) * (hbar_w - 1) as f32).round();
+    draw_tile_glyph_in(
+        painter,
+        Rect::new(hbar_x + h_step * unit_w, hbar_y - row_h, unit_w, row_h),
         'v',
         text_fg,
-        panel_bg,
+        Color::Reset,
     );
 
     // 2. SV Map (Saturation vs Value) — same continuous-area reasoning as
@@ -423,48 +441,54 @@ pub fn draw_color_picker_modal(
     draw_text_row(painter, font, "Sat/Val Map:", row_rect(4), text_px, dim, panel_bg);
     let map_w = SV_MAP_W;
     let map_h = SV_MAP_H;
-    let map_x = hbar_x_cell;
-    let map_y = (row_rect(5).y / CELL_H as f32).round() as usize;
+    let map_x = hbar_x;
+    let map_y = row_rect(5).y;
     for sy in 0..map_h {
         for sx in 0..map_w {
             let sat = sx as f32 / (map_w - 1) as f32;
             let val = 1.0 - (sy as f32 / (map_h - 1) as f32);
             let col = Color::from_hsv(h, sat, val);
-            painter.surface().draw_char(map_x + sx, map_y + sy, ' ', Color::Reset, col);
+            painter.fill(
+                Rect::new(map_x + sx as f32 * unit_w, map_y + sy as f32 * row_h, unit_w, row_h),
+                col,
+            );
         }
     }
     frame.push(
         WidgetId::ColorPickerSvMap,
-        UiRect::new(
-            map_x as f32 * CELL_W as f32,
-            map_y as f32 * CELL_H as f32,
-            map_w as f32 * CELL_W as f32,
-            map_h as f32 * CELL_H as f32,
-        ),
+        UiRect::new(map_x, map_y, map_w as f32 * unit_w, map_h as f32 * row_h),
     );
     // Cursor in map
-    let cur_sx = (s * (map_w - 1) as f32).round() as usize;
-    let cur_sy = ((1.0 - v) * (map_h - 1) as f32).round() as usize;
-    painter.surface().draw_char(map_x + cur_sx, map_y + cur_sy, '+', Color::White, Color::Reset);
-
-    // 3. Current Color Preview
-    let current_col = Color::from_hsv(h, s, v);
-    let preview_x_cell = ((mx + 30.0 * CELL_W as f32) / CELL_W as f32).round() as usize;
-    draw_text_row(painter, font, "Selected:", row_rect(6), text_px, dim, panel_bg);
-    let preview_row_cell = (row_rect(7).y / CELL_H as f32).round() as usize;
-    painter.surface().draw_rect_filled(
-        preview_x_cell,
-        preview_row_cell,
-        8,
-        3,
-        ' ',
+    let cur_sx = (s * (map_w - 1) as f32).round();
+    let cur_sy = ((1.0 - v) * (map_h - 1) as f32).round();
+    draw_tile_glyph_in(
+        painter,
+        Rect::new(map_x + cur_sx * unit_w, map_y + cur_sy * row_h, unit_w, row_h),
+        '+',
+        Color::White,
         Color::Reset,
-        current_col,
     );
+
+    // 3. Current Color Preview — its "Selected:" label sits directly above
+    // the swatch (R95: it used to start at the dialog's left edge, on top
+    // of the SV map's first columns).
+    let current_col = Color::from_hsv(h, s, v);
+    let preview_x = mx + 30.0 * unit_w;
+    let label_w = painter.measure(font, "Selected:", text_px);
+    draw_text_row(
+        painter,
+        font,
+        "Selected:",
+        Rect::new(preview_x, row_rect(6).y, label_w, row_h),
+        text_px,
+        dim,
+        panel_bg,
+    );
+    painter.fill(Rect::new(preview_x, row_rect(7).y, 8.0 * unit_w, 3.0 * row_h), current_col);
 
     if let Color::Rgb(r, g, b) = current_col {
         let hex = format!("#{:02X}{:02X}{:02X}", r, g, b);
-        let hex_x = preview_x_cell as f32 * CELL_W as f32;
+        let hex_x = preview_x;
         let hex_w = painter.measure(font, &hex, text_px);
         draw_text_row(
             painter,

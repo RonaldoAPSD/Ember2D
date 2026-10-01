@@ -101,6 +101,28 @@ pub fn draw_swatch_px(
     frame.push(id, UiRect::new(rect.x, rect.y, rect.w, rect.h));
 }
 
+/// A literal in-game tile glyph preview, centered inside `slot` (a points-
+/// space rect, e.g. the gap between a `[` and `]` the caller already drew
+/// as text). R95 (docs/ember2d-master-plan.md §3.2): the palette panel row
+/// and the palette editor's glyph field used to place this glyph on the
+/// CELL grid by dividing a points-space position by `CELL_W`/`CELL_H`
+/// (`draw_char(x_cell, y_cell, ..)`) — correct only at the one UI scale
+/// where points and cells happened to line up, so at 1.5x every preview
+/// landed in the wrong cell (several rows collapsing onto the same one,
+/// stacked over the panel's `[ Edit ]` button). This draws through
+/// `UiPainter::tile_glyph` instead — still the engine's own bitmap-font
+/// pipeline (the preview must show the same pixels the canvas draws, never
+/// the theme font — 7D-2's "never themed" reasoning), just positioned in
+/// points like everything around it. Sized to 80% of the slot's height, at
+/// the glyph cell's own `CELL_W`:`CELL_H` aspect, so it never overflows
+/// the brackets around it.
+pub fn draw_tile_glyph_in(painter: &mut UiPainter, slot: Rect, ch: char, fg: Color, bg: Color) {
+    let h = slot.h * 0.8;
+    let w = h * CELL_W as f32 / CELL_H as f32;
+    let top_left = Vec2::new(slot.x + (slot.w - w) * 0.5, slot.y + (slot.h - h) * 0.5);
+    painter.tile_glyph(top_left, h, ch, fg, bg);
+}
+
 /// The pixel-space twin of `draw_row` below — a full-row list entry
 /// (hierarchy rows, file browser rows) drawn through `draw_text_row` at a
 /// real pixel rect, with its hit rect pushed at that EXACT same rect
