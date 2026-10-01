@@ -316,13 +316,35 @@ fn bench_phases(world: &World, layers: &LayerRegistry, n_iters: usize) {
     );
 }
 
+/// R118 (Phase 9 gate): a scenario whose scripts didn't load isn't
+/// measuring what its label says. From 7C-5 (the demos moved into `demos/`)
+/// to Step 9-6 every shipped-level line here timed a level whose every
+/// script had failed to compile (wrong paths, R115) — 0.009 ms/step instead
+/// of the real 0.057 — and nothing looked at the load log. Now it's
+/// checked: any warning or error at `on_start` and the scenario is
+/// reported as broken, not timed.
+fn load_problems(label: &str, logs: &[ember2d_sim::scripting::LogEntry]) -> bool {
+    use ember2d_sim::scripting::LogLevel;
+    let bad: Vec<&str> =
+        logs.iter().filter(|l| l.level != LogLevel::Info).map(|l| l.text.as_str()).collect();
+    if bad.is_empty() {
+        return false;
+    }
+    eprintln!("NOT MEASURED {label}: {} load problem(s), first: {}", bad.len(), bad[0]);
+    true
+}
+
 fn bench_synthetic(n_tiles: usize, n_actors: usize, n_steps: usize) {
     let data = synth_level(n_tiles, n_actors, 12345);
     let mut world = World::new();
     let mut persistent = BTreeMap::new();
     let mut sim = Simulation::new(data);
     let viewport = (80, 24);
-    sim.on_start(&mut world, viewport.0, viewport.1, &mut persistent);
+    let logs = sim.on_start(&mut world, viewport.0, viewport.1, &mut persistent);
+    let label = format!("synthetic n={n_tiles}");
+    if load_problems(&label, &logs) {
+        return;
+    }
 
     let entity_count = world.transforms.len();
     let costs = run_steps(&mut world, &mut sim, &mut persistent, n_steps, viewport);
@@ -346,7 +368,10 @@ fn bench_real_level(path: &str, n_steps: usize) {
     let mut persistent = BTreeMap::new();
     let mut sim = Simulation::new(data);
     let viewport = (80, 24);
-    sim.on_start(&mut world, viewport.0, viewport.1, &mut persistent);
+    let logs = sim.on_start(&mut world, viewport.0, viewport.1, &mut persistent);
+    if load_problems(path, &logs) {
+        return;
+    }
 
     let entity_count = world.transforms.len();
     let costs = run_steps(&mut world, &mut sim, &mut persistent, n_steps, viewport);

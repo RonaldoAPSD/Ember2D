@@ -183,7 +183,7 @@ start screen's New/Open Project browsers start from.
 | 7E | Editor features | `[-]` deferred, 2026-09-13 (by user direction) — §5.5. Feature/UX polish (rulers, Inspector 2.0, toasts, command palette, rendering perf, undo audit) rather than refactoring work; revisit as a future update, not blocking the phase sequence below |
 | 7.5 | Scripting completeness | `[~]` — §5.6: all 13 steps `[x]`; gate open, awaiting the user's live checklist §11–§13 pass (shooter LOC exception accepted 2026-09-29) |
 | 8 | Tilemap, assets, animation authoring | `[~]` — §5.7: all 4 steps `[x]`; gate pass run 2026-10-01 (automated + live, R103/R104/R106 fixed in it), awaiting the user's OK to tag `v0.5.9` |
-| 9 | Scene and UI layer + RPG demo | `[~]` — §5.8: 9-1 to 9-8 landed (9-1..9-4 gate-tested, `f89d8bd`; 9-5..9-7 the RPG prerequisites; 9-8 the RPG demo + its tutorial); the Phase 9 gate pass is next |
+| 9 | Scene and UI layer + RPG demo | `[~]` — §5.8: 9-1 to 9-8 landed and the gate pass is done (2026-10-01): all three demos play, the RPG tutorial replayed in a fresh project. Awaiting the user's OK to tag `v0.5.10` |
 | 9.5 | Demo expansion as engine stress tests | `[ ]` — §5.8.5: script tilemap API, field of view, a 20-floor procedural roguelike, the shooter as a stress test, tutorials (planned 2026-10-01) |
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
@@ -429,6 +429,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R115 | S2 | A project only worked when the game ran from the repo root: every shipped level, demo script and generator used repo-relative paths (`demos/roguelike/scripts/player.rhai`, `play_sound("demos/roguelike/audio/hurt.ogg")`), `resolve_exit_path` tried the working directory FIRST, `set_script`/`set_texture` paths weren't resolved at all, and sounds were loaded from the working directory — so a copied or exported project silently ran (or failed to find) the ORIGINAL repo's files | `ember2d-sim/src/simulation.rs` (`resolve_exit_path`), `scripting/apply.rs`, `ember2d/src/play/outcome.rs`, the demos and generators | `[x]` 9-6 (`239db6c`) — paths are project-relative and resolve beside the level, then up to the project root, then the working directory (old paths still load); tests `r115_a_copied_project_runs_its_own_scripts_and_finds_its_own_audio` plus 5 unit tests of the search order |
 | R116 | S2 | A script that compiled in a release build failed to compile in a debug one ("expression exceeds maximum complexity"): Rhai's expression-depth and call-level limits default to 32/16/8 in debug builds and 64/32/64 in release, and the engine set neither — the RPG demo's battle script (a 4-deep `if` inside a `switch` inside a function) hit it. A game that works for players broke for its own developer | `ember2d-sim/src/scripting/engine.rs` (`ScriptEngine::new`), `ember2d-editor/src/editor/impl_state/mod.rs` (`check_script_syntax`) | `[x]` 9-8 (`77f1a55`) — `apply_script_limits` sets 64/32 expressions and 64 call levels on both engines; test `r116_a_script_compiles_the_same_in_a_debug_build_as_in_release` |
 | R117 | S3 | The Fill tool told tiles apart by glyph, solid and tag only. An imported tileset region's glyph is its name's first letter, so `grass` and `grass_b` (both 'g') counted as the same tile: filling `grass_b` over `grass` did nothing at all, and a fill spread across both. Found replaying the RPG tutorial in a fresh project | `ember2d-editor/src/editor/impl_state/mod.rs` (`flood_fill`) | `[x]` 9-8 (`77f1a55`) — compares everything a palette entry paints (`palette::same_paint`: glyph, colours, solid, trigger, tag, sprite, clip); test `r117_fill_tells_sprite_tiles_with_the_same_glyph_apart` |
+| R118 | S3 | `bench_sim` timed the shipped roguelike levels with every one of their scripts failing to compile — the demo scripts' paths resolved wrongly in the bench (the R115 path bug) and the bench never looked at its load log. So floor2's "0.009 ms/step, 70–76 allocs" (8-1 through 9-5, §6.4 and the `v0.5.9` row) measured a level with no scripts running; the real cost is 0.057 ms, 343 allocs. 8-1's own win (the snapshot 26.5 → 0.041 ms) doesn't depend on scripts and stands. Found in the Phase 9 gate when 9-6's path fix made the number jump | `ember2d-sim/examples/bench_sim.rs` | `[x]` Phase 9 gate — any warning or error at a scenario's `on_start` reports it NOT MEASURED instead of timing it (`load_problems`); every scenario loads clean today |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -5376,6 +5377,28 @@ exercises every 9-x item.
     guard: it stops sending input when the game isn't the foreground
     window (a failed launch had let a typed path reach another window).
 
+- **Gate pass for the whole phase (2026-10-01, after 9-8; not tagged):**
+  - Automated: 641 tests; clippy `--all-targets` 188 (zero new across
+    9-5..9-8, by message diff); `scripts/check.ps1` clean; replay
+    identical across runs.
+  - `bench_sim --release`: floor2 0.058 ms/step, 343 allocs/step (floor1
+    0.043, floor3 0.055; synthetic n=10,000 0.067 ms). Bisecting the jump
+    from 0.009 to 9-6 showed the old number was the broken one — R118;
+    the bench now refuses to time a level whose scripts didn't load.
+  - Live, about 150 screenshots:
+    - all three demos: the RPG end to end (title, quest, shop, inn, grass
+      battles, the boss won and lost, save and Continue); the roguelike
+      (move, pause, floor 2); the shooter (waves, shooting, pause);
+    - the Phase 9 scene, camera, menu and named-spawn scenarios re-run;
+    - checklist §1, §3–§11 on the editor;
+    - the 200×200 stress level at 60 FPS.
+
+    Four runs of the harness's Phase 8 extras couldn't start (their
+    scratch projects are gone). Those features had automated tests and
+    were exercised in the RPG tutorial replay instead.
+  - The RPG tutorial replayed in a fresh project through the GUI (9-8's
+    landed note), which found R117.
+
 ---
 
 ### 5.8.5 `[ ]` Phase 9.5 — Demo expansion as engine stress tests
@@ -5542,8 +5565,8 @@ its `Cargo.toml` comment, as today.
 
 | Scenario | Budget | Today |
 |---|---|---|
-| floor2 p50 ms/step (release) | ≤ 2.0 ms | 0.009 (8-1; was 1.306 at `5e0e88d`) |
-| floor2 allocs/step | ≤ 7,000, not growing with entity count after 8-1 | 70 (8-1; was 6,327) |
+| floor2 p50 ms/step (release) | ≤ 2.0 ms | 0.058 (Phase 9 gate, scripts running; 8-1's "0.009" ran with every script failing to load — R118; was 1.306 at `5e0e88d`) |
+| floor2 allocs/step | ≤ 7,000, not growing with entity count after 8-1 | 343 (Phase 9 gate; 8-1's "70" had no scripts running — R118; was 6,327) |
 | 200×200 tilemap + 50 actors (after 8-1) | 60 fps debug | sim 0.345 ms/step debug, 0.298 release (8-1, was 42.4 release); frame rate not measured live yet |
 | Editor frame at zoom 0.25 on floor2 (after 7E-5) | ≤ 4 ms | unmeasured |
 
@@ -5680,7 +5703,7 @@ the commit message. "Appearance unchanged" is a claim that needs evidence.
 | `v0.5.7` | Phase 7E | | | | | |
 | `v0.5.8` | Phase 7.5 | *pending — not tagged, see §5.6's own gate note* | 455 (was 381 at `v0.5.7d`) | 217 at `--all-targets` (was 55 at `v0.5.7d`; the jump is almost entirely 7.5-9's new `disallowed_types`/`disallowed_methods` lint categories firing on pre-existing lookup-only `HashMap`/`HashSet` and test-only `std::fs` use — R91/R92, already tracked, unscheduled — not a regression: message-by-message diffing at every step since 7.5-9 found zero new warnings from that step's own changes) | not re-measured (no sim-path perf change across 7.5) | local only — CI still blocked by the account billing lock (R37/R40) |
 | `v0.5.9` | Phase 8 | *pending — gate pass run 2026-10-01, see §5.7; awaiting the user's OK* | 538 | 192 at `--all-targets`, zero new across 8-1..8-4 | floor2 0.009 ms/step, 70 allocs/step (`bench_sim --release`) | local only — CI still blocked by the account billing lock (R37/R40) |
-| `v0.5.10` | Phase 9 | | | | | |
+| `v0.5.10` | Phase 9 | *pending — gate pass run 2026-10-01, see §5.8; awaiting the user's OK* | 641 | 188 at `--all-targets`, zero new across 9-1..9-8 | floor2 0.058 ms/step, 343 allocs/step, scripts running (R118 corrected the earlier 0.009) | local only — CI still blocked by the account billing lock (R37/R40) |
 | `v0.5.11` | Phase 9.5 | | | | | |
 | `v0.5.12` | Phase 10 | | | | | |
 | `v0.6.0` | Phase 11 | | | | | |
