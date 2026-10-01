@@ -4730,7 +4730,7 @@ data-model change that moves the entity ceiling by an order of magnitude.
     editor menu and panel was also exercised; the defects found (R95–R100)
     all reproduce identically on the pre-8-1 binary.
 
-#### `[x]` 8-2 — Tileset importer
+#### `[x]` 8-2 — Tileset importer (`d751be7`)
 Slice a PNG into a grid, name regions, write `project/assets/tilesets/*.ron`.
 Sprite thumbnails in the palette (unblocked by 7D).
 
@@ -4743,7 +4743,7 @@ Sprite thumbnails in the palette (unblocked by 7D).
   spacing, live sliced-grid preview, click a cell to name it, writes the
   tileset `.ron` and adds a palette entry per named region; (4) level
   format **v5** (an older engine would silently draw sprite tiles wrong).
-- **Landed as** (`<8-2 hash>`):
+- **Landed as** (`d751be7`):
   - `ember2d-sim/src/tileset.rs` — `TilesetData` (image, cell size,
     margin, spacing, grid, named regions; `grid_size`/`cell_rect`/
     `region_rect`/`validate`) and `SpriteRef { tileset, region }`.
