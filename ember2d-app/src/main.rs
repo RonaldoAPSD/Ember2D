@@ -5,6 +5,7 @@ use std::io;
 use std::path::Path;
 
 mod app;
+mod standalone;
 use app::{load_project, run_editor_app, run_play_app};
 
 use ember2d::prelude::*;
@@ -67,23 +68,40 @@ fn main() -> io::Result<()> {
                 run_start_screen(&mut engine)?;
             }
         } else if !path.is_empty() {
-            let data = match LevelData::load(&path) {
-                Ok(d) => d,
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
-            };
-            let project_dir = Path::new(&path).parent().unwrap_or(Path::new("."));
-            let (settings, _) = load_project(&project_dir.to_string_lossy());
-            run_play_app(&mut engine, data, settings)?;
+            play_level(&mut engine, &path)?;
         } else {
             print_usage();
         }
+    } else if let Some(level) =
+        env::current_exe().ok().and_then(|exe| standalone::standalone_game(&exe))
+    {
+        // R120: an exported game (Export Game's `.standalone` marker beside
+        // the executable) plays instead of opening the editor. Its folder
+        // becomes the working directory, so `save_game`/`save_data` files
+        // land beside the game wherever it was launched from.
+        if let Some(dir) = level.parent() {
+            let _ = env::set_current_dir(dir);
+        }
+        play_level(&mut engine, &level.to_string_lossy())?;
     } else {
         run_start_screen(&mut engine)?;
     }
     Ok(())
+}
+
+/// `ember2d path/to.level`: play that level with its project's settings
+/// (the folder it sits in). Also how an exported game starts (R120).
+fn play_level(engine: &mut Engine, path: &str) -> io::Result<()> {
+    let data = match LevelData::load(path) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let project_dir = Path::new(path).parent().unwrap_or(Path::new("."));
+    let (settings, _) = load_project(&project_dir.to_string_lossy());
+    run_play_app(engine, data, settings)
 }
 
 /// The start screen, then whatever it opens, round and round until the user

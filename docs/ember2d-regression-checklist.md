@@ -41,9 +41,9 @@ place to notice if it doesn't.
 - [✓] `cargo run -- path/to.level` plays directly
 - [✓] Bad path prints an error and exits without panicking
 - [✓] No args + unrecognised args print usage
-- [ ] `project.ron`'s `world_cell`/`pixels_per_unit` are applied on
+- [✓] `project.ron`'s `world_cell`/`pixels_per_unit` are applied on
       launch (the RPG: square 16x16 cells). The old `visual_style` key is
-      gone and an old file that still has it loads.
+      gone and an old file that still has it loads (9.5 gate, 2026-10-01)
 - [✓] `project.ron`'s `gameplay_loop` is applied — confirmed by the two
       demos' actual behavior matching their `project.ron` (roguelike:
       `TurnBased`, advances only on keypress with a visible turn counter;
@@ -65,8 +65,13 @@ place to notice if it doesn't.
 
 ## 3. Start screen and projects
 
-- [ ] Create project: name and gameplay loop selectable, four steps
+- [✓] Create project: name and gameplay loop selectable, four steps
       (Name, Gameplay Loop, Location, Template — no visual style step)
+      (9.5 gate, 2026-10-01)
+- [✓] A plain build started with no arguments opens the start screen; an
+      exported game (Export Game's folder, `.standalone` marker) plays its
+      start level instead, from any working directory (R120; 9.5 gate,
+      2026-10-01)
 - [✓] `project.ron` written with all four fields (8 gate, 2026-10-01)
 - [ ] `BasicRoom` template generates walls, floor, centred spawn
 - [✓] Empty template gives a blank grid (8 gate, 2026-10-01)
@@ -333,9 +338,22 @@ Only until visual scripting is shelved. Afterwards, confirm old levels with grap
 - [✓] Wave 12's Core: an armoured ring, a health bar, rings of shots
 - [✓] Esc: Resume / Restart / Screen shake ON-OFF (saved to
       `ember_assault_options.sav`) / Quit
-- [ ] A death saves a new best score (`ember_assault_best.sav`) — by test
-      (`a_death_saves_the_best_score`), not live
+- [✓] A death saves a new best score (`ember_assault_best.sav`): "A NEW
+      BEST SCORE!" on the death screen, the file holds it (9.5 gate,
+      2026-10-01; also `a_death_saves_the_best_score`)
 - [✓] `stress.level`: 300+ live entities at 60 FPS in a debug build (F3)
+
+### Phase 9.5 — the first-project tutorial (`docs/tutorials/first-project.md`, Step 9.5-6)
+
+- [✓] Followed in a fresh project: the wizard with Basic Room, a Coin
+      palette entry ([+ New], [ Edit ], trigger, tag, colour), coins on
+      Foreground, a wall on Main, the script typed in the script editor
+      and set on the Player; F5 collects all five ("You found them all!");
+      Escape's pause menu
+- [✓] A script whose lifecycle function ends on a value (the coin pickup's
+      `add_global`) keeps running (R119)
+- [✓] File > Export Game through the OS folder picker; the exported
+      program plays the level
 
 ## 12. Turn-based mode
 

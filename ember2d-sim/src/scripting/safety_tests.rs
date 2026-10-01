@@ -413,3 +413,23 @@ fn r116_a_script_compiles_the_same_in_a_debug_build_as_in_release() {
     let mut log = Vec::new();
     assert!(engine.compile_str("r116.rhai", &deep, &mut log), "{log:?}");
 }
+
+// ── Test: R119 (docs/ember2d-master-plan.md §3.2) — a lifecycle function
+// that ends on a value. Found by replaying the first-project tutorial
+// (Step 9.5-6): its coin pickup ended `on_collide` with `add_global`,
+// which returns the new total, and the script was disabled on the first
+// coin. ──
+
+#[test]
+fn r119_a_lifecycle_function_may_end_on_a_value() {
+    let (_world, log) = run_source(
+        "r119_value",
+        r#"
+        fn on_update(id, ctx) {
+            if true { ctx.add_global("coins", 1); }
+        }
+    "#,
+    );
+    let errors: Vec<_> = log.iter().filter(|e| e.level == LogLevel::Error).collect();
+    assert!(errors.is_empty(), "the returned number is ignored, not an error: {errors:?}");
+}

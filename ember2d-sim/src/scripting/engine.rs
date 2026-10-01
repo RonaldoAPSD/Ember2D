@@ -341,7 +341,13 @@ impl ScriptEngine {
             return;
         }
         let mut scope = Scope::new();
-        if let Err(e) = self.engine.call_fn::<()>(&mut scope, ast, fn_name, args) {
+        // R119: whatever the function returns is ignored. A Rhai function
+        // returns its last expression's value, so `on_collide` ending in
+        // `if hit { ctx.add_global("coins", 1); }` returns a number — and
+        // `call_fn::<()>` used to reject that as "Output type incorrect"
+        // and disable the script, after its side effects had already been
+        // queued. No lifecycle function has a result the engine reads.
+        if let Err(e) = self.engine.call_fn::<rhai::Dynamic>(&mut scope, ast, fn_name, args) {
             if !Self::is_missing_optional_fn(&e, fn_name) {
                 log.push(LogEntry::error(format!("{} '{}': {}", log_label, path, e)));
                 self.disabled_scripts.insert(path.to_string());

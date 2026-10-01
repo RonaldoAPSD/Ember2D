@@ -187,7 +187,7 @@ start screen's New/Open Project browsers start from.
 | 7.5 | Scripting completeness | `[~]` — §5.6: all 13 steps `[x]`; gate open, awaiting the user's live checklist §11–§13 pass (shooter LOC exception accepted 2026-09-29) |
 | 8 | Tilemap, assets, animation authoring | `[~]` — §5.7: all 4 steps `[x]`; gate pass run 2026-10-01 (automated + live, R103/R104/R106 fixed in it), awaiting the user's OK to tag `v0.5.9` |
 | 9 | Scene and UI layer + RPG demo | `[~]` — §5.8: 9-1 to 9-8 landed and the gate pass is done (2026-10-01): all three demos play, the RPG tutorial replayed in a fresh project. Awaiting the user's OK to tag `v0.5.10` |
-| 9.5 | Demo expansion as engine stress tests | `[~]` — §5.8.5: 9.5-1 tilemap API (`c07dc73`), 9.5-2 field of view (`fc7e0a4`) and 9.5-3/9.5-4 the generated roguelike (`25b5325`, `dabe571`) and 9.5-5 the shooter (`67a9307`) landed; next the 20-floor procedural roguelike, the shooter as a stress test, tutorials (planned 2026-10-01) |
+| 9.5 | Demo expansion as engine stress tests | `[~]` — §5.8.5: all six steps landed (9.5-1 tilemap API `c07dc73`, 9.5-2 field of view `fc7e0a4`, 9.5-3/9.5-4 the generated roguelike `25b5325`/`dabe571`, 9.5-5 the shooter `67a9307`, the Visual Style removal `cccd508`, 9.5-6 tutorials) and the gate pass is done (2026-10-01). Awaiting the user's OK to tag `v0.5.11` |
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
 
@@ -255,6 +255,20 @@ collider-layer `Rc<str>` pair 7.5-10 deferred are both unscheduled.**
 | Files over 750 lines | 0, real lines and `check.ps1`'s own count agree (fixed at R76 — the check used to silently undercount; the 3 files it had been hiding were each split into a `.rs` + child submodule). Largest file in the tree: `ember2d-editor/src/editor/mod.rs` at 750 | `scripts/check.ps1` / `wc -l` |
 | Dependencies | wgpu 30.0.1, winit 0.30.13, kira 0.12.4, glam 0.33.7, rand 0.8.6, gilrs 0.11.2, rhai 1.24.0, fontdue 0.9.4 (unchanged since `v0.5.7b`) — new this gate: `arboard` 3.6.1 (7C-8, OS clipboard) | `Cargo.lock` |
 | Both demos launch | `cargo run -- demos/roguelike/floor2.level` and `-- demos/shooter/arena.level` — both confirmed live, screenshots taken (HUD/HP/enemies/player rendering; §0.5 item 6) | manual, this gate |
+
+### 2.4 Stress and demo numbers (Phase 9.5 gate, 2026-10-01)
+
+| Scenario | Number | Where measured |
+|---|---|---|
+| Shooter stress level, live | **60 FPS** with 288–315 live entities, debug build | `cargo run -- demos/shooter/stress.level`, F3 |
+| Shooter stress level, simulation only | 2.70 ms/step p50, 3.65 p95, 293 entities, 7.7k allocs/step; world snapshot 0.29 ms, collisions 0.05 ms, the rest the director's Rhai loop | `bench_sim --release` |
+| Shooter stress level, headless debug | about 3.4 ms/step, 310 entities | `cargo test -p ember2d --test shooter_siege` |
+| Roguelike `dungeon.level` (a generated floor, FOV, monsters) | 0.074 ms/step p50, 435 allocs/step | `bench_sim --release` |
+| Classic floor2 fixture | 0.056 ms/step p50, 323 allocs/step | `bench_sim --release` |
+| 200×200 tilemap + 50 actors (synthetic) | 0.307 ms/step p50 | `bench_sim --release` |
+| Tests | 695 pass, 1 ignored (the roguelike balance bot) | `cargo test --workspace` |
+| Clippy | 187 at `--all-targets` | `cargo clippy --workspace --all-targets` |
+| Registered script functions | 245 (`API_VERSION` 7) | `scripts/check.ps1` doc check |
 
 ---
 
@@ -433,6 +447,8 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R116 | S2 | A script that compiled in a release build failed to compile in a debug one ("expression exceeds maximum complexity"): Rhai's expression-depth and call-level limits default to 32/16/8 in debug builds and 64/32/64 in release, and the engine set neither — the RPG demo's battle script (a 4-deep `if` inside a `switch` inside a function) hit it. A game that works for players broke for its own developer | `ember2d-sim/src/scripting/engine.rs` (`ScriptEngine::new`), `ember2d-editor/src/editor/impl_state/mod.rs` (`check_script_syntax`) | `[x]` 9-8 (`77f1a55`) — `apply_script_limits` sets 64/32 expressions and 64 call levels on both engines; test `r116_a_script_compiles_the_same_in_a_debug_build_as_in_release` |
 | R117 | S3 | The Fill tool told tiles apart by glyph, solid and tag only. An imported tileset region's glyph is its name's first letter, so `grass` and `grass_b` (both 'g') counted as the same tile: filling `grass_b` over `grass` did nothing at all, and a fill spread across both. Found replaying the RPG tutorial in a fresh project | `ember2d-editor/src/editor/impl_state/mod.rs` (`flood_fill`) | `[x]` 9-8 (`77f1a55`) — compares everything a palette entry paints (`palette::same_paint`: glyph, colours, solid, trigger, tag, sprite, clip); test `r117_fill_tells_sprite_tiles_with_the_same_glyph_apart` |
 | R118 | S3 | `bench_sim` timed the shipped roguelike levels with every one of their scripts failing to compile — the demo scripts' paths resolved wrongly in the bench (the R115 path bug) and the bench never looked at its load log. So floor2's "0.009 ms/step, 70–76 allocs" (8-1 through 9-5, §6.4 and the `v0.5.9` row) measured a level with no scripts running; the real cost is 0.057 ms, 343 allocs. 8-1's own win (the snapshot 26.5 → 0.041 ms) doesn't depend on scripts and stands. Found in the Phase 9 gate when 9-6's path fix made the number jump | `ember2d-sim/examples/bench_sim.rs` | `[x]` Phase 9 gate — any warning or error at a scenario's `on_start` reports it NOT MEASURED instead of timing it (`load_problems`); every scenario loads clean today |
+| R119 | S2 | A lifecycle function that ended on a value disabled its script. Rhai returns a function's last expression, so `on_collide` ending in `if hit { ctx.add_global("coins", 1); }` returned a number; `call_lifecycle_fn` called it as `call_fn::<()>`, which rejects that ("Output type incorrect: f64 (expecting ())"), logged it as an error and switched the script off — after its writes had been queued, so the first coin was taken and then nothing more ran (the HUD vanished). Any script a beginner writes can end this way. Found replaying the first-project tutorial (9.5-6) | `ember2d-sim/src/scripting/engine.rs` (`call_lifecycle_fn`) | `[x]` 9.5-6 (`PENDING`) — called as `call_fn::<Dynamic>` and the value dropped; no lifecycle function has a result the engine reads. Test `r119_a_lifecycle_function_may_end_on_a_value` (`scripting/safety_tests.rs`), failing before the fix with that exact error |
+| R120 | S2 | An exported game didn't play. File > Export Game copies the executable into `<Name>_Export/` and writes a `.standalone` marker, but nothing read the marker: started with no arguments, the exported program opened the editor's start screen. Found replaying the first-project tutorial (9.5-6) | `ember2d-app/src/main.rs`; `ember2d-editor/src/editor/impl_state/export.rs` (the marker) | `[x]` 9.5-6 (`PENDING`) — new `ember2d-app/src/standalone.rs`: with no arguments and the marker beside the executable, `main` plays the project's start level (else its first level by name) and makes that folder the working directory, so saves land beside the game. Arguments still win. Tests `r120_an_exported_game_starts_on_its_start_level`, `r120_without_a_start_level_the_first_level_by_name`, `r120_an_unmarked_folder_is_not_a_game`. Live: CoinGrab exported through the OS folder picker, then `CoinGrab.exe` launched from another directory played the level |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -5749,12 +5765,62 @@ as a template menu (Phase 11's presets).
   square at once. The RPG and roguelike tutorials' wizard screenshots
   were retaken.
 
-#### `[ ]` 9.5-6 — Tutorials index and gate
+#### `[x]` 9.5-6 — Tutorials index and gate (`PENDING`)
 `docs/tutorials/README.md`, a "your first project" tutorial, stress
 numbers recorded in §2.
 
+- **Landed as:**
+  - `docs/tutorials/README.md`: the index, the reading order (first
+    project, shooter, roguelike, RPG) with what each teaches, the
+    conventions, the reference docs.
+  - `docs/tutorials/first-project.md`: **Coin Grab**, from the wizard
+    (Basic Room) to a level with five coins and a HUD — the editor's
+    panels, a palette entry with a trigger and a tag, layers, a wall, a
+    script typed in the script editor and set on the Player, F5 and the
+    pause menu, how the script works (lifecycle functions, deferred
+    writes, why `add_global`), running and exporting the game. 9
+    screenshots, all from its replay.
+  - **The replay found two defects, both fixed here:**
+    - R119: a lifecycle function ending on a value (the pickup's
+      `add_global`) disabled its script;
+    - R120: an exported game opened the editor's start screen instead of
+      playing (new `ember2d-app/src/standalone.rs`).
+  - Stress numbers in §2.4 and §6.4.
+- **Tests:** 695 workspace tests (+4: R119, R120 ×3). Clippy 187, no new
+  warnings.
+- **Live:** the whole tutorial replayed in a fresh project through the
+  GUI, ending with all five coins; Export Game through the OS folder
+  picker, and the exported `CoinGrab.exe` launched from another directory
+  playing the level.
+
 **Phase 9.5 gate:** §0.5, every tutorial replayed in a fresh project, the
 stress targets met; tag `v0.5.11`.
+
+- **Gate pass (2026-10-01, by the agent; not tagged — `v0.5.8` through
+  `v0.5.10` are still untagged too, awaiting the user's OK):**
+  - Automated: `cargo build --workspace --bins --examples` clean; 695
+    tests pass; clippy `--all-targets` 187 (188 at the Phase 9 gate;
+    zero new warnings across 9.5-1..9.5-6 by message diff at every step);
+    `scripts/check.ps1` clean; `tests/replay.rs` 3× identical.
+  - `bench_sim --release`: the shooter's stress level 2.70 ms/step p50
+    (3.65 p95) for 293 entities, 7.7k allocs/step — of which the world
+    snapshot is 0.29 ms and collision detection 0.05 ms, the rest the
+    director's script; the roguelike's `dungeon.level` 0.074 ms/step;
+    the classic floor2 fixture 0.056 ms/step, 323 allocs/step.
+  - Live, on the gate build: a plain build opens the start screen; the
+    roguelike (title, a generated floor, Save and quit, Continue back to
+    it); the shooter (waves, firing, the pause menu; a death saving "A
+    NEW BEST SCORE!" to `ember_assault_best.sav`, the one checklist item
+    only a test had covered); the stress level at **60 FPS with 288
+    entities** in a debug build (F3); the RPG (title, New Game, the
+    town, its menu).
+  - Tutorials: each was replayed in a fresh project in its own step
+    (RPG 9-8, roguelike 9.5-4, shooter 9.5-5, first project 9.5-6); the
+    RPG's first step changed with the Visual Style removal and that step
+    (Project Settings to 16x16) was replayed live then.
+  - Checklist: the Phase 9 RPG section and the Phase 9.5 roguelike,
+    shooter and first-project sections ticked; §1's world-cell item and
+    §3's four-step wizard re-ticked for the removal.
 
 ---
 
@@ -5864,7 +5930,8 @@ its `Cargo.toml` comment, as today.
 |---|---|---|
 | floor2 p50 ms/step (release) | ≤ 2.0 ms | 0.058 (Phase 9 gate, scripts running; 8-1's "0.009" ran with every script failing to load — R118; was 1.306 at `5e0e88d`) |
 | floor2 allocs/step | ≤ 7,000, not growing with entity count after 8-1 | 343 (Phase 9 gate; 8-1's "70" had no scripts running — R118; was 6,327) |
-| 200×200 tilemap + 50 actors (after 8-1) | 60 fps debug | sim 0.345 ms/step debug, 0.298 release (8-1, was 42.4 release); frame rate not measured live yet |
+| 200×200 tilemap + 50 actors (after 8-1) | 60 fps debug | sim 0.345 ms/step debug, 0.298 release (8-1, was 42.4 release; 0.307 at the Phase 9.5 gate); frame rate not measured live yet |
+| Shooter stress level, ~300 live entities (9.5-5) | 60 fps debug | 60 FPS live with 288–315 entities (Phase 9.5 gate); sim 2.70 ms/step release |
 | Editor frame at zoom 0.25 on floor2 (after 7E-5) | ≤ 4 ms | unmeasured |
 
 ### 6.5 `scripts/check.ps1` (and `check.sh`)
@@ -6001,7 +6068,7 @@ the commit message. "Appearance unchanged" is a claim that needs evidence.
 | `v0.5.8` | Phase 7.5 | *pending — not tagged, see §5.6's own gate note* | 455 (was 381 at `v0.5.7d`) | 217 at `--all-targets` (was 55 at `v0.5.7d`; the jump is almost entirely 7.5-9's new `disallowed_types`/`disallowed_methods` lint categories firing on pre-existing lookup-only `HashMap`/`HashSet` and test-only `std::fs` use — R91/R92, already tracked, unscheduled — not a regression: message-by-message diffing at every step since 7.5-9 found zero new warnings from that step's own changes) | not re-measured (no sim-path perf change across 7.5) | local only — CI still blocked by the account billing lock (R37/R40) |
 | `v0.5.9` | Phase 8 | *pending — gate pass run 2026-10-01, see §5.7; awaiting the user's OK* | 538 | 192 at `--all-targets`, zero new across 8-1..8-4 | floor2 0.009 ms/step, 70 allocs/step (`bench_sim --release`) | local only — CI still blocked by the account billing lock (R37/R40) |
 | `v0.5.10` | Phase 9 | *pending — gate pass run 2026-10-01, see §5.8; awaiting the user's OK* | 641 | 188 at `--all-targets`, zero new across 9-1..9-8 | floor2 0.058 ms/step, 343 allocs/step, scripts running (R118 corrected the earlier 0.009) | local only — CI still blocked by the account billing lock (R37/R40) |
-| `v0.5.11` | Phase 9.5 | | | | | |
+| `v0.5.11` | Phase 9.5 | *pending — gate pass run 2026-10-01, see §5.8.5; awaiting the user's OK* | 695 | 187 at `--all-targets`, zero new across 9.5-1..9.5-6 | floor2 fixture 0.056 ms/step, 323 allocs/step; shooter stress 2.70 ms/step, 293 entities | local only — CI still blocked by the account billing lock (R37/R40) |
 | `v0.5.12` | Phase 10 | | | | | |
 | `v0.6.0` | Phase 11 | | | | | |
 
