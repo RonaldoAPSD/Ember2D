@@ -23,7 +23,8 @@ use std::rc::Rc;
 
 use crate::components::tilemap::MAX_TILEMAP_CELLS;
 use crate::components::{Tilemap, Transform};
-use crate::scripting::{LogEntry, TileOp};
+use crate::fov::FovMap;
+use crate::scripting::{FovOp, LogEntry, TileOp};
 use crate::world::{EntityId, World};
 
 use super::tilesets::TilesetResolver;
@@ -156,6 +157,53 @@ impl Simulation {
             logs.push(LogEntry::warn(format!(
                 "{outside} tile request(s) fell outside the tilemap (tilemap_resize sets its size)"
             )));
+        }
+    }
+
+    /// Step 9.5-2: `compute_fov`/`fov_reset`/`set_fov_visibility`. The
+    /// view covers the level's tilemap grid (or the level, with no map);
+    /// a map resized or grown since (a new floor) starts a fresh view —
+    /// what was explored belonged to the old grid.
+    pub(super) fn apply_fov_ops(
+        &mut self,
+        world: &mut World,
+        ops: Vec<FovOp>,
+        logs: &mut Vec<LogEntry>,
+    ) {
+        for op in ops {
+            match op {
+                FovOp::Bad(why) => logs.push(LogEntry::warn(why)),
+                FovOp::Reset => world.fov = None,
+                FovOp::Visibility(id, v) => {
+                    let id = id as EntityId;
+                    if world.transforms.contains_key(&id) {
+                        world.fov_visibility.insert(id, v);
+                    }
+                }
+                FovOp::Compute(x, y, r) => {
+                    let (Ok(x), Ok(y)) = (i32::try_from(x), i32::try_from(y)) else { continue };
+                    let r = r.clamp(0, crate::fov::MAX_FOV_RADIUS as i64) as i32;
+                    let map = world.tilemaps.values().next().cloned();
+                    let (origin, w, h) = match &map {
+                        Some(m) => (m.origin, m.width, m.height),
+                        None => (
+                            (0, 0),
+                            self.level.width.clamp(1, 2048) as u32,
+                            self.level.height.clamp(1, 2048) as u32,
+                        ),
+                    };
+                    let fits = world
+                        .fov
+                        .as_ref()
+                        .is_some_and(|f| (f.origin, f.width, f.height) == (origin, w, h));
+                    if !fits {
+                        world.fov = Some(Rc::new(FovMap::new(origin, w, h)));
+                    }
+                    if let Some(fov) = world.fov.as_mut() {
+                        Rc::make_mut(fov).compute(map.as_deref(), x, y, r);
+                    }
+                }
+            }
         }
     }
 

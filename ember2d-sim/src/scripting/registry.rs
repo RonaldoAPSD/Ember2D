@@ -37,6 +37,7 @@ pub(super) fn register_all(engine: &mut Engine) {
     super::widgets::register(engine);
     super::sprite::register(engine); // Step 9-7
     super::tiles::register(engine); // Step 9.5-1
+    super::fov_api::register(engine); // Step 9.5-2
     engine.register_fn("get_x", ScriptCtx::get_x);
     engine.register_fn("get_y", ScriptCtx::get_y);
     engine.register_fn("get_position", ScriptCtx::get_position);

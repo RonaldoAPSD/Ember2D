@@ -31,6 +31,7 @@
 use crate::renderer::color::Color;
 use crate::renderer::Renderer;
 use ember2d_sim::components::{AnimationClip, ClipFrames, SpriteSource};
+use ember2d_sim::fov::FovVisibility;
 use ember2d_sim::math::{Rect, Vec2};
 use ember2d_sim::scripting::{HudDraw, LogEntry, LogLevel, ShakeState};
 use ember2d_sim::world::{EntityId, World};
@@ -57,6 +58,21 @@ pub struct DrawCommand<'w> {
     pub size: Option<Vec2>,
     /// Step 9-7: mirror the image (`Sprite::flip_x`/`flip_y`).
     pub flip: (bool, bool),
+    /// Step 9.5-2: seen before but out of view now — drawn darker
+    /// (`dimmed`), the fog of war's "remembered" look.
+    pub dim: bool,
+}
+
+/// Step 9.5-2: a colour as fog of war shows something remembered but out
+/// of view — the same hue at 40% brightness. `Reset` (no colour) stays
+/// `Reset`, so an empty background stays empty.
+pub(super) fn dimmed(c: Color) -> Color {
+    if c == Color::Reset {
+        return c;
+    }
+    let rgb = c.to_rgb(0xFFFFFF);
+    let ch = |shift: u32| (((rgb >> shift) & 0xFF) * 2 / 5) as u8;
+    Color::Rgb(ch(16), ch(8), ch(0))
 }
 
 /// The texture path a command should batch by, or `None` for anything that
@@ -95,7 +111,13 @@ impl<'w> DrawList<'w> {
     /// the same `layer * 10` a tile entity's sprite had) with the tilemap's
     /// entity id as its tiebreak, so it sorts into exactly the slot its
     /// old entity did and batches with every other glyph on the atlas.
+    ///
+    /// Step 9.5-2: with fog of war on (`World::fov`), a cell never seen
+    /// isn't drawn and one seen before but out of view is `dim`; an entity
+    /// out of view follows `World::fov_visibility_of` (hidden, remembered
+    /// dimmed, or always drawn).
     pub(super) fn from_world_in(world: &'w World, view: Option<Rect>) -> Self {
+        let fov = world.fov.as_deref();
         let mut commands: Vec<DrawCommand<'w>> = world
             .transforms
             .keys()
@@ -104,6 +126,19 @@ impl<'w> DrawList<'w> {
                 world.sprites.get(&id).and_then(|sp| {
                     if !sp.visible {
                         return None;
+                    }
+                    let mut dim = false;
+                    if let Some(f) = fov {
+                        // The cell the entity's centre is in.
+                        let (cx, cy) = ((pos.x + 0.5).floor() as i32, (pos.y + 0.5).floor() as i32);
+                        if !f.is_visible(cx, cy) {
+                            match world.fov_visibility_of(id) {
+                                FovVisibility::Hide => return None,
+                                FovVisibility::Remember if !f.is_explored(cx, cy) => return None,
+                                FovVisibility::Remember => dim = true,
+                                FovVisibility::Always => {}
+                            }
+                        }
                     }
                     Some(DrawCommand {
                         space: Space::World,
@@ -114,6 +149,7 @@ impl<'w> DrawList<'w> {
                         tint: sp.tint,
                         size: sp.size,
                         flip: (sp.flip_x, sp.flip_y),
+                        dim,
                     })
                 })
             })
@@ -121,6 +157,11 @@ impl<'w> DrawList<'w> {
 
         for (&map_id, map) in &world.tilemaps {
             for (z, x, y, source, tint, sprite_cell) in map.visible_cells(view) {
+                let dim = match fov {
+                    Some(f) if !f.is_explored(x, y) => continue,
+                    Some(f) => !f.is_visible(x, y),
+                    None => false,
+                };
                 commands.push(DrawCommand {
                     space: Space::World,
                     z,
@@ -132,6 +173,7 @@ impl<'w> DrawList<'w> {
                     // cell, as its glyph did — not its natural size.
                     size: if sprite_cell { Some(Vec2::new(1.0, 1.0)) } else { None },
                     flip: (false, false),
+                    dim,
                 });
             }
         }
@@ -514,5 +556,81 @@ mod sprite_tests {
         assert_eq!(ids(&world), vec![low, high], "off: entity order");
         world.y_sort = true;
         assert_eq!(ids(&world), vec![high, low], "on: the one lower on screen is in front");
+    }
+
+    /// Step 9.5-2: fog of war in the draw list. A corridor 10 cells long,
+    /// a wall across it at x = 5; seen from x = 7, then from x = 2.
+    #[test]
+    fn fog_of_war_skips_unseen_cells_dims_remembered_ones_and_hides_actors() {
+        use ember2d_sim::components::{TileDef, Tilemap};
+        use ember2d_sim::fov::FovMap;
+        use ember2d_sim::layers::LayerRegistry;
+        use std::rc::Rc;
+        let wall = TileDef {
+            glyph: '#',
+            fg: Color::Grey,
+            bg: Color::Reset,
+            solid: true,
+            tag: String::new(),
+            collider_layer: String::new(),
+            texture: None,
+            sprite: None,
+            src: None,
+            name: String::new(),
+        };
+        let floor = TileDef { glyph: '.', solid: false, ..wall.clone() };
+        let mut map = Tilemap::new((0, 0), 10, 1);
+        let (w, f) = (map.intern(&wall).unwrap(), map.intern(&floor).unwrap());
+        for x in 0..10 {
+            map.set_cell(0, x, 0, if x == 5 { w } else { f });
+        }
+        map.refresh(&LayerRegistry::new(&[]));
+        let mut world = World::new();
+        let map_id = world.spawn();
+        world.add_tilemap(map_id, map.clone());
+        let thing = |world: &mut World, x: f32, glyph: char, tag: &str| {
+            let id = world.spawn();
+            world.add_transform(id, Transform::new(x, 0.0));
+            world.add_sprite(id, Sprite::glyph(glyph, Color::White, Color::Reset, 15));
+            world.add_tag(id, ember2d_sim::components::Tag::new(tag));
+            id
+        };
+        let player = thing(&mut world, 2.0, '@', "player");
+        let item = thing(&mut world, 8.0, '!', "potion");
+        let monster = thing(&mut world, 9.0, 'r', "rat");
+        world.add_actor(monster, ember2d_sim::components::Actor::ai(100));
+
+        let mut fov = FovMap::new((0, 0), 10, 1);
+        fov.compute(Some(&map), 7, 0, 10); // first, from the far side
+        fov.compute(Some(&map), 2, 0, 10); // now from the player's side
+        world.fov = Some(Rc::new(fov));
+        let list = DrawList::from_world(&world);
+        let cell = |x: f32| list.commands.iter().find(|c| c.id == map_id && c.world_pos.x == x);
+        assert!(cell(2.0).is_some_and(|c| !c.dim), "in view: drawn normally");
+        assert!(cell(5.0).is_some_and(|c| !c.dim), "the wall is in view too");
+        assert!(cell(7.0).is_some_and(|c| c.dim), "seen before, out of view now: dimmed");
+        assert!(cell(0.0).is_some_and(|c| !c.dim));
+        let ent = |id| list.commands.iter().find(|c| c.id == id);
+        assert!(ent(player).is_some_and(|c| !c.dim), "the player");
+        assert!(ent(item).is_some_and(|c| c.dim), "an item seen before is remembered, dimmed");
+        assert!(ent(monster).is_none(), "an actor out of view isn't drawn");
+
+        world.fov_visibility.insert(monster, FovVisibility::Always);
+        assert!(DrawList::from_world(&world).commands.iter().any(|c| c.id == monster), "unless it's 'always'");
+        world.fov = Some(Rc::new(FovMap::new((0, 0), 10, 1)));
+        let none = DrawList::from_world(&world);
+        assert!(!none.commands.iter().any(|c| c.id == map_id), "nothing explored: no cells at all");
+        assert!(
+            !none.commands.iter().any(|c| c.id == item),
+            "an item never seen isn't remembered"
+        );
+        world.fov = None;
+        assert_eq!(DrawList::from_world(&world).commands.iter().filter(|c| c.dim).count(), 0, "fog off");
+    }
+
+    #[test]
+    fn dimming_keeps_the_hue_and_leaves_no_colour_alone() {
+        assert_eq!(dimmed(Color::Reset), Color::Reset);
+        assert_eq!(dimmed(Color::Rgb(250, 100, 0)), Color::Rgb(100, 40, 0));
     }
 }

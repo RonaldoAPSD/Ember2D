@@ -125,6 +125,9 @@ pub struct ScriptUpdateResult {
     /// `tilemap_resize`, in call order — `Simulation` applies them
     /// (simulation/tiles.rs).
     pub tile_ops: Vec<super::tiles::TileOp>,
+    /// Step 9.5-2: `compute_fov`/`fov_reset`/`set_fov_visibility`, in call
+    /// order — applied after `tile_ops` (simulation/tiles.rs).
+    pub fov_ops: Vec<super::fov_api::FovOp>,
 }
 
 /// A queued write to `ScriptState::pending_globals`/`pending_persistent`

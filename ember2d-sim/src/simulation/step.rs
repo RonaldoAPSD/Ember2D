@@ -496,6 +496,10 @@ impl Simulation {
         // so this step's physics already collides with them.
         let tile_ops = std::mem::take(&mut res.tile_ops);
         self.apply_tile_ops(world, tile_ops, logs);
+        // Step 9.5-2: after the tiles, so a view computed in the same pass
+        // that carved the floor sees that floor.
+        let fov_ops = std::mem::take(&mut res.fov_ops);
+        self.apply_fov_ops(world, fov_ops, logs);
         self.commands = res.commands;
         *persistent = res.persistent;
 

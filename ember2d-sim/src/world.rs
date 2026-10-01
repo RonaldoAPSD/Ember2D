@@ -107,6 +107,19 @@ pub struct World {
     /// so a save carries them and a loaded game can go on placing them.
     #[serde(default)]
     pub tile_defs: BTreeMap<String, crate::components::TileStamp>,
+    /// Step 9.5-2: what the player can see and has seen (`fov.rs`) —
+    /// `None` until a script calls `compute_fov`, which is what makes fog
+    /// of war opt-in: a level that never asks draws as it always has.
+    /// Behind an `Rc` for the same reason `tilemaps` are (the per-step
+    /// snapshot shares it). Saved, so a loaded game remembers what's been
+    /// explored.
+    #[serde(default)]
+    pub fov: Option<Rc<crate::fov::FovMap>>,
+    /// Step 9.5-2: per-entity override of how it's drawn out of view
+    /// (`ctx.set_fov_visibility`); an entity not listed gets
+    /// `World::fov_visibility_of`'s default.
+    #[serde(default)]
+    pub fov_visibility: BTreeMap<EntityId, crate::fov::FovVisibility>,
     /// Exit tiles' destination level paths, keyed by the exit entity's
     /// REAL id (Step 8-1 — R93, §3.2). `Simulation` used to keep this map
     /// itself and rebuild it on load by assuming "entity id = tile index +
@@ -152,6 +165,8 @@ impl World {
             vars: BTreeMap::new(),
             tilemaps: BTreeMap::new(),
             tile_defs: BTreeMap::new(),
+            fov: None,
+            fov_visibility: BTreeMap::new(),
             exits: BTreeMap::new(),
             y_sort: false,
             diagnostics: RefCell::new(Vec::new()),
@@ -192,6 +207,7 @@ impl World {
         }
 
         self.transforms.remove(&id);
+        self.fov_visibility.remove(&id);
         self.sprites.remove(&id);
         self.colliders.remove(&id);
         self.tags.remove(&id);
@@ -356,6 +372,24 @@ impl World {
     /// ascending id order. When more than one entity shares a tag (common —
     /// every "enemy" on a floor shares one), which one this returns is a
     /// real, load-bearing choice, not an arbitrary HashMap artifact.
+    /// Step 9.5-2: how `id` is drawn while fog of war is on and its cell
+    /// isn't in view — its `fov_visibility` entry, or by default: the
+    /// player always (it's the one looking), an actor hidden (a monster
+    /// you can't see), anything else remembered (items, stairs, doors).
+    pub fn fov_visibility_of(&self, id: EntityId) -> crate::fov::FovVisibility {
+        use crate::fov::FovVisibility;
+        if let Some(v) = self.fov_visibility.get(&id) {
+            return *v;
+        }
+        if self.tags.get(&id).is_some_and(|t| t.name == "player") {
+            FovVisibility::Always
+        } else if self.actors.contains_key(&id) {
+            FovVisibility::Hide
+        } else {
+            FovVisibility::Remember
+        }
+    }
+
     pub fn find_by_tag(&self, name: &str) -> Option<EntityId> {
         self.tags.iter().find(|(_, tag)| tag.name == name).map(|(id, _)| *id)
     }

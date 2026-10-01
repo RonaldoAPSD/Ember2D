@@ -61,6 +61,7 @@ pub mod color;
 pub mod command;
 pub mod components;
 pub mod event;
+pub mod fov;
 pub mod graph;
 pub mod layers;
 pub mod level;

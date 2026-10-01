@@ -184,7 +184,7 @@ start screen's New/Open Project browsers start from.
 | 7.5 | Scripting completeness | `[~]` — §5.6: all 13 steps `[x]`; gate open, awaiting the user's live checklist §11–§13 pass (shooter LOC exception accepted 2026-09-29) |
 | 8 | Tilemap, assets, animation authoring | `[~]` — §5.7: all 4 steps `[x]`; gate pass run 2026-10-01 (automated + live, R103/R104/R106 fixed in it), awaiting the user's OK to tag `v0.5.9` |
 | 9 | Scene and UI layer + RPG demo | `[~]` — §5.8: 9-1 to 9-8 landed and the gate pass is done (2026-10-01): all three demos play, the RPG tutorial replayed in a fresh project. Awaiting the user's OK to tag `v0.5.10` |
-| 9.5 | Demo expansion as engine stress tests | `[~]` — §5.8.5: 9.5-1 script tilemap API landed (`c07dc73`); next field of view, then the 20-floor procedural roguelike, the shooter as a stress test, tutorials (planned 2026-10-01) |
+| 9.5 | Demo expansion as engine stress tests | `[~]` — §5.8.5: 9.5-1 script tilemap API (`c07dc73`) and 9.5-2 field of view landed; next the 20-floor procedural roguelike, the shooter as a stress test, tutorials (planned 2026-10-01) |
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
 
@@ -5467,7 +5467,7 @@ Trigger or clip defs are refused; oversized maps are refused.
     grass patch in `on_start`. Walls stop the player, and the HUD's
     `get_tile` under the player reads "floor". 60 FPS.
 
-#### `[ ]` 9.5-2 — Field of view and fog of war
+#### `[x]` 9.5-2 — Field of view and fog of war
 `ember2d-sim/src/fov.rs`: symmetric shadowcasting in integer slopes (no
 floats). `World.fov` (visible + explored bitsets) exists only once a level
 calls `compute_fov(x, y, r)` — opt-in, other demos untouched. `is_in_fov`,
@@ -5475,6 +5475,44 @@ calls `compute_fov(x, y, r)` — opt-in, other demos untouched. `is_in_fov`,
 "always")`. Play mode skips unexplored cells, dims explored ones out of
 view, hides actors out of view and remembers items dimmed. Saved with the
 world.
+
+- **Landed as:** `ember2d-sim/src/fov.rs`.
+  - **The algorithm.** Albert Ford's symmetric shadowcasting with every
+    slope an exact `(num, den)` pair compared by cross-multiplying (no
+    floats), limited to a disc (`d² ≤ r² + r`), radius capped at 256.
+    Opaque means a solid tilemap cell; cells off the map are opaque too.
+  - **The map.** `FovMap` holds `visible` and `explored` as bitsets over
+    the level tilemap's grid. `World` gained `fov: Option<Rc<FovMap>>`
+    (`None` until a script asks — the opt-in) and `fov_visibility` with a
+    default rule (`fov_visibility_of`: player always, actor hide, the rest
+    remember). Both are saved; despawn clears an entity's entry.
+  - **Script side.** `scripting/fov_api.rs`: five functions, nine
+    registrations (240 in all). Writes queue `FovOp`s, applied after the
+    same pass's tile ops (`simulation/tiles.rs`), so a floor carved and
+    viewed in one `on_start` works. A map resized since the last view
+    starts a fresh one; a new level has a fresh `World` anyway (both app
+    loops call `reset_world`). `is_in_fov`/`is_explored` answer true while
+    fog is off.
+  - **Rendering.** `DrawCommand.dim`; `from_world_in` skips unexplored
+    cells and applies the entity rules; `play.rs` draws dim commands
+    through `render::dimmed` (40% brightness, `Reset` stays `Reset`,
+    background dimmed too).
+  - **Tests (13 new):**
+    - 7 unit tests in `fov_tests.rs`: an open room's disc, a pillar's
+      shadow and face, a wall with no gaps, a corridor, symmetry for every
+      floor pair on four seeded random maps, explored accumulating, radius
+      0 and the cap;
+    - 2 draw-list tests: the fog rules, and dimming;
+    - 4 `tests/fov_script.rs`: a view computed in the same `on_start` as
+      its floor; reads, including true with no fog and after
+      `fov_reset`; visibility modes and a bad one warning; a resized
+      floor's fresh view, and a save keeping the explored map.
+  - **Live:** a generated five-room level with a potion and a rat.
+    - At the start only the first room shows.
+    - Walking the corridor dims the first room and reveals the next.
+    - The rat (hidden) and the potion (remembered) appear in view.
+    - Stepping back past the 8-cell radius dims the far side, keeps the
+      potion dimmed and hides the rat.
 
 #### `[ ]` 9.5-3 — Roguelike rebuild, part 1: the dungeon
 A title scene (New / Continue / Quit); one `dungeon.level` whose script

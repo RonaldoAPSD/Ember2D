@@ -346,6 +346,45 @@ not entities, so a generated 80×45 floor costs what a painted one does.
 Coordinates and layers accept ints or floats (floats floor to a cell); the single-cell calls also take float coordinates with an int layer (`get_tile(ctx.get_x(id), ctx.get_y(id), 0)`). See
 `ember2d/tests/tile_script.rs`.
 
+### Field of view (Step 9.5-2)
+`compute_fov(x,y,radius)` · `is_in_fov(x,y)` → `bool` · `is_explored(x,y)` → `bool` · `fov_reset()` · `set_fov_visibility(id,mode)`
+
+Fog of war, opt-in.
+
+- **Turning it on.** Nothing changes until a script calls
+  `compute_fov(x, y, radius)`. That makes the view: every cell visible
+  from (x, y) within `radius` (a disc), solid tilemap cells blocking
+  sight. Call it again whenever the viewer moves. The radius is capped at
+  256.
+- **The algorithm.** Symmetric shadowcasting in exact integer slopes: if A
+  sees B, B sees A, and a wall's whole face is visible from the room it
+  bounds. Entities don't block sight.
+- **What play mode draws:**
+  - a cell never seen isn't drawn;
+  - a cell seen before but out of view is drawn dimmed;
+  - an entity out of view follows its `set_fov_visibility` mode:
+    `"hide"` isn't drawn, `"remember"` is drawn dimmed once its cell has
+    been seen, `"always"` is drawn normally.
+
+  The default mode is `"always"` for the player, `"hide"` for an actor and
+  `"remember"` for anything else (items, stairs). A bad mode name warns.
+- **Reading.** `is_in_fov`/`is_explored` read the view as of the start of
+  the pass. While fog is off (before the first `compute_fov`, or after
+  `fov_reset()`) they answer `true` everywhere, so a monster's "can I see
+  the player?" works the same in a level without fog.
+- **Ordering.** `compute_fov` is applied after the same pass's tile
+  requests, so carving a floor and computing the view in one `on_start`
+  sees the new floor. Like every write it's deferred: compute from the
+  position you're moving *to*, since `get_x` still reads the old one
+  this pass.
+- **Grid and saves.** The view covers the level's tilemap grid. A
+  `tilemap_resize` (a new floor) starts a fresh one; a new level starts
+  with none. The explored map is part of a save.
+
+`compute_fov` also takes float coordinates with an int radius
+(`compute_fov(ctx.get_x(id), ctx.get_y(id), 8)`). See
+`ember2d/tests/fov_script.rs`.
+
 ### Hierarchy
 `get_parent(id)` · `set_parent(id,parent)` · `set_parent_keep_world(id,parent)` · `get_world_x(id)` · `get_world_y(id)`
 
@@ -903,6 +942,7 @@ Rhai (`go` is one) and can't name a function.
 | 9 | Step 9-4: `load_level(path, spawn)`; exit targets `path#spawn`; `get_spawn_point("player")` now returns the player's start | **No** — additive. Level format v7 (`spawns`) is a level-file change, not an API one; older levels are migrated when they load. |
 | 9 | Step 9-5: `project.ron`'s `world_cell` — `get_mouse_world_x/y` divide by it | **No** — additive; a project without `world_cell` behaves exactly as before. |
 | 9 | Step 9-7: `set_size`, `set_flip`, `set_sprite`, `play_project_clip`/`play_project_clip_once`, `set_y_sort` | **No** — additive. |
+| 9.5 | Step 9.5-2: `compute_fov`, `is_in_fov`, `is_explored`, `fov_reset`, `set_fov_visibility` | **No** — additive; a level that never calls `compute_fov` draws exactly as before. A save gains `World::fov`/`fov_visibility` (`serde(default)`). |
 | 9.5 | Step 9.5-1: `tile_def`, `tilemap_resize`, `tile_set`/`tile_set_layer`, `tile_fill`/`tile_fill_layer`, `tile_clear`/`tile_clear_layer`, `tile_clear_rect`/`tile_clear_rect_layer`, `get_tile` | **No** — additive. A save gains `World::tile_defs` (`serde(default)`; older saves load without it). |
 
 **Phase 6 is a zero-API-break phase** — `API_VERSION` stayed `6` through

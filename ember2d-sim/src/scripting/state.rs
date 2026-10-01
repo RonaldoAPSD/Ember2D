@@ -168,6 +168,9 @@ pub struct WorldSnapshot {
     /// took `WorldSnapshot::build` from copying every wall to not copying
     /// any of them.
     pub(super) tilemaps: BTreeMap<i64, Rc<crate::components::Tilemap>>,
+    /// Step 9.5-2: the field of view as of this pass (`is_in_fov`,
+    /// `is_explored`) — an `Rc` share, like `tilemaps`.
+    pub(super) fov: Option<Rc<crate::fov::FovMap>>,
 }
 
 impl WorldSnapshot {
@@ -303,6 +306,7 @@ impl WorldSnapshot {
             layers: layers.clone(),
             spawns: spawns.clone(),
             tilemaps: world.tilemaps.iter().map(|(id, m)| (*id as i64, Rc::clone(m))).collect(),
+            fov: world.fov.clone(),
         }
     }
 }
@@ -426,6 +430,8 @@ pub(super) struct ScriptState {
     pub(super) sprite_ops: Vec<super::sprite::SpriteOp>,
     /// Step 9.5-1: this pass's tile requests, in call order (`tiles.rs`).
     pub(super) tile_ops: Vec<super::tiles::TileOp>,
+    /// Step 9.5-2: this pass's field-of-view requests (`fov_api.rs`).
+    pub(super) fov_ops: Vec<super::fov_api::FovOp>,
     pub(super) pending_shake: Option<ShakeState>,
     pub(super) pending_visibility: Vec<(i64, bool)>,
     pub(super) pending_z_order: Vec<(i64, i32)>,
@@ -651,6 +657,7 @@ impl ScriptState {
             ui: Default::default(),
             sprite_ops: Vec::new(),
             tile_ops: Vec::new(),
+            fov_ops: Vec::new(),
             pending_shake: None,
             pending_visibility: Vec::new(),
             pending_z_order: Vec::new(),

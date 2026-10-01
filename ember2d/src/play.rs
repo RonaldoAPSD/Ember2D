@@ -562,7 +562,10 @@ impl GameState for PlayState {
         let (w_pad, h_pad) = (slack.0 as usize, slack.1 as usize);
         for cmd in draw_list.commands {
             let mut world_pos = overrides.position(cmd.id).unwrap_or(cmd.world_pos);
-            let tint = overrides.tint(cmd.id).unwrap_or(cmd.tint);
+            let mut tint = overrides.tint(cmd.id).unwrap_or(cmd.tint);
+            if cmd.dim {
+                tint = render::dimmed(tint); // Step 9.5-2: remembered, out of view
+            }
             if let Some(scale) = overrides.shake_scale(cmd.id) {
                 let intensity = animation::SHAKE_INTENSITY * scale;
                 // R15 (7A-5): render_rng, not rng.
@@ -586,7 +589,8 @@ impl GameState for PlayState {
 
             match cmd.source {
                 SpriteSource::Glyph { ch, bg } => {
-                    renderer.draw_char_world(&render_camera, world_pos, *ch, tint, *bg);
+                    let bg = if cmd.dim { render::dimmed(*bg) } else { *bg };
+                    renderer.draw_char_world(&render_camera, world_pos, *ch, tint, bg);
                 }
                 SpriteSource::Texture { path, src } => {
                     let id = assets.load(path);
