@@ -107,6 +107,25 @@ pub enum WidgetId {
     ImporterSheet,
     ImporterImport,
     ImporterCancel,
+    /// Step 8-3: the clip editor's widgets — a saved clip in its list (by
+    /// index into the project's clips, name order), its text fields, the
+    /// loop toggle, the tileset switcher, the sheet (one continuous area;
+    /// the input side maps a click back to a region), one frame of the
+    /// strip (by index), and its buttons.
+    ClipListRow(usize),
+    ClipNew,
+    ClipField(crate::editor::clip_editor::ClipField),
+    ClipLoop,
+    ClipTilesetCycle,
+    ClipSheet,
+    ClipFrame(usize),
+    ClipMoveLeft,
+    ClipMoveRight,
+    ClipDeleteFrame,
+    ClipPlay,
+    ClipSave,
+    ClipAddToPalette,
+    ClipClose,
     /// 7C-1: the advanced color picker's Cancel button.
     ColorPickerCancel,
     /// 7C-1: one swatch of the palette editor's foreground/background color

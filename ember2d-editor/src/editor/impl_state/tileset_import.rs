@@ -128,6 +128,7 @@ impl EditorState {
                 trigger: false,
                 tag: String::new(),
                 sprite: Some(sprite),
+                clip: None,
             });
             added += 1;
         }

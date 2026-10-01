@@ -171,9 +171,10 @@ fn imported_entries_draw_as_thumbnails_and_paint_sprite_tiles_onto_the_canvas() 
         "the canvas draws the placed tile as its tileset region, not its glyph"
     );
 
-    // ...and it's saved as a v5 sprite reference.
+    // ...and it's saved as a sprite reference, at the current format
+    // version (v5 introduced `sprite`; anything since still carries it).
     let data = h.state.grid().to_level_data();
-    assert_eq!(data.version, 5);
+    assert_eq!(data.version, ember2d_sim::level::LEVEL_FORMAT_VERSION);
     assert!(data.all_tiles().iter().any(|t| t.sprite == Some(SpriteRef::new("sheet", "grass"))));
 }
 

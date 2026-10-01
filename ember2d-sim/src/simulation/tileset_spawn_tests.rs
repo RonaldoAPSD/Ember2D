@@ -148,3 +148,103 @@ fn an_invalid_tileset_file_is_reported_not_trusted() {
     let (_, logs) = start(level_with(vec![sprite_tile(0, "wall", true)]), Files(m));
     assert!(logs.iter().any(|l| l.contains("runs off")), "{logs:?}");
 }
+
+// ── Step 8-3: animated tiles ────────────────────────────────────────────────
+
+fn files_with_torch_clip() -> Files {
+    let mut f = project_files();
+    let clip = crate::clip_asset::ClipData {
+        name: "torch".to_string(),
+        tileset: "dungeon".to_string(),
+        frames: vec!["wall".to_string(), "door".to_string()],
+        fps: 4.0,
+        looping: true,
+    };
+    f.0.insert("proj/assets/clips/torch.ron".to_string(), ron::ser::to_string(&clip).unwrap());
+    f
+}
+
+fn clip_tile(x: i32, clip: &str) -> TileRecord {
+    let mut t = TileRecord::new(x, 0, 1, '*', Color::Yellow, Color::Reset, false, false, "");
+    t.clip = Some(clip.to_string());
+    t
+}
+
+#[test]
+fn an_animated_tile_plays_its_project_clip_as_a_rects_animation() {
+    let level = level_with(vec![clip_tile(2, "torch")]);
+    let mut sim = Simulation::new(level);
+    sim.set_level_source(Box::new(files_with_torch_clip()));
+    let mut world = World::new();
+    let mut persistent = Map::new();
+    let logs = sim.on_start(&mut world, 10, 10, &mut persistent);
+    assert!(logs.iter().all(|l| !l.text.contains("Tile animation")), "{logs:?}");
+
+    assert!(world.tilemaps.is_empty(), "an animated tile is never collapsed into the tilemap");
+    let (&id, sprite) = world.sprites.iter().find(|(_, s)| s.layer == 10).expect("the tile");
+    assert!(matches!(&sprite.source, SpriteSource::Clip { name } if name == "torch"));
+    assert_eq!(sprite.size, Some(Vec2::new(1.0, 1.0)));
+    assert!(world.animators.get(&id).is_some_and(|a| a.clip == "torch" && a.playing));
+
+    let clip = sim.clips().get("torch").expect("the clip is in the simulation's clip table");
+    assert_eq!((clip.fps, clip.looping), (4.0, true));
+    match &clip.frames {
+        crate::components::ClipFrames::Rects { texture, frames } => {
+            assert_eq!(norm(texture), "proj/assets/tilesets/dungeon.png");
+            assert_eq!(
+                frames,
+                &vec![Rect::new(16.0, 0.0, 16.0, 16.0), Rect::new(32.0, 48.0, 16.0, 16.0)]
+            );
+        }
+        other => panic!("expected a Rects clip, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_animated_tiles_frame_advances_with_simulation_steps() {
+    use crate::command::{GamepadSnapshot, InputSnapshot, MouseSnapshot};
+    use crate::simulation::StepInput;
+    let level = level_with(vec![clip_tile(2, "torch")]);
+    let mut sim = Simulation::new(level);
+    sim.set_level_source(Box::new(files_with_torch_clip()));
+    let mut world = World::new();
+    let mut persistent = Map::new();
+    sim.on_start(&mut world, 10, 10, &mut persistent);
+    let id = *world.animators.keys().next().unwrap();
+    let input = InputSnapshot::default();
+    let gamepad = GamepadSnapshot::default();
+    // 4 fps: 0.3 s of 1/60 steps crosses one frame boundary.
+    for i in 0..18 {
+        sim.step(
+            &mut world,
+            StepInput {
+                input: &input,
+                mouse: MouseSnapshot::default(),
+                gamepad: &gamepad,
+                external_commands: &[],
+                animating: &[],
+                camera_origin: Vec2::ZERO,
+                sim_dt: 1.0 / 60.0,
+                elapsed: i as f32 / 60.0,
+                viewport_w: 10,
+                viewport_h: 10,
+            },
+            &mut persistent,
+        );
+    }
+    assert_eq!(world.animators[&id].frame, 1, "0.3 s at 4 fps is frame 1");
+}
+
+#[test]
+fn a_missing_clip_warns_once_and_the_tile_stays_unanimated() {
+    let level = level_with(vec![clip_tile(1, "flag"), clip_tile(2, "flag")]);
+    let (world, logs) = start(level, files_with_torch_clip());
+    let warnings: Vec<_> = logs.iter().filter(|l| l.contains("Tile animation 'flag'")).collect();
+    assert_eq!(warnings.len(), 1, "{logs:?}");
+    assert!(world.animators.is_empty());
+    assert!(world
+        .sprites
+        .values()
+        .filter(|s| s.layer == 10)
+        .all(|s| matches!(s.source, SpriteSource::Glyph { ch: '*', .. })));
+}

@@ -133,8 +133,15 @@ pub fn draw_tile_preview_in(
     slot: Rect,
     tile: &crate::editor::palette::TileDefinition,
     sprites: &crate::editor::sprites::SpriteAssets,
+    anim_time: f32,
 ) {
-    if let Some((tex, src)) = tile.sprite.as_ref().and_then(|s| sprites.resolve(s)) {
+    // Step 8-3: an animated entry plays its clip in the thumbnail.
+    let image = tile
+        .clip
+        .as_ref()
+        .and_then(|c| sprites.clip_frame(c, anim_time))
+        .or_else(|| tile.sprite.as_ref().and_then(|s| sprites.resolve(s)));
+    if let Some((tex, src)) = image {
         let inner =
             Rect::new(slot.x + slot.w * 0.1, slot.y + slot.h * 0.1, slot.w * 0.8, slot.h * 0.8);
         let dest = crate::editor::sprites::fit_inside(inner, src.w, src.h);

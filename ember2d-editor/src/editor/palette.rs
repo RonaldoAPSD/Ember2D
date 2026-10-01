@@ -69,6 +69,12 @@ pub struct TileDefinition {
     /// 8-2 still loads (as glyph-only entries).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sprite: Option<ember2d_sim::tileset::SpriteRef>,
+
+    /// Step 8-3: an animation clip (`assets/clips/<name>.ron`) tiles placed
+    /// with this entry play on loop — copied onto `TileRecord::clip`. The
+    /// clip editor's [ Add to Palette ] creates these.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip: Option<String>,
 }
 
 impl TileDefinition {
@@ -88,6 +94,7 @@ impl TileDefinition {
             &self.tag,
         );
         rec.sprite = self.sprite.clone();
+        rec.clip = self.clip.clone();
         rec
     }
 }
@@ -180,6 +187,7 @@ impl TilePalette {
                     trigger: false,
                     tag: "".into(),
                     sprite: None,
+                    clip: None,
                 },
                 TileDefinition {
                     name: "Floor".into(),
@@ -190,6 +198,7 @@ impl TilePalette {
                     trigger: false,
                     tag: "".into(),
                     sprite: None,
+                    clip: None,
                 },
                 TileDefinition {
                     name: "Item".into(),
@@ -200,6 +209,7 @@ impl TilePalette {
                     trigger: true,
                     tag: "".into(),
                     sprite: None,
+                    clip: None,
                 },
                 TileDefinition {
                     name: "Spawn".into(),
@@ -210,6 +220,7 @@ impl TilePalette {
                     trigger: false,
                     tag: "".into(),
                     sprite: None,
+                    clip: None,
                 },
                 TileDefinition {
                     name: "Water".into(),
@@ -220,6 +231,7 @@ impl TilePalette {
                     trigger: true,
                     tag: "".into(),
                     sprite: None,
+                    clip: None,
                 },
                 TileDefinition {
                     name: "Door".into(),
@@ -230,6 +242,7 @@ impl TilePalette {
                     trigger: false,
                     tag: "".into(),
                     sprite: None,
+                    clip: None,
                 },
                 TileDefinition {
                     name: "Chest".into(),
@@ -240,6 +253,7 @@ impl TilePalette {
                     trigger: true,
                     tag: "".into(),
                     sprite: None,
+                    clip: None,
                 },
                 TileDefinition {
                     name: "Pillar".into(),
@@ -250,6 +264,7 @@ impl TilePalette {
                     trigger: false,
                     tag: "".into(),
                     sprite: None,
+                    clip: None,
                 },
                 TileDefinition {
                     name: "Danger".into(),
@@ -260,6 +275,7 @@ impl TilePalette {
                     trigger: true,
                     tag: "".into(),
                     sprite: None,
+                    clip: None,
                 },
             ],
             selected: 0,

@@ -21,6 +21,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use ember2d::renderer::Texture;
+use ember2d_sim::clip_asset::{ClipData, CLIP_DIR};
 use ember2d_sim::math::Rect;
 use ember2d_sim::tileset::{SpriteRef, TilesetData, TILESET_DIR};
 
@@ -37,6 +38,10 @@ pub struct SpriteAssets {
     /// By tileset name — a `BTreeMap` so anything listing them (the
     /// palette's auto-added entries) sees a stable order.
     pub tilesets: BTreeMap<String, LoadedTileset>,
+    /// Step 8-3: the project's animation clips (`assets/clips/*.ron`), by
+    /// name — what animated tiles and palette entries play, and what the
+    /// clip editor lists.
+    pub clips: BTreeMap<String, ClipData>,
 }
 
 impl SpriteAssets {
@@ -45,22 +50,36 @@ impl SpriteAssets {
         Path::new(project_folder).join(TILESET_DIR)
     }
 
+    /// Step 8-3: `<project>/assets/clips/` for `project_folder`.
+    pub fn clip_dir(project_folder: &str) -> PathBuf {
+        Path::new(project_folder).join(CLIP_DIR)
+    }
+
     /// Re-scan `project_folder`'s tileset directory from scratch. Returns a
     /// message per file that couldn't be used (bad RON, failed validation,
     /// an image that won't load), for the console. No folder, or no
     /// tileset directory yet, is just "no tilesets" — not an error.
     pub fn reload(&mut self, project_folder: Option<&str>) -> Vec<String> {
         self.tilesets.clear();
+        self.clips.clear();
         let mut problems = Vec::new();
         let Some(folder) = project_folder else { return problems };
-        let dir = Self::dir(folder);
-        let Ok(entries) = std::fs::read_dir(&dir) else { return problems };
-        let mut files: Vec<PathBuf> = entries
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("ron"))
-            .collect();
-        files.sort();
-        for path in files {
+        // Step 8-3: clips too — each only needs to parse and validate here;
+        // a frame naming a region its tileset lacks just draws nothing for
+        // that frame (and the clip editor shows which).
+        for path in ron_files(&Self::clip_dir(folder)) {
+            let loaded = std::fs::read_to_string(&path)
+                .map_err(|e| e.to_string())
+                .and_then(|t| ron::de::from_str::<ClipData>(&t).map_err(|e| e.to_string()))
+                .and_then(|c| c.validate().map(|_| c));
+            match loaded {
+                Ok(c) => {
+                    self.clips.insert(c.name.clone(), c);
+                }
+                Err(e) => problems.push(format!("Clip {}: {e}", path.display())),
+            }
+        }
+        for path in ron_files(&Self::dir(folder)) {
             match Self::load_one(&path) {
                 Ok(t) => {
                     if t.texture.is_none() {
@@ -95,6 +114,39 @@ impl SpriteAssets {
         let rect = t.data.region_rect(&sprite.region)?;
         Some((t.texture.as_ref()?, rect))
     }
+
+    /// Step 8-3: which frame of clip `name` is showing `t` seconds into
+    /// playback — `floor(t * fps)`, wrapped for a looping clip, held on the
+    /// last frame for a one-shot — the same arithmetic as the game's own
+    /// `Animator`, so the canvas plays a clip at the speed the game will.
+    pub fn clip_frame_index(clip: &ClipData, t: f32) -> usize {
+        let n = clip.frames.len().max(1);
+        let i = (t.max(0.0) * clip.fps).floor() as usize;
+        if clip.looping {
+            i % n
+        } else {
+            i.min(n - 1)
+        }
+    }
+
+    /// Step 8-3: the texture and rect clip `name` shows `t` seconds into
+    /// playback, if the clip, its tileset, and that frame's region exist.
+    pub fn clip_frame(&self, name: &str, t: f32) -> Option<(&Texture, Rect)> {
+        let clip = self.clips.get(name)?;
+        let region = clip.frames.get(Self::clip_frame_index(clip, t))?;
+        self.resolve(&SpriteRef::new(clip.tileset.clone(), region.clone()))
+    }
+}
+
+/// Every `*.ron` directly in `dir`, sorted (a missing dir is just empty).
+fn ron_files(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut files: Vec<PathBuf> = entries
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("ron"))
+        .collect();
+    files.sort();
+    files
 }
 
 /// The largest rect of aspect `src_w`:`src_h` that fits inside `slot`,

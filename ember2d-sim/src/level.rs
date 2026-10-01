@@ -155,6 +155,14 @@ pub struct TileRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sprite: Option<crate::tileset::SpriteRef>,
 
+    /// Step 8-3 (format v6): an animation clip (`assets/clips/<name>.ron`,
+    /// `crate::clip_asset`) this tile plays on loop in game — a torch, water,
+    /// a flag. Takes precedence over `sprite` and `glyph` for drawing (both
+    /// stay fallbacks if the clip can't be found). A tile with a clip is
+    /// never collapsed into the tilemap (`is_static`): a cell can't animate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip: Option<String>,
+
     /// Makes this tile's entity eligible to take turns under
     /// `TurnScheduler` (Step 5f, docs/ember2d-phase5-plan.md;
     /// `LEVEL_FORMAT_VERSION` 1 → 2). The player needs no such field — it's
@@ -363,6 +371,7 @@ impl TileRecord {
             graph: None,
             texture: None,
             sprite: None,
+            clip: None,
             actor: None,
         }
     }
@@ -405,7 +414,9 @@ impl TileRecord {
 /// tileset region. Additive again; the bump exists for the same reason v4's
 /// did: a pre-8-2 engine would load a v5 level "fine" and silently draw
 /// every sprite tile as its fallback glyph.
-pub const LEVEL_FORMAT_VERSION: u32 = 5;
+/// Version 6 is Step 8-3: `TileRecord::clip`, an animated tile. Same
+/// reasoning again — a pre-8-3 engine would draw it frozen.
+pub const LEVEL_FORMAT_VERSION: u32 = 6;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LevelData {

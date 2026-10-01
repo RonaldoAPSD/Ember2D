@@ -35,7 +35,8 @@ impl TileRecord {
     ///   - an `actor` (it takes turns and moves),
     ///   - `next_level` (an exit — `World.exits` keys it by entity id),
     ///   - a non-empty `collider_mask` (a cell has no mask — only a layer),
-    ///   - `camera_follow` (the camera follows an entity id).
+    ///   - `camera_follow` (the camera follows an entity id),
+    ///   - a `clip` (Step 8-3: it animates — a tilemap cell can't).
     pub fn is_static(&self) -> bool {
         self.script.is_none()
             && self.graph.is_none()
@@ -44,6 +45,7 @@ impl TileRecord {
             && self.next_level.is_none()
             && self.collider_mask.is_empty()
             && !self.camera_follow
+            && self.clip.is_none()
     }
 
     fn to_tile_def(&self) -> TileDef {

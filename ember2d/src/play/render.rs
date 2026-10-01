@@ -30,7 +30,7 @@
 
 use crate::renderer::color::Color;
 use crate::renderer::Renderer;
-use ember2d_sim::components::SpriteSource;
+use ember2d_sim::components::{AnimationClip, ClipFrames, SpriteSource};
 use ember2d_sim::math::{Rect, Vec2};
 use ember2d_sim::scripting::{HudDraw, LogEntry, LogLevel, ShakeState};
 use ember2d_sim::world::{EntityId, World};
@@ -134,6 +134,30 @@ impl<'w> DrawList<'w> {
 
         commands.sort_unstable_by_key(|c| (c.space, c.z, texture_sort_key(c.source), c.id));
         DrawList { commands }
+    }
+}
+
+/// One frame of an animation clip, ready to draw: a glyph, or a sub-rect of
+/// a texture. Step 8-3 (docs/ember2d-master-plan.md §5.7) — play mode only
+/// ever drew `ClipFrames::Glyphs` clips (Step 3c's scope); a project clip
+/// built in the editor is `ClipFrames::Rects`.
+pub(super) enum ClipFrame<'c> {
+    Glyph(char),
+    Rect(&'c str, Rect),
+}
+
+/// Frame `frame` of `clip` (wrapped into range), or `None` for a clip with
+/// no frames. A free function so the frame choice is testable without a
+/// live `Renderer`.
+pub(super) fn clip_frame(clip: &AnimationClip, frame: usize) -> Option<ClipFrame<'_>> {
+    match &clip.frames {
+        ClipFrames::Glyphs { frames } if !frames.is_empty() => {
+            Some(ClipFrame::Glyph(frames[frame % frames.len()]))
+        }
+        ClipFrames::Rects { texture, frames } if !frames.is_empty() => {
+            Some(ClipFrame::Rect(texture, frames[frame % frames.len()]))
+        }
+        _ => None,
     }
 }
 
@@ -370,5 +394,38 @@ mod tilemap_draw_tests {
             list.commands[..player_at].iter().all(|c| c.z <= 15),
             "floors (z 0) and walls (z 10) draw under the player (z 15)"
         );
+    }
+}
+
+// ── Tests: Step 8-3 (docs/ember2d-master-plan.md §5.7) ──────────────────────
+#[cfg(test)]
+mod clip_frame_tests {
+    use super::*;
+
+    #[test]
+    fn clip_frame_picks_the_wrapped_frame_for_glyph_and_sheet_clips() {
+        let glyphs = AnimationClip {
+            frames: ClipFrames::Glyphs { frames: vec!['a', 'b'] },
+            fps: 4.0,
+            looping: true,
+        };
+        assert!(matches!(clip_frame(&glyphs, 3), Some(ClipFrame::Glyph('b'))));
+        let r0 = Rect::new(0.0, 0.0, 16.0, 16.0);
+        let r1 = Rect::new(16.0, 0.0, 16.0, 16.0);
+        let sheet = AnimationClip {
+            frames: ClipFrames::Rects { texture: "s.png".to_string(), frames: vec![r0, r1] },
+            fps: 4.0,
+            looping: true,
+        };
+        match clip_frame(&sheet, 2) {
+            Some(ClipFrame::Rect(path, rect)) => assert_eq!((path, rect), ("s.png", r0)),
+            _ => panic!("a sheet clip draws a texture sub-rect"),
+        }
+        let empty = AnimationClip {
+            frames: ClipFrames::Glyphs { frames: vec![] },
+            fps: 1.0,
+            looping: true,
+        };
+        assert!(clip_frame(&empty, 0).is_none());
     }
 }

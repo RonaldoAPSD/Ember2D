@@ -525,6 +525,7 @@ impl EditorState {
             // Step 8-2: the player record has no tileset sprite of its own
             // (it's not painted from the palette).
             sprite: None,
+            clip: None,
             // The editor never authors an actor on the player tile — the
             // player is implicitly Local(0) always (see
             // TileRecord::actor's doc comment).
@@ -637,6 +638,10 @@ impl EditorState {
             ToolbarAction::ImportTileset => {
                 self.pick_and_begin_tileset_import();
             }
+            // Step 8-3 — see impl_state/clip_edit.rs.
+            ToolbarAction::OpenClipEditor => {
+                self.open_clip_editor();
+            }
             ToolbarAction::NewLevel => {
                 self.grid = LevelGrid::new(super::DEFAULT_LEVEL_W, super::DEFAULT_LEVEL_H);
                 self.undo = UndoStack::new();
@@ -712,6 +717,10 @@ mod viewport;
 // Step 8-2: the tileset importer's file side (picker, writing the tileset,
 // palette entries) — see `tileset_import.rs`'s own header comment.
 mod tileset_import;
+
+// Step 8-3: the clip editor's file side (save a clip, add it to the
+// palette) — see `clip_edit.rs`'s own header comment.
+mod clip_edit;
 
 #[cfg(test)]
 mod tests;

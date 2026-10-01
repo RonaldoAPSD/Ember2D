@@ -1,5 +1,5 @@
 (
-    version: 5,
+    version: 6,
     name: "Arena",
     width: 80,
     height: 24,

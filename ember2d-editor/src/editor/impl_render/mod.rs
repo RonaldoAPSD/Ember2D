@@ -275,6 +275,7 @@ impl EditorState {
                         renderer,
                         &self.grid,
                         &self.sprites,
+                        self.anim_time,
                         self.active_layer,
                         self.scroll,
                         self.zoom,
@@ -407,6 +408,7 @@ impl EditorState {
                         &self.theme,
                         &self.palette,
                         &self.sprites,
+                        self.anim_time,
                         mode_label,
                         self.palette_scroll,
                         panel.content_rect(&metrics).into(),
@@ -490,6 +492,7 @@ impl EditorState {
                     &self.theme_chrome_tex,
                     pal,
                     &self.sprites,
+                    self.anim_time,
                     self.palette_editor_focus.as_ref(),
                     screen_w,
                     screen_h,
@@ -506,6 +509,21 @@ impl EditorState {
                 &self.theme,
                 &self.theme_chrome_tex,
                 imp,
+                screen_w,
+                screen_h,
+                &mut self.ui_frame,
+            );
+        }
+
+        // Step 8-3: the clip editor — see ui/panels/clip_editor_panel.rs.
+        if let (EditorMode::ClipEditor, Some(ce)) = (&self.mode, &self.clip_editor) {
+            ui::draw_clip_editor_modal(
+                &mut painter,
+                self.font.as_mut(),
+                &self.theme,
+                &self.theme_chrome_tex,
+                ce,
+                &self.sprites,
                 screen_w,
                 screen_h,
                 &mut self.ui_frame,

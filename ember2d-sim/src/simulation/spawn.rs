@@ -118,6 +118,22 @@ impl Simulation {
                     sprite.size = Some(Vec2::new(1.0, 1.0));
                 }
             }
+            // Step 8-3: an animated tile plays its project clip on loop —
+            // the clip goes into this simulation's clip table (what
+            // `SpriteSource::Clip` names resolve through, the same table a
+            // script's `register_clip` writes), and the tile gets the same
+            // `Clip` source + `Animator` a script's `play_clip` would give
+            // it. One cell, like a sprite tile. A broken clip leaves the
+            // tile as whatever it was above (sprite or glyph) and warns once.
+            if let Some(ref clip_name) = tile.clip {
+                if let Some(clip) = sprites.resolve_clip_or_warn(clip_name, logs) {
+                    self.clips.insert(clip_name.clone(), clip);
+                    sprite.source =
+                        crate::components::SpriteSource::Clip { name: clip_name.clone() };
+                    sprite.size = Some(Vec2::new(1.0, 1.0));
+                    world.add_animator(id, crate::components::Animator::new(clip_name.clone()));
+                }
+            }
             world.add_sprite(id, sprite);
 
             if tile.solid {

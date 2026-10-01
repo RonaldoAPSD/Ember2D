@@ -396,7 +396,7 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R88 | S1 | `draw_status_bar`'s call site (`impl_render/mod.rs`) passed the Viewport panel's raw POINTS-space `content_rect().x/y` as `canvas_origin_px`, but `draw_status_bar` (`ui/panels/chrome.rs:168-169`) subtracts it from `mouse.pixel_x/y` (LOGICAL pixels, per the 7C-9 decision gate) and divides by `CELL_W`/`CELL_H` — exactly the points/logical unit mix `mouse_to_grid`'s own doc comment (`impl_state/viewport.rs`) warns "would silently scale the cursor position by ui_scale." Invisible whenever `ui_scale == render_scale` (points and logical coincide there — every harness default, and every real session before 7D-4 shipped the Theme > UI Scale menu), so it went unnoticed until a user picked `UI Scale: 1x` on a real 2×-DPI display and the status bar's own coordinate readout drifted away from the tile actually under the cursor (reported live, with a screenshot, then reproduced by launching the real editor and driving the mouse via Win32 `SetCursorPos` — no headless test caught it, since `canvas_painting_is_unaffected_by_ui_scale` already covers the SAME `ui_scale=1, render_scale=2` ratio but only for `mouse_to_grid`'s click path, never this call site). The visible hover HIGHLIGHT and real click placement were both already correct — only the numeric readout was wrong, which is why painting itself was never reported broken | `ember2d-editor/src/editor/impl_render/mod.rs:611`; `ember2d-editor/src/editor/ui/panels/chrome.rs:168-169` | `[x]` (`ed1b224`) — call site now passes `(vl.x, vl.y)` (the already-computed `rect_to_logical` result used for everything else this frame) instead of the raw points `viewport.x/y`. Regression test `r88_the_status_bars_coordinate_readout_matches_the_real_hovered_cell_when_ui_scale_is_smaller_than_render_scale` (`tests/editor_ui_scale.rs`), confirmed to fail against the pre-fix code (read `-1.9` instead of `5.5` for a click centered on grid cell (5,3)). **Verification.** `cargo build --workspace --bins --examples` clean. `cargo test --workspace`: 377 (was 376), all pass. `cargo clippy --workspace --lib`/`--all-targets` unchanged at 43/55. `cargo test -p ember2d --test replay` 3× fresh processes green. `scripts/check.ps1` clean. Verified live a second time after the fix: same repro (window at 0,0, mouse at screen (300,200), `UI Scale: 1x`) now reads `(10.9,3.4)`, matching the highlighted cell, instead of the pre-fix `(3.5,1.5)` |
 | R89 | S2 | `draw_menu_dropdown`'s call site (`impl_render/mod.rs`) had the exact same unit mismatch as R88, in a sibling code path R88's own fix never touched: raw LOGICAL `mouse.pixel_x/y` passed straight into a function comparing it against POINTS-space row rects (`row_rect.contains_point`), so the dropdown's own drawn "hovered" highlight silently drifted at any `ui_scale != render_scale`. Reported live by the user with a screenshot: cursor down near "Close Project" (index 9, `MenuKind::File`'s own list, `ui/menu.rs`) while "Export Game..." (index 5) was drawn highlighted instead. `handle_menu_dropdown_click` (`input/panels/menu_bar.rs`) was never affected — it already converts via `logical_to_pt` — so a real click always landed on the right item; only the visual hint lied about which row that click would hit | `ember2d-editor/src/editor/impl_render/mod.rs:548-549` (pre-fix); `ember2d-editor/src/editor/ui/menu.rs` (`draw_menu_dropdown`'s own `hovered` check) | `[x]` (`99ee94b`) — call site converts via `self.ui_space.logical_to_pt(mouse.pixel_x, mouse.pixel_y)` before calling `draw_menu_dropdown`, matching `handle_menu_dropdown_click`'s own conversion exactly. `draw_menu_dropdown` also widened from `()` to `Option<usize>` (the hovered row index), captured into a new `EditorState.menu_hover_item` field (reset every frame, exposed via `hovered_menu_item()`) — before this the hover highlight was a fire-and-forget local inside `ui/menu.rs` with no way for anything outside the draw call to observe it; now it's a real, testable single source of truth, closing the same "two independent implementations that can drift" gap R64/R66/R67 already fixed for other chrome hit-testing. Regression test `r89_menu_dropdown_hover_highlight_matches_the_real_hovered_row_when_ui_scale_is_smaller_than_render_scale` (`tests/editor_ui_scale.rs`), confirmed to fail against the pre-fix code (highlighted row 3 instead of the real row 9). **Verification.** `cargo build --workspace --bins --examples` clean. `cargo test --workspace`: 381 (was 380), all pass. `cargo clippy --workspace --lib`/`--all-targets` unchanged at 43/55. `cargo test -p ember2d --test replay` 3× fresh processes green. `scripts/check.ps1` clean (the new `menu_hover_item` field's doc comment trimmed to a single trailing `//` line to keep `editor/mod.rs` at exactly 750 real lines — no other file this step touched was close to the limit). Verified live a second time after the fix: opened `File`, moved the mouse to "Close Project"'s own row — highlighted correctly, matching the cursor, instead of the pre-fix mismatch |
 | **Found writing 7.5-4 (docs/ember2d-master-plan.md §5.6)** | | | | |
-| R90 | S4 | Adding `ActorRecord::stats`/`tint_aware`/`tint_asleep` (7.5-4) grew `TileRecord` enough that `ember2d-editor`'s undo `Command::PlaceTile { before: Option<TileRecord>, after: TileRecord }` variant now trips clippy's `large_enum_variant` lint (528 bytes vs. `Command`'s other variants; 624 since 8-2's `TileRecord::sprite` — same warning, same cause) — a new warning (`cargo clippy --workspace --lib`: 43 → 44), not a behavior change. Fixing it properly (`Box`ing the large variant fields) is an `ember2d-editor` change outside 7.5-4's own Scope (`ember2d-sim`, demos, API doc) | `ember2d-editor/src/editor/commands.rs:24` (`Command::PlaceTile`) | `[ ]` unscheduled |
+| R90 | S4 | Adding `ActorRecord::stats`/`tint_aware`/`tint_asleep` (7.5-4) grew `TileRecord` enough that `ember2d-editor`'s undo `Command::PlaceTile { before: Option<TileRecord>, after: TileRecord }` variant now trips clippy's `large_enum_variant` lint (528 bytes vs. `Command`'s other variants; 624 since 8-2's `TileRecord::sprite`, 672 since 8-3's `TileRecord::clip` — same warning, same cause) — a new warning (`cargo clippy --workspace --lib`: 43 → 44), not a behavior change. Fixing it properly (`Box`ing the large variant fields) is an `ember2d-editor` change outside 7.5-4's own Scope (`ember2d-sim`, demos, API doc) | `ember2d-editor/src/editor/commands.rs:24` (`Command::PlaceTile`) | `[ ]` unscheduled |
 | **Found writing 7.5-9 (docs/ember2d-master-plan.md §5.6)** | | | | |
 | R91 | S4 | `ember2d-sim/clippy.toml`'s new `disallowed-types` lint (`HashMap`/`HashSet`, `#![warn(...)]` in lib.rs) surfaces 67 unique pre-existing sites once actually turned on — every one already a deliberate lookup-only use per CLAUDE.md's own carve-out (`WorldSnapshot`'s velocities/parents/glyphs/etc., `ScriptEngine`'s mod_times/disabled_scripts, the graph codegen module, `layers.rs`, and others), none newly introduced by 7.5-9 itself (verified: none of this step's own new code — `level_source.rs`, `World::diagnostics` — adds a HashMap/HashSet at all). Not a correctness bug (nothing here is order-sensitive; each one already has its own "lookup-only" reasoning in a nearby doc comment, just not yet the formal `#[allow(clippy::disallowed_types)]` annotation clippy now expects) — a mechanical annotation pass across ~12 files, large enough on its own to warrant its own step rather than folding into 7.5-9's already-substantial diff (LevelSource, Diagnostic, set_parent/despawn, the world.rs/world_tests.rs split). 7.5-10 deleted `ScriptEngine.scopes` (R22) — one of the ~67 sites — without annotating it, so this count is now ~66; still unscheduled | `ember2d-sim/src/scripting/state.rs` (the largest concentration, ~35 sites), `world.rs`, `simulation.rs`, `simulation/step.rs`, `scripting/engine.rs`, `scripting/collisions.rs`, `scripting/api_spatial.rs`, `command.rs`, `layers.rs`, `graph/codegen.rs`, `graph/mod.rs` | `[ ]` unscheduled |
 | **Found writing 7.5-10 (docs/ember2d-master-plan.md §5.6)** | | | | |
@@ -4800,9 +4800,58 @@ Sprite thumbnails in the palette (unblocked by 7D).
     (the parking-lot "square world units" item), so a square sprite draws
     twice as tall as wide, in the canvas and in play alike.
 
-#### `[ ]` 8-3 — Sprite animation editor
+#### `[x]` 8-3 — Sprite animation editor (`HASH83`)
 Build clips, scrub frames, preview looping; clips serialised to the project
 (today they are runtime-only), referenced by name from `SpriteSource::Clip`.
+
+- **Scoped (2026-10-01, user decisions, before any code):** (1) a clip's
+  frames are **named regions of one tileset** (re-slicing the tileset
+  updates the clip, as with tiles); (2) **tiles can be animated** — palette
+  entries and tiles reference a clip by name and play it on loop in game,
+  level format **v6**; animated tiles stay entities (the tilemap can't
+  animate); (3) **one file per clip**, `<project>/assets/clips/<name>.ron`,
+  beside `assets/tilesets/`; (4) animated tiles **animate on the editor
+  canvas** too.
+- **Landed as** (`HASH83`):
+  - `ember2d-sim/src/clip_asset.rs` — `ClipData { name, tileset, frames
+    (region names), fps, looping }` with `validate` (name, non-empty, fps in
+    (0, 60]) and `to_animation_clip`, which builds the existing runtime
+    `AnimationClip` as `ClipFrames::Rects` (defined since Phase 3, never
+    constructed until now). `TileRecord::clip` (format **v6**); a clip tile
+    is never baked into the tilemap (`is_static` requires `clip: None`).
+    `simulation/tilesets.rs` gained a clip cache beside the tileset one,
+    resolved through the same upward `assets/` search and `LevelSource`; a
+    missing clip/region warns once and the tile draws its still sprite.
+    Spawn registers the clip in `Simulation.clips` and gives the tile an
+    `Animator`, so the existing sim-step animation advances it and saves
+    carry it unchanged.
+  - `ember2d`: play mode's `SpriteSource::Clip` branch draws a `Rects`
+    frame as a texture sub-rect (`play/render.rs::clip_frame`; it only drew
+    glyph frames before).
+  - `ember2d-editor`: File > Animation Clips... opens a full modal
+    (`clip_editor.rs` state, `impl_state/clip_edit.rs`,
+    `input/clip_editor.rs`, `ui/panels/clip_editor_panel.rs`) — clip list,
+    name/fps fields, loop toggle, tileset cycle (only while the clip has
+    no frames), the tileset sheet with region outlines (click a region to
+    append it as a frame), a frame strip with select/move/delete,
+    play/pause and Left/Right scrubbing, a live preview, [ Save ] and
+    [ Add to Palette ] (one undoable palette change; the entry's still
+    sprite is frame 1). `TileDefinition::clip`; the canvas, palette panel
+    and palette editor animate clip tiles off a new `anim_time` clock.
+  - **Tests (15 new):** 4 `clip_asset.rs`, 3 `tileset_spawn_tests.rs`
+    (Rects clip on a tile, frame advances with steps, missing clip warns
+    once), 2 `play/render.rs` `clip_frame`, 4 `clip_editor.rs`, 2 headless
+    editor tests (`tests/editor_clips.rs`: build/save/scrub/add/paint/canvas
+    draws the frame for the time/v6 save; a bad save stays open with an
+    error and Esc closes). Updated: the R89 menu test's Close Project index
+    (10 -> 11), the importer test's version check (now `LEVEL_FORMAT_VERSION`).
+    Clippy unchanged at 192 (R90's message grew to 672 bytes).
+  - **Live-verified** (real exe, synthetic input, screenshots): built a
+    4-frame "pulse" clip from the 8-2 test tileset, preview animating,
+    scrubbing, Save wrote `assets/clips/pulse.ron`, Add to Palette showed an
+    animated thumbnail, painted six pulse tiles — two captures 250 ms apart
+    show different frames on the canvas and again in play (F5); the saved
+    level is v6 with `clip: Some("pulse")`.
 
 #### `[ ]` 8-4 — Asset preview and drag-and-drop
 Roadmap V0.5.5: file browser thumbnails, drag a texture onto the palette or

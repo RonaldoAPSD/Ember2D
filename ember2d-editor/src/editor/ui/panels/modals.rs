@@ -51,6 +51,7 @@ pub fn draw_palette_editor_modal(
     chrome_tex: &Texture,
     pal: &crate::editor::palette::TileDefinition,
     sprites: &crate::editor::sprites::SpriteAssets,
+    anim_time: f32,
     focus: Option<&crate::editor::PaletteField>,
     screen_w: f32,
     screen_h: f32,
@@ -157,7 +158,7 @@ pub fn draw_palette_editor_modal(
         let slot = Rect::new(slot_x, row_rect(3).y, slot_w, row_h);
         // Step 8-2: the entry's sprite thumbnail when it has one — the same
         // preview the palette panel row shows.
-        draw_tile_preview_in(painter, slot, pal, sprites);
+        draw_tile_preview_in(painter, slot, pal, sprites, anim_time);
     }
     // Step 8-2: which tileset region this entry paints with, read-only (set
     // by the importer, not typed here).

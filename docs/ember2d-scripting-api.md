@@ -145,6 +145,8 @@ Colours are **name strings** (`"Red"`, `"Reset"`) or an explicit `"#RRGGBB"` hex
 ### Animation clips
 `register_clip(name,"abc",fps,looping)` defines (or redefines) a named clip from a string of glyphs. `play_clip(id,name)` plays it respecting the clip's own `looping` flag; `play_clip_once(id,name)` plays it but always stops on the last frame. `stop_clip(id)` · `set_clip_speed(id,x)` · `get_frame(id)` → int · `set_frame(id,n)` · `clip_finished(id)` → bool, true for exactly the tick a non-looping run reaches its last frame.
 
+Since Step 8-3 a project can also author **sprite-sheet clips** in the editor (File > Animation Clips...), saved as `<project>/assets/clips/<name>.ron` — frames are named regions of one tileset. A tile placed from a palette entry that names a clip plays it on loop automatically (level format v6). Every clip a level's tiles use is loaded with the level, so `play_clip(id, name)` can play it on any entity too; a project clip that no tile in the level uses is not loaded (there is no script function to load one by name yet).
+
 > Replaces `set_animation(id,"abc",rate)`, removed in Step 3e — a clip is named and shared, not a bag of fields re-set every call.
 
 ### Entity lifecycle

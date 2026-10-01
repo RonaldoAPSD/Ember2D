@@ -11,6 +11,8 @@ mod context_menu;
 mod graph;
 // Step 8-2: the tileset importer dialog — see that file's header comment.
 mod importer;
+// Step 8-3: the clip editor dialog — see that file's header comment.
+mod clip_editor;
 mod modal;
 mod palette_editor;
 mod panels;
@@ -20,7 +22,14 @@ mod text;
 
 impl EditorState {
     pub(super) fn handle_update(&mut self, ctx: UpdateContext) {
-        let UpdateContext { input, mouse, .. } = ctx;
+        let UpdateContext { input, mouse, frame_delta_time, .. } = ctx;
+        // Step 8-3: the animation clock — real frame time, presentation-only
+        // (see `EditorState::anim_time`). Wrapped well before f32 loses
+        // sub-frame precision; every clip loops long before an hour anyway.
+        self.anim_time = (self.anim_time + frame_delta_time.max(0.0)) % 3600.0;
+        if let Some(ce) = self.clip_editor.as_mut() {
+            ce.tick(frame_delta_time);
+        }
 
         // ── Ignore drag state ─────────────────────────────────────────────────
         if self.ignore_drag && !mouse.left_held() {
@@ -92,6 +101,10 @@ impl EditorState {
             }
             EditorMode::TilesetImport => {
                 self.handle_tileset_import_input(input, mouse);
+                return;
+            }
+            EditorMode::ClipEditor => {
+                self.handle_clip_editor_input(input, mouse);
                 return;
             }
             EditorMode::Graph { gx, gy } => {

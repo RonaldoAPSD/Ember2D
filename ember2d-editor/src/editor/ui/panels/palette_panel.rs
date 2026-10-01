@@ -33,6 +33,7 @@ pub fn draw_palette_panel(
     theme: &Theme,
     palette: &TilePalette,
     sprites: &SpriteAssets,
+    anim_time: f32,
     mode: Option<&str>,
     scroll: usize,
     content: Rect,
@@ -120,7 +121,7 @@ pub fn draw_palette_panel(
                 let slot_w = painter.measure(font, "   ", text_px);
                 let slot = Rect::new(slot_x, row_rect.y, slot_w, row_h);
                 // Step 8-2: a sprite thumbnail when the entry has one.
-                draw_tile_preview_in(painter, slot, tile, sprites);
+                draw_tile_preview_in(painter, slot, tile, sprites, anim_time);
 
                 // Indented name
                 let name_x = gx + painter.measure(font, "[   ] ", text_px);

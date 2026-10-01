@@ -15,6 +15,7 @@ mod graph_ui;
 pub mod helpers;
 mod impl_render;
 mod impl_state;
+pub mod clip_editor;
 pub mod importer;
 mod input;
 mod mode;
@@ -176,6 +177,13 @@ pub struct EditorState {
     /// Step 8-2: the tileset importer's in-progress state, `Some` exactly
     /// while `mode == EditorMode::TilesetImport`.
     pub(super) tileset_import: Option<importer::TilesetImport>,
+    /// Step 8-3: seconds of real (presentation) time since the editor
+    /// started — the clock animated tiles, palette thumbnails and the clip
+    /// editor's preview play against. Editor-only; never reaches the sim.
+    pub(super) anim_time: f32,
+    /// Step 8-3: the clip editor's in-progress state, `Some` exactly while
+    /// `mode == EditorMode::ClipEditor`.
+    pub(super) clip_editor: Option<clip_editor::ClipEditor>,
     pub(super) save_message: Option<String>,
     pub(super) save_message_timer: u32,
     pub(super) pending_transition: Option<Transition>,
@@ -391,6 +399,8 @@ impl EditorState {
             palette_edit_before: None,
             sprites: sprites::SpriteAssets::default(),
             tileset_import: None,
+            anim_time: 0.0,
+            clip_editor: None,
             save_message: None,
             save_message_timer: 0,
             pending_transition: None,

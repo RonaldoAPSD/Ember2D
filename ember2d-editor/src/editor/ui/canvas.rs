@@ -76,6 +76,7 @@ pub fn draw_grid(
     renderer: &mut dyn DrawSurface,
     grid: &LevelGrid,
     sprites: &SpriteAssets,
+    anim_time: f32,
     active_layer: u8,
     scroll: (f32, f32),
     zoom: f32,
@@ -108,7 +109,15 @@ pub fn draw_grid(
                     bg = dim_color(bg);
                 }
             }
-            if let Some((tex, src)) = tile.sprite.as_ref().and_then(|s| sprites.resolve(s)) {
+            // Step 8-3: an animated tile shows its clip's current frame
+            // (`anim_time`, the editor's own clock) first; then its sprite;
+            // then its glyph — the same precedence play mode draws with.
+            let image = tile
+                .clip
+                .as_ref()
+                .and_then(|c| sprites.clip_frame(c, anim_time))
+                .or_else(|| tile.sprite.as_ref().and_then(|s| sprites.resolve(s)));
+            if let Some((tex, src)) = image {
                 let (px, py) = grid_to_pixel(gx, gy, scroll, zoom, viewport);
                 let dest = ember2d_sim::math::Rect::new(
                     px as f32,

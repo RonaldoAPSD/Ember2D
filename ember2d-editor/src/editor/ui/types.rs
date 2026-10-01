@@ -176,6 +176,8 @@ pub enum ToolbarAction {
     /// Step 8-2: File > Import Tileset... (OS image picker, then the
     /// importer dialog).
     ImportTileset,
+    /// Step 8-3: File > Animation Clips... (the clip editor).
+    OpenClipEditor,
     Play,
     CloseProject,
     RenameLevel,

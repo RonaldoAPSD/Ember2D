@@ -25,7 +25,7 @@ use crate::engine::{GameState, RenderContext, Transition, UpdateContext};
 use crate::input::Key;
 use crate::renderer::color::Color;
 use animation::{PlayingAnimation, RenderOverrides};
-use ember2d_sim::components::{AnimationClip, ClipFrames, SpriteSource};
+use ember2d_sim::components::{AnimationClip, SpriteSource};
 use ember2d_sim::event::EventBus;
 use ember2d_sim::level::LevelData;
 use ember2d_sim::math::{Rect, Vec2};
@@ -35,8 +35,8 @@ use ember2d_sim::world::{EntityId, World};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use render::{
-    camera_shake_jitter, draw_debug_overlay, draw_hud_queue, draw_recent_log, in_viewport,
-    sprite_size,
+    camera_shake_jitter, clip_frame, draw_debug_overlay, draw_hud_queue, draw_recent_log,
+    in_viewport, sprite_size, ClipFrame,
 };
 pub use render::{DrawCommand, DrawList, Space};
 
@@ -661,22 +661,33 @@ impl GameState for PlayState {
                     }
                 }
                 SpriteSource::Clip { name } => {
-                    // ClipFrames::Rects isn't resolved here yet (Step 3c's
-                    // scope is glyph clips only).
-                    if let Some(ClipFrames::Glyphs { frames }) =
-                        self.sim.clips().get(name).map(|c| &c.frames)
-                    {
-                        if !frames.is_empty() {
-                            let frame = world.animators.get(&cmd.id).map(|a| a.frame).unwrap_or(0)
-                                % frames.len();
-                            renderer.draw_char_world(
-                                &render_camera,
-                                world_pos,
-                                frames[frame],
-                                tint,
-                                Color::Reset,
-                            );
+                    // Glyph clips (scripts' `register_clip`) and, since Step
+                    // 8-3, sheet clips (project clips: `ClipFrames::Rects`).
+                    let frame = world.animators.get(&cmd.id).map(|a| a.frame).unwrap_or(0);
+                    match self.sim.clips().get(name).and_then(|c| clip_frame(c, frame)) {
+                        Some(ClipFrame::Glyph(ch)) => renderer.draw_char_world(
+                            &render_camera,
+                            world_pos,
+                            ch,
+                            tint,
+                            Color::Reset,
+                        ),
+                        Some(ClipFrame::Rect(path, rect)) => {
+                            let id = assets.load(path);
+                            if let Some(t) = assets.get(id) {
+                                let size = sprite_size(
+                                    cmd.size,
+                                    Some(rect),
+                                    t.width,
+                                    t.height,
+                                    self.pixels_per_unit,
+                                );
+                                let r = Some(rect);
+                                renderer
+                                    .draw_texture_world(&render_camera, world_pos, t, size, 0.0, tint, r);
+                            }
                         }
+                        None => {}
                     }
                 }
             }

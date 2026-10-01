@@ -117,6 +117,7 @@ impl EditorState {
                                 trigger: false,
                                 tag: String::new(),
                                 sprite: None,
+                                clip: None,
                             });
                             self.undo.push(Command::UpdatePalette {
                                 before,

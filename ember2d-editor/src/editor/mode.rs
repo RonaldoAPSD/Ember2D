@@ -133,6 +133,9 @@ pub enum EditorMode {
     /// `EditorState::tileset_import` (edited every frame, so a field, not a
     /// payload here — see this enum's own doc comment).
     TilesetImport,
+    /// Step 8-3: the animation clip editor dialog. State lives in
+    /// `EditorState::clip_editor`, same reasoning as `TilesetImport`.
+    ClipEditor,
 }
 
 impl Default for EditorMode {
@@ -171,6 +174,7 @@ impl EditorMode {
             EditorMode::Modal(_) => "Modal ",
             EditorMode::ContextMenu(_) => "Menu  ",
             EditorMode::TilesetImport => "Import",
+            EditorMode::ClipEditor => "Clips ",
         }
     }
 }

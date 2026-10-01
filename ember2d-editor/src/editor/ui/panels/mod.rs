@@ -17,12 +17,14 @@
 //            was at the 750-line limit; see that file's header)
 
 mod chrome;
+mod clip_editor_panel;
 mod dock;
 mod importer_panel;
 mod modals;
 mod palette_panel;
 
 pub use chrome::*;
+pub use clip_editor_panel::*;
 pub use dock::*;
 pub use importer_panel::*;
 pub use modals::*;

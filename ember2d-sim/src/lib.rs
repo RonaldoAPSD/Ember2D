@@ -54,6 +54,7 @@
 // same convention the sim's `BTreeMap` doc comments already established.
 #![warn(clippy::disallowed_methods, clippy::disallowed_types)]
 
+pub mod clip_asset;
 pub mod color;
 pub mod command;
 pub mod components;
