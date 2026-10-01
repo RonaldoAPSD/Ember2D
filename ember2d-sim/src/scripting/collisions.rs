@@ -70,11 +70,13 @@ impl ScriptEngine {
                 act_cost: None,
                 despawned: Vec::new(),
                 animations: Vec::new(),
+                ..Default::default()
             };
         }
 
         let mut ctx_state = ScriptState::from_world(world, &self.layers, std::mem::take(persistent), args);
         ctx_state.timers = std::mem::take(&mut self.timers);
+        ctx_state.scene = self.scene_ctx(); // Step 9-1
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         for (entity_id, other_id, path) in calls {
             let entity_ctx = ctx.with_entity(entity_id);

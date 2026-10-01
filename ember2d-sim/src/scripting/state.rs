@@ -478,6 +478,10 @@ pub(super) struct ScriptState {
     /// so a linear `.contains()` scan in `is_animating` is simpler than
     /// justifying a set for it.
     pub(super) animating: Vec<i64>,
+    /// Step 9-1 (docs/ember2d-master-plan.md §5.8): the scene stack as it
+    /// stood when this pass began, plus this pass's scene/flow requests —
+    /// see `scripting/scene.rs`.
+    pub(super) scene: super::scene::SceneCtx,
 }
 
 impl std::ops::Deref for ScriptState {
@@ -645,6 +649,7 @@ impl ScriptState {
             pending_speed: Vec::new(),
             pending_animations: Vec::new(),
             animating: Vec::new(),
+            scene: Default::default(),
         }
     }
 

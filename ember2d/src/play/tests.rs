@@ -149,6 +149,7 @@ fn in_viewport_never_panics_on_a_degenerate_viewport() {
 // collider's `layer` string against "locked", corrupting the layer field's
 // real purpose for any locked exit tile.)
 
+use crate::audio::AudioEngine;
 use crate::gamepad::GamepadState;
 use crate::input::InputManager;
 use crate::mouse::MouseState;

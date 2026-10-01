@@ -56,15 +56,15 @@ mod tests {
 
     #[test]
     fn an_overlay_on_top_still_renders_the_opaque_state_under_it() {
-        // PlayState -> PauseMenuState: the pause panel needs the play screen
-        // visible around it.
+        // PlayState -> an overlay panel (the Rust pause menu, before Step 9-1
+        // made it a scene) needs the play screen visible around it.
         let stack: Vec<Box<dyn GameState>> = vec![Box::new(Opaque), Box::new(Overlay)];
         assert_eq!(render_start_index(&stack), 0);
     }
 
     #[test]
     fn two_stacked_overlays_render_from_the_opaque_state_beneath_both() {
-        // EditorState -> PlayState -> PauseMenuState (the deepest legitimate
+        // EditorState -> PlayState -> an overlay (the deepest legitimate
         // stack, per `Engine::push_state`'s own assertion) plus a hypothetical
         // second overlay: play and both overlays draw, the editor does not.
         let stack: Vec<Box<dyn GameState>> =

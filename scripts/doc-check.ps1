@@ -59,10 +59,13 @@ if (-not $apiMatch) {
 # 7A-10 (docs/ember2d-master-plan.md par.5.1, R43): the register_fn calls
 # moved out of engine.rs into registry.rs (engine.rs was over CLAUDE.md's
 # 750-line hard limit after 7A-9's cargo fmt pass) - this path follows them.
-$registryRsPath = Join-Path $root "ember2d-sim/src/scripting/registry.rs"
-$actualFnCount = (Select-String -Path $registryRsPath -Pattern "register_fn").Count
+# Step 9-1 (docs/ember2d-master-plan.md par.5.8): Phase 9's API groups
+# register their own functions beside their code (scripting/scene.rs, ...),
+# so every `engine.register_fn(` line in the scripting module counts.
+$scriptingDir = Join-Path $root "ember2d-sim/src/scripting"
+$actualFnCount = (Get-ChildItem -Path $scriptingDir -Filter *.rs | Select-String -Pattern "^\s*engine\.register_fn\(").Count
 if ($claudeMd -notmatch "$actualFnCount registered functions") {
-    $failures += "CLAUDE.md's quoted registered-function count doesn't match engine.rs's actual count (grep -c register_fn = $actualFnCount)"
+    $failures += "CLAUDE.md's quoted registered-function count doesn't match the scripting module's actual count (engine.register_fn lines = $actualFnCount)"
 }
 
 if ($failures.Count -gt 0) {

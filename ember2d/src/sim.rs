@@ -125,7 +125,11 @@ pub fn step(
         audio: &mut *audio,
     });
 
-    let run_late_phase = !should_quit && (!gate_late_phase_on_turn || turn_triggered);
+    // Step 9-1 (docs/ember2d-master-plan.md §5.8): a world-pausing scene
+    // holds physics and collisions as well as the level's scripts.
+    let run_late_phase = !should_quit
+        && !state.world_paused()
+        && (!gate_late_phase_on_turn || turn_triggered);
     if run_late_phase {
         // Defect D7 fix (Step 5f, docs/ember2d-phase5-plan.md): turn-based
         // mode never integrates physics at all now, not even on a step

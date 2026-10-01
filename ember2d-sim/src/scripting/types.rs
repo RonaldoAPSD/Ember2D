@@ -61,6 +61,7 @@ impl LogEntry {
     }
 }
 
+#[derive(Default)]
 pub struct ScriptUpdateResult {
     pub pending_level: Option<String>,
     pub pending_save: Option<String>,
@@ -107,6 +108,12 @@ pub struct ScriptUpdateResult {
     /// "here's what to show while the player catches up," played back over
     /// real frames, never fed back into simulation state.
     pub animations: Vec<AnimationEvent>,
+    /// Step 9-1 (docs/ember2d-master-plan.md §5.8): `push_scene`/
+    /// `pop_scene` requests this pass, in call order — `Simulation` applies
+    /// them (`simulation/scenes.rs`).
+    pub scene_ops: Vec<super::scene::SceneOp>,
+    /// Step 9-1: `quit_game`/`return_to_editor`, last call wins.
+    pub flow: Option<super::scene::FlowRequest>,
 }
 
 /// A queued write to `ScriptState::pending_globals`/`pending_persistent`

@@ -61,9 +61,15 @@ impl Simulation {
         let mut outcome = StepOutcome::default();
         let mut logs = Vec::new();
 
+        // Step 9-1 (docs/ember2d-master-plan.md §5.8): a world-pausing scene
+        // holds the level — animators, every level pass, collisions (see
+        // `late_step`). Decided once, here, at the start of the step.
+        let paused = self.world_paused();
+        self.paused_this_step = paused;
+
         // Advance every Animator before scripts run this step, so
         // `clip_finished(id)` reflects this tick, not last step's.
-        for animator in world.animators.values_mut() {
+        for animator in world.animators.values_mut().filter(|_| !paused) {
             if let Some(clip) = self.clips.get(&animator.clip) {
                 animator.advance(clip, sim_dt);
             } else {
@@ -76,6 +82,29 @@ impl Simulation {
         // comment (scripting/state.rs) for the perf regression this fixes.
         let world_snapshot =
             std::rc::Rc::new(WorldSnapshot::build(world, &self.layers, &self.level.extra_spawns));
+
+        // Step 9-1: scene scripts run first; a paused level stops here.
+        self.run_scene_step(
+            world,
+            world_snapshot.clone(),
+            super::scenes::SceneStepInput {
+                input: input_snapshot,
+                mouse: mouse_snapshot,
+                gamepad: gamepad_snapshot,
+                camera_origin,
+                sim_dt,
+                elapsed,
+                viewport: (viewport_w, viewport_h),
+            },
+            persistent,
+            &mut logs,
+            &mut outcome,
+        );
+        if paused {
+            drain_diagnostics_into(world, &mut logs);
+            outcome.logs = logs;
+            return outcome;
+        }
 
         let front = self.scheduler.peek();
         let is_local = front
@@ -291,6 +320,10 @@ impl Simulation {
         let mut outcome = StepOutcome::default();
         let mut logs = Vec::new();
         let mut all_pairs = Vec::new();
+        // Step 9-1: a paused world has no collisions to resolve this step.
+        if self.paused_this_step {
+            return outcome;
+        }
 
         for event in events.events() {
             let crate::event::GameEvent::Collision { entity_a, entity_b } = event else { continue };
@@ -401,7 +434,7 @@ impl Simulation {
     pub(super) fn apply_script_result(
         &mut self,
         world: &mut World,
-        res: ScriptUpdateResult,
+        mut res: ScriptUpdateResult,
         persistent: &mut BTreeMap<String, rhai::Dynamic>,
         logs: &mut Vec<LogEntry>,
         outcome: &mut StepOutcome,
@@ -421,6 +454,14 @@ impl Simulation {
             self.globals.is_empty() && self.clips.is_empty(),
             "apply_script_result called without a preceding mem::take of self.globals/self.clips"
         );
+        // Step 9-1: scene requests and flow requests from this pass.
+        if !res.scene_ops.is_empty() {
+            let ops = std::mem::take(&mut res.scene_ops);
+            self.apply_scene_ops(world, ops, logs);
+        }
+        if res.flow.is_some() {
+            outcome.flow = res.flow;
+        }
         // A despawned actor must not keep cycling a dead turn slot forever.
         for &id in &res.despawned {
             self.scheduler.remove(id);
@@ -457,6 +498,8 @@ impl Simulation {
                 self.turn_number.max(0) as u64,
                 self.scheduler.snapshot(),
             );
+            let mut state = state;
+            state.scenes = self.scenes.clone(); // Step 9-1
             if let Err(e) = state.save_to_file(&save_path) {
                 logs.push(LogEntry::error(format!("save_game failed: {}", e)));
             } else {

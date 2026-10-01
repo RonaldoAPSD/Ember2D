@@ -358,6 +358,8 @@ impl ScriptEngine {
             act_cost,
             despawned: state.despawn_queue.iter().map(|&id| id as EntityId).collect(),
             animations: std::mem::take(&mut state.pending_animations),
+            scene_ops: std::mem::take(&mut state.scene.ops),
+            flow: state.scene.flow.take(),
         };
         // Phase 6 Step 9: the matching half of every call site's own
         // `ctx_state.timers = std::mem::take(&mut self.timers)` — timers

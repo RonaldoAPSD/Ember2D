@@ -159,10 +159,17 @@ pub trait GameState {
     /// (R51, docs/ember2d-master-plan.md §3.2). Default `false`: an ordinary
     /// state fully covers whatever is under it, so the engine draws nothing
     /// below it — `PlayState` over the editor, the editor over nothing. Only
-    /// a genuine overlay (`PauseMenuState`: a small centered panel that needs
-    /// the play screen visible around it) returns `true`. See
-    /// `state_stack::render_start_index` for how the engine uses this.
+    /// a genuine overlay (a small panel that needs the play screen visible
+    /// around it — the Rust pause menu was the one user until Step 9-1 made
+    /// it a scene) returns `true`. See `state_stack::render_start_index` for
+    /// how the engine uses this.
     fn is_overlay(&self) -> bool {
+        false
+    }
+    /// Step 9-1 (docs/ember2d-master-plan.md §5.8): true when this state's
+    /// world is paused this step (a world-pausing scene is open), so
+    /// `sim::step` skips physics and the late phase. Default `false`.
+    fn world_paused(&self) -> bool {
         false
     }
     fn take_transition(&mut self) -> Option<Transition> {
@@ -295,7 +302,8 @@ impl Engine {
         );
         self.state_stack.push(state);
         // R19 (7A-2, docs/ember2d-master-plan.md): the deepest legitimate
-        // stack today is EditorState -> PlayState -> PauseMenuState (3). A
+        // stack is EditorState -> PlayState -> one overlay (3; the Rust
+        // pause menu was that overlay until Step 9-1 made it a scene). A
         // 4th means something (like the ToStart orphan this step fixes)
         // failed to pop before pushing again — catch that in debug builds
         // rather than let the stack grow unboundedly across state changes.

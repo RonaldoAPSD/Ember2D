@@ -12,14 +12,12 @@
 // `UpdateContext`/the editor are all untouched by it.
 
 mod animation;
-mod pause_menu;
+// Step 9-1: apply_outcome/flush_audio — see that file's header.
+mod outcome;
 mod render;
-
-pub use pause_menu::PauseMenuState;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use crate::audio::AudioEngine;
 use crate::camera::Camera;
 use crate::engine::{GameState, RenderContext, Transition, UpdateContext};
 use crate::input::Key;
@@ -39,6 +37,8 @@ use render::{
     in_viewport, sprite_size, ClipFrame,
 };
 pub use render::{DrawCommand, DrawList, Space};
+// Step 9-1: what `SaveState::scenes` holds, for `set_saved_scenes` callers.
+pub use ember2d_sim::simulation::scenes::SceneFrame;
 
 // `resolve_exit_path` moved into `ember2d-sim`'s `simulation` module (Phase
 // 5.5, docs/ember2d-phase5.5-plan.md Part 2) — every real caller
@@ -64,8 +64,10 @@ pub struct Particle {
     pub life: f32,
 }
 
-// `PauseMenuState` lives in `play/pause_menu.rs` (R86, docs/ember2d-master-
-// plan.md §3.2) — see that file's own header comment.
+// The Esc pause menu used to be a Rust `PauseMenuState` here
+// (`play/pause_menu.rs`); since Step 9-1 (docs/ember2d-master-plan.md §5.8)
+// it's a scene — `ember2d-sim`'s built-in `builtin_pause.rhai`, or the
+// project's own `scenes/pause.rhai` — pushed by `update` below.
 
 // ── PlayState ─────────────────────────────────────────────────────────────────
 
@@ -211,6 +213,22 @@ impl PlayState {
         )
     }
 
+    /// Step 9-1: this run is an editor preview (F5), so the pause menu's
+    /// Back to Editor row (`return_to_editor`) is offered and works.
+    pub fn set_editor_preview(&mut self, on: bool) {
+        self.sim.set_editor_preview(on);
+    }
+
+    /// Step 9-1: the scenes a loaded save had open (`SaveState::scenes`).
+    pub fn set_saved_scenes(&mut self, scenes: Vec<SceneFrame>) {
+        self.sim.set_saved_scenes(scenes);
+    }
+
+    /// Step 9-1: the scene stack's names, bottom to top (tests, debugging).
+    pub fn scene_names(&self) -> Vec<String> {
+        self.sim.scene_names()
+    }
+
     /// Override the default `pixels_per_unit` with the owning project's
     /// actual setting. Optional — callers that don't have a `ProjectData`
     /// handy (tests, anything constructing a level standalone) just keep
@@ -242,84 +260,6 @@ impl PlayState {
 
     pub fn take_log(&mut self) -> Vec<LogEntry> {
         std::mem::take(&mut self.script_log)
-    }
-
-    /// Folds a `Simulation` step's outcome into this state's own
-    /// presentation fields — shared between `update` and `late_update`
-    /// since both call into `Simulation` and get one of these back.
-    /// `turn_triggered` is handled by the caller directly (it's the one
-    /// field `update` needs to hand back through `UpdateContext`, not
-    /// something presentation reacts to).
-    fn apply_outcome(&mut self, outcome: ember2d_sim::simulation::StepOutcome) {
-        // Sticky until a script sets a new one — matches
-        // `docs/ember2d-scripting-api.md`'s "Camera" section ("setting the
-        // camera overrides follow until cleared"): a step with nothing new
-        // to say just leaves this alone.
-        if outcome.camera_override.is_some() {
-            self.camera_override = outcome.camera_override;
-        }
-        if let Some(shake) = outcome.shake_state {
-            self.shake_state = Some(shake);
-            self.shake_timer = shake.duration;
-        }
-        for req in outcome.particles {
-            let vx = self.rng.gen_range(-5.0..5.0);
-            let vy = self.rng.gen_range(-5.0..5.0);
-            let life = self.rng.gen_range(0.2..0.8);
-            self.particles.push(Particle {
-                x: req.x,
-                y: req.y,
-                vx,
-                vy,
-                glyph: req.glyph,
-                fg: req.fg,
-                life,
-            });
-        }
-        if let Some(next) = outcome.pending_level {
-            self.pending_transition = Some(Transition::ToPlay(next));
-        }
-        if let Some(state) = outcome.pending_load {
-            self.pending_transition = Some(Transition::LoadGame(state));
-        }
-        for ev in outcome.animations {
-            self.animations.push(PlayingAnimation::from_event(ev));
-        }
-        self.script_log.extend(outcome.logs);
-    }
-
-    /// `audio` is `Engine`'s own long-lived `AudioEngine` (Step 7.5-11,
-    /// docs/ember2d-master-plan.md §5.6, R30), passed in via
-    /// `UpdateContext::audio` rather than owned here — see that field's own
-    /// doc comment for why.
-    fn flush_audio(&mut self, audio: &mut AudioEngine) {
-        let reqs = self.sim.take_audio_requests();
-        for path in reqs.sounds {
-            audio.play_sound(&path, 1.0, 0.0);
-        }
-        // Step 7.5-11: stereo pan from the camera's horizontal offset, on
-        // top of the pre-existing distance falloff — both presentation-only
-        // (a script's `play_sound_at` call carries a world position, never
-        // read back), sharing the same `max_dist` so a sound at the edge of
-        // audible range also reaches full hard-left/hard-right.
-        let cam_pos = self.camera.position;
-        let max_dist = 20.0f32;
-        for (path, x, y) in reqs.spatial_sounds {
-            let dx = x - cam_pos.x;
-            let dy = y - cam_pos.y;
-            let dist = (dx * dx + dy * dy).sqrt();
-            let volume = (1.0 - (dist / max_dist)).clamp(0.0, 1.0);
-            if volume > 0.01 {
-                let pan = (dx / max_dist).clamp(-1.0, 1.0);
-                audio.play_sound(&path, volume as f64, pan as f64);
-            }
-        }
-        if reqs.stop_music {
-            audio.stop_music();
-        }
-        if let Some(path) = reqs.music {
-            audio.play_music(&path);
-        }
     }
 
     /// World position scripts see as the camera's origin — `get_camera_x/y`
@@ -378,9 +318,13 @@ impl GameState for PlayState {
             }
         }
 
+        // Step 9-1: Esc opens the pause scene when no scene is open (an
+        // open scene gets Esc in its own `on_input` instead). Not a return:
+        // the step below runs, starting the scene this same frame — and a
+        // scene never gets `on_input` on the step it was pushed, so this
+        // same Esc press can't immediately close it again.
         if input.just_pressed(Key::Escape) {
-            self.pending_transition = Some(Transition::Push(Box::new(PauseMenuState::new())));
-            return;
+            self.sim.request_pause(world, &mut self.script_log);
         }
 
         if input.just_pressed(Key::F3) {
@@ -721,10 +665,18 @@ impl GameState for PlayState {
         draw_recent_log(renderer, &self.script_log, 3);
 
         draw_hud_queue(renderer, self.sim.pending_hud_draws().iter());
+        // Step 9-1: scene scripts' HUD, above the level's.
+        draw_hud_queue(renderer, self.sim.scene_hud_draws().iter());
         // Not cleared here anymore (Step 4g) — see
         // ScriptEngine::run_scripts's own clear for why: clearing on every
         // render, regardless of whether a script actually ran that frame,
         // made a script's drawn HUD vanish the instant the game paused.
+    }
+
+    /// Step 9-1: while a world-pausing scene was on top at the start of
+    /// this step, the engine skips physics and the late phase too.
+    fn world_paused(&self) -> bool {
+        self.sim.paused_this_step()
     }
 
     fn take_transition(&mut self) -> Option<Transition> {

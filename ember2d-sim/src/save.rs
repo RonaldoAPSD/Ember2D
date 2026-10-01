@@ -59,6 +59,11 @@ pub struct SaveState {
     /// scratch behavior (`Simulation::on_start`'s loading-save branch).
     #[serde(default)]
     pub scheduler: Vec<(EntityId, u64)>,
+    /// Step 9-1 (docs/ember2d-master-plan.md §5.8): the scene stack at the
+    /// moment of saving (their entities are in `world`). Empty for a save
+    /// from before scenes existed.
+    #[serde(default)]
+    pub scenes: Vec<crate::simulation::scenes::SceneFrame>,
 }
 
 impl SaveState {
@@ -73,7 +78,16 @@ impl SaveState {
         turn_number: u64,
         scheduler: Vec<(EntityId, u64)>,
     ) -> Self {
-        SaveState { world, persistent, globals, clips, level_path, turn_number, scheduler }
+        SaveState {
+            world,
+            persistent,
+            globals,
+            clips,
+            level_path,
+            turn_number,
+            scheduler,
+            scenes: Vec::new(),
+        }
     }
 
     /// Serialize the state to a RON string.

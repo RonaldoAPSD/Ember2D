@@ -43,6 +43,8 @@ mod spawn;
 // the single largest remaining piece to pull out. See that file's own
 // header comment.
 mod step;
+// Step 9-1: the scene stack — see that file's header comment.
+pub mod scenes;
 // Step 8-2: tileset-region sprite resolution for `do_on_start` — see that
 // file's own header comment.
 mod tilesets;
@@ -207,6 +209,8 @@ pub struct StepOutcome {
     /// these into its own presentation-side playback queue; `Simulation`
     /// never reads them back.
     pub animations: Vec<crate::scripting::AnimationEvent>,
+    /// Step 9-1: a script's `quit_game`/`return_to_editor` this step.
+    pub flow: Option<crate::scripting::FlowRequest>,
     // Phase 6: `logs`/`particles`/`animations` are a fresh Vec every call —
     // the exact per-step allocation category D11/Phase 6 exists to reduce.
     // Kept as-is here to keep this phase's diff readable; revisit with
@@ -294,6 +298,15 @@ pub struct Simulation {
     /// access, and `set_level_source`'s own doc comment for who's expected
     /// to override it.
     level_source: Box<dyn LevelSource>,
+    /// Step 9-1 (docs/ember2d-master-plan.md §5.8): the scene stack, bottom
+    /// to top — see `simulation/scenes.rs`.
+    scenes: Vec<scenes::SceneFrame>,
+    /// Step 9-1: this run was started from the editor (F5).
+    editor_preview: bool,
+    /// Step 9-1: whether the world was paused when this step began — what
+    /// `late_step` checks, so a scene popped mid-step can't unpause a step
+    /// that already skipped the level's own passes.
+    paused_this_step: bool,
 }
 
 impl Simulation {
@@ -315,6 +328,9 @@ impl Simulation {
             layers,
             turn_model: TurnModel::default(),
             level_source: Box::new(NullLevelSource),
+            scenes: Vec::new(),
+            editor_preview: false,
+            paused_this_step: false,
         }
     }
 
@@ -513,6 +529,8 @@ impl Simulation {
             for script in world.scripts.values() {
                 self.script_engine.compile(&script.path, &mut logs);
             }
+            // Step 9-1: scenes the save had open come back already started.
+            self.restore_scenes(&mut logs);
             if self.camera_entity.is_none() {
                 self.camera_entity = local_player_ids(world).next();
             }

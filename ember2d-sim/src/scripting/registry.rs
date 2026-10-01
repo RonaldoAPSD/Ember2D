@@ -29,6 +29,8 @@ use super::api::ScriptCtx;
 // within one call, only either style consistently.
 pub(super) fn register_all(engine: &mut Engine) {
     engine.register_type_with_name::<ScriptCtx>("Ctx");
+    // Step 9-1: push_scene/pop_scene/current_scene/... (scripting/scene.rs).
+    super::scene::register(engine);
     engine.register_fn("get_x", ScriptCtx::get_x);
     engine.register_fn("get_y", ScriptCtx::get_y);
     engine.register_fn("get_position", ScriptCtx::get_position);

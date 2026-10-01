@@ -593,6 +593,40 @@ Screen space, in cells. Cleared each frame.
 > Sound/music files are also decoded once and cached by path now, not
 > re-read from disk on every `play_sound`/`play_music` call.
 
+### Scenes
+`push_scene(name)` · `push_scene(name, opts)` · `pop_scene()` · `current_scene()` → string · `scene_count()` → int · `scene_data()` → any · `quit_game()` · `return_to_editor()` · `is_editor_preview()` → bool
+
+Step 9-1 (docs/ember2d-master-plan.md §5.8). A **scene** is a named state
+layered over the level — a pause menu, a battle, a dialogue — with its own
+script and its own hidden entity (the `id` its functions receive, so
+`set_var`/`start_timer` work on it like on any entity).
+
+- `push_scene(name)` runs `scenes/<name>.rhai` (found like an exit path:
+  beside the level first, then from the working directory). `opts` is a map:
+  `script` (a different path), `pauses_world` (default `true`), and `data`
+  (anything; the scene reads it back with `scene_data()`). Like every write,
+  the push lands at the end of the pass; the scene's `on_start(id, ctx)`
+  runs on the next step. An unknown scene logs a warning and pushes nothing.
+- While a scene with `pauses_world: true` is on the stack, the level's
+  `on_input`/`on_update`/`on_turn`/`on_collide`, physics, collisions and
+  clip animators all stop. The level's last HUD stays on screen; the
+  scene's HUD draws above it.
+- Each step: a newly pushed scene gets `on_start`; the **top** scene gets
+  `on_input(id, ctx)` — but not on the step it was pushed, so the key that
+  opened a scene never also acts inside it; then `on_update(id, ctx)` runs
+  for every scene from the topmost pausing one upward. A scene with
+  `pauses_world: false` (a HUD overlay, say) runs alongside the level.
+- `pop_scene()` removes the top scene and its entity (there is no
+  `on_exit`; clean up before popping). `current_scene()` is the top
+  scene's name, `""` when only the level runs.
+- `quit_game()` closes the game; `return_to_editor()` goes back to the
+  editor, and only works in an editor preview (F5) — check
+  `is_editor_preview()`.
+- **The Esc pause menu is a scene.** Esc with no scene open pushes
+  `"pause"`: the project's own `scenes/pause.rhai` if it has one, otherwise
+  the engine's built-in menu (Resume / Back to Editor / Quit Game). A save
+  made with a scene open restores it on load.
+
 ### Flow
 `load_level(path)` · `save_game(path)` · `load_game(path)` · `log(msg)` · `get_delta()` · `get_elapsed()` · `get_spawn_point(name)` → `[x,y]` or `[]` · `get_viewport_width()` · `get_viewport_height()` · `api_version()` → int, this API's breaking-change generation (see §6)
 
@@ -694,6 +728,7 @@ numeric literals in one consistent style, though; mixing (`draw_hud(1,
 | 7.5 | Step 7.5-3 (docs/ember2d-master-plan.md §5.6): `set_var`/`get_var`/`has_var`/`remove_var`/`add_var` added — real per-entity state (a new `Vars` component), replacing the `"hp_" + id`-style global-key-concatenation convention | **No** — purely additive: five new functions backed by a new component; every existing function's shape and behavior is unchanged. |
 | 7.5 | Step 7.5-4 (docs/ember2d-master-plan.md §5.6): `get_stat`/`get_tint_aware`/`get_tint_asleep` added — numeric stats and an aware/asleep tint pair authored per actor tile via `TileRecord.actor.stats`/`tint_aware`/`tint_asleep`, letting `demos/roguelike/scripts/enemy.rhai` replace the near-duplicate `enemy_rat.rhai`/`enemy_boss.rhai` | **No** — purely additive: three new functions backed by new `ActorRecord`/`Actor` fields; every existing function's shape and behavior is unchanged. |
 | 8 | Step 8-1 (docs/ember2d-master-plan.md §5.7): static tiles become cells of one `Tilemap` entity; `is_tilemap(id)` and `get_tile_tag(x,y)` added | **No bump** — no signature or return shape changed and `is_solid_at`/`get_path`/`reachable_within` answer identically (pinned by `ember2d/tests/tilemap_equivalence.rs` against the real floor2). But an *identity* changed: `get_entity_at`/`find_entities_in_rect`/`raycast`/`on_collide`'s `other` now return the tilemap's id where they used to return a wall's, so a script recognising walls by `has_tag(hit, "wall")` needs `is_tilemap(hit)`. Every shipped script that did (`bullet.rhai`, the only one) was updated in the same step. |
+| 9 | Step 9-1 (docs/ember2d-master-plan.md §5.8): the scene stack — `push_scene`/`pop_scene`/`current_scene`/`scene_count`/`scene_data`/`quit_game`/`return_to_editor`/`is_editor_preview`, and the `on_start`/`on_input`/`on_update` contract for scene scripts. The Esc pause menu became a scene. | **No** — purely additive; a level's own scripts run exactly as before whenever no world-pausing scene is open. |
 
 **Phase 6 is a zero-API-break phase** — `API_VERSION` stayed `6` through
 Step 5f. Phase 7.5-1 is the next break after it; 7.5-2 and 7.5-3 (the two

@@ -105,6 +105,13 @@ pub struct ScriptEngine {
     /// silently drop the second attach's own init.
     pub(super) pending_on_start: Vec<EntityId>,
     pub pending_hud_draws: Vec<HudDraw>,
+    /// Step 9-1 (docs/ember2d-master-plan.md §5.8): the HUD scene scripts
+    /// draw, kept apart from the level's own so a paused level's HUD stays
+    /// up under a scene — see `run_scene_pass` (scripting/scene.rs).
+    pub pending_scene_hud_draws: Vec<HudDraw>,
+    /// Step 9-1: the scene stack as scripts read it — see `set_scene_view`.
+    pub(super) scene_view: Rc<Vec<super::scene::SceneInfo>>,
+    pub(super) editor_preview: bool,
     pub pending_sounds: Vec<String>,
     pub pending_spatial_sounds: Vec<(String, f32, f32)>,
     pub pending_music: Option<String>,
@@ -150,6 +157,9 @@ impl ScriptEngine {
             timers: BTreeMap::new(),
             pending_on_start: Vec::new(),
             pending_hud_draws: Vec::new(),
+            pending_scene_hud_draws: Vec::new(),
+            scene_view: Rc::new(Vec::new()),
+            editor_preview: false,
             pending_sounds: Vec::new(),
             pending_spatial_sounds: Vec::new(),
             pending_music: None,
@@ -312,6 +322,7 @@ impl ScriptEngine {
         let mut ctx_state =
             ScriptState::from_snapshot(snapshot, world.next_id, std::mem::take(persistent), args);
         ctx_state.timers = std::mem::take(&mut self.timers);
+        ctx_state.scene = self.scene_ctx(); // Step 9-1
         ctx_state.animating = animating.iter().map(|&id| id as i64).collect(); // 7.5-7
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         if let Some(path) = path {
@@ -350,6 +361,7 @@ impl ScriptEngine {
         let mut ctx_state =
             ScriptState::from_snapshot(snapshot, world.next_id, std::mem::take(persistent), args);
         ctx_state.timers = std::mem::take(&mut self.timers);
+        ctx_state.scene = self.scene_ctx(); // Step 9-1
         ctx_state.animating = animating.iter().map(|&id| id as i64).collect();
         let ctx = ScriptCtx::new(ctx_state, self.rng.clone());
         if let Some(path) = path {
@@ -401,6 +413,7 @@ impl ScriptEngine {
         let mut ctx_state =
             ScriptState::from_snapshot(snapshot, world.next_id, std::mem::take(persistent), args);
         ctx_state.timers = std::mem::take(&mut self.timers);
+        ctx_state.scene = self.scene_ctx(); // Step 9-1
         ctx_state.animating = animating.iter().map(|&id| id as i64).collect();
         // Decay happens exactly once per real step, here — `run_scripts` is
         // the one call site the engine's own `update()` invokes unconditionally

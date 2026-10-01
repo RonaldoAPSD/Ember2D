@@ -183,7 +183,7 @@ start screen's New/Open Project browsers start from.
 | 7E | Editor features | `[-]` deferred, 2026-09-13 (by user direction) — §5.5. Feature/UX polish (rulers, Inspector 2.0, toasts, command palette, rendering perf, undo audit) rather than refactoring work; revisit as a future update, not blocking the phase sequence below |
 | 7.5 | Scripting completeness | `[~]` — §5.6: all 13 steps `[x]`; gate open, awaiting the user's live checklist §11–§13 pass (shooter LOC exception accepted 2026-09-29) |
 | 8 | Tilemap, assets, animation authoring | `[~]` — §5.7: all 4 steps `[x]`; gate pass run 2026-10-01 (automated + live, R103/R104/R106 fixed in it), awaiting the user's OK to tag `v0.5.9` |
-| 9 | Scene and UI layer + RPG demo | `[ ]` — §5.8 |
+| 9 | Scene and UI layer + RPG demo | `[~]` — §5.8: 9-1 to 9-4 in progress; 9-5 (the RPG demo) deferred to last by the user |
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
 
@@ -4953,7 +4953,7 @@ a tile.
 
 ---
 
-### 5.8 `[ ]` Phase 9 — Scene and UI layer, and the RPG demo
+### 5.8 `[~]` Phase 9 — Scene and UI layer, and the RPG demo
 
 **Purpose.** New phase, from the RPG feasibility study. Ember2D is a
 tile-and-turn engine with no scene or UI layer scripts can drive: scenes are
@@ -4961,12 +4961,52 @@ level files, the state stack is Rust-only, camera follow is engine-owned,
 `draw_menu` has no input model, and Phase 7's proportional fonts do not
 reach scripts. The acceptance test is a third shipped demo.
 
-#### `[ ]` 9-1 — Script-visible scene stack
+#### `[x]` 9-1 — Script-visible scene stack (`HASH91`)
 `push_scene(name)`, `pop_scene()`, `current_scene()`. A scene is a named
 script-owned state (`battle`, `menu`, `dialogue`) layered over the level;
 the engine pauses `on_turn`/`on_update` for the level while a scene with
 `pauses_world: true` is on top and routes input to the scene script's
 `on_input`. This replaces the Rust-only `PauseMenuState` with a script.
+
+- **Scoped (2026-10-01, by the agent under the user's "do all of phase 9
+  except the RPG demo"; additive API only, no level-format change):** a
+  scene's script is `scenes/<name>.rhai` unless `push_scene(name, opts)`
+  names another; `opts` also carries `pauses_world` (default true) and
+  `data` (read back with `scene_data()`). Each scene gets a hidden entity so
+  `set_var`/timers work on its `id`. No `on_exit` (clean up before
+  popping). The engine's pause menu is the built-in scene `"pause"`,
+  overridable by a project's own `scenes/pause.rhai`; its Quit/Back to
+  Editor rows needed `quit_game()`/`return_to_editor()`/
+  `is_editor_preview()`, added with it.
+- **Landed as** (`HASH91`):
+  - `ember2d-sim`: `scripting/scene.rs` (the request/read types, the nine
+    `ScriptCtx` functions, `run_scene_pass`, and `builtin_pause.rhai`
+    compiled from an embedded string) and `simulation/scenes.rs` (the
+    stack, push/pop, `run_scene_step`). Per step: a new scene's
+    `on_start`; the top scene's `on_input` (not on the step it was pushed,
+    so the opening key can't also act inside it); `on_update` for every
+    scene from the topmost pausing one up. A pausing scene holds the
+    level's passes, animators and `late_step` — decided once at the start
+    of the step, so the key that pops a pause menu can't reach the level
+    the same step. Scene HUD draws into its own queue above the level's
+    (the paused level's HUD stays up, the D16 rule). The stack is saved
+    (`SaveState::scenes`, `#[serde(default)]`) and restored on load.
+  - `ember2d`: Esc calls `Simulation::request_pause`; `play/pause_menu.rs`
+    is deleted; `GameState::world_paused` lets `sim::step` hold physics;
+    `FlowRequest` becomes `Transition::Quit`/`ToEditor`. `apply_outcome`/
+    `flush_audio` moved to `play/outcome.rs` (play.rs's line limit).
+  - `scripts/doc-check.ps1` now counts `engine.register_fn` across the
+    whole scripting module (Phase 9's API groups register beside their
+    code), so CLAUDE.md's count is 174.
+  - **Tests (9 new, `ember2d/tests/scene_stack.rs`):** pause and resume;
+    a non-pausing scene beside the level; the opening Esc doesn't close the
+    pause scene; the built-in menu's rows with and without an editor
+    preview, Quit and Back to Editor; R86's tiny-viewport case carried over
+    from the deleted Rust menu's test; a project pause scene replacing the
+    built-in; the paused level's HUD under the scene's; an unknown scene;
+    save/load with a scene open.
+  - **Live-verified:** F5, Esc opens the built-in pause scene over the
+    level, Down/Enter on Back to Editor returns to the editor.
 
 #### `[ ]` 9-2 — Script-drivable camera
 `set_camera_target(id | position)`, `set_camera_zoom`, `camera_shake` (already
