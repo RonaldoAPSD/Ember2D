@@ -99,6 +99,7 @@ own comment on this for the full explanation.
 | World / ECS | ember2d-sim/src/world.rs |
 | Tilemap (static tiles, Step 8-1) | ember2d-sim/src/components/tilemap.rs, ember2d-sim/src/level/bake.rs |
 | Animation clips (Step 8-3) | ember2d-sim/src/clip_asset.rs, ember2d-sim/src/simulation/tilesets.rs, ember2d-editor/src/editor/clip_editor.rs, ui/panels/clip_editor_panel.rs |
+| Asset browser + drag-and-drop (Step 8-4) | ember2d-editor/src/editor/assets.rs, impl_state/asset_drop.rs, ui/panels/file_browser.rs |
 | Tilesets (Step 8-2) | ember2d-sim/src/tileset.rs, ember2d-sim/src/simulation/tilesets.rs (load-time resolution), ember2d-editor/src/editor/{sprites,importer}.rs, ui/panels/importer_panel.rs |
 | Components | ember2d-sim/src/components/ |
 | Renderer | ember2d/src/renderer/ |
@@ -153,7 +154,7 @@ The simulation must be reproducible — replay, save/load, and 2-player netcode 
 `main` is trunk at `v0.5.7d`. All work happens on the `claude` branch.
 
 **The authoritative status is `docs/ember2d-master-plan.md` §2 (phase table, baseline numbers)
-and §3 (the one defect register, D1–D22 + R1–R92 + E1–E6, each with a status marker and the
+and §3 (the one defect register, D1–D22 + R1–R102 + E1–E6, each with a status marker and the
 step that fixes it).** Read §2 before starting any work — this section is deliberately not a
 second copy of it (R36, master plan §3.2: this exact paragraph used to fall out of sync with
 the tree and did): don't restate phase/step progress here, keep this section a pointer.

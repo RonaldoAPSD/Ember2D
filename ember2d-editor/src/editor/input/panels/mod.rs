@@ -51,6 +51,11 @@ impl EditorState {
             self.console_log.clear();
         }
 
+        // Step 8-4: a press held on a File Browser asset row owns the mouse
+        // until it's released (and dropped) — see `update_asset_drag`.
+        if self.update_asset_drag(input, mouse) {
+            return;
+        }
         if self.handle_panel_chrome_click(mouse) {
             return;
         }

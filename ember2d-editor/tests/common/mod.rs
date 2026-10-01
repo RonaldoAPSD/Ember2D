@@ -373,6 +373,31 @@ impl EditorHarness {
         self.end_frame();
     }
 
+    /// Step 8-4: press the left button at `(px, py)` and keep holding it
+    /// (one frame) — with `move_held` and `release_left`, a drag whose
+    /// middle a test can inspect (or interrupt with a key) before release.
+    pub fn press_left_at(&mut self, px: f32, py: f32) {
+        self.begin_frame();
+        self.move_mouse(px, py);
+        self.mouse.handle_pressed(MouseButton::Left);
+        self.end_frame();
+    }
+
+    /// Step 8-4: move to `(px, py)` with whatever buttons are held still
+    /// held (one frame).
+    pub fn move_held(&mut self, px: f32, py: f32) {
+        self.begin_frame();
+        self.move_mouse(px, py);
+        self.end_frame();
+    }
+
+    /// Step 8-4: release the left button where the mouse is (one frame).
+    pub fn release_left(&mut self) {
+        self.begin_frame();
+        self.mouse.handle_released(MouseButton::Left);
+        self.end_frame();
+    }
+
     /// Press `key` and hold it (does not release) — for a modifier that
     /// must stay held across a following `press_key`/`key` call, e.g.
     /// `press_key(LeftShift); press_key(S);` for Shift+S.

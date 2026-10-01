@@ -411,6 +411,8 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R98 | S4 | Stats panel counts tiles per palette def by `def.tag`, but the default palette's defs all have an empty tag — so every category reads 0 on a real level while Total (2,569 on floor2) is right | `ember2d-editor/src/editor/ui/panels/dock.rs:241` | `[ ]` unscheduled |
 | R99 | S3 | View → API Docs runs `cmd /C start index.html` relative to CWD; no `index.html` exists anywhere in the repo, so the menu item silently does nothing (no error surfaced) | `ember2d-editor/src/editor/impl_state/mod.rs:649-660` | `[ ]` unscheduled — point it at `docs/ember2d-scripting-api.md` or remove the item |
 | R100 | S4 | Two editor observations not root-caused in the 8-1 live pass: (1) toggling the grid (Tab / View → Grid) showed no visible overlay in either build; (2) the Files panel shows ~5 rows with no scroll affordance, so a project's `.level` files can sit below the fold with no hint they exist | `impl_render/mod.rs:265` (grid), Files panel | `[ ]` unscheduled — investigate before fixing; may be by design |
+| R101 | S3 | Paint tool: the "already the same tile" check compared only glyph/solid/trigger/tag, never `sprite` (8-2) or `clip` (8-3) — two sprite entries sharing a fallback glyph (`brick`/`barrel`, both 'b') counted as identical, so painting one over the other silently did nothing. Found while building 8-4 | `ember2d-editor/src/editor/input/canvas.rs` (left-click paint) | `[x]` 8-4 (`HASH84`) — the check compares `sprite` and `clip` too; test `r101_painting_a_sprite_over_another_with_the_same_glyph_replaces_it` |
+| R102 | S3 | Tileset importer: the copied sheet was always named `<name>.png`, whatever the source format — a JPG/BMP/GIF sheet became a `.png` file its loader refuses ("Invalid PNG signature"), so the import "succeeded" and every tile drew its fallback glyph. Confirmed by loading a JPG copied to a `.png` name. Found while building 8-4 (which routes any dropped image to the importer) | `ember2d-editor/src/editor/importer.rs` (`to_tileset`) | `[x]` 8-4 (`HASH84`) — the copy keeps the source's extension; test `r102_a_non_png_sheet_keeps_its_extension` |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -4853,9 +4855,66 @@ Build clips, scrub frames, preview looping; clips serialised to the project
     show different frames on the canvas and again in play (F5); the saved
     level is v6 with `clip: Some("pulse")`.
 
-#### `[ ]` 8-4 — Asset preview and drag-and-drop
+#### `[x]` 8-4 — Asset preview and drag-and-drop (`HASH84`)
 Roadmap V0.5.5: file browser thumbnails, drag a texture onto the palette or
 a tile.
+
+- **Scoped (2026-10-01, by the agent under the user's "just do all of part
+  8"; no API or level-format change, so nothing needed the user's call):**
+  (1) the File Browser lists **images anywhere** and **tileset/clip `.ron`s
+  in `assets/tilesets/` / `assets/clips/`** (before 8-4 it listed none of
+  them), each with a thumbnail (a clip's plays); (2) the selected asset gets
+  a **preview pane**; (3) an asset row **drags** — onto the palette (adds
+  entries; an un-imported image opens the importer on it, since only the
+  user knows how to slice it) or onto a canvas tile (paints it, when the
+  asset names exactly one thing to paint: a clip, a one-region tileset, or
+  a loose image, imported on the spot as a one-region tileset named after
+  the file). Dragging files in from the OS (Explorer) is **not** in scope —
+  winit delivers them, but nothing else in the editor accepts OS drops yet;
+  noted for the parking lot.
+- **Landed as** (`HASH84`):
+  - `ember2d-editor/src/editor/assets.rs` — `AssetRef` (image / tileset /
+    clip), `AssetDrag`, which row is which asset (`asset_prefix`/`classify`,
+    riding the File Browser's existing 3-character row prefixes: `<> ` image,
+    `## ` tileset, `~~ ` clip), `thumbnail`, `describe`, and
+    `tileset_for_image` (an image that is some tileset's sheet drags as that
+    tileset). `impl_state/asset_drop.rs` — the drag (a press becomes a drag
+    after 6 pt of movement; Escape cancels), the drop target (topmost DRAWN
+    panel: the palette, or a canvas cell), and what each drop does; adding
+    palette entries and painting are separate undo steps. The importer's
+    file writing and palette-entry code (`write_tileset`,
+    `add_tileset_regions_to_palette`) and the clip editor's
+    (`ensure_clip_in_palette`) became shared helpers. A loose image dropped
+    twice paints from the tileset the first drop made (same name and bytes).
+  - Drawing: `ui/panels/file_browser.rs` (the File Browser, moved out of
+    `dock.rs`) draws the thumbnail column, the `[IMG]`/`[SET]`/`[CLP]` tags,
+    the preview pane (panels at least 360 pt wide), the drag ghost (picture,
+    name, and what releasing there would do) and the palette's drop outline.
+    `refresh_project_files` (moved to `impl_state/project_files.rs`) loads
+    the folder's image thumbnails, so drawing never reads the disk. Two
+    moves were purely for the 750-line limit: that one, and
+    `impl_render/overlays.rs` (the asset/palette modals block).
+  - Fixed on the way: R101 (paint tool ignored `sprite`/`clip` when
+    deciding a tile was unchanged) and R102 (importer renamed every sheet
+    `.png`).
+  - **Tests (12 new):** 3 `assets.rs` unit tests, R102's importer test, 7
+    headless editor tests (`tests/editor_assets.rs`: listing + thumbnails +
+    preview; a clip dropped on a tile paints and undoes, on the palette adds
+    once; a multi-region tileset fills the palette and paints nothing, its
+    sheet image drags as the tileset; a loose image becomes a one-sprite
+    tileset and paints, again on a second drop, a bad file name is refused,
+    on the palette it opens the importer; a drop on nothing / Escape changes
+    nothing; the ghost follows the mouse; R101), and R101's test confirmed
+    failing without the fix. `tests/common` gained `press_left_at`/
+    `move_held`/`release_left` for a drag held mid-way.
+  - **Live-verified** (real exe, synthetic drags, screenshots): Files tab
+    thumbnails and preview for an image, a tileset and a clip (the clip's
+    thumbnail and preview animate); a loose `coin.png` dragged onto a tile
+    became tileset `coin` and painted; the clip dragged over the palette
+    shows the outline and "release: add to the palette"; dropped on a tile
+    it painted an animated tile; the 8-region tileset dropped on a tile
+    said to pick a region; an un-imported sheet dropped on the palette
+    opened the importer on it.
 
 **Phase 8 gate:** §0.5, checklist §4, §7, §11; tag `v0.5.9`.
 
@@ -5178,6 +5237,9 @@ or delete; never let this grow past a screen.
 - Square world units (true 8×8 cells): still a platformer-demo concern; 7B-2
   makes the cell aspect a single constant, which is the prerequisite.
 - A pixel-space script HUD API beyond 9-3's menu/dialogue widgets.
+- OS drag-and-drop into the editor (an image dragged in from Explorer):
+  winit delivers `DroppedFile`, nothing routes it yet; 8-4's in-editor drop
+  actions (`impl_state/asset_drop.rs`) are what it would call.
 - Local co-op authoring (`PlayerRecord` plural, `camera_entity` plural).
 - `Sprite.layer`/`TileRecord.layer`/`PlayerRecord.layer` unified to one type.
 - Static flag on colliders to skip static-vs-static pairs (may be moot after

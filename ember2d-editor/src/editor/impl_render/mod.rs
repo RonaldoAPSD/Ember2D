@@ -10,11 +10,14 @@ use ember2d::renderer::{DrawSurface, UiPainter, UiSpace};
 
 use super::panel::{draw_panel_chrome, DockSide, PanelId};
 use super::ui::{self, HierarchySelection, MenuState, ToolKind};
+use super::assets;
 use super::EditorMode;
 use super::EditorState;
 use super::TextInputPurpose;
 
 mod modes;
+// Step 8-4: the asset drag ghost and the asset/palette modals.
+mod overlays;
 
 // ── Main render ───────────────────────────────────────────────────────────────
 
@@ -467,11 +470,33 @@ impl EditorState {
                     );
                 }
                 PanelId::FileBrowser => {
+                    // Step 8-4: each row's thumbnail and the selected
+                    // asset's preview, resolved here (see `editor/assets.rs`)
+                    // so the panel itself only draws.
+                    let t = self.anim_time;
+                    let rows: Vec<_> = self
+                        .file_browser_files
+                        .iter()
+                        .map(|f| assets::classify(&self.current_folder, f))
+                        .collect();
+                    let thumb = |a: &assets::AssetRef| {
+                        assets::thumbnail(a, &self.sprites, &self.file_thumbs, t)
+                    };
+                    let thumbs: Vec<_> = rows.iter().map(|a| a.as_ref().and_then(thumb)).collect();
+                    let preview = rows.get(self.file_browser_cursor).and_then(Option::as_ref).map(
+                        |a| ui::FilePreview {
+                            title: a.label(),
+                            info: assets::describe(a, &self.sprites, &self.file_thumbs),
+                            image: thumb(a),
+                        },
+                    );
                     ui::draw_file_browser_panel(
                         &mut painter,
                         self.font.as_mut(),
                         &self.theme,
                         &self.file_browser_files,
+                        &thumbs,
+                        preview.as_ref(),
                         self.file_browser_cursor,
                         self.file_browser_scroll,
                         &self.current_folder,
@@ -482,68 +507,14 @@ impl EditorState {
             }
         }
 
+        // Step 8-4: an asset dragged out of the File Browser — drawn over
+        // every panel, under modals and menus. See `overlays.rs`.
+        self.draw_asset_drag(&mut painter, mouse);
+
         // ── Modal Overlays ───────────────────────────────────────────────────
-        if matches!(self.mode, EditorMode::PaletteEditor | EditorMode::ColorPicker { .. }) {
-            if let Some(pal) = self.palette.tiles.get(self.palette_editing_idx) {
-                ui::draw_palette_editor_modal(
-                    &mut painter,
-                    self.font.as_mut(),
-                    &self.theme,
-                    &self.theme_chrome_tex,
-                    pal,
-                    &self.sprites,
-                    self.anim_time,
-                    self.palette_editor_focus.as_ref(),
-                    screen_w,
-                    screen_h,
-                    &mut self.ui_frame,
-                );
-            }
-        }
-
-        // Step 8-2: the tileset importer — see ui/panels/importer_panel.rs.
-        if let (EditorMode::TilesetImport, Some(imp)) = (&self.mode, &self.tileset_import) {
-            ui::draw_tileset_import_modal(
-                &mut painter,
-                self.font.as_mut(),
-                &self.theme,
-                &self.theme_chrome_tex,
-                imp,
-                screen_w,
-                screen_h,
-                &mut self.ui_frame,
-            );
-        }
-
-        // Step 8-3: the clip editor — see ui/panels/clip_editor_panel.rs.
-        if let (EditorMode::ClipEditor, Some(ce)) = (&self.mode, &self.clip_editor) {
-            ui::draw_clip_editor_modal(
-                &mut painter,
-                self.font.as_mut(),
-                &self.theme,
-                &self.theme_chrome_tex,
-                ce,
-                &self.sprites,
-                screen_w,
-                screen_h,
-                &mut self.ui_frame,
-            );
-        }
-
-        if let EditorMode::ColorPicker { is_fg } = &self.mode {
-            let is_fg = *is_fg;
-            ui::draw_color_picker_modal(
-                &mut painter,
-                self.font.as_mut(),
-                &self.theme,
-                &self.theme_chrome_tex,
-                self.color_picker_hsv,
-                is_fg,
-                screen_w,
-                screen_h,
-                &mut self.ui_frame,
-            );
-        }
+        // The palette editor, tileset importer, clip editor and color picker
+        // — moved to `overlays.rs` at Step 8-4 (this file's line limit).
+        self.draw_asset_modals(&mut painter, screen_w, screen_h);
 
         // ── Menu dropdown (drawn over panels and canvas) ──────────────────────
         // Reset every frame, same as `ui_frame` (`clear()`, top of this

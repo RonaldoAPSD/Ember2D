@@ -379,53 +379,6 @@ impl EditorState {
         }
     }
 
-    pub(super) fn refresh_project_files(&mut self) {
-        if let Some(ref root) = self.project_folder {
-            let mut files = Vec::new();
-            let current_path = if self.current_folder == "." {
-                std::path::PathBuf::from(root)
-            } else {
-                std::path::Path::new(root).join(&self.current_folder)
-            };
-
-            // Add ".." if not at root
-            if self.current_folder != "." {
-                files.push(".. [UP]".to_string());
-            }
-
-            if let Ok(entries) = std::fs::read_dir(&current_path) {
-                let mut dirs = Vec::new();
-                let mut other = Vec::new();
-
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
-
-                    if path.is_dir() {
-                        dirs.push(format!("/ {} ", name));
-                    } else if name.ends_with(".level") {
-                        other.push(format!("[] {} ", name));
-                    } else if name.ends_with(".rhai") {
-                        other.push(format!("{{}} {} ", name));
-                    } else if name == "project.ron" || name.ends_with(".palette.ron") {
-                        other.push(format!(":: {} ", name));
-                    }
-                }
-
-                dirs.sort();
-                other.sort();
-                files.extend(dirs);
-                files.extend(other);
-            }
-
-            self.file_browser_files = files;
-            // Clamp cursor
-            if self.file_browser_cursor >= self.file_browser_files.len() {
-                self.file_browser_cursor = self.file_browser_files.len().saturating_sub(1);
-            }
-        }
-    }
-
     pub(super) fn load_script(&mut self, name: &str) {
         if let Some(ref folder) = self.project_folder {
             let path = format!("{}/{}", folder, name);
@@ -721,6 +674,10 @@ mod tileset_import;
 // Step 8-3: the clip editor's file side (save a clip, add it to the
 // palette) — see `clip_edit.rs`'s own header comment.
 mod clip_edit;
+// Step 8-4: the File Browser's listing (moved out of this file, which 8-4
+// would have pushed to the 750-line limit) and asset drag-and-drop.
+mod asset_drop;
+mod project_files;
 
 #[cfg(test)]
 mod tests;

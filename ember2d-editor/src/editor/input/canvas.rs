@@ -350,6 +350,11 @@ impl EditorState {
                 let mut new_tile = self.palette.current().to_tile_record(gx, gy);
                 new_tile.layer = lyr;
                 let existing = self.grid.get(gx, gy, lyr).cloned();
+                // R101 (§3 in the master plan): `sprite`/`clip` count too —
+                // two palette entries for different tileset regions (or
+                // clips) sharing a fallback glyph, e.g. `brick`/`barrel`
+                // both 'b', used to count as "the same tile", so painting
+                // one over the other silently did nothing.
                 let same = existing
                     .as_ref()
                     .map(|t| {
@@ -357,6 +362,8 @@ impl EditorState {
                             && t.solid == new_tile.solid
                             && t.trigger == new_tile.trigger
                             && t.tag == new_tile.tag
+                            && t.sprite == new_tile.sprite
+                            && t.clip == new_tile.clip
                     })
                     .unwrap_or(false);
                 if !same {

@@ -48,7 +48,21 @@ impl EditorState {
                     if let Some(WidgetId::FileBrowserRow(row_idx)) = self.ui_frame.hit(px, py) {
                         self.ignore_drag = true;
                         self.file_browser_cursor = row_idx;
-                        let raw_name = self.file_browser_files[row_idx].clone();
+                        let Some(raw_name) = self.file_browser_files.get(row_idx).cloned() else {
+                            return true;
+                        };
+
+                        // Step 8-4: an asset row (image / tileset / clip)
+                        // isn't opened by a press — the press selects it
+                        // (the panel previews the selected row) and may
+                        // start a drag onto the palette or a canvas tile
+                        // (`impl_state/asset_drop.rs`).
+                        if let Some(asset) =
+                            crate::editor::assets::classify(&self.current_folder, &raw_name)
+                        {
+                            self.begin_asset_drag(asset, px, py);
+                            return true;
+                        }
 
                         // 1. Navigation (UP)
                         if raw_name.contains("[UP]") {

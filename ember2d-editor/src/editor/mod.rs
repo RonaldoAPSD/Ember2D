@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 
 mod accessors;
+pub mod assets;
 pub mod commands;
 pub mod grid;
 pub mod palette;
@@ -184,6 +185,14 @@ pub struct EditorState {
     /// Step 8-3: the clip editor's in-progress state, `Some` exactly while
     /// `mode == EditorMode::ClipEditor`.
     pub(super) clip_editor: Option<clip_editor::ClipEditor>,
+    /// Step 8-4: a drag started on a File Browser asset row (an image, a
+    /// tileset, a clip) — `Some` from the press until the release, when it
+    /// drops onto the palette or a canvas tile (`impl_state/asset_drop.rs`).
+    pub(super) asset_drag: Option<assets::AssetDrag>,
+    /// Step 8-4: the File Browser's image thumbnails for the folder it's
+    /// showing, by project-relative path — loaded by `refresh_project_files`
+    /// (so drawing never touches the disk), replaced on every refresh.
+    pub(super) file_thumbs: std::collections::BTreeMap<String, ember2d::renderer::Texture>,
     pub(super) save_message: Option<String>,
     pub(super) save_message_timer: u32,
     pub(super) pending_transition: Option<Transition>,
@@ -401,6 +410,8 @@ impl EditorState {
             tileset_import: None,
             anim_time: 0.0,
             clip_editor: None,
+            asset_drag: None,
+            file_thumbs: std::collections::BTreeMap::new(),
             save_message: None,
             save_message_timer: 0,
             pending_transition: None,

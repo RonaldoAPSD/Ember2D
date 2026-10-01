@@ -13,7 +13,7 @@ use std::path::Path;
 use ember2d::renderer::color::Color;
 use ember2d::renderer::Texture;
 use ember2d_sim::scripting::LogEntry;
-use ember2d_sim::tileset::SpriteRef;
+use ember2d_sim::tileset::{SpriteRef, TilesetData};
 
 use super::super::commands::Command;
 use super::super::importer::TilesetImport;
@@ -75,23 +75,7 @@ impl EditorState {
         let result = (|| -> Result<(String, Vec<String>), String> {
             let data = imp.to_tileset()?;
             let folder = self.project_folder.as_deref().ok_or("no project is open")?;
-            let dir = SpriteAssets::dir(folder);
-            std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-            let image_dest = dir.join(&data.image);
-            // Re-importing the sheet that's already in place: nothing to copy
-            // (and copying a file onto itself would truncate it on some OSes).
-            let same = std::fs::canonicalize(&imp.source).ok()
-                == std::fs::canonicalize(&image_dest).ok()
-                && image_dest.exists();
-            if !same {
-                std::fs::copy(&imp.source, &image_dest)
-                    .map_err(|e| format!("copying the image: {e}"))?;
-            }
-            let ron_path = dir.join(format!("{}.ron", data.name));
-            let text =
-                ron::ser::to_string_pretty(&data, ron::ser::PrettyConfig::new().depth_limit(3))
-                    .map_err(|e| e.to_string())?;
-            std::fs::write(&ron_path, text).map_err(|e| format!("{}: {e}", ron_path.display()))?;
+            write_tileset(folder, &imp.source, &data)?;
             let regions = data.regions.iter().map(|r| r.name.clone()).collect();
             Ok((data.name, regions))
         })();
@@ -110,32 +94,7 @@ impl EditorState {
             self.console_log.push(LogEntry::warn(problem));
         }
 
-        let before = self.palette.clone();
-        let mut added = 0;
-        for region in &regions {
-            let sprite = SpriteRef::new(name.clone(), region.clone());
-            if self.palette.tiles.iter().any(|t| t.sprite.as_ref() == Some(&sprite)) {
-                continue;
-            }
-            self.palette.tiles.push(TileDefinition {
-                name: region.clone(),
-                // The fallback glyph: the region name's first letter, so a
-                // missing tileset still leaves a readable map.
-                glyph: region.chars().next().unwrap_or('#'),
-                fg: Color::White,
-                bg: Color::Reset,
-                solid: false,
-                trigger: false,
-                tag: String::new(),
-                sprite: Some(sprite),
-                clip: None,
-            });
-            added += 1;
-        }
-        if added > 0 {
-            self.undo.push(Command::UpdatePalette { before, after: self.palette.clone() });
-            self.save_palette();
-        }
+        let added = self.add_tileset_regions_to_palette(&name, &regions);
         self.refresh_project_files();
         self.console_log.push(LogEntry::info(format!(
             "Imported tileset '{name}': {} region(s), {added} new palette entr{}",
@@ -143,4 +102,71 @@ impl EditorState {
             if added == 1 { "y" } else { "ies" }
         )));
     }
+
+    /// A palette entry per `regions` of tileset `name` not already in the
+    /// palette (one undoable palette change, saved), returning how many
+    /// were added. Shared by [ Import ] and by dropping a tileset on the
+    /// palette (Step 8-4).
+    pub(in crate::editor) fn add_tileset_regions_to_palette(
+        &mut self,
+        name: &str,
+        regions: &[String],
+    ) -> usize {
+        let before = self.palette.clone();
+        let mut added = 0;
+        for region in regions {
+            let sprite = SpriteRef::new(name.to_string(), region.clone());
+            if self.palette.tiles.iter().any(|t| t.sprite.as_ref() == Some(&sprite)) {
+                continue;
+            }
+            self.palette.tiles.push(region_palette_entry(sprite));
+            added += 1;
+        }
+        if added > 0 {
+            self.undo.push(Command::UpdatePalette { before, after: self.palette.clone() });
+            self.save_palette();
+        }
+        added
+    }
+}
+
+/// The palette entry that paints `sprite` — non-solid, white, and with the
+/// region name's first letter as its fallback glyph, so a missing tileset
+/// still leaves a readable map.
+pub(in crate::editor) fn region_palette_entry(sprite: SpriteRef) -> TileDefinition {
+    TileDefinition {
+        name: sprite.region.clone(),
+        glyph: sprite.region.chars().next().unwrap_or('#'),
+        fg: Color::White,
+        bg: Color::Reset,
+        solid: false,
+        trigger: false,
+        tag: String::new(),
+        sprite: Some(sprite),
+        clip: None,
+    }
+}
+
+/// Write tileset `data` into `<folder>/assets/tilesets/`: the sheet copied
+/// from `source` as `<data.image>` (skipped when `source` already IS that
+/// file — copying a file onto itself truncates it on some OSes) and
+/// `<data.name>.ron` beside it. Shared by the importer's [ Import ] and by
+/// dropping an un-imported image on a canvas tile (Step 8-4).
+pub(in crate::editor) fn write_tileset(
+    folder: &str,
+    source: &Path,
+    data: &TilesetData,
+) -> Result<(), String> {
+    let dir = SpriteAssets::dir(folder);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let image_dest = dir.join(&data.image);
+    let same = std::fs::canonicalize(source).ok() == std::fs::canonicalize(&image_dest).ok()
+        && image_dest.exists();
+    if !same {
+        std::fs::copy(source, &image_dest).map_err(|e| format!("copying the image: {e}"))?;
+    }
+    let ron_path = dir.join(format!("{}.ron", data.name));
+    let text = ron::ser::to_string_pretty(data, ron::ser::PrettyConfig::new().depth_limit(3))
+        .map_err(|e| e.to_string())?;
+    std::fs::write(&ron_path, text).map_err(|e| format!("{}: {e}", ron_path.display()))
 }

@@ -228,9 +228,19 @@ impl TilesetImport {
             .into_iter()
             .map(|(&(col, row), name)| TilesetRegion { name: name.clone(), col, row, w: 1, h: 1 })
             .collect();
+        // R102 (§3 in the master plan): the copy keeps the SOURCE's
+        // extension — was always `<name>.png`, so a JPG/BMP/GIF sheet was
+        // copied to a `.png` name its loader then refused ("Invalid PNG
+        // signature"): the import "succeeded" and every tile drew its glyph.
+        let ext = self
+            .source
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase)
+            .unwrap_or_else(|| "png".to_string());
         let data = TilesetData {
             name: self.name.clone(),
-            image: format!("{}.png", self.name),
+            image: format!("{}.{ext}", self.name),
             cell_w,
             cell_h,
             margin,
@@ -361,5 +371,16 @@ mod tests {
         let i = TilesetImport::new(PathBuf::from("dungeon.png"), tex, Some(&existing));
         assert_eq!((i.cell_w.as_str(), i.grid()), ("8", (9, 6)));
         assert_eq!(i.names.get(&(2, 1)).map(String::as_str), Some("wall"));
+    }
+
+    #[test]
+    fn r102_a_non_png_sheet_keeps_its_extension() {
+        let mut imp = TilesetImport::new(
+            PathBuf::from("art/sheet.JPG"),
+            Texture { id: 0, width: 32, height: 16, pixels: vec![0; 32 * 16] },
+            None,
+        );
+        imp.name = "sheet".to_string();
+        assert_eq!(imp.to_tileset().unwrap().image, "sheet.jpg");
     }
 }

@@ -96,6 +96,16 @@ impl EditorState {
         &self.file_browser_files
     }
 
+    /// Step 8-4: the File Browser's selected row.
+    pub fn file_browser_cursor(&self) -> usize {
+        self.file_browser_cursor
+    }
+
+    /// Step 8-4: the drag in progress from a File Browser asset row, if any.
+    pub fn asset_drag(&self) -> Option<&super::assets::AssetDrag> {
+        self.asset_drag.as_ref()
+    }
+
     pub fn prompt_buffer(&self) -> &str {
         &self.prompt_buffer
     }

@@ -101,20 +101,36 @@ impl EditorState {
 
     /// [ Add to Palette ]: save, then add a palette entry that paints this
     /// clip (one undoable palette change; skipped if an entry for this clip
-    /// already exists). Its still `sprite` is the clip's first frame — what
-    /// a tile shows if the clip itself can't be found.
+    /// already exists).
     pub(in crate::editor) fn add_clip_to_palette(&mut self) {
         let Some(name) = self.save_clip() else { return };
-        let Some(clip) = self.sprites.clips.get(&name).cloned() else { return };
-        if self.palette.tiles.iter().any(|t| t.clip.as_deref() == Some(name.as_str())) {
-            if let Some(ce) = self.clip_editor.as_mut() {
-                ce.status = Some((true, format!("Saved; '{name}' is already in the palette")));
-            }
-            return;
+        let status = match self.ensure_clip_in_palette(&name) {
+            Some((_, true)) => format!("Saved and added '{name}' to the palette"),
+            Some((_, false)) => format!("Saved; '{name}' is already in the palette"),
+            None => return,
+        };
+        if let Some(ce) = self.clip_editor.as_mut() {
+            ce.status = Some((true, status));
         }
+    }
+
+    /// The index of a palette entry that paints project clip `name`, adding
+    /// one (one undoable palette change, saved) if there isn't one yet; the
+    /// `bool` says whether it was added. `None` if the project has no such
+    /// clip. Its still `sprite` is the clip's first frame — what a tile
+    /// shows if the clip itself can't be found. Shared by [ Add to Palette ]
+    /// and by dropping a clip file on the palette or a tile (Step 8-4).
+    pub(in crate::editor) fn ensure_clip_in_palette(
+        &mut self,
+        name: &str,
+    ) -> Option<(usize, bool)> {
+        if let Some(i) = self.palette.tiles.iter().position(|t| t.clip.as_deref() == Some(name)) {
+            return Some((i, false));
+        }
+        let clip = self.sprites.clips.get(name)?.clone();
         let before = self.palette.clone();
         self.palette.tiles.push(TileDefinition {
-            name: name.clone(),
+            name: name.to_string(),
             glyph: name.chars().next().unwrap_or('*'),
             fg: Color::White,
             bg: Color::Reset,
@@ -122,12 +138,10 @@ impl EditorState {
             trigger: false,
             tag: String::new(),
             sprite: clip.frames.first().map(|r| SpriteRef::new(clip.tileset.clone(), r.clone())),
-            clip: Some(name.clone()),
+            clip: Some(name.to_string()),
         });
         self.undo.push(Command::UpdatePalette { before, after: self.palette.clone() });
         self.save_palette();
-        if let Some(ce) = self.clip_editor.as_mut() {
-            ce.status = Some((true, format!("Saved and added '{name}' to the palette")));
-        }
+        Some((self.palette.tiles.len() - 1, true))
     }
 }
