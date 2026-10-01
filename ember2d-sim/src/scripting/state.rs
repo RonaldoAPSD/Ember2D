@@ -422,6 +422,8 @@ pub(super) struct ScriptState {
     /// Step 9-3 (docs/ember2d-master-plan.md §5.8): menus and dialogue as
     /// they stood when this pass began, plus this pass's widget requests.
     pub(super) ui: super::widgets::UiCtx,
+    /// Step 9-7: this pass's sprite requests, in call order (`sprite.rs`).
+    pub(super) sprite_ops: Vec<super::sprite::SpriteOp>,
     pub(super) pending_shake: Option<ShakeState>,
     pub(super) pending_visibility: Vec<(i64, bool)>,
     pub(super) pending_z_order: Vec<(i64, i32)>,
@@ -645,6 +647,7 @@ impl ScriptState {
             camera_view: Default::default(),
             cell_scale: (1.0, 1.0),
             ui: Default::default(),
+            sprite_ops: Vec::new(),
             pending_shake: None,
             pending_visibility: Vec::new(),
             pending_z_order: Vec::new(),

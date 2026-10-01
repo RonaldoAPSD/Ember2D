@@ -55,6 +55,8 @@ pub struct DrawCommand<'w> {
     pub source: &'w SpriteSource,
     pub tint: Color,
     pub size: Option<Vec2>,
+    /// Step 9-7: mirror the image (`Sprite::flip_x`/`flip_y`).
+    pub flip: (bool, bool),
 }
 
 /// The texture path a command should batch by, or `None` for anything that
@@ -111,6 +113,7 @@ impl<'w> DrawList<'w> {
                         source: &sp.source,
                         tint: sp.tint,
                         size: sp.size,
+                        flip: (sp.flip_x, sp.flip_y),
                     })
                 })
             })
@@ -128,11 +131,22 @@ impl<'w> DrawList<'w> {
                     // Step 8-2: a tileset-region cell fills exactly one
                     // cell, as its glyph did — not its natural size.
                     size: if sprite_cell { Some(Vec2::new(1.0, 1.0)) } else { None },
+                    flip: (false, false),
                 });
             }
         }
 
-        commands.sort_unstable_by_key(|c| (c.space, c.z, texture_sort_key(c.source), c.id));
+        // Step 9-7: with `World::y_sort` on, a sprite's bottom edge orders
+        // it within its layer — lower on screen draws later, in front.
+        // Quantised to 1/64 of a cell so the key stays an integer.
+        let y_key = |c: &DrawCommand| -> i64 {
+            if !world.y_sort {
+                return 0;
+            }
+            let h = c.size.map(|s| s.y).unwrap_or(1.0);
+            ((c.world_pos.y + h) * 64.0).round() as i64
+        };
+        commands.sort_by_key(|c| (c.space, c.z, y_key(c), texture_sort_key(c.source), c.id));
         DrawList { commands }
     }
 }
@@ -196,6 +210,29 @@ pub(super) fn sprite_size(
 /// `height`, reserving a bottom HUD bar row that Phase 4 removed — nothing
 /// draws a HUD there anymore, so the reservation just silently culled the
 /// bottom row of every level's playable viewport instead.
+/// Step 9-7: the source rect to sample for a (possibly) flipped image —
+/// mirrored by starting at the far edge with a negative extent, which the
+/// shader's `uv_offset + uv * uv_size` turns into a reversed read. An
+/// unflipped draw keeps its `src` as it was (`None` = the whole image).
+pub(super) fn flipped_src(
+    src: Option<Rect>,
+    tex_w: u32,
+    tex_h: u32,
+    flip: (bool, bool),
+) -> Option<Rect> {
+    if flip == (false, false) {
+        return src;
+    }
+    let mut r = src.unwrap_or_else(|| Rect::new(0.0, 0.0, tex_w as f32, tex_h as f32));
+    if flip.0 {
+        r = Rect::new(r.x + r.w, r.y, -r.w, r.h);
+    }
+    if flip.1 {
+        r = Rect::new(r.x, r.y + r.h, r.w, -r.h);
+    }
+    Some(r)
+}
+
 pub(super) fn in_viewport(col: i32, row: i32, width: usize, height: usize) -> bool {
     col >= 0 && row >= 0 && (col as usize) < width && (row as usize) < height
 }
@@ -437,5 +474,44 @@ mod clip_frame_tests {
             looping: true,
         };
         assert!(clip_frame(&empty, 0).is_none());
+    }
+}
+
+// ── Tests: Step 9-7 (docs/ember2d-master-plan.md §5.8) ──────────────────────
+#[cfg(test)]
+mod sprite_tests {
+    use super::*;
+    use ember2d_sim::components::{Sprite, Transform};
+
+    #[test]
+    fn a_flip_mirrors_the_source_rect_and_no_flip_leaves_it_alone() {
+        let r = Rect::new(16.0, 0.0, 16.0, 16.0);
+        assert_eq!(flipped_src(Some(r), 64, 32, (false, false)), Some(r));
+        assert_eq!(flipped_src(None, 64, 32, (false, false)), None);
+        assert_eq!(
+            flipped_src(Some(r), 64, 32, (true, false)),
+            Some(Rect::new(32.0, 0.0, -16.0, 16.0))
+        );
+        assert_eq!(
+            flipped_src(None, 64, 32, (false, true)),
+            Some(Rect::new(0.0, 32.0, 64.0, -32.0)),
+            "a whole image flips too"
+        );
+    }
+
+    #[test]
+    fn y_sort_draws_the_lower_sprite_last_within_a_layer() {
+        let mut world = World::new();
+        let low = world.spawn();
+        world.add_transform(low, Transform::new(0.0, 5.0));
+        world.add_sprite(low, Sprite::glyph('a', Color::White, Color::Reset, 10));
+        let high = world.spawn();
+        world.add_transform(high, Transform::new(0.0, 2.0));
+        world.add_sprite(high, Sprite::glyph('b', Color::White, Color::Reset, 10));
+        let ids =
+            |w: &World| DrawList::from_world(w).commands.iter().map(|c| c.id).collect::<Vec<_>>();
+        assert_eq!(ids(&world), vec![low, high], "off: entity order");
+        world.y_sort = true;
+        assert_eq!(ids(&world), vec![high, low], "on: the one lower on screen is in front");
     }
 }

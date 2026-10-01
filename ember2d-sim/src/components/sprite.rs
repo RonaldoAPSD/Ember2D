@@ -60,12 +60,29 @@ pub struct Sprite {
 
     /// When false, this entity is not drawn.
     pub visible: bool,
+
+    /// Step 9-7 (docs/ember2d-master-plan.md §5.8): draw the image mirrored
+    /// left-right / upside down (`ctx.set_flip`). Images and clip frames
+    /// only; a glyph ignores it. `#[serde(default)]`: an older save loads
+    /// unflipped.
+    #[serde(default)]
+    pub flip_x: bool,
+    #[serde(default)]
+    pub flip_y: bool,
 }
 
 impl Sprite {
     /// A glyph sprite — the common case for ASCII tiles/entities.
     pub fn glyph(ch: char, tint: Color, bg: Color, layer: i32) -> Self {
-        Sprite { source: SpriteSource::Glyph { ch, bg }, tint, size: None, layer, visible: true }
+        Sprite {
+            source: SpriteSource::Glyph { ch, bg },
+            tint,
+            size: None,
+            layer,
+            visible: true,
+            flip_x: false,
+            flip_y: false,
+        }
     }
 
     /// A texture sprite at natural size (see `size`'s doc comment).
@@ -76,6 +93,8 @@ impl Sprite {
             size: None,
             layer,
             visible: true,
+            flip_x: false,
+            flip_y: false,
         }
     }
 

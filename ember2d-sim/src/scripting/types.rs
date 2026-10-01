@@ -118,6 +118,9 @@ pub struct ScriptUpdateResult {
     pub flow: Option<super::scene::FlowRequest>,
     /// Step 9-3: menu/dialogue requests this pass, in call order.
     pub ui_ops: Vec<crate::ui::UiOp>,
+    /// Step 9-7: `set_sprite`/`play_project_clip` requests, which need a
+    /// file found — `Simulation` resolves them (simulation/sprites.rs).
+    pub sprite_requests: Vec<super::sprite::SpriteOp>,
 }
 
 /// A queued write to `ScriptState::pending_globals`/`pending_persistent`

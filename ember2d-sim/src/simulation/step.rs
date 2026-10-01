@@ -489,6 +489,9 @@ impl Simulation {
         }
         self.globals = res.globals;
         self.clips = res.clips;
+        // Step 9-7: regions and project clips, which need a file found.
+        let sprite_requests = std::mem::take(&mut res.sprite_requests);
+        self.apply_sprite_requests(world, sprite_requests, logs);
         self.commands = res.commands;
         *persistent = res.persistent;
 

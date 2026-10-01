@@ -365,6 +365,12 @@ impl ScriptEngine {
             scene_ops: std::mem::take(&mut state.scene.ops),
             flow: state.scene.flow.take(),
             ui_ops: std::mem::take(&mut state.ui.ops),
+            // Step 9-7: size/flip/y-sort land now; regions and project
+            // clips go up to `Simulation` to be found.
+            sprite_requests: super::sprite::apply_sprite_ops(
+                world,
+                std::mem::take(&mut state.sprite_ops),
+            ),
         };
         // Phase 6 Step 9: the matching half of every call site's own
         // `ctx_state.timers = std::mem::take(&mut self.timers)` — timers

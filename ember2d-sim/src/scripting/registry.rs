@@ -35,6 +35,7 @@ pub(super) fn register_all(engine: &mut Engine) {
     super::camera::register(engine);
     // Step 9-3: menu_open/draw_dialogue/... (scripting/widgets.rs).
     super::widgets::register(engine);
+    super::sprite::register(engine); // Step 9-7
     engine.register_fn("get_x", ScriptCtx::get_x);
     engine.register_fn("get_y", ScriptCtx::get_y);
     engine.register_fn("get_position", ScriptCtx::get_position);

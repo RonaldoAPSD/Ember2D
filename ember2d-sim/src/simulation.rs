@@ -48,6 +48,7 @@ pub mod scenes;
 // Step 8-2: tileset-region sprite resolution for `do_on_start` — see that
 // file's own header comment.
 mod tilesets;
+mod sprites;
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -349,6 +350,13 @@ pub struct Simulation {
     /// one world unit spans at zoom 1, per axis — (1, 1) unless the project
     /// sets a non-8×16 world cell. See `set_world_cell_scale`.
     world_cell_scale: (f32, f32),
+    /// Step 9-7: `set_sprite` results by (tileset, region) — found, or why
+    /// not — and project clips that couldn't be loaded (simulation/
+    /// sprites.rs). For the life of the level, so each file is read and
+    /// each problem reported once.
+    sprite_regions:
+        BTreeMap<(String, String), Result<(String, crate::math::Rect), String>>,
+    missing_clips: std::collections::BTreeSet<String>,
 }
 
 impl Simulation {
@@ -376,6 +384,8 @@ impl Simulation {
             camera: Default::default(),
             ui: Default::default(),
             world_cell_scale: (1.0, 1.0),
+            sprite_regions: BTreeMap::new(),
+            missing_clips: Default::default(),
         }
     }
 

@@ -137,15 +137,38 @@ Everything below is registered and callable today.
 > `get_texture(id)` returns the sheet image's path, and `get_glyph(id)` has
 > no glyph to report (the tile's authored glyph is only a fallback used when
 > the tileset can't be found). `set_texture(id, path)` replaces it with the
-> whole image at `path`, as before. There is no script call yet to pick a
-> tileset region by name; `set_src_rect` (§7) is still outstanding.
+> whole image at `path`, as before; `set_sprite` (below) picks a region by
+> name. `set_src_rect` (§7) is still outstanding.
+
+**Sprites** (Step 9-7): `set_size(id,w,h)` · `set_flip(id,fx,fy)` · `set_sprite(id,tileset,region)` · `play_project_clip(id,name)` · `play_project_clip_once(id,name)` · `set_y_sort(on)`
+
+- `set_size(id, w, h)` draws `id` at `w`×`h` world units (one unit is one
+  level cell); `0` or less goes back to natural size. Whole, decimal and
+  mixed numbers all work.
+- `set_flip(id, fx, fy)` mirrors the image left-right and/or upside down —
+  a character facing the way it walks. Images and clip frames only; a
+  glyph draws as it is.
+- `set_sprite(id, tileset, region)` draws `id` as a named region of a
+  project tileset (`assets/tilesets/<tileset>.ron`, made with File >
+  Import Tileset), one cell big, untinted (`set_tint` after it still
+  colours it). A missing tileset or region logs one warning and leaves the
+  sprite alone.
+- `play_project_clip(id, name)` loops the project clip
+  `assets/clips/<name>.ron` (File > Animation Clips) — loading it the
+  first time, unlike `play_clip`, which only knows clips a script
+  registered or a tile uses. `play_project_clip_once` plays it once and
+  stops on the last frame.
+- `set_y_sort(true)`: among sprites with the same layer order, whichever
+  is lower on screen draws in front — characters walking past each other
+  and in front of / behind furniture. Saved with the game. Give the
+  sprites that should interleave the same `set_layer_order`.
 
 Colours are **name strings** (`"Red"`, `"Reset"`) or an explicit `"#RRGGBB"` hex value (Step 3e). Unknown names silently become `Reset`.
 
 ### Animation clips
 `register_clip(name,"abc",fps,looping)` defines (or redefines) a named clip from a string of glyphs. `play_clip(id,name)` plays it respecting the clip's own `looping` flag; `play_clip_once(id,name)` plays it but always stops on the last frame. `stop_clip(id)` · `set_clip_speed(id,x)` · `get_frame(id)` → int · `set_frame(id,n)` · `clip_finished(id)` → bool, true for exactly the tick a non-looping run reaches its last frame.
 
-Since Step 8-3 a project can also author **sprite-sheet clips** in the editor (File > Animation Clips...), saved as `<project>/assets/clips/<name>.ron` — frames are named regions of one tileset. A tile placed from a palette entry that names a clip plays it on loop automatically (level format v6). Every clip a level's tiles use is loaded with the level, so `play_clip(id, name)` can play it on any entity too; a project clip that no tile in the level uses is not loaded (there is no script function to load one by name yet).
+Since Step 8-3 a project can also author **sprite-sheet clips** in the editor (File > Animation Clips...), saved as `<project>/assets/clips/<name>.ron` — frames are named regions of one tileset. A tile placed from a palette entry that names a clip plays it on loop automatically (level format v6). Every clip a level's tiles use is loaded with the level, so `play_clip(id, name)` can play it on any entity too; a project clip that no tile in the level uses is loaded by `play_project_clip` (Step 9-7, below).
 
 > Replaces `set_animation(id,"abc",rate)`, removed in Step 3e — a clip is named and shared, not a bag of fields re-set every call.
 
@@ -826,6 +849,7 @@ numeric literals in one consistent style, though; mixing (`draw_hud(1,
 | 9 | Step 9-3: `menu_open`/`menu_selection`/`menu_closed`/`menu_close`, `draw_dialogue`/`dialogue_advance`/`dialogue_open`/`dialogue_done`/`close_dialogue`, `wrap_text`; R108 — every letter key now reaches `is_held`/`just_pressed` | **No** — additive (`draw_menu` and the cell HUD are unchanged). While a widget is open its keys are withheld from scripts, which no script could rely on before because no widget existed. |
 | 9 | Step 9-4: `load_level(path, spawn)`; exit targets `path#spawn`; `get_spawn_point("player")` now returns the player's start | **No** — additive. Level format v7 (`spawns`) is a level-file change, not an API one; older levels are migrated when they load. |
 | 9 | Step 9-5: `project.ron`'s `world_cell` — `get_mouse_world_x/y` divide by it | **No** — additive; a project without `world_cell` behaves exactly as before. |
+| 9 | Step 9-7: `set_size`, `set_flip`, `set_sprite`, `play_project_clip`/`play_project_clip_once`, `set_y_sort` | **No** — additive. |
 
 **Phase 6 is a zero-API-break phase** — `API_VERSION` stayed `6` through
 Step 5f. Phase 7.5-1 is the next break after it; 7.5-2 and 7.5-3 (the two

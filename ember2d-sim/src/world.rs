@@ -115,6 +115,11 @@ pub struct World {
     /// see `restore_legacy_exits`).
     #[serde(default)]
     pub exits: BTreeMap<EntityId, String>,
+    /// Step 9-7 (docs/ember2d-master-plan.md §5.8): among sprites with the
+    /// same layer order, draw whichever sits lower on screen in front
+    /// (`ctx.set_y_sort`). Saved with the world so a loaded game keeps it.
+    #[serde(default)]
+    pub y_sort: bool,
     /// Step 7.5-9 (R41 fix, see `Diagnostic`'s own doc comment above) — a
     /// `RefCell`, not a plain `Vec`, specifically so `get_global_position`
     /// (a pure `&self` query every existing caller relies on staying
@@ -142,6 +147,7 @@ impl World {
             vars: BTreeMap::new(),
             tilemaps: BTreeMap::new(),
             exits: BTreeMap::new(),
+            y_sort: false,
             diagnostics: RefCell::new(Vec::new()),
         }
     }

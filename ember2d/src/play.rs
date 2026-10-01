@@ -38,7 +38,7 @@ use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use render::{
     camera_shake_jitter, clip_frame, draw_debug_overlay, draw_hud_queue, draw_recent_log,
-    cull_slack, in_viewport, sprite_size, ClipFrame,
+    cull_slack, flipped_src, in_viewport, sprite_size, ClipFrame,
 };
 pub use render::{DrawCommand, DrawList, Space};
 // Step 9-1: what `SaveState::scenes` holds, for `set_saved_scenes` callers.
@@ -593,6 +593,7 @@ impl GameState for PlayState {
                     if let Some(t) = assets.get(id) {
                         let size =
                             sprite_size(cmd.size, *src, t.width, t.height, self.pixels_per_unit);
+                        let src = flipped_src(*src, t.width, t.height, cmd.flip); // Step 9-7
                         renderer.draw_texture_world(
                             &render_camera,
                             world_pos,
@@ -600,7 +601,7 @@ impl GameState for PlayState {
                             size,
                             0.0,
                             tint,
-                            *src,
+                            src,
                         );
                     }
                 }
@@ -626,7 +627,7 @@ impl GameState for PlayState {
                                     t.height,
                                     self.pixels_per_unit,
                                 );
-                                let r = Some(rect);
+                                let r = flipped_src(Some(rect), t.width, t.height, cmd.flip);
                                 renderer
                                     .draw_texture_world(&render_camera, world_pos, t, size, 0.0, tint, r);
                             }

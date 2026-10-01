@@ -5260,10 +5260,29 @@ copied elsewhere still plays).
     canvas at once and the next F5 played square; a copy of the roguelike
     run from an unrelated working directory plays.
 
-#### `[ ]` 9-7 — Sprite scripting API
+#### `[x]` 9-7 — Sprite scripting API (`HASH97`)
 `set_size(id,w,h)`, `set_flip(id,fx,fy)`, `set_sprite(id,tileset,
 region)`, `play_project_clip(id,name)` (a clip no tile uses), opt-in
 y-sort. New `scripting/sprite.rs`.
+
+- **Landed as** (`HASH97`): `scripting/sprite.rs` (seven registrations —
+  `set_size` has int, float and both mixed overloads) queues `SpriteOp`s;
+  size, flip and y-sort apply in `apply_ctx`. A region or a project clip
+  has to be found on disk, so those return in
+  `ScriptUpdateResult::sprite_requests` and `simulation/sprites.rs`
+  resolves them through the same `TilesetResolver` level load uses,
+  caching results and failures for the level (each file read once, each
+  problem reported once). `Sprite` gained `flip_x`/`flip_y`, `World`
+  gained `y_sort` (both `serde(default)`). Play mode mirrors an image by
+  handing the renderer a source rect with a negative extent
+  (`render.rs::flipped_src`) — no renderer change — and sorts by the
+  sprite's bottom edge within a layer when y-sort is on. A sprite or clip
+  set this way draws untinted (a glyph's colour would otherwise tint the
+  image — found live). Tests (5 new): 3 `tests/sprite_script.rs` against
+  a temp project with a tileset and a clip, 2 render unit tests (flip
+  rects, y-sort order). Live: in the 16×16 sprite test project the
+  player became the door region and F flipped it (knob moved sides), a
+  1×2 chest and a project clip drew as set.
 
 #### `[ ]` 9-8 — The RPG demo
 `demos/rpg/` (world cell 16×16), built in the editor: a title scene (New /
