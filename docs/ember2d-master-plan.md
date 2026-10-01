@@ -4961,7 +4961,7 @@ level files, the state stack is Rust-only, camera follow is engine-owned,
 `draw_menu` has no input model, and Phase 7's proportional fonts do not
 reach scripts. The acceptance test is a third shipped demo.
 
-#### `[x]` 9-1 — Script-visible scene stack (`HASH91`)
+#### `[x]` 9-1 — Script-visible scene stack (`9300e78`)
 `push_scene(name)`, `pop_scene()`, `current_scene()`. A scene is a named
 script-owned state (`battle`, `menu`, `dialogue`) layered over the level;
 the engine pauses `on_turn`/`on_update` for the level while a scene with
@@ -4978,7 +4978,7 @@ the engine pauses `on_turn`/`on_update` for the level while a scene with
   overridable by a project's own `scenes/pause.rhai`; its Quit/Back to
   Editor rows needed `quit_game()`/`return_to_editor()`/
   `is_editor_preview()`, added with it.
-- **Landed as** (`HASH91`):
+- **Landed as** (`9300e78`):
   - `ember2d-sim`: `scripting/scene.rs` (the request/read types, the nine
     `ScriptCtx` functions, `run_scene_pass`, and `builtin_pause.rhai`
     compiled from an embedded string) and `simulation/scenes.rs` (the
