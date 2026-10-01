@@ -187,7 +187,7 @@ start screen's New/Open Project browsers start from.
 | 7.5 | Scripting completeness | `[~]` — §5.6: all 13 steps `[x]`; gate open, awaiting the user's live checklist §11–§13 pass (shooter LOC exception accepted 2026-09-29) |
 | 8 | Tilemap, assets, animation authoring | `[~]` — §5.7: all 4 steps `[x]`; gate pass run 2026-10-01 (automated + live, R103/R104/R106 fixed in it), awaiting the user's OK to tag `v0.5.9` |
 | 9 | Scene and UI layer + RPG demo | `[~]` — §5.8: 9-1 to 9-8 landed and the gate pass is done (2026-10-01): all three demos play, the RPG tutorial replayed in a fresh project. Awaiting the user's OK to tag `v0.5.10` |
-| 9.5 | Demo expansion as engine stress tests | `[~]` — §5.8.5: 9.5-1 tilemap API (`c07dc73`), 9.5-2 field of view (`fc7e0a4`) and 9.5-3 the generated roguelike landed; next the 20-floor procedural roguelike, the shooter as a stress test, tutorials (planned 2026-10-01) |
+| 9.5 | Demo expansion as engine stress tests | `[~]` — §5.8.5: 9.5-1 tilemap API (`c07dc73`), 9.5-2 field of view (`fc7e0a4`) and 9.5-3 the generated roguelike (`25b5325`) landed; next the 20-floor procedural roguelike, the shooter as a stress test, tutorials (planned 2026-10-01) |
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
 
@@ -5517,7 +5517,7 @@ world.
     - Stepping back past the 8-cell radius dims the far side, keeps the
       potion dimmed and hides the rat.
 
-#### `[x]` 9.5-3 — Roguelike rebuild, part 1: the dungeon
+#### `[x]` 9.5-3 — Roguelike rebuild, part 1: the dungeon (`25b5325`)
 A title scene (New / Continue / Quit); one `dungeon.level` whose script
 builds each floor (rooms and corridors, 80×45) from the run seed and the
 depth; player FOV; monster tables by depth up to a floor-20 guardian;
