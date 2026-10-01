@@ -274,6 +274,7 @@ impl EditorState {
                     ui::draw_grid(
                         renderer,
                         &self.grid,
+                        &self.sprites,
                         self.active_layer,
                         self.scroll,
                         self.zoom,
@@ -405,6 +406,7 @@ impl EditorState {
                         self.font.as_mut(),
                         &self.theme,
                         &self.palette,
+                        &self.sprites,
                         mode_label,
                         self.palette_scroll,
                         panel.content_rect(&metrics).into(),
@@ -487,12 +489,27 @@ impl EditorState {
                     &self.theme,
                     &self.theme_chrome_tex,
                     pal,
+                    &self.sprites,
                     self.palette_editor_focus.as_ref(),
                     screen_w,
                     screen_h,
                     &mut self.ui_frame,
                 );
             }
+        }
+
+        // Step 8-2: the tileset importer — see ui/panels/importer_panel.rs.
+        if let (EditorMode::TilesetImport, Some(imp)) = (&self.mode, &self.tileset_import) {
+            ui::draw_tileset_import_modal(
+                &mut painter,
+                self.font.as_mut(),
+                &self.theme,
+                &self.theme_chrome_tex,
+                imp,
+                screen_w,
+                screen_h,
+                &mut self.ui_frame,
+            );
         }
 
         if let EditorMode::ColorPicker { is_fg } = &self.mode {

@@ -298,11 +298,14 @@ fn r89_menu_dropdown_hover_highlight_matches_the_real_hovered_row_when_ui_scale_
     open_menu(&mut h, MenuKind::File);
     h.frame(); // populate ui_frame with this menu's own drawn MenuItem rects
 
-    // "Close Project" is index 9 in `MenuKind::File`'s list (ui/menu.rs).
+    // "Close Project" is index 10 in `MenuKind::File`'s list (ui/menu.rs) —
+    // was 9 until Step 8-2 inserted "Import Tileset..." above "Export
+    // Game..." (the live repro's own index 9/5 pair, quoted in the doc
+    // comment above, predates that).
     let rect = h
         .state
         .ui_frame()
-        .rect_of(WidgetId::MenuItem(MenuKind::File, 9))
+        .rect_of(WidgetId::MenuItem(MenuKind::File, 10))
         .expect("Close Project's row was not drawn");
     // points -> logical, same idiom `open_menu`/`click_menu_item`
     // (tests/common/mod.rs) already use for every other widget rect.
@@ -314,7 +317,7 @@ fn r89_menu_dropdown_hover_highlight_matches_the_real_hovered_row_when_ui_scale_
 
     assert_eq!(
         h.state.hovered_menu_item(),
-        Some(9),
-        "hovering Close Project's own drawn rect must highlight Close Project (index 9), not a different row"
+        Some(10),
+        "hovering Close Project's own drawn rect must highlight Close Project (index 10), not a different row"
     );
 }

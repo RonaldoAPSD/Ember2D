@@ -43,6 +43,9 @@ mod spawn;
 // the single largest remaining piece to pull out. See that file's own
 // header comment.
 mod step;
+// Step 8-2: tileset-region sprite resolution for `do_on_start` — see that
+// file's own header comment.
+mod tilesets;
 
 use std::collections::BTreeMap;
 use std::path::Path;

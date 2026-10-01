@@ -116,6 +116,7 @@ impl EditorState {
                                 solid: false,
                                 trigger: false,
                                 tag: String::new(),
+                                sprite: None,
                             });
                             self.undo.push(Command::UpdatePalette {
                                 before,

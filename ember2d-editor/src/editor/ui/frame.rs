@@ -100,6 +100,13 @@ pub enum WidgetId {
     ColorPickerSvMap,
     /// 7C-1: the advanced color picker's Apply button.
     ColorPickerApply,
+    /// Step 8-2: the tileset importer's text fields (click to focus).
+    ImporterField(crate::editor::importer::ImportField),
+    /// Step 8-2: the importer's sheet preview — one continuous area, like
+    /// `ColorPickerHueBar`; the input side maps a click back to a cell.
+    ImporterSheet,
+    ImporterImport,
+    ImporterCancel,
     /// 7C-1: the advanced color picker's Cancel button.
     ColorPickerCancel,
     /// 7C-1: one swatch of the palette editor's foreground/background color

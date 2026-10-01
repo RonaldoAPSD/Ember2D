@@ -17,6 +17,8 @@ fn wall() -> TileDef {
         tag: "wall".to_string(),
         collider_layer: String::new(),
         texture: None,
+        sprite: None,
+        src: None,
     }
 }
 
@@ -282,4 +284,26 @@ fn static_tiles_too_far_apart_to_grid_all_stay_entities() {
     let (map, entities) = data.split_static();
     assert!(map.is_none(), "a 10-billion-cell bounding box must not be allocated");
     assert_eq!(entities.len(), 2, "…and nothing is lost: both stay entities");
+}
+
+#[test]
+fn baking_keeps_a_tiles_sprite_ref_and_treats_it_as_part_of_the_defs_identity() {
+    // Step 8-2: two walls identical except for which tileset region draws
+    // them are two different defs, and the reference survives the bake.
+    use crate::tileset::SpriteRef;
+    let mut data = LevelData::empty(4, 4);
+    let mut a = TileRecord::new(0, 0, 1, '#', Color::Grey, Color::Reset, true, false, "wall");
+    a.sprite = Some(SpriteRef::new("dungeon", "wall"));
+    let mut b = a.clone();
+    b.x = 1;
+    b.sprite = Some(SpriteRef::new("dungeon", "wall_cracked"));
+    data.tiles = vec![a, b];
+    let before = format!("{:?}", data.all_tiles());
+    data.bake_tilemap();
+    let map = data.tilemap.as_ref().unwrap();
+    assert_eq!(map.palette.len(), 2);
+    assert_eq!(format!("{:?}", data.all_tiles()), before, "sprite refs must survive baking");
+    let text = ron::ser::to_string(&data).unwrap();
+    let back: LevelData = ron::de::from_str(&text).unwrap();
+    assert_eq!(format!("{:?}", back.all_tiles()), before);
 }

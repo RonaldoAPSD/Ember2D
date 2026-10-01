@@ -173,6 +173,9 @@ pub enum ToolbarAction {
     Save,
     SaveAs,
     Export,
+    /// Step 8-2: File > Import Tileset... (OS image picker, then the
+    /// importer dialog).
+    ImportTileset,
     Play,
     CloseProject,
     RenameLevel,

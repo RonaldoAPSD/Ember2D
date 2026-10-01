@@ -2,6 +2,7 @@
 
 use super::rect::UiRect;
 use crate::editor::grid::LevelGrid;
+use crate::editor::sprites::SpriteAssets;
 use ember2d::renderer::{color::Color, DrawSurface};
 use ember2d_sim::level::TileRecord;
 
@@ -65,9 +66,16 @@ pub fn draw_scaled_tile(
     renderer.draw_char_scaled_pixels(px, py, glyph, fg, bg, zoom);
 }
 
+/// Step 8-2 (docs/ember2d-master-plan.md §5.7): a tile with a `sprite`
+/// that `sprites` can resolve is drawn as that tileset region, stretched
+/// over its cell exactly the way play mode draws it (one cell, not the
+/// sheet's natural size); a tile whose tileset or region is missing keeps
+/// drawing its glyph, so a broken reference is visible rather than blank.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_grid(
     renderer: &mut dyn DrawSurface,
     grid: &LevelGrid,
+    sprites: &SpriteAssets,
     active_layer: u8,
     scroll: (f32, f32),
     zoom: f32,
@@ -99,6 +107,28 @@ pub fn draw_grid(
                 if bg != Color::Reset {
                     bg = dim_color(bg);
                 }
+            }
+            if let Some((tex, src)) = tile.sprite.as_ref().and_then(|s| sprites.resolve(s)) {
+                let (px, py) = grid_to_pixel(gx, gy, scroll, zoom, viewport);
+                let dest = ember2d_sim::math::Rect::new(
+                    px as f32,
+                    py as f32,
+                    CELL_W * zoom,
+                    CELL_H * zoom,
+                );
+                // Off-screen skip, same rule `draw_scaled_tile` applies.
+                if dest.x + dest.w <= viewport.x
+                    || dest.x >= viewport.x + viewport.w
+                    || dest.y + dest.h <= viewport.y
+                    || dest.y >= viewport.y + viewport.h
+                {
+                    continue;
+                }
+                // Inactive layers dim, the same as a glyph's colors do.
+                let tint =
+                    if lyr != active_layer { Color::Rgb(110, 110, 110) } else { Color::White };
+                renderer.draw_texture_px(dest, tex, Some(src), tint);
+                continue;
             }
             draw_scaled_tile(renderer, gx, gy, tile.glyph, fg, bg, scroll, zoom, viewport);
         }

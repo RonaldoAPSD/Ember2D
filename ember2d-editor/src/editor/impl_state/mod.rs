@@ -522,6 +522,9 @@ impl EditorState {
             next_level: None,
             graph: None,
             texture: pr.texture.clone(),
+            // Step 8-2: the player record has no tileset sprite of its own
+            // (it's not painted from the palette).
+            sprite: None,
             // The editor never authors an actor on the player tile — the
             // player is implicitly Local(0) always (see
             // TileRecord::actor's doc comment).
@@ -630,6 +633,10 @@ impl EditorState {
             ToolbarAction::Export => {
                 self.export_game();
             }
+            // Step 8-2 — see impl_state/tileset_import.rs.
+            ToolbarAction::ImportTileset => {
+                self.pick_and_begin_tileset_import();
+            }
             ToolbarAction::NewLevel => {
                 self.grid = LevelGrid::new(super::DEFAULT_LEVEL_W, super::DEFAULT_LEVEL_H);
                 self.undo = UndoStack::new();
@@ -701,6 +708,10 @@ mod graph_sidecars;
 // lives in its own file too (7D-3 checkpoint 7, master plan §5.4) — see
 // `viewport.rs`'s own header comment.
 mod viewport;
+
+// Step 8-2: the tileset importer's file side (picker, writing the tileset,
+// palette entries) — see `tileset_import.rs`'s own header comment.
+mod tileset_import;
 
 #[cfg(test)]
 mod tests;

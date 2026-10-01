@@ -145,6 +145,16 @@ pub struct TileRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub texture: Option<String>,
 
+    /// Step 8-2 (docs/ember2d-master-plan.md §5.7, format v5): this tile's
+    /// sprite as a region of a tileset (`assets/tilesets/<tileset>.ron`) —
+    /// looked up by NAME when the level loads, so re-slicing the tileset
+    /// updates every tile painted with it (see `crate::tileset`'s header).
+    /// Takes precedence over `glyph` for drawing; the glyph stays as the
+    /// fallback when the tileset or region can't be found, and as what the
+    /// tile looks like to anything that only knows glyphs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sprite: Option<crate::tileset::SpriteRef>,
+
     /// Makes this tile's entity eligible to take turns under
     /// `TurnScheduler` (Step 5f, docs/ember2d-phase5-plan.md;
     /// `LEVEL_FORMAT_VERSION` 1 → 2). The player needs no such field — it's
@@ -352,6 +362,7 @@ impl TileRecord {
             next_level: None,
             graph: None,
             texture: None,
+            sprite: None,
             actor: None,
         }
     }
@@ -389,7 +400,12 @@ impl TileRecord {
 /// a v4 file's `tiles` list is no longer the whole level — a pre-8-1
 /// engine reading one would silently drop every wall, which is exactly
 /// what R8's newer-version rejection in `load` exists to stop.
-pub const LEVEL_FORMAT_VERSION: u32 = 4;
+/// Version 5 is Step 8-2: `TileRecord::sprite` (and the matching
+/// `TileDef::sprite` inside a baked `tilemap`) — a tile drawn from a named
+/// tileset region. Additive again; the bump exists for the same reason v4's
+/// did: a pre-8-2 engine would load a v5 level "fine" and silently draw
+/// every sprite tile as its fallback glyph.
+pub const LEVEL_FORMAT_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LevelData {

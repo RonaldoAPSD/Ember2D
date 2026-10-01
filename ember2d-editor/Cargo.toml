@@ -45,3 +45,10 @@ rand = { version = "0.8", features = ["small_rng"] }
 # — every call site treats that as "no OS clipboard available" and moves
 # on rather than erroring the edit.
 arboard = "3"
+
+[dev-dependencies]
+# Step 8-2: `tests/editor_importer.rs` writes a small PNG sprite sheet to
+# import. Not a new crate in the tree — `ember2d` already depends on the
+# same `image` 0.25 for `Texture::load`; this only makes it nameable from
+# this crate's tests.
+image = "0.25"

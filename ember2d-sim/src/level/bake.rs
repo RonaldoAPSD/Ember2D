@@ -55,6 +55,8 @@ impl TileRecord {
             tag: self.tag.clone(),
             collider_layer: self.collider_layer.clone(),
             texture: self.texture.clone(),
+            sprite: self.sprite.clone(),
+            src: None,
         }
     }
 
@@ -72,6 +74,7 @@ impl TileRecord {
         );
         t.collider_layer = def.collider_layer.clone();
         t.texture = def.texture.clone();
+        t.sprite = def.sprite.clone();
         t
     }
 }

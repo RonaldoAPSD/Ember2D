@@ -166,6 +166,16 @@ impl<'a> UiPainter<'a> {
         advance_logical / self.space.pt_to_logical()
     }
 
+    /// Step 8-2 (docs/ember2d-master-plan.md §5.7): `tex` (or its `src`
+    /// texel sub-rect) stretched over `r`, points — a palette row's sprite
+    /// thumbnail, the importer's sheet preview. Snapped and converted to
+    /// logical pixels exactly the way `fill`/`nine_slice` convert theirs,
+    /// so an image lines up with the chrome around it at every UI scale.
+    pub fn image(&mut self, r: Rect, tex: &Texture, src: Option<Rect>, tint: Color) {
+        let r = self.space.rect_to_logical(self.space.snap_rect(r));
+        self.surface.draw_texture_px(r, tex, src, tint);
+    }
+
     /// A literal, unthemed font8x8 glyph preview (a tile/color swatch's own
     /// glyph, e.g. the palette panel row or the palette editor's preview) —
     /// deliberately NOT drawn through `text`/`Font`: this previews an

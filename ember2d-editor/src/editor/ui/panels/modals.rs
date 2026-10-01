@@ -10,7 +10,8 @@
 use super::super::frame::{UiFrame, WidgetId};
 use super::super::rect::UiRect;
 use super::super::widgets::{
-    draw_button_px, draw_swatch_px, draw_text_row, draw_tile_glyph_in, PALETTE_COLORS,
+    draw_button_px, draw_swatch_px, draw_text_row, draw_tile_glyph_in, draw_tile_preview_in,
+    PALETTE_COLORS,
 };
 use ember2d::renderer::{color::Color, DrawSurface, Font, Texture, UiPainter, CELL_H, CELL_W};
 use ember2d::theme::{PaletteRole, Theme};
@@ -49,6 +50,7 @@ pub fn draw_palette_editor_modal(
     theme: &Theme,
     chrome_tex: &Texture,
     pal: &crate::editor::palette::TileDefinition,
+    sprites: &crate::editor::sprites::SpriteAssets,
     focus: Option<&crate::editor::PaletteField>,
     screen_w: f32,
     screen_h: f32,
@@ -153,7 +155,25 @@ pub fn draw_palette_editor_modal(
         let slot_x = glyph_x + painter.measure(font, "['", text_px);
         let slot_w = painter.measure(font, " ", text_px);
         let slot = Rect::new(slot_x, row_rect(3).y, slot_w, row_h);
-        draw_tile_glyph_in(painter, slot, pal.glyph, pal.fg, pal.bg);
+        // Step 8-2: the entry's sprite thumbnail when it has one — the same
+        // preview the palette panel row shows.
+        draw_tile_preview_in(painter, slot, pal, sprites);
+    }
+    // Step 8-2: which tileset region this entry paints with, read-only (set
+    // by the importer, not typed here).
+    if let Some(ref sprite) = pal.sprite {
+        let note = format!("  sprite: {}/{}", sprite.tileset, sprite.region);
+        let note_x = glyph_x + glyph_field_w;
+        let note_w = painter.measure(font, &note, text_px);
+        draw_text_row(
+            painter,
+            font,
+            &note,
+            Rect::new(note_x, row_rect(3).y, note_w, row_h),
+            text_px,
+            dim,
+            panel_bg,
+        );
     }
 
     // Toggles — two independent widgets, side by side, each sized to its

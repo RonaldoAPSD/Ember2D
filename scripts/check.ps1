@@ -188,7 +188,10 @@ $chromeFiles = Get-ChildItem -Path $editorRoot -Recurse -Filter "*.rs" |
 foreach ($file in $chromeFiles) {
     $rel = $file.FullName.Substring($editorRoot.Length + 1)
     if ($chromeCellAllowlist -contains $rel) { continue }
-    $hits = Select-String -Path $file.FullName -Pattern "CELL_W|CELL_H"
+    # -CaseSensitive (Step 8-2): the rule is about the CELL_W/CELL_H
+    # constants; Select-String's case-insensitive default also flagged any
+    # ordinary `cell_w`/`cell_h` field (e.g. a tileset's cell size).
+    $hits = Select-String -CaseSensitive -Path $file.FullName -Pattern "CELL_W|CELL_H"
     foreach ($hit in $hits) {
         if (Test-IsCommentLine $hit.Line) { continue }
         $failures += "editor\$rel`:$($hit.LineNumber): chrome code referencing CELL_W/CELL_H (forbidden - docs/ember2d-master-plan.md 7D-3, use ChromeMetrics/theme.metrics instead)"

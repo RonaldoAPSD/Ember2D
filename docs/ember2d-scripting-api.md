@@ -131,6 +131,15 @@ Everything below is registered and callable today.
 ### Appearance
 `get_glyph(id)` · `set_glyph(id,"X")` · `get_color(id)` → `[fg,bg]` · `set_tint(id,fg,bg)` · `get_texture(id)` · `set_texture(id,path)` · `is_visible(id)` · `set_visible(id,bool)` · `get_layer_order(id)` · `set_layer_order(id,z)`
 
+> **Tileset sprite tiles (Step 8-2, level format v5).** A tile painted from
+> an imported tileset (`<project>/assets/tilesets/<name>.ron`) is drawn as
+> that sheet's named region. Scripts see it as a textured sprite:
+> `get_texture(id)` returns the sheet image's path, and `get_glyph(id)` has
+> no glyph to report (the tile's authored glyph is only a fallback used when
+> the tileset can't be found). `set_texture(id, path)` replaces it with the
+> whole image at `path`, as before. There is no script call yet to pick a
+> tileset region by name; `set_src_rect` (§7) is still outstanding.
+
 Colours are **name strings** (`"Red"`, `"Reset"`) or an explicit `"#RRGGBB"` hex value (Step 3e). Unknown names silently become `Reset`.
 
 ### Animation clips

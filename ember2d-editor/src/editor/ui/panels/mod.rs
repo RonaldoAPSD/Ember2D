@@ -13,11 +13,17 @@
 //            Inspector, Hierarchy, File Browser)
 //   modals — full-screen/floating overlays (palette editor, advanced color
 //            picker + its swatch grid, keyboard-shortcuts help screen)
+//   palette_panel — the Palette panel, out of `dock` since Step 8-2 (dock
+//            was at the 750-line limit; see that file's header)
 
 mod chrome;
 mod dock;
+mod importer_panel;
 mod modals;
+mod palette_panel;
 
 pub use chrome::*;
 pub use dock::*;
+pub use importer_panel::*;
 pub use modals::*;
+pub use palette_panel::*;

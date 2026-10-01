@@ -123,6 +123,27 @@ pub fn draw_tile_glyph_in(painter: &mut UiPainter, slot: Rect, ch: char, fg: Col
     painter.tile_glyph(top_left, h, ch, fg, bg);
 }
 
+/// Step 8-2 (docs/ember2d-master-plan.md §5.7): a tile definition's preview
+/// in `slot` — its tileset sprite as a thumbnail (aspect kept, 80% of the
+/// slot like `draw_tile_glyph_in`'s glyph) when `sprites` can resolve it,
+/// otherwise its glyph. Shared by the palette panel row and the palette
+/// editor's glyph field so the two always show the same thing.
+pub fn draw_tile_preview_in(
+    painter: &mut UiPainter,
+    slot: Rect,
+    tile: &crate::editor::palette::TileDefinition,
+    sprites: &crate::editor::sprites::SpriteAssets,
+) {
+    if let Some((tex, src)) = tile.sprite.as_ref().and_then(|s| sprites.resolve(s)) {
+        let inner =
+            Rect::new(slot.x + slot.w * 0.1, slot.y + slot.h * 0.1, slot.w * 0.8, slot.h * 0.8);
+        let dest = crate::editor::sprites::fit_inside(inner, src.w, src.h);
+        painter.image(dest, tex, Some(src), Color::White);
+    } else {
+        draw_tile_glyph_in(painter, slot, tile.glyph, tile.fg, tile.bg);
+    }
+}
+
 /// The pixel-space twin of `draw_row` below — a full-row list entry
 /// (hierarchy rows, file browser rows) drawn through `draw_text_row` at a
 /// real pixel rect, with its hit rect pushed at that EXACT same rect

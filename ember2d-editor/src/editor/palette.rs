@@ -60,6 +60,15 @@ pub struct TileDefinition {
     /// Tag string stored in the TileRecord. Game logic can query `world.find_by_tag`.
     /// Empty string = no tag.
     pub tag: String,
+
+    /// Step 8-2 (docs/ember2d-master-plan.md §5.7): a tileset region this
+    /// entry paints with (the importer adds one entry per named region).
+    /// Copied onto every tile placed with it (`TileRecord::sprite`); the
+    /// glyph above stays the fallback when the tileset can't be found.
+    /// `#[serde(default)]` so every `project.palette.ron` written before
+    /// 8-2 still loads (as glyph-only entries).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sprite: Option<ember2d_sim::tileset::SpriteRef>,
 }
 
 impl TileDefinition {
@@ -67,7 +76,7 @@ impl TileDefinition {
     ///
     /// Called when the user left-clicks on the canvas.
     pub fn to_tile_record(&self, x: i32, y: i32) -> TileRecord {
-        TileRecord::new(
+        let mut rec = TileRecord::new(
             x,
             y,
             0, // Default layer, will be overwritten by grid.place()
@@ -77,7 +86,9 @@ impl TileDefinition {
             self.solid,
             self.trigger,
             &self.tag,
-        )
+        );
+        rec.sprite = self.sprite.clone();
+        rec
     }
 }
 
@@ -168,6 +179,7 @@ impl TilePalette {
                     solid: true,
                     trigger: false,
                     tag: "".into(),
+                    sprite: None,
                 },
                 TileDefinition {
                     name: "Floor".into(),
@@ -177,6 +189,7 @@ impl TilePalette {
                     solid: false,
                     trigger: false,
                     tag: "".into(),
+                    sprite: None,
                 },
                 TileDefinition {
                     name: "Item".into(),
@@ -186,6 +199,7 @@ impl TilePalette {
                     solid: false,
                     trigger: true,
                     tag: "".into(),
+                    sprite: None,
                 },
                 TileDefinition {
                     name: "Spawn".into(),
@@ -195,6 +209,7 @@ impl TilePalette {
                     solid: false,
                     trigger: false,
                     tag: "".into(),
+                    sprite: None,
                 },
                 TileDefinition {
                     name: "Water".into(),
@@ -204,6 +219,7 @@ impl TilePalette {
                     solid: false,
                     trigger: true,
                     tag: "".into(),
+                    sprite: None,
                 },
                 TileDefinition {
                     name: "Door".into(),
@@ -213,6 +229,7 @@ impl TilePalette {
                     solid: true,
                     trigger: false,
                     tag: "".into(),
+                    sprite: None,
                 },
                 TileDefinition {
                     name: "Chest".into(),
@@ -222,6 +239,7 @@ impl TilePalette {
                     solid: false,
                     trigger: true,
                     tag: "".into(),
+                    sprite: None,
                 },
                 TileDefinition {
                     name: "Pillar".into(),
@@ -231,6 +249,7 @@ impl TilePalette {
                     solid: true,
                     trigger: false,
                     tag: "".into(),
+                    sprite: None,
                 },
                 TileDefinition {
                     name: "Danger".into(),
@@ -240,6 +259,7 @@ impl TilePalette {
                     solid: false,
                     trigger: true,
                     tag: "".into(),
+                    sprite: None,
                 },
             ],
             selected: 0,

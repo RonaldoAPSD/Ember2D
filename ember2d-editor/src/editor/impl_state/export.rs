@@ -55,8 +55,11 @@ impl EditorState {
                 }
             }
 
-            // 2. Copy assets (recursive)
-            let asset_folders = ["audio", "scripts"];
+            // 2. Copy assets (recursive). `assets` since Step 8-2 — the
+            // project's tilesets (`assets/tilesets/*.ron` + their sheet
+            // images); without it an exported game's sprite tiles would all
+            // fall back to their glyphs.
+            let asset_folders = ["audio", "scripts", "assets"];
             for folder in asset_folders {
                 let src = std::path::Path::new(&project_path).join(folder);
                 if src.exists() {

@@ -86,6 +86,14 @@ pub trait DrawSurface {
         border_scale: f32,
         tint: Color,
     );
+    /// Step 8-2 (docs/ember2d-master-plan.md §5.7): draw `texture` (or its
+    /// `src` texel sub-rect) stretched to fill `dest`, logical pixels — the
+    /// plain-blit sibling of `draw_nine_slice_px` above, which the editor
+    /// had no way to ask for until it needed to draw sprite tiles and
+    /// sprite thumbnails. `Renderer` already had the method itself
+    /// (`Renderer::draw_texture_px`, what 9-slicing is built on); this
+    /// just puts it on the trait the editor draws through.
+    fn draw_texture_px(&mut self, dest: Rect, texture: &Texture, src: Option<Rect>, tint: Color);
     /// Draw one text run (7D-3, docs/ember2d-master-plan.md §5.4 — replaces
     /// the old `draw_text_px` as the REQUIRED method; `draw_text_px` below
     /// is now a default built on this). Rasterizes/looks up each glyph at
@@ -193,6 +201,9 @@ impl DrawSurface for Renderer {
         tint: Color,
     ) {
         Renderer::draw_nine_slice(self, dest, texture, src, border, border_scale, tint);
+    }
+    fn draw_texture_px(&mut self, dest: Rect, texture: &Texture, src: Option<Rect>, tint: Color) {
+        Renderer::draw_texture_px(self, dest, texture, src, tint);
     }
     fn draw_text_run(&mut self, font: &mut dyn Font, run: &TextRun) -> f32 {
         Renderer::draw_text_run(self, font, run)
@@ -329,6 +340,11 @@ impl DrawSurface for NullRenderer {
     ) {
         if self.recording {
             self.ops.push(DrawOp::NineSlice { dest, src, border, border_scale });
+        }
+    }
+    fn draw_texture_px(&mut self, dest: Rect, texture: &Texture, src: Option<Rect>, _tint: Color) {
+        if self.recording {
+            self.ops.push(DrawOp::Texture { dest, src, texture: texture.id });
         }
     }
     fn draw_text_run(&mut self, font: &mut dyn Font, run: &TextRun) -> f32 {

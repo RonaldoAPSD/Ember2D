@@ -81,6 +81,7 @@ pub fn menu_entries(kind: MenuKind) -> Vec<MenuEntry> {
             Item { label: "Save", shortcut: "S   ", action: Save },
             Item { label: "Save As...", shortcut: "S+S ", action: SaveAs },
             Sep,
+            Item { label: "Import Tileset...", shortcut: "    ", action: ImportTileset },
             Item { label: "Export Game...", shortcut: "    ", action: Export },
             Sep,
             Item { label: "Play", shortcut: "F5  ", action: Play },

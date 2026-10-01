@@ -67,4 +67,5 @@ pub mod save;
 pub mod scheduler;
 pub mod scripting;
 pub mod simulation;
+pub mod tileset;
 pub mod world;

@@ -753,6 +753,7 @@ dependencies = [
  "arboard",
  "ember2d",
  "ember2d-sim",
+ "image",
  "rand 0.8.6",
  "rfd",
  "rhai",

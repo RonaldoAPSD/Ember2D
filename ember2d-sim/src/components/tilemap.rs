@@ -86,6 +86,18 @@ pub struct TileDef {
     pub collider_layer: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub texture: Option<String>,
+    /// Step 8-2: same meaning as `TileRecord::sprite` — what a level file
+    /// stores. Part of a def's identity (two walls drawn from different
+    /// regions are different defs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sprite: Option<crate::tileset::SpriteRef>,
+    /// Step 8-2: the pixel rect `sprite` resolved to at load, alongside
+    /// `texture` (which load sets to the tileset's image) — runtime-only in
+    /// practice: a level file never carries one (the editor never writes
+    /// it), but a SAVE does, inside the `World`'s tilemap, so a loaded save
+    /// draws its sprites without re-reading any tileset file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub src: Option<Rect>,
 }
 
 impl TileDef {
@@ -214,7 +226,7 @@ impl Tilemap {
             .palette
             .iter()
             .map(|d| match &d.texture {
-                Some(path) => SpriteSource::Texture { path: path.clone(), src: None },
+                Some(path) => SpriteSource::Texture { path: path.clone(), src: d.src },
                 None => SpriteSource::Glyph { ch: d.glyph, bg: d.bg },
             })
             .collect();
@@ -341,9 +353,16 @@ impl Tilemap {
     }
 
     /// Every non-empty cell inside `view` (or all of them, for `None`), as
-    /// `(z, world_x, world_y, source, tint)` — what play mode turns into
-    /// draw commands. Walks only the clamped window, not the whole grid.
-    pub fn visible_cells(&self, view: Option<Rect>) -> Vec<(i32, i32, i32, &SpriteSource, Color)> {
+    /// `(z, world_x, world_y, source, tint, sprite_cell)` — what play mode
+    /// turns into draw commands. Walks only the clamped window, not the
+    /// whole grid. `sprite_cell` (Step 8-2) is true for a cell drawn from a
+    /// tileset region: such a cell is drawn at exactly one cell's size, the
+    /// way a glyph fills its cell, rather than at the image's natural
+    /// `pixels_per_unit` size.
+    pub fn visible_cells(
+        &self,
+        view: Option<Rect>,
+    ) -> Vec<(i32, i32, i32, &SpriteSource, Color, bool)> {
         let (x0, y0, x1, y1) = match view {
             Some(r) => self.cell_range(r),
             None => (
@@ -364,7 +383,7 @@ impl Tilemap {
                     }
                     let idx = cell as usize - 1;
                     if let (Some(def), Some(src)) = (self.palette.get(idx), self.sources.get(idx)) {
-                        out.push((layer.z(), x, y, src, def.fg));
+                        out.push((layer.z(), x, y, src, def.fg, def.sprite.is_some()));
                     }
                 }
             }

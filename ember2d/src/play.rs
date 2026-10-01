@@ -647,7 +647,8 @@ impl GameState for PlayState {
                 SpriteSource::Texture { path, src } => {
                     let id = assets.load(path);
                     if let Some(t) = assets.get(id) {
-                        let size = sprite_size(cmd.size, t.width, t.height, self.pixels_per_unit);
+                        let size =
+                            sprite_size(cmd.size, *src, t.width, t.height, self.pixels_per_unit);
                         renderer.draw_texture_world(
                             &render_camera,
                             world_pos,

@@ -565,14 +565,14 @@ fn script_camera_origin_uses_the_full_viewport_now_that_the_hud_bars_are_gone() 
 #[test]
 fn sprite_size_uses_the_explicit_size_when_given() {
     let explicit = Vec2::new(2.5, 1.5);
-    assert_eq!(sprite_size(Some(explicit), 64, 32, 8.0), explicit);
+    assert_eq!(sprite_size(Some(explicit), None, 64, 32, 8.0), explicit);
 }
 
 #[test]
 fn sprite_size_falls_back_to_pixels_over_pixels_per_unit() {
     // A 64x32 texture at 8 pixels/unit is an 8x4 world-unit sprite —
     // nothing like the old hardcoded `* 4.0` magic scale this replaces.
-    assert_eq!(sprite_size(None, 64, 32, 8.0), Vec2::new(8.0, 4.0));
+    assert_eq!(sprite_size(None, None, 64, 32, 8.0), Vec2::new(8.0, 4.0));
 }
 
 #[test]
@@ -580,7 +580,20 @@ fn sprite_size_natural_size_scales_with_pixels_per_unit() {
     // Halving pixels_per_unit doubles the natural size — an 8x8 sprite
     // authored for a chunkier grid should look twice as big on one that
     // packs half as many pixels into a world unit.
-    assert_eq!(sprite_size(None, 8, 8, 4.0), Vec2::new(2.0, 2.0));
+    assert_eq!(sprite_size(None, None, 8, 8, 4.0), Vec2::new(2.0, 2.0));
+}
+
+#[test]
+fn sprite_size_of_a_sheet_cell_is_the_cell_not_the_whole_sheet() {
+    // Step 8-2: one 16x16 cell of a 256x128 sheet at 8 px/unit is 2x2
+    // world units — it used to come out 32x16, the size of the sheet.
+    let cell = ember2d_sim::math::Rect::new(32.0, 16.0, 16.0, 16.0);
+    assert_eq!(sprite_size(None, Some(cell), 256, 128, 8.0), Vec2::new(2.0, 2.0));
+    // An explicit size still wins over both.
+    assert_eq!(
+        sprite_size(Some(Vec2::new(1.0, 1.0)), Some(cell), 256, 128, 8.0),
+        Vec2::new(1.0, 1.0)
+    );
 }
 
 // ── Tests: R15/R16 (7A-5, docs/ember2d-master-plan.md) — presentation

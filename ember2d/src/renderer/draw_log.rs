@@ -44,4 +44,14 @@ pub enum DrawOp {
         ch: char,
         scale: f32,
     },
+    /// Step 8-2 (docs/ember2d-master-plan.md §5.7): a plain image blit —
+    /// `dest` in logical pixels, `src` the texel sub-rect (`None` = whole
+    /// texture), `texture` the drawn texture's `Texture::id`. What the
+    /// editor canvas's sprite tiles and the palette's sprite thumbnails are
+    /// drawn with, recorded so headless tests can check where they land.
+    Texture {
+        dest: Rect,
+        src: Option<Rect>,
+        texture: u64,
+    },
 }

@@ -82,7 +82,7 @@ own comment on this for the full explanation.
   `draw_char(x, y)` (cells) still works unchanged — the editor, HUD chrome, and node graph stay screen-space only
   until Phase 7.
 - **Engine loop** — `ember2d/src/engine.rs`: `winit` via `pump_events`, fixed-timestep accumulator, state stack (push/pop/pause/resume). The actual per-step sequence (consume input, update, conditionally physics/collisions/late_update) lives in `ember2d/src/sim.rs` (Step 5d) — shared with the headless `TurnHarness` test harness so there's only one copy of it.
-- **Level format** — RON via `serde`/`ron`, `.level` files, `LEVEL_FORMAT_VERSION` (currently 4 — master plan step 8-1 added the baked `tilemap` section: every static tile lives in one compact `Tilemap` grid on one entity, not an entity per tile; every shipped `roguelike/`/`shooter/` level was regenerated to v4 by the same step, a v3 level still loads and collapses its static tiles at load, and `LevelData::load` rejects a level from a newer format version instead of loading it blind, R8/7A-4).
+- **Level format** — RON via `serde`/`ron`, `.level` files, `LEVEL_FORMAT_VERSION` (currently 5 — master plan step 8-1 added the baked `tilemap` section, every static tile in one compact `Tilemap` grid on one entity instead of an entity per tile (a v3 level still loads and collapses at load); step 8-2 added `TileRecord::sprite`, a tile drawn from a named region of a tileset (`<project>/assets/tilesets/<name>.ron`, written by the editor's File > Import Tileset...). Every shipped `roguelike/`/`shooter/` level is regenerated to the current version, and `LevelData::load` rejects a level from a newer format version instead of loading it blind, R8/7A-4).
 - **Scripting** — `ember2d-sim/src/scripting/`: 165 registered functions (`API_VERSION` 7), deferred mutation queue. `on_input`/`on_turn` (Phase 5 Steps 5e/5f) split "read input" from "act" from the older `on_update`/`on_start`/`on_collide` lifecycle — see `docs/ember2d-scripting-api.md`.
 - **Turn scheduling** — `ember2d-sim/src/scheduler.rs`: `TurnScheduler`, a deterministic min-heap turn queue (Step 5f).
 - **Editor** — `ember2d-editor/src/editor/`: layer-aware grid, float zoom, dockable panels, palette editor, in-engine script editor, node-based visual scripter (generates Rhai via `ember2d-sim/src/graph/`).
@@ -98,6 +98,7 @@ own comment on this for the full explanation.
 | Turn scheduler | ember2d-sim/src/scheduler.rs |
 | World / ECS | ember2d-sim/src/world.rs |
 | Tilemap (static tiles, Step 8-1) | ember2d-sim/src/components/tilemap.rs, ember2d-sim/src/level/bake.rs |
+| Tilesets (Step 8-2) | ember2d-sim/src/tileset.rs, ember2d-sim/src/simulation/tilesets.rs (load-time resolution), ember2d-editor/src/editor/{sprites,importer}.rs, ui/panels/importer_panel.rs |
 | Components | ember2d-sim/src/components/ |
 | Renderer | ember2d/src/renderer/ |
 | GPU backend + shader | ember2d/src/renderer/backend.rs, shader.wgsl |

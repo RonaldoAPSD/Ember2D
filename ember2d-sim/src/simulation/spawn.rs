@@ -51,6 +51,11 @@ impl Simulation {
         // spawned first. `entity_tiles` is everything else, in level order;
         // the loop below spawns those exactly as every tile used to be.
         let (tilemap, entity_tiles) = self.level.split_static();
+        // Step 8-2: one resolver for the whole load, so each tileset file is
+        // read once however many tiles (cells or entities) use it. Cloned
+        // path so the resolver's borrow of it doesn't pin `self`.
+        let level_path = self.level.path.clone();
+        let mut sprites = super::tilesets::TilesetResolver::new(&level_path, &*self.level_source);
         if let Some(mut map) = tilemap {
             // A level file stores a texture path relative to itself; the
             // renderer needs it resolved — the same `resolve_exit_path` an
@@ -60,6 +65,18 @@ impl Simulation {
                     def.texture = Some(resolve_exit_path(path, &self.level.path, &|p| {
                         self.level_source_exists(p)
                     }));
+                }
+            }
+            // Step 8-2: a def drawn from a tileset region gets the sheet's
+            // image + the region's rect — overriding any whole-image
+            // `texture` resolved just above. A broken reference leaves the
+            // def as a plain glyph (and warns once).
+            for def in &mut map.palette {
+                if let Some(ref sprite) = def.sprite {
+                    if let Some((image, rect)) = sprites.resolve_or_warn(sprite, logs) {
+                        def.texture = Some(image);
+                        def.src = Some(rect);
+                    }
                 }
             }
             map.refresh(&self.layers);
@@ -90,6 +107,16 @@ impl Simulation {
                 let full =
                     resolve_exit_path(path, &self.level.path, &|p| self.level_source_exists(p));
                 sprite = sprite.with_texture(full);
+            }
+            // Step 8-2: a tileset-region sprite replaces the glyph (and any
+            // whole-image texture), drawn at exactly one cell — the same
+            // footprint the glyph had — not at the sheet's natural size.
+            if let Some(ref sref) = tile.sprite {
+                if let Some((image, rect)) = sprites.resolve_or_warn(sref, logs) {
+                    sprite.source =
+                        crate::components::SpriteSource::Texture { path: image, src: Some(rect) };
+                    sprite.size = Some(Vec2::new(1.0, 1.0));
+                }
             }
             world.add_sprite(id, sprite);
 
@@ -294,3 +321,7 @@ mod spawn_tests;
 #[cfg(test)]
 #[path = "tilemap_spawn_tests.rs"]
 mod tilemap_spawn_tests;
+
+#[cfg(test)]
+#[path = "tileset_spawn_tests.rs"]
+mod tileset_spawn_tests;

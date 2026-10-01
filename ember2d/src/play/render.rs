@@ -117,7 +117,7 @@ impl<'w> DrawList<'w> {
             .collect();
 
         for (&map_id, map) in &world.tilemaps {
-            for (z, x, y, source, tint) in map.visible_cells(view) {
+            for (z, x, y, source, tint, sprite_cell) in map.visible_cells(view) {
                 commands.push(DrawCommand {
                     space: Space::World,
                     z,
@@ -125,7 +125,9 @@ impl<'w> DrawList<'w> {
                     world_pos: Vec2::new(x as f32, y as f32),
                     source,
                     tint,
-                    size: None,
+                    // Step 8-2: a tileset-region cell fills exactly one
+                    // cell, as its glyph did — not its natural size.
+                    size: if sprite_cell { Some(Vec2::new(1.0, 1.0)) } else { None },
                 });
             }
         }
@@ -136,17 +138,26 @@ impl<'w> DrawList<'w> {
 }
 
 /// A texture sprite's world-space size: `size` if explicit, else natural
-/// size — the texture's pixel dimensions divided by `pixels_per_unit`
-/// (Step 3b; replaces the old hardcoded `* 4.0` magic scale). Free function
-/// so it's testable without a live GPU-backed `Renderer` or `AssetManager`.
+/// size — the pixel dimensions of what's actually drawn, divided by
+/// `pixels_per_unit` (Step 3b; replaces the old hardcoded `* 4.0` magic
+/// scale). "What's drawn" is the `src` sub-rect when there is one: Step
+/// 8-2 found this used the WHOLE texture's size even then, so a single
+/// sprite-sheet cell with no explicit size would have rendered as big as
+/// the entire sheet. Free function so it's testable without a live
+/// GPU-backed `Renderer` or `AssetManager`.
 pub(super) fn sprite_size(
     size: Option<Vec2>,
+    src: Option<Rect>,
     texture_width: u32,
     texture_height: u32,
     pixels_per_unit: f32,
 ) -> Vec2 {
     size.unwrap_or_else(|| {
-        Vec2::new(texture_width as f32 / pixels_per_unit, texture_height as f32 / pixels_per_unit)
+        let (w, h) = match src {
+            Some(r) => (r.w, r.h),
+            None => (texture_width as f32, texture_height as f32),
+        };
+        Vec2::new(w / pixels_per_unit, h / pixels_per_unit)
     })
 }
 
@@ -293,6 +304,8 @@ mod tilemap_draw_tests {
     /// layer 1) on entity 1, plus one ordinary sprite entity on top.
     fn world_with_big_tilemap() -> World {
         let wall = TileDef {
+            sprite: None,
+            src: None,
             glyph: '#',
             fg: Color::Grey,
             bg: Color::Reset,

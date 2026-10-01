@@ -9,6 +9,8 @@ use ember2d::engine::UpdateContext;
 mod canvas;
 mod context_menu;
 mod graph;
+// Step 8-2: the tileset importer dialog — see that file's header comment.
+mod importer;
 mod modal;
 mod palette_editor;
 mod panels;
@@ -86,6 +88,10 @@ impl EditorState {
             }
             EditorMode::PaletteEditor => {
                 self.handle_palette_editor_input(input, mouse);
+                return;
+            }
+            EditorMode::TilesetImport => {
+                self.handle_tileset_import_input(input, mouse);
                 return;
             }
             EditorMode::Graph { gx, gy } => {
