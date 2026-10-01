@@ -5008,7 +5008,7 @@ the engine pauses `on_turn`/`on_update` for the level while a scene with
   - **Live-verified:** F5, Esc opens the built-in pause scene over the
     level, Down/Enter on Back to Editor returns to the editor.
 
-#### `[x]` 9-2 — Script-drivable camera (`HASH92`)
+#### `[x]` 9-2 — Script-drivable camera (`31e8a66`)
 `set_camera_target(id | position)`, `set_camera_zoom`, `camera_shake` (already
 via animation), `set_camera_bounds`. Lerp stays presentation-side (its
 `exp()` never re-enters the sim). Cutscenes become possible.
@@ -5019,7 +5019,7 @@ via animation), `set_camera_bounds`. Lerp stays presentation-side (its
   back, which the plan's four calls alone can't undo. `camera_shake` was
   already `shake_camera`; unchanged. Camera settings are not saved (a
   script re-applies them in `on_load`).
-- **Landed as** (`HASH92`):
+- **Landed as** (`31e8a66`):
   - `ember2d-sim/src/scripting/camera.rs`: `CameraSettings` (target:
     default follow / entity / point, zoom 0.25–8, optional bounds, speed),
     the per-pass `CameraWrites`, and the twelve registrations. `Simulation`
