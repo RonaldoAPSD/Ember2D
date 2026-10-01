@@ -312,6 +312,15 @@ Only until visual scripting is shelved. Afterwards, confirm old levels with grap
 - [✓] Esc: Continue / Save and quit / Quit without saving; Continue on the
       title returns to the saved floor, log and all
 - [✓] Mouse-look names what's under the mouse when it's in view
+- [✓] (9.5-4) I opens the pack; potions heal; lightning strikes the nearest
+      monster in view; confusion and fireball show a cursor (arrows/mouse
+      to aim, Enter or click to cast, Backspace to cancel) and the
+      fireball burns you too if you're in it
+- [✓] (9.5-4) Equipping a weapon or armour swaps it with the old one;
+      the panel's power/defense and gear line update; C shows the
+      character sheet
+- [✓] (9.5-4) Enough XP opens the level-up choice; floor 20's Amulet
+      carried to the `<` wins (the victory screen, then the title)
 
 ## 12. Turn-based mode
 

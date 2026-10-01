@@ -9,6 +9,9 @@
 // "Save and quit" writes (and a death overwrites — no second chances).
 
 fn new_run(ctx, seed) {
+    // Nothing from a finished run (its "won", its "killer") carries over:
+    // the clear applies first, then this pass's writes on top.
+    ctx.clear_all_persistent();
     ctx.set_persistent("run_seed", seed);
     ctx.set_persistent("depth", 1);
     ctx.set_persistent("hp", 30);
@@ -17,9 +20,11 @@ fn new_run(ctx, seed) {
     ctx.set_persistent("defense", 1);
     ctx.set_persistent("xp", 0);
     ctx.set_persistent("level", 1);
-    ctx.set_persistent("inventory", [#{ kind: "potion", name: "healing potion" }]);
-    ctx.set_persistent("log", []);
     ctx.set_persistent("kills", 0);
+    ctx.set_persistent("inventory", [#{ kind: "potion", name: "healing potion" }]);
+    ctx.set_persistent("weapon", #{ kind: "dagger", name: "dagger", bonus: 1 });
+    ctx.set_persistent("armour", #{ kind: "none", name: "no armour", bonus: 0 });
+    ctx.set_persistent("log", []);
 }
 
 fn open_menu(id, ctx) {

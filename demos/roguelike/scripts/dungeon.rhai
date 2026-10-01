@@ -15,6 +15,12 @@
 //   3. the stairs down in the last room (floor 20: the Ember Drake and the
 //      Amulet instead), the player in the first, and the first field of view.
 //
+// Its `on_update` draws the HUD every frame — the bottom panel (HP bar,
+// stats, gear, the message log), mouse-look, and the death and victory
+// screens — from persistent state, which is where player.rhai keeps the run.
+// (The HUD lives here rather than in player.rhai only to keep each file to
+// one job; any script could draw it.)
+//
 // The floor is a function of (run seed, depth) only: `set_random_seed`
 // restarts the random stream before anything is rolled, so floor 10 of a
 // run is the same floor 10 however the run got there (and a test can check
@@ -187,15 +193,15 @@ fn pick(ctx, table, depth) {
 /// `[glyph, colour, hp, power, defense, xp, speed, display name]`.
 fn monster_stats(kind) {
     switch kind {
-        "rat" => ["r", "#b09070", 4, 2, 0, 10, 100, "rat"],
-        "kobold" => ["k", "#c0a040", 7, 3, 0, 25, 100, "kobold"],
-        "goblin" => ["g", "#60c040", 10, 4, 1, 40, 100, "goblin"],
-        "orc" => ["o", "#40a040", 16, 5, 1, 70, 100, "orc"],
-        "troll" => ["T", "#20c020", 26, 8, 2, 140, 100, "troll"],
-        "ogre" => ["O", "#c0a070", 36, 10, 3, 220, 80, "ogre"],
-        "wraith" => ["W", "#a0a0ff", 28, 11, 3, 260, 150, "wraith"],
-        "whelp" => ["d", "#ff6040", 42, 13, 4, 380, 100, "dragon whelp"],
-        "drake" => ["D", "#ff4000", 140, 18, 6, 1500, 100, "Ember Drake"],
+        "rat" => ["r", "#b09070", 4, 2, 0, 15, 100, "rat"],
+        "kobold" => ["k", "#c0a040", 7, 3, 0, 30, 100, "kobold"],
+        "goblin" => ["g", "#60c040", 10, 4, 1, 50, 100, "goblin"],
+        "orc" => ["o", "#40a040", 16, 5, 1, 80, 100, "orc"],
+        "troll" => ["T", "#20c020", 26, 8, 2, 160, 100, "troll"],
+        "ogre" => ["O", "#c0a070", 36, 10, 3, 250, 80, "ogre"],
+        "wraith" => ["W", "#a0a0ff", 28, 11, 3, 300, 150, "wraith"],
+        "whelp" => ["d", "#ff6040", 42, 13, 4, 450, 100, "dragon whelp"],
+        "drake" => ["D", "#ff4000", 140, 18, 6, 2000, 100, "Ember Drake"],
         _ => ["?", "White", 1, 0, 0, 0, 100, kind],
     }
 }
@@ -241,4 +247,110 @@ fn spawn_item(ctx, kind, x, y) {
     ctx.set_layer_order(it, 3);
     ctx.set_var(it, "kind", kind);
     ctx.set_var(it, "name", look[2]);
+}
+
+// ── The HUD ──────────────────────────────────────────────────────────────
+
+fn on_update(id, ctx) {
+    if !ctx.has_persistent("max_hp") { return; }
+    let vw = ctx.get_viewport_width();
+    let vh = ctx.get_viewport_height();
+    let top = vh - 7;
+    ctx.fill_rect(0, top, vw, 7, " ", "White", "#0c0c14");
+    draw_stats(ctx, top + 1);
+    draw_log(ctx, top + 1, vw);
+    draw_look(ctx, top);
+    let player = ctx.find_by_tag("player");
+    let hint = if player >= 0 && ctx.has_var(player, "aim") { " Arrows/mouse aim  Enter/click cast  Backspace cancel " }
+        else { " Arrows move/attack  G get  I use  X drop  C you  Enter stairs  Esc menu " };
+    ctx.draw_hud(vw - hint.len() - 1, top, hint, "#707084", "#0c0c14");
+    if ctx.get_persistent("hp") <= 0 { draw_death(ctx, vw, vh); }
+    else if ctx.has_persistent("won") { draw_victory(ctx, vw, vh); }
+}
+
+fn draw_stats(ctx, row) {
+    let hp = ctx.get_persistent("hp").to_int();
+    let max_hp = ctx.get_persistent("max_hp").to_int();
+    let shown = if hp < 0 { 0 } else { hp };
+    let fill = shown * 20 / max_hp;
+    ctx.fill_rect(1, row, 20, 1, " ", "White", "#401414");
+    if fill > 0 { ctx.fill_rect(1, row, fill, 1, " ", "White", "#b02828"); }
+    ctx.draw_hud(2, row, "HP " + shown + "/" + max_hp, "White", "#b02828");
+    let level = ctx.get_persistent("level").to_int();
+    let need = 100 + level * 150;
+    ctx.draw_hud(1, row + 1, "Level " + level + "  XP " + ctx.get_persistent("xp").to_int() + "/" + need, "#e0d080", "#0c0c14");
+    ctx.draw_hud(1, row + 2, "Depth " + ctx.get_persistent("depth").to_int(), "#a0c0ff", "#0c0c14");
+    let weapon = gear(ctx, "weapon");
+    let armour = gear(ctx, "armour");
+    let power = ctx.get_persistent("power") + weapon.bonus;
+    let defense = ctx.get_persistent("defense") + armour.bonus;
+    ctx.draw_hud(1, row + 3, "Power " + power.to_int() + "  Defense " + defense.to_int(), "#c0c0c0", "#0c0c14");
+    ctx.draw_hud(1, row + 4, weapon.name + ", " + armour.name, "#808898", "#0c0c14");
+}
+
+/// An equipment slot, or bare hands for a run that has none yet.
+fn gear(ctx, slot) {
+    if ctx.has_persistent(slot) { ctx.get_persistent(slot) } else { #{ kind: "none", name: "nothing", bonus: 0 } }
+}
+
+/// The newest messages, wrapped to the panel's width, newest at the
+/// bottom, each in its own colour — as many lines as fit (six).
+fn draw_log(ctx, row, vw) {
+    let log = ctx.get_persistent("log");
+    let lines = [];
+    let i = log.len() - 1;
+    while i >= 0 && lines.len() < 6 {
+        let wrapped = ctx.wrap_text(log[i][0], vw - 26);
+        let j = wrapped.len() - 1;
+        while j >= 0 && lines.len() < 6 {
+            lines.insert(0, [wrapped[j], log[i][1]]);
+            j -= 1;
+        }
+        i -= 1;
+    }
+    for k in 0..lines.len() {
+        ctx.draw_hud(24, row + k, lines[k][0], lines[k][1], "#0c0c14");
+    }
+}
+
+/// Mouse-look: name whatever is under the mouse, if it's in view.
+fn draw_look(ctx, row) {
+    let x = ctx.get_mouse_world_x().floor();
+    let y = ctx.get_mouse_world_y().floor();
+    if !ctx.is_in_fov(x, y) { return; }
+    let names = [];
+    for e in ctx.find_entities_in_rect(x + 0.25, y + 0.25, 0.5, 0.5) {
+        if ctx.has_var(e, "name") { names.push(ctx.get_var(e, "name")); }
+        else if ctx.has_tag(e, "player") { names.push("you"); }
+        else if ctx.has_tag(e, "stairs") { names.push("stairs down"); }
+        else if ctx.has_tag(e, "upstairs") { names.push("stairs up"); }
+    }
+    if names.len() == 0 { return; }
+    let text = " " + names[0];
+    for k in 1..names.len() { text += ", " + names[k]; }
+    ctx.draw_hud(1, row, text + " ", "#ffffa0", "#0c0c14");
+}
+
+fn draw_death(ctx, vw, vh) {
+    let x = vw / 2 - 20;
+    let y = vh / 2 - 6;
+    ctx.fill_rect(x, y, 40, 7, " ", "White", "#400808");
+    ctx.draw_box(x, y, 40, 7, "#ff6060", "#400808");
+    ctx.draw_hud(x + 16, y + 2, "YOU DIED", "#ffff60", "#400808");
+    let killer = if ctx.has_persistent("killer") { ctx.get_persistent("killer") } else { "something" };
+    let line = "Killed by a " + killer + " on depth " + ctx.get_persistent("depth").to_int();
+    ctx.draw_hud(x + 20 - line.len() / 2, y + 3, line, "White", "#400808");
+    ctx.draw_hud(x + 3, y + 5, "Press Enter to return to the title", "#c0c0c0", "#400808");
+}
+
+fn draw_victory(ctx, vw, vh) {
+    let x = vw / 2 - 25;
+    let y = vh / 2 - 7;
+    ctx.fill_rect(x, y, 50, 9, " ", "White", "#302008");
+    ctx.draw_box(x, y, 50, 9, "#ffd040", "#302008");
+    ctx.draw_hud(x + 17, y + 2, "V I C T O R Y", "#ffd040", "#302008");
+    ctx.draw_hud(x + 4, y + 4, "You escaped the Depths with the Amulet of Ember", "White", "#302008");
+    let line = "Level " + ctx.get_persistent("level").to_int() + ", " + ctx.get_persistent("kills").to_int() + " monsters slain";
+    ctx.draw_hud(x + 25 - line.len() / 2, y + 5, line, "#e0d080", "#302008");
+    ctx.draw_hud(x + 8, y + 7, "Press Enter to return to the title", "#c0c0c0", "#302008");
 }

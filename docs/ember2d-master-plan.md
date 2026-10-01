@@ -187,7 +187,7 @@ start screen's New/Open Project browsers start from.
 | 7.5 | Scripting completeness | `[~]` — §5.6: all 13 steps `[x]`; gate open, awaiting the user's live checklist §11–§13 pass (shooter LOC exception accepted 2026-09-29) |
 | 8 | Tilemap, assets, animation authoring | `[~]` — §5.7: all 4 steps `[x]`; gate pass run 2026-10-01 (automated + live, R103/R104/R106 fixed in it), awaiting the user's OK to tag `v0.5.9` |
 | 9 | Scene and UI layer + RPG demo | `[~]` — §5.8: 9-1 to 9-8 landed and the gate pass is done (2026-10-01): all three demos play, the RPG tutorial replayed in a fresh project. Awaiting the user's OK to tag `v0.5.10` |
-| 9.5 | Demo expansion as engine stress tests | `[~]` — §5.8.5: 9.5-1 tilemap API (`c07dc73`), 9.5-2 field of view (`fc7e0a4`) and 9.5-3 the generated roguelike (`25b5325`) landed; next the 20-floor procedural roguelike, the shooter as a stress test, tutorials (planned 2026-10-01) |
+| 9.5 | Demo expansion as engine stress tests | `[~]` — §5.8.5: 9.5-1 tilemap API (`c07dc73`), 9.5-2 field of view (`fc7e0a4`) and 9.5-3/9.5-4 the generated roguelike (`25b5325`, then items and progression) landed; next the 20-floor procedural roguelike, the shooter as a stress test, tutorials (planned 2026-10-01) |
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
 
@@ -5525,7 +5525,7 @@ melee with power and defense; a message log; mouse-look; a death screen;
 stairs to depth + 1; save on quit and Continue. Replaces the four hand
 levels and retires `gen_roguelike.rs` as the content source.
 
-- **Landed as:** "Depths of Ember", `demos/roguelike/`.
+- **Landed as** (`25b5325`): "Depths of Ember", `demos/roguelike/`.
   - **What's in the project.**
     - `project.ron`: TurnBased, Energy turn order, `ai_turns_per_step` 256,
       start level `title.level`.
@@ -5588,7 +5588,7 @@ levels and retires `gen_roguelike.rs` as the content source.
     the death screen, Enter to the title, and Continue loading the dead
     run.
 
-#### `[ ]` 9.5-4 — Roguelike rebuild, part 2: items and progression
+#### `[x]` 9.5-4 — Roguelike rebuild, part 2: items and progression
 Inventory, drop and a character screen through `menu_open`; healing
 potions; lightning, confusion and fireball scrolls with a targeting
 cursor; XP with a level-up choice; weapon and armor slots; depth-scaled
@@ -5596,6 +5596,53 @@ loot; victory by carrying the Amulet up from floor 20; balance across the
 20 floors. Seeded `ember2d/tests/roguelike_*.rs` (floors 1, 10 and 20
 generated and connected; a scripted fight). Tutorial
 `docs/tutorials/roguelike.md`.
+
+- **Landed as:** no engine change. All in `demos/roguelike/scripts/`.
+  - **`player.rhai`**, rewritten around menus and aiming in `on_input`.
+    Only the final choice becomes a command, carrying the pack slot and
+    the target cell, so turns and replays stay in `on_turn`.
+    - I uses an item, X drops one, C shows the character sheet (a
+      dialogue).
+    - Potions heal 12 or 30. Lightning hits the nearest monster in view
+      (20). Confusion (10 turns) and fireball (14, radius 3, it burns you
+      too) are aimed with a cursor entity: arrows or the mouse, Enter or a
+      click to cast, Backspace or a right-click to cancel. (Escape belongs
+      to the pause menu when no widget is open — found live.)
+    - Weapon and armour slots, with the old piece back to the pack.
+    - XP `100 + 150 × level` opens a non-cancellable level-up menu (+20 HP,
+      +1 power or +1 defense).
+    - Floor 20's Amulet carried to the `<` where you started wins.
+  - **`dungeon.rhai`** now also draws the HUD, which moved from the
+    player script: gear, an aiming hint, the death and victory screens.
+    Item kinds are depth-weighted (swords from 3, axes from 8; chain and
+    plate armour from 6 and 12). XP was retuned for the new curve.
+  - **Balance.** The ignored `honest_bot_depths` test runs a no-cheat bot
+    that dives for the stairs, takes what it sees, wears the best gear,
+    drinks when hurt and levels up. It reaches depths 4 to 11 at character
+    levels 1–2 over 8 seeds: hard but fair for a player who clears rooms.
+    The drake (140 HP, power 18) needs a levelled, equipped character.
+  - **Tests (9 new):** `tests/roguelike_items.rs`, all real key presses
+    through the menus and cursor:
+    - a potion, a drop, lightning, aimed confusion, a fireball burning its
+      caster;
+    - equipping swaps gear and hits harder;
+    - the level-up choice;
+    - the character sheet opening and closing;
+    - not winning without the Amulet, then winning with it.
+
+    The ten-floor bot now takes its level-ups. 681 workspace tests (9.5-3's
+    message said 681 too; the true count then was 672).
+  - **Live:** the level-up menu, the pack, the fireball cursor and its
+    blast, Backspace to cancel aiming, equipping the war axe (power 2+5),
+    the character sheet, and the victory screen then Enter to the title.
+  - **Tutorial:** `docs/tutorials/roguelike.md`, 13 screenshots. Its
+    first two stages were replayed in a fresh project through the GUI:
+    - the wizard (ASCII, Turn-Based — `ai_turns_per_step` 256 lands in
+      `project.ron` by default);
+    - resizing the level to 80×43;
+    - one tile with `scripts/dungeon.rhai` set in the Inspector;
+    - the generator and the turn-based player typed into the Scripter;
+    - F5: a generated floor revealed under fog, walked turn by turn.
 
 #### `[ ]` 9.5-5 — Shooter expansion
 A large scrolling arena (camera follow and bounds), enemy projectiles,

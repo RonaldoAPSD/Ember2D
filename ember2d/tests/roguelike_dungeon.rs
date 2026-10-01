@@ -32,6 +32,15 @@ fn run(seed: i64, depth: i64) -> BTreeMap<String, rhai::Dynamic> {
     }
     p.insert("inventory".into(), rhai::Dynamic::from(rhai::Array::new()));
     p.insert("log".into(), rhai::Dynamic::from(rhai::Array::new()));
+    let slot = |kind: &str, name: &str, bonus: i64| {
+        let mut m = rhai::Map::new();
+        m.insert("kind".into(), kind.to_string().into());
+        m.insert("name".into(), name.to_string().into());
+        m.insert("bonus".into(), bonus.into());
+        rhai::Dynamic::from(m)
+    };
+    p.insert("weapon".into(), slot("dagger", "dagger", 1));
+    p.insert("armour".into(), slot("none", "no armour", 0));
     p
 }
 
@@ -264,6 +273,14 @@ fn a_bot_plays_down_ten_floors_without_a_single_script_problem() {
             let max = h.persistent["max_hp"].clone();
             h.persistent.insert("hp".into(), max);
             h.persistent.insert("power".into(), rhai::Dynamic::from(2_i64 + depth as i64));
+            // A level-up choice holds the game until it's made: take the
+            // first (Toughness).
+            let pid = h.player_id();
+            if h.world.vars.get(&pid).is_some_and(|v| v.values.contains_key("menu")) {
+                h.frame(Some("enter"));
+                h.frame(None);
+                continue;
+            }
             let p = h.player_pos();
             let me = (p.x as i32, p.y as i32);
             let foe = tagged(&h, "monster")
@@ -293,4 +310,180 @@ fn a_bot_plays_down_ten_floors_without_a_single_script_problem() {
     let kills = h.persistent.get("kills").map(|v| v.to_string()).unwrap_or_default();
     assert!(problems(&h).is_empty(), "{:#?}", problems(&h));
     println!("bot: {turns} turns, {kills} kills, ten floors");
+}
+
+/// Kind of item entity `id`.
+fn kind_of(h: &TurnHarness, id: EntityId) -> String {
+    h.world
+        .vars
+        .get(&id)
+        .and_then(|v| v.values.get("kind"))
+        .map(|k| k.to_string())
+        .unwrap_or_default()
+}
+
+fn pack(h: &TurnHarness) -> Vec<String> {
+    h.persistent["inventory"]
+        .clone()
+        .into_array()
+        .unwrap()
+        .into_iter()
+        .map(|m| m.cast::<rhai::Map>()["kind"].to_string())
+        .collect()
+}
+
+/// Uses pack slot `i` through the inventory menu.
+fn use_slot(h: &mut TurnHarness, i: usize) {
+    h.frame(Some("i"));
+    h.frame(None);
+    for _ in 0..i {
+        h.frame(Some("down"));
+    }
+    h.frame(Some("enter"));
+    for _ in 0..3 {
+        h.frame(None);
+    }
+}
+
+/// How deep an honest bot gets on `seed`: it picks up what it sees, wears
+/// the best gear, drinks when hurt, levels power and health in turn, and
+/// fights its way to each staircase. Returns (depth reached, turns, level).
+fn honest_run(seed: i64) -> (i64, usize, i64) {
+    let mut h = floor(seed, 1);
+    let mut turns = 0;
+    let upgrades = ["sword", "axe", "leather", "chainmail", "plate"];
+    // Items it has already tried for (one it can't take — a full pack, a
+    // monster parked on it — mustn't hold it forever).
+    let mut tried: std::collections::BTreeSet<EntityId> = Default::default();
+    // The item it's walking to, and for how many steps: it sticks to one
+    // (picking afresh each step, two items swapping in and out of view
+    // would have it pace back and forth forever).
+    let mut chase: Option<(EntityId, usize)> = None;
+    loop {
+        if h.persistent
+            .get("hp")
+            .and_then(|v| v.as_int().ok().or(v.as_float().ok().map(|f| f as i64)))
+            .unwrap_or(0)
+            <= 0
+        {
+            break;
+        }
+        let depth = h.persistent["depth"].as_int().unwrap_or(1);
+        turns += 1;
+        if turns > 20000 || depth >= 20 {
+            break;
+        }
+        let pid = h.player_id();
+        if h.world.vars.get(&pid).is_some_and(|v| v.values.contains_key("menu")) {
+            let level = h.persistent["level"].as_int().unwrap_or(1);
+            if level % 2 == 0 {
+                h.frame(Some("down"));
+            }
+            h.frame(Some("enter"));
+            h.frame(None);
+            continue;
+        }
+        // Wear anything better than what's on.
+        let p = pack(&h);
+        let weapon = h.persistent["weapon"].clone().cast::<rhai::Map>()["kind"].to_string();
+        let armour = h.persistent["armour"].clone().cast::<rhai::Map>()["kind"].to_string();
+        let rank = |k: &str| upgrades.iter().position(|u| *u == k).map(|i| i as i32).unwrap_or(-1);
+        if let Some(i) = p.iter().position(|k| {
+            (["sword", "axe"].contains(&k.as_str()) && rank(k) > rank(&weapon))
+                || (["leather", "chainmail", "plate"].contains(&k.as_str())
+                    && rank(k) > rank(&armour))
+        }) {
+            use_slot(&mut h, i);
+            continue;
+        }
+        let hp = h.persistent["hp"]
+            .as_int()
+            .map(|i| i as f64)
+            .or(h.persistent["hp"].as_float())
+            .unwrap_or(0.0);
+        let max = h.persistent["max_hp"]
+            .as_int()
+            .map(|i| i as f64)
+            .or(h.persistent["max_hp"].as_float())
+            .unwrap_or(1.0);
+        if hp < max * 0.45 {
+            if let Some(i) = p.iter().position(|k| k == "potion" || k == "big_potion") {
+                use_slot(&mut h, i);
+                continue;
+            }
+        }
+        let me = {
+            let q = h.player_pos();
+            (q.x as i32, q.y as i32)
+        };
+        if let Some((_, at)) = tagged(&h, "monster")
+            .into_iter()
+            .find(|(_, at)| (at.0 - me.0).abs() + (at.1 - me.1).abs() == 1)
+        {
+            h.turn(key_toward(me, at));
+            continue;
+        }
+        let fov = h.world.fov.clone();
+        let seen = |at: (i32, i32)| fov.as_ref().is_some_and(|f| f.is_visible(at.0, at.1));
+        let items = tagged(&h, "item");
+        let candidate = match chase {
+            Some((id, n)) if n < 60 => items.iter().copied().find(|(i, _)| *i == id),
+            Some((id, _)) => {
+                tried.insert(id);
+                None
+            }
+            None => None,
+        }
+        .or_else(|| {
+            items
+                .iter()
+                .copied()
+                .find(|(id, at)| seen(*at) && !tried.contains(id) && kind_of(&h, *id) != "amulet")
+        });
+        chase = candidate
+            .map(|(id, _)| (id, chase.filter(|c| c.0 == id).map(|c| c.1 + 1).unwrap_or(0)));
+        if let Some((id, at)) = candidate {
+            if at == me {
+                h.turn("g");
+                tried.insert(id);
+            } else if let Some(step) = first_step(&h, at) {
+                h.turn(key_toward(me, step));
+            } else {
+                tried.insert(id);
+            }
+            continue;
+        }
+        let Some((_, stairs)) = tagged(&h, "stairs").into_iter().next() else { break };
+        if me == stairs {
+            h.turn("enter");
+            if let Some(next) = h.take_pending_level() {
+                let persistent = std::mem::take(&mut h.persistent);
+                h = TurnHarness::continue_run(next, persistent);
+                h.sim.set_ai_turns_per_step(256);
+                h.frame(None);
+            }
+            continue;
+        }
+        match first_step(&h, stairs) {
+            Some(step) => h.turn(key_toward(me, step)),
+            None => break,
+        };
+    }
+    let depth = h.persistent["depth"].as_int().unwrap_or(0);
+    let level = h.persistent["level"].as_int().unwrap_or(0);
+    (depth, turns, level)
+}
+
+/// A balancing tool, not a pass/fail check: `cargo test -p ember2d --test
+/// roguelike_dungeon honest -- --ignored --nocapture` prints how deep the
+/// honest bot gets on a few seeds.
+#[test]
+#[ignore]
+fn honest_bot_depths() {
+    for seed in [1, 2, 3, 4, 5, 6, 7, 8] {
+        let (depth, turns, level) = honest_run(seed);
+        println!(
+            "seed {seed}: died or stopped at depth {depth} after {turns} turns, level {level}"
+        );
+    }
 }
