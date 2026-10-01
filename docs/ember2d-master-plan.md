@@ -183,7 +183,8 @@ start screen's New/Open Project browsers start from.
 | 7E | Editor features | `[-]` deferred, 2026-09-13 (by user direction) — §5.5. Feature/UX polish (rulers, Inspector 2.0, toasts, command palette, rendering perf, undo audit) rather than refactoring work; revisit as a future update, not blocking the phase sequence below |
 | 7.5 | Scripting completeness | `[~]` — §5.6: all 13 steps `[x]`; gate open, awaiting the user's live checklist §11–§13 pass (shooter LOC exception accepted 2026-09-29) |
 | 8 | Tilemap, assets, animation authoring | `[~]` — §5.7: all 4 steps `[x]`; gate pass run 2026-10-01 (automated + live, R103/R104/R106 fixed in it), awaiting the user's OK to tag `v0.5.9` |
-| 9 | Scene and UI layer + RPG demo | `[~]` — §5.8: 9-1 to 9-4 landed and gate-tested (Phase 9 gate pass, `f89d8bd`); 9-5 (the RPG demo) deferred to last by the user — the phase closes after it |
+| 9 | Scene and UI layer + RPG demo | `[~]` — §5.8: 9-1 to 9-4 landed and gate-tested (Phase 9 gate pass, `f89d8bd`); 9-5 to 9-7 (RPG prerequisites: world cell size, editor authoring, sprite API) then 9-8 (the RPG demo), replanned 2026-10-01 |
+| 9.5 | Demo expansion as engine stress tests | `[ ]` — §5.8.5: script tilemap API, field of view, a 20-floor procedural roguelike, the shooter as a stress test, tutorials (planned 2026-10-01) |
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
 
@@ -5138,13 +5139,59 @@ roster and inventory without a new type.
     through a save file), 1 editor `grid.rs` conversion test; the v2-level
     test now also checks its migrated spawn.
 
-#### `[ ]` 9-5 — The RPG demo
-`rpg/`: a town with three NPCs and dialogue, a field with wild encounters,
-an Attack/Item/Run battle scene, a party of two, save/load mid-town.
-Deterministic test in `ember2d/tests/rpg_*.rs` drives a full encounter.
-This is the third genre proof and exercises every 9-x item.
+**Replanned 2026-10-01 (with the user):** the RPG demo uses a real
+16×16 sprite pack (Kenney "Tiny Town" + "Tiny Dungeon", CC0, plus a few
+sprites drawn for it), and every demo must be buildable *in the engine* —
+the editor and its script editor, no Rust generator, no hand-edited RON
+beyond what the editor itself would save. Each demo ships with a
+build-along tutorial in `docs/tutorials/`, and following it in a fresh
+project is the step's acceptance test: a tutorial step that needs Rust or
+a RON edit is a gap to fix, not to document. Research found three
+prerequisites, scheduled first (user's choice), so the demo carries no
+workarounds. The user approved the API/format additions below (all
+additive: no `API_VERSION` or level-format bump).
 
-**Phase 9 gate:** §0.5, all three demos play; tag `v0.5.10`.
+#### `[ ]` 9-5 — Per-project world cell size (square sprites)
+World cells are 8×16 px and every tileset tile is forced to one cell, so a
+16×16 sprite draws twice as tall as wide (§11's "square world units").
+`ProjectData.world_cell: (w, h)` px, default (8, 16) — the ASCII demos are
+unchanged. Only the world path uses it: `Camera.cell_scale` (k =
+world_cell / glyph cell) in `world_to_screen`/inverse/half extent,
+`draw_char_world`/`draw_texture_world` with a per-axis size (glyphs scale
+by k), script mouse-world coordinates and the starting camera, and the
+editor canvas. HUD, widgets, UI and `viewport_size` stay on the 8×16 glyph
+grid.
+
+#### `[ ]` 9-6 — Editor authoring completeness
+A focused subset of 7E-2, enough that no demo needs a generator: an
+inspector Actor section (speed, physics, stats add/edit/remove, aware/
+asleep tints); per-tile fg/bg and sprite/clip pick; player fg/bg and
+collider size; Project > Settings (name, loop, style, start level, world
+cell, pixels per unit); File > New Scene (creates `scenes/`); New Script
+creates folders; export copies `scenes/`; project-relative script/audio/
+level paths throughout (the demos' `"demos/..."` paths fixed; a project
+copied elsewhere still plays).
+
+#### `[ ]` 9-7 — Sprite scripting API
+`set_size(id,w,h)`, `set_flip(id,fx,fy)`, `set_sprite(id,tileset,
+region)`, `play_project_clip(id,name)` (a clip no tile uses), opt-in
+y-sort. New `scripting/sprite.rs`.
+
+#### `[ ]` 9-8 — The RPG demo
+`demos/rpg/` (world cell 16×16), built in the editor: a title scene (New /
+Continue); a town with three NPCs, paged dialogue and one branching choice;
+houses entered through `house.level#door` and left through
+`town.level#house_door`; a shop (gold and items in nested persistent
+maps); a field whose grass rolls encounters off the seeded RNG; an
+Attack/Item/Run battle scene with a party of two; a pause scene with party
+status, inventory and Save; save/load mid-town. Kenney sheets through the
+tileset importer, the extra sprites as their own small sheet,
+`assets/CREDITS.md` with the CC0 notice. Deterministic test in
+`ember2d/tests/rpg_*.rs` drives a full encounter and a save/load round
+trip. Tutorial `docs/tutorials/rpg.md`. This is the third genre proof and
+exercises every 9-x item.
+
+**Phase 9 gate:** §0.5, all three demos play, the RPG tutorial replayed in a fresh project; tag `v0.5.10`.
 
 - **Gate pass for 9-1..9-4 (2026-10-01, by the agent; not tagged — the
   phase isn't done until 9-5, and `v0.5.8`/`v0.5.9` are still untagged):**
@@ -5170,6 +5217,68 @@ This is the third genre proof and exercises every 9-x item.
     modal-Enter half (`f89d8bd`). The live harness itself got a focus
     guard: it stops sending input when the game isn't the foreground
     window (a failed launch had let a typed path reach another window).
+
+---
+
+### 5.8.5 `[ ]` Phase 9.5 — Demo expansion as engine stress tests
+
+*(Planned 2026-10-01 with the user.)* The roguelike and shooter stay
+ASCII but grow into real stress tests, each built in the engine with a
+tutorial (same acceptance rule as Phase 9). The roguelike becomes a
+20-floor game modelled on the libtcod "Yet Another Roguelike Tutorial"
+(rogueliketutorials.com — a design reference only, no code taken), with
+every floor generated by script — which needs two engine features a
+script can't fake.
+
+#### `[ ]` 9.5-1 — Script tilemap API
+`tile_def(name, #{...})` (project palette entries usable by name),
+`tilemap_resize`, `tile_set`, `tile_fill`, `tile_clear`,
+`tile_clear_rect` (each with a `_layer` variant). Queued like every other
+write and applied in call order (one `Rc::make_mut` per pass, then one
+`refresh`); collision sees a change at once, script reads the next step.
+`World` already saves tilemaps, so a generated floor survives a save.
+Trigger or clip defs are refused; oversized maps are refused.
+
+#### `[ ]` 9.5-2 — Field of view and fog of war
+`ember2d-sim/src/fov.rs`: symmetric shadowcasting in integer slopes (no
+floats). `World.fov` (visible + explored bitsets) exists only once a level
+calls `compute_fov(x, y, r)` — opt-in, other demos untouched. `is_in_fov`,
+`is_explored`, `fov_reset`, `set_fov_visibility(id, "hide"|"remember"|
+"always")`. Play mode skips unexplored cells, dims explored ones out of
+view, hides actors out of view and remembers items dimmed. Saved with the
+world.
+
+#### `[ ]` 9.5-3 — Roguelike rebuild, part 1: the dungeon
+A title scene (New / Continue / Quit); one `dungeon.level` whose script
+builds each floor (rooms and corridors, 80×45) from the run seed and the
+depth; player FOV; monster tables by depth up to a floor-20 guardian;
+melee with power and defense; a message log; mouse-look; a death screen;
+stairs to depth + 1; save on quit and Continue. Replaces the four hand
+levels and retires `gen_roguelike.rs` as the content source.
+
+#### `[ ]` 9.5-4 — Roguelike rebuild, part 2: items and progression
+Inventory, drop and a character screen through `menu_open`; healing
+potions; lightning, confusion and fireball scrolls with a targeting
+cursor; XP with a level-up choice; weapon and armor slots; depth-scaled
+loot; victory by carrying the Amulet up from floor 20; balance across the
+20 floors. Seeded `ember2d/tests/roguelike_*.rs` (floors 1, 10 and 20
+generated and connected; a scripted fight). Tutorial
+`docs/tutorials/roguelike.md`.
+
+#### `[ ]` 9.5-5 — Shooter expansion
+A large scrolling arena (camera follow and bounds), enemy projectiles,
+spread and shotgun powerups, a boss wave, particles, shake, audio, a
+saved high score, a pause scene with options. Stress target: about 300
+live bullets and enemies at 60 FPS in the debug build, plus a
+`bench_sim` shooter scenario. Retires `gen_shooter.rs`. Tutorial
+`docs/tutorials/shooter.md`.
+
+#### `[ ]` 9.5-6 — Tutorials index and gate
+`docs/tutorials/README.md`, a "your first project" tutorial, stress
+numbers recorded in §2.
+
+**Phase 9.5 gate:** §0.5, every tutorial replayed in a fresh project, the
+stress targets met; tag `v0.5.11`.
 
 ---
 
@@ -5211,7 +5320,7 @@ Ring buffer of binary snapshots, predict/rollback, input delay tuning.
 Steam networking, `matchbox`/WebRTC, or a relay. Budget real time for NAT
 traversal.
 
-**Phase 10 gate:** §0.5 plus the 10-4 done-when; tag `v0.5.11`.
+**Phase 10 gate:** §0.5 plus the 10-4 done-when; tag `v0.5.12` (was `v0.5.11` before Phase 9.5 was added).
 
 ---
 
@@ -5414,7 +5523,8 @@ the commit message. "Appearance unchanged" is a claim that needs evidence.
 | `v0.5.8` | Phase 7.5 | *pending — not tagged, see §5.6's own gate note* | 455 (was 381 at `v0.5.7d`) | 217 at `--all-targets` (was 55 at `v0.5.7d`; the jump is almost entirely 7.5-9's new `disallowed_types`/`disallowed_methods` lint categories firing on pre-existing lookup-only `HashMap`/`HashSet` and test-only `std::fs` use — R91/R92, already tracked, unscheduled — not a regression: message-by-message diffing at every step since 7.5-9 found zero new warnings from that step's own changes) | not re-measured (no sim-path perf change across 7.5) | local only — CI still blocked by the account billing lock (R37/R40) |
 | `v0.5.9` | Phase 8 | *pending — gate pass run 2026-10-01, see §5.7; awaiting the user's OK* | 538 | 192 at `--all-targets`, zero new across 8-1..8-4 | floor2 0.009 ms/step, 70 allocs/step (`bench_sim --release`) | local only — CI still blocked by the account billing lock (R37/R40) |
 | `v0.5.10` | Phase 9 | | | | | |
-| `v0.5.11` | Phase 10 | | | | | |
+| `v0.5.11` | Phase 9.5 | | | | | |
+| `v0.5.12` | Phase 10 | | | | | |
 | `v0.6.0` | Phase 11 | | | | | |
 
 `main` is fast-forwarded to `claude` at every tag. Version numbers in the
@@ -5444,6 +5554,7 @@ or delete; never let this grow past a screen.
 
 - Square world units (true 8×8 cells): still a platformer-demo concern; 7B-2
   makes the cell aspect a single constant, which is the prerequisite.
+  **Scheduled as 9-5 (2026-10-01)** — the RPG demo's sprites need it.
 - A pixel-space script HUD API beyond 9-3's menu/dialogue widgets.
 - OS drag-and-drop into the editor (an image dragged in from Explorer):
   winit delivers `DroppedFile`, nothing routes it yet; 8-4's in-editor drop
