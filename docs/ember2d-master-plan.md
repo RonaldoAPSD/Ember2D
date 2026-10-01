@@ -184,7 +184,7 @@ start screen's New/Open Project browsers start from.
 | 7.5 | Scripting completeness | `[~]` — §5.6: all 13 steps `[x]`; gate open, awaiting the user's live checklist §11–§13 pass (shooter LOC exception accepted 2026-09-29) |
 | 8 | Tilemap, assets, animation authoring | `[~]` — §5.7: all 4 steps `[x]`; gate pass run 2026-10-01 (automated + live, R103/R104/R106 fixed in it), awaiting the user's OK to tag `v0.5.9` |
 | 9 | Scene and UI layer + RPG demo | `[~]` — §5.8: 9-1 to 9-8 landed and the gate pass is done (2026-10-01): all three demos play, the RPG tutorial replayed in a fresh project. Awaiting the user's OK to tag `v0.5.10` |
-| 9.5 | Demo expansion as engine stress tests | `[~]` — §5.8.5: 9.5-1 script tilemap API (`c07dc73`) and 9.5-2 field of view landed; next the 20-floor procedural roguelike, the shooter as a stress test, tutorials (planned 2026-10-01) |
+| 9.5 | Demo expansion as engine stress tests | `[~]` — §5.8.5: 9.5-1 script tilemap API (`c07dc73`) and 9.5-2 field of view (`fc7e0a4`) landed; next the 20-floor procedural roguelike, the shooter as a stress test, tutorials (planned 2026-10-01) |
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
 
@@ -5467,7 +5467,7 @@ Trigger or clip defs are refused; oversized maps are refused.
     grass patch in `on_start`. Walls stop the player, and the HUD's
     `get_tile` under the player reads "floor". 60 FPS.
 
-#### `[x]` 9.5-2 — Field of view and fog of war
+#### `[x]` 9.5-2 — Field of view and fog of war (`fc7e0a4`)
 `ember2d-sim/src/fov.rs`: symmetric shadowcasting in integer slopes (no
 floats). `World.fov` (visible + explored bitsets) exists only once a level
 calls `compute_fov(x, y, r)` — opt-in, other demos untouched. `is_in_fov`,
