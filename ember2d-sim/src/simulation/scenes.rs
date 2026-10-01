@@ -14,7 +14,15 @@
 //      NPC) can never also act inside it.
 //   3. `on_update(id, ctx)` runs for every scene from the topmost
 //      world-pausing one upward (bottom to top); scenes beneath a pausing
-//      scene are paused along with the level.
+//      scene are paused along with the level. Not for a scene whose
+//      `on_start` ran this step (R110): the pass reads one snapshot taken
+//      before it, so `on_update` couldn't see a var `on_start` had just
+//      set — a scene's first `on_update` is the step after its `on_start`.
+//   4. With no scene left, the scene HUD is cleared (R112).
+//   5. A scene whose script has failed (and so been disabled) is removed
+//      from the stack with an error logged (R111) — otherwise a broken
+//      world-pausing scene could never pop itself and the game would be
+//      stuck behind it for good.
 // The level itself runs only when no scene on the stack pauses the world —
 // decided once at the START of the step, so popping a pause scene with a
 // key press doesn't hand that same press to the level a moment later.
@@ -158,16 +166,23 @@ impl Simulation {
                     self.push_scene_frame(world, name, script, pauses_world, data, logs);
                 }
                 SceneOp::Pop => {
-                    if let Some(frame) = self.scenes.pop() {
-                        world.despawn(frame.entity);
-                        // Step 9-3: the scene's own menus/dialogue go too.
-                        self.ui.close_owned_by(frame.entity as i64);
-                        self.script_engine.set_ui_view(self.ui.clone());
+                    if !self.scenes.is_empty() {
+                        self.remove_scene_at(world, self.scenes.len() - 1);
                     }
                 }
             }
         }
         self.sync_scene_view();
+    }
+
+    /// Removes the scene at `index`: despawns its entity and closes the
+    /// menus/dialogue its script opened (Step 9-3). The caller syncs the
+    /// scene view.
+    fn remove_scene_at(&mut self, world: &mut World, index: usize) {
+        let frame = self.scenes.remove(index);
+        world.despawn(frame.entity);
+        self.ui.close_owned_by(frame.entity as i64);
+        self.script_engine.set_ui_view(self.ui.clone());
     }
 
     /// Finds and compiles scene `name`'s script and pushes it. Logs a
@@ -220,12 +235,18 @@ impl Simulation {
         outcome: &mut StepOutcome,
     ) {
         if self.scenes.is_empty() {
+            // R112: the scene HUD queue is otherwise cleared only by a scene
+            // `on_update` — with no scene left, the last one's HUD would
+            // stay on screen forever.
+            self.script_engine.pending_scene_hud_draws.clear();
             return;
         }
         let mut calls: Vec<(EntityId, String, &'static str)> = Vec::new();
         let top_was_started = self.scenes.last().map(|s| s.started).unwrap_or(false);
+        let mut starting = Vec::new();
         for frame in self.scenes.iter_mut().filter(|f| !f.started) {
             calls.push((frame.entity, frame.script.clone(), "on_start"));
+            starting.push(frame.entity);
             frame.started = true;
         }
         if top_was_started {
@@ -234,7 +255,7 @@ impl Simulation {
             }
         }
         let first_active = self.scenes.iter().rposition(|s| s.pauses_world).unwrap_or(0);
-        for frame in &self.scenes[first_active..] {
+        for frame in self.scenes[first_active..].iter().filter(|f| !starting.contains(&f.entity)) {
             calls.push((frame.entity, frame.script.clone(), "on_update"));
         }
 
@@ -262,5 +283,21 @@ impl Simulation {
             &calls,
         );
         self.apply_script_result(world, res, persistent, logs, outcome);
+
+        // R111: drop every scene whose script is now disabled, top first.
+        let mut removed = false;
+        for i in (0..self.scenes.len()).rev() {
+            if self.script_engine.is_script_disabled(&self.scenes[i].script) {
+                logs.push(LogEntry::error(format!(
+                    "Scene '{}' closed: its script failed (see the error above)",
+                    self.scenes[i].name
+                )));
+                self.remove_scene_at(world, i);
+                removed = true;
+            }
+        }
+        if removed {
+            self.sync_scene_view();
+        }
     }
 }

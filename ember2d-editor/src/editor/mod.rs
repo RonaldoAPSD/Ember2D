@@ -230,6 +230,13 @@ pub struct EditorState {
     pub(super) current_folder: String,
     pub(super) script_path: Option<String>,
     pub(super) script_buffer: Vec<String>,
+    /// R109 (Phase 9 gate pass): how the open script's file ended its lines
+    /// (`"\r\n"` or `"\n"`) and whether it ended with one — remembered at
+    /// load so `save_script` writes them back. `str::lines` drops both, and
+    /// saving used to rewrite every CRLF file to LF and strip its final
+    /// newline, a whole-file diff for a one-character edit.
+    pub(super) script_eol: &'static str,
+    pub(super) script_trailing_newline: bool,
     pub(super) script_cursor: (usize, usize),
     pub(super) script_scroll: usize,
     pub(super) script_unsaved: bool,
@@ -432,6 +439,8 @@ impl EditorState {
             current_folder: ".".to_string(),
             script_path: None,
             script_buffer: Vec::new(),
+            script_eol: "\n",
+            script_trailing_newline: true,
             script_cursor: (0, 0),
             script_scroll: 0,
             script_unsaved: false,

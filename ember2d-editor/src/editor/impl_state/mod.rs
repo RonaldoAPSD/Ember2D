@@ -393,6 +393,9 @@ impl EditorState {
             if let Ok(content) = std::fs::read_to_string(&path) {
                 self.script_path = Some(name.to_string());
                 self.script_buffer = content.lines().map(|s| s.to_string()).collect();
+                // R109: `lines` drops the line endings — remember them.
+                self.script_eol = if content.contains("\r\n") { "\r\n" } else { "\n" };
+                self.script_trailing_newline = content.is_empty() || content.ends_with('\n');
                 if self.script_buffer.is_empty() {
                     self.script_buffer.push(String::new());
                 }
@@ -451,7 +454,11 @@ impl EditorState {
     pub(super) fn save_script(&mut self) {
         if let (Some(ref folder), Some(ref name)) = (&self.project_folder, &self.script_path) {
             let path = format!("{}/{}", folder, name);
-            let content = self.script_buffer.join("\n");
+            // R109: the file's own line endings and final newline, as loaded.
+            let mut content = self.script_buffer.join(self.script_eol);
+            if self.script_trailing_newline {
+                content.push_str(self.script_eol);
+            }
             if let Err(e) = std::fs::write(&path, content) {
                 self.console_log.push(LogEntry::error(format!("Failed to save script: {}", e)));
             } else {

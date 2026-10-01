@@ -137,7 +137,8 @@ fn a_pushed_scene_pauses_the_level_and_popping_resumes_it() {
     h.step(&[]);
     assert_eq!(h.int("ticks"), 1, "the level's on_update is held while the menu is open");
     assert_eq!(h.int("menu_starts"), 1, "on_start runs once");
-    assert_eq!(h.int("menu_ticks"), 2);
+    // R110: a scene's first on_update is the step AFTER its on_start.
+    assert_eq!(h.int("menu_ticks"), 1);
     assert_eq!(h.int("menu_data"), 42, "scene_data() returns the pushed data");
     assert_eq!(h.sim.globals().get("menu_sees").unwrap().to_string(), "menu");
 
@@ -168,7 +169,9 @@ fn on_update(id, ctx) {
     }
     assert!(!h.sim.world_paused());
     assert_eq!(h.int("ticks"), 4, "the level never stopped");
-    assert_eq!(h.int("hud_ticks"), 3, "the overlay scene ran every step after it was pushed");
+    // Pushed in step 1, started in step 2 (R110: no on_update that step),
+    // updated in steps 3 and 4.
+    assert_eq!(h.int("hud_ticks"), 2, "the overlay scene ran every step after it started");
     h.assert_no_errors();
 }
 
@@ -235,7 +238,8 @@ fn a_project_pause_scene_replaces_the_builtin_one() {
     let own = r#"fn on_update(id, ctx) { ctx.draw_hud(1, 1, "MY PAUSE", "White", "Reset"); }"#;
     let mut h = Harness::new("own_pause", "", &[("pause", own)]);
     h.sim.request_pause(&mut h.world, &mut h.logs);
-    h.step(&[]);
+    h.step(&[]); // on_start
+    h.step(&[]); // first on_update (R110)
     let texts: Vec<_> = h
         .sim
         .scene_hud_draws()
@@ -318,4 +322,99 @@ fn on_update(id, ctx) {
     assert_eq!(loaded.sim.scene_names(), vec!["menu"]);
     assert!(loaded.sim.world_paused());
     loaded.assert_no_errors();
+}
+
+// ── R110 / R111 (Phase 9 gate pass) ─────────────────────────────────────
+
+/// R110: a scene's first `on_update` used to run in the same step as its
+/// `on_start`, against a snapshot taken before `on_start` — so a var
+/// `on_start` set read back as `()`.
+#[test]
+fn r110_a_scene_sees_the_vars_its_on_start_set() {
+    let scene = r#"
+fn on_start(id, ctx) { ctx.set_var(id, "menu", 7); }
+fn on_update(id, ctx) { ctx.set_global("seen", ctx.get_var(id, "menu") + 1); }
+"#;
+    let mut h = Harness::new("r110", "", &[("pause", scene)]);
+    h.sim.request_pause(&mut h.world, &mut h.logs);
+    h.step(&[]);
+    h.step(&[]);
+    assert_eq!(h.int("seen"), 8);
+    h.assert_no_errors();
+}
+
+/// R111: a world-pausing scene whose script fails is closed, not left on
+/// the stack forever with the game frozen beneath it.
+#[test]
+fn r111_a_scene_whose_script_fails_is_closed_and_the_level_resumes() {
+    let level = r#"fn on_update(id, ctx) { let _n = ctx.add_global("ticks", 1); }"#;
+    let broken = r#"fn on_update(id, ctx) { ctx.no_such_function(); }"#;
+    let mut h = Harness::new("r111", level, &[("pause", broken)]);
+    h.sim.request_pause(&mut h.world, &mut h.logs);
+    h.step(&[]);
+    h.step(&[]); // on_update fails; the scene is closed
+    assert!(h.sim.scene_names().is_empty(), "{:?}", h.sim.scene_names());
+    assert!(h.logs.iter().any(|l| l.level == LogLevel::Error && l.text.contains("closed")));
+    let before = h.int("ticks");
+    h.step(&[]);
+    assert_eq!(h.int("ticks"), before + 1, "the level runs again");
+}
+
+/// A pause menu that opens an inventory scene with data; closing the
+/// inventory's dialogue pops it and hands the keyboard back to the menu.
+#[test]
+fn a_nested_scene_closes_back_to_the_menu_beneath_it() {
+    let pause = r#"
+fn on_start(id, ctx) { ctx.set_var(id, "menu", ctx.menu_open(["Continue", "Inventory"])); }
+fn on_update(id, ctx) {
+    let m = ctx.get_var(id, "menu");
+    if !ctx.menu_closed(m) { return; }
+    if ctx.menu_selection(m) == 1 {
+        ctx.push_scene("inventory", #{ data: #{ gold: 12 } });
+        ctx.set_var(id, "menu", ctx.menu_open(["Continue", "Inventory"], #{ selected: 1 }));
+    } else {
+        ctx.pop_scene();
+    }
+}
+"#;
+    let inventory = r#"
+fn on_start(id, ctx) { ctx.set_var(id, "d", ctx.draw_dialogue("Gold: " + ctx.scene_data().gold, "Bag")); }
+fn on_update(id, ctx) { if ctx.dialogue_done(ctx.get_var(id, "d")) { ctx.pop_scene(); } }
+"#;
+    let mut h = Harness::new("nested", "", &[("pause", pause), ("inventory", inventory)]);
+    h.sim.request_pause(&mut h.world, &mut h.logs);
+    h.step(&[]);
+    h.step(&["down"]);
+    h.step(&["enter"]);
+    assert_eq!(h.sim.scene_names(), vec!["pause", "inventory"]);
+    h.step(&[]);
+    assert_eq!(h.sim.ui().open_dialogue().map(|d| d.pages[0][0].clone()), Some("Gold: 12".into()));
+    h.step(&["enter"]); // closes the dialogue; the inventory pops itself
+    assert_eq!(h.sim.scene_names(), vec!["pause"]);
+    h.step(&["up"]);
+    h.step(&["enter"]); // Continue
+    h.step(&[]);
+    assert!(h.sim.scene_names().is_empty());
+    h.assert_no_errors();
+}
+
+/// R112 (Phase 9 gate pass): the HUD the last scene drew used to stay on
+/// screen after it popped — the scene HUD queue was only cleared when a
+/// scene's on_update ran, and with the stack empty none does.
+#[test]
+fn r112_a_popped_scenes_hud_goes_with_it() {
+    let scene = r#"
+fn on_input(id, ctx) { if ctx.just_pressed("enter") { ctx.pop_scene(); } }
+fn on_update(id, ctx) { ctx.draw_hud(1, 1, "SCENE HUD", "White", "Reset"); }
+"#;
+    let mut h = Harness::new("r112", "", &[("pause", scene)]);
+    h.sim.request_pause(&mut h.world, &mut h.logs);
+    h.step(&[]);
+    h.step(&[]);
+    assert!(!h.sim.scene_hud_draws().is_empty(), "the scene drew its HUD");
+    h.step(&["enter"]);
+    h.step(&[]);
+    assert!(h.sim.scene_names().is_empty());
+    assert_eq!(h.sim.scene_hud_draws().len(), 0, "the popped scene's HUD is gone");
+    h.assert_no_errors();
 }

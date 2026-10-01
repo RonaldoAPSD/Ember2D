@@ -17,8 +17,10 @@ impl EditorState {
         input: &ember2d::input::InputManager,
         mouse: &ember2d::mouse::MouseState,
     ) {
-        // Keyboard shortcuts
-        if input.just_pressed(Key::Y) {
+        // Keyboard shortcuts. Enter confirms too (R107's Enter half, fixed
+        // in the Phase 9 gate pass): `[ YES ]` is drawn highlighted as the
+        // default button, but only Y used to answer it.
+        if input.just_pressed(Key::Y) || input.just_pressed(Key::Enter) {
             self.confirm_modal(modal);
             return;
         }

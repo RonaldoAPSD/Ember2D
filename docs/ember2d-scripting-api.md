@@ -674,6 +674,11 @@ script and its own hidden entity (the `id` its functions receive, so
 - `quit_game()` closes the game; `return_to_editor()` goes back to the
   editor, and only works in an editor preview (F5) — check
   `is_editor_preview()`.
+- **Timing:** a pushed scene gets `on_start` the next step, and its first
+  `on_update` the step after that — so `on_update` always sees what
+  `on_start` set (R110). A scene whose script fails is closed, with an
+  error in the log, rather than left on top of a frozen game (R111); its
+  HUD goes with it (R112).
 - **The Esc pause menu is a scene.** Esc with no scene open pushes
   `"pause"`: the project's own `scenes/pause.rhai` if it has one, otherwise
   the engine's built-in menu (Resume / Back to Editor / Quit Game). A save

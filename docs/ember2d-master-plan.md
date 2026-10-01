@@ -183,7 +183,7 @@ start screen's New/Open Project browsers start from.
 | 7E | Editor features | `[-]` deferred, 2026-09-13 (by user direction) — §5.5. Feature/UX polish (rulers, Inspector 2.0, toasts, command palette, rendering perf, undo audit) rather than refactoring work; revisit as a future update, not blocking the phase sequence below |
 | 7.5 | Scripting completeness | `[~]` — §5.6: all 13 steps `[x]`; gate open, awaiting the user's live checklist §11–§13 pass (shooter LOC exception accepted 2026-09-29) |
 | 8 | Tilemap, assets, animation authoring | `[~]` — §5.7: all 4 steps `[x]`; gate pass run 2026-10-01 (automated + live, R103/R104/R106 fixed in it), awaiting the user's OK to tag `v0.5.9` |
-| 9 | Scene and UI layer + RPG demo | `[~]` — §5.8: 9-1 to 9-4 in progress; 9-5 (the RPG demo) deferred to last by the user |
+| 9 | Scene and UI layer + RPG demo | `[~]` — §5.8: 9-1 to 9-4 landed and gate-tested (Phase 9 gate pass, `HASHG9`); 9-5 (the RPG demo) deferred to last by the user — the phase closes after it |
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
 
@@ -417,8 +417,12 @@ determinism/contract violation with no visible symptom yet · **S4** debt.
 | R104 | S2 | Confirming "Switch Level?" by CLICKING [ YES ] (which sits over the canvas) painted the selected palette tile onto the newly loaded level under the mouse while the button was still held — the fresh `EditorState` started with `ignore_drag: false`. The new level opened already modified (`*`, one undo step). Confirming with the Y key was clean. Found in the Phase 8 gate's live pass | `ember2d-editor/src/editor/impl_state/mod.rs` (`switch_to_level`) | `[x]` Phase 8 gate (`8eff030`) — `switch_to_level` sets `ignore_drag`; test `r104_clicking_yes_to_switch_levels_does_not_paint_on_the_new_level` |
 | R105 | S4 | Start screen (never themed, R80): New Project step 1's hint line runs past the dialog's right border and step 4's footer is clipped at the window edge; on the main menu, a mouse resting over an item re-selects it every frame, so Up/Down does nothing until the mouse moves | `ember2d-editor/src/editor/start_screen/` | `[ ]` unscheduled |
 | R106 | S3 | File > Close Project QUIT the app when the editor was launched as `ember2d --editor path/to.level` — `main.rs` dropped `run_editor_app`'s "back to start" result in that branch (only the no-argument launch reached the start screen). Found in the Phase 8 gate's live pass | `ember2d-app/src/main.rs` | `[x]` Phase 8 gate (`8eff030`) — both launch paths share `run_start_screen` and one `after_editor` rule; test `r106_close_project_goes_to_the_start_screen_and_quit_exits`; live re-check reached the start screen |
-| R107 | S4 | Editor chrome cosmetics seen in the Phase 8 gate pass, all pre-existing (identical on the pre-8-2 binary where checked): the palette editor's and colour picker's labels start ~8 pt left of their frame; a long save path in the title-bar flash overlaps the "EMBER2D EDITOR" label; the node graph's Add Node menu isn't clamped to the window bottom when opened low (rows run off-screen; opened higher it scrolls with "v more"); the confirm modal ignores Enter although [ YES ] is drawn as the default; dock-tab and hierarchy context menus draw a blank first row | various `ember2d-editor/src/editor/ui/` | `[ ]` unscheduled |
+| R107 | S4 | Editor chrome cosmetics seen in the Phase 8 gate pass, all pre-existing (identical on the pre-8-2 binary where checked): the palette editor's and colour picker's labels start ~8 pt left of their frame; a long save path in the title-bar flash overlaps the "EMBER2D EDITOR" label; the node graph's Add Node menu isn't clamped to the window bottom when opened low (rows run off-screen; opened higher it scrolls with "v more"); the confirm modal ignores Enter although [ YES ] is drawn as the default; dock-tab and hierarchy context menus draw a blank first row | various `ember2d-editor/src/editor/ui/` | `[ ]` unscheduled — except the modal's Enter, fixed in the Phase 9 gate pass (`HASHG9`): Enter confirms like Y; test `r107_enter_confirms_a_modal` |
 | R108 | S2 | Scripts could read only twelve letter keys (W/A/S/D, Q/E/R/F, Z/X/C/V): `InputManager::snapshot`'s `KEY_MAP` listed just the letters the demos used, so `just_pressed("t")`, `("m")`, `("i")` and eleven more silently never fired. Found building Step 9-3's dialogue test bed | `ember2d/src/input.rs` (`snapshot`) | `[x]` 9-3 (`110b760`) — all 26 letters; test `r108_every_letter_key_reaches_scripts` |
+| R109 | S3 | Saving a script in the editor rewrote the whole file: `load_script` split it with `str::lines` (dropping every line ending) and `save_script` joined with `\n` and no final newline, so a CRLF script came back LF and every save lost the trailing newline — a whole-file diff for a one-character edit. Pre-existing (since the script editor existed). Found in the Phase 9 gate's live pass | `ember2d-editor/src/editor/impl_state/mod.rs` (`load_script`/`save_script`) | `[x]` Phase 9 gate (`HASHG9`) — the file's line ending and final newline are remembered at load and written back; test `r109_saving_a_script_keeps_its_crlf_line_endings_and_final_newline`; live: edit, save, undo, save left `enemy.rhai` byte-identical |
+| R110 | S3 | A newly pushed scene ran `on_start` and its first `on_update` in the same step, and that `on_update` read the snapshot taken BEFORE `on_start` — so a var `on_start` had just set (`ctx.set_var(id, "menu", ...)`) read back as `()`. The built-in pause scene only worked because it guarded `m == ()`; the first project scene written without that guard errored. Found in the Phase 9 gate's live pass | `ember2d-sim/src/simulation/scenes.rs` (`run_scene_step`) | `[x]` Phase 9 gate (`HASHG9`) — a scene's first `on_update` is the step after its `on_start`; test `r110_a_scene_sees_the_vars_its_on_start_set` |
+| R111 | S2 | A world-pausing scene whose script failed at runtime (and was disabled, as every failing script is) stayed on the stack forever: nothing could pop it, Esc opens a pause only when no scene is open, so the game was frozen behind it — against CLAUDE.md's "a broken script must never hang" rule. Found in the Phase 9 gate's live pass | `ember2d-sim/src/simulation/scenes.rs` (`run_scene_step`) | `[x]` Phase 9 gate (`HASHG9`) — a scene whose script is disabled is closed with an error logged ("Scene 'x' closed: its script failed"); test `r111_a_scene_whose_script_fails_is_closed_and_the_level_resumes` |
+| R112 | S3 | The HUD the last open scene drew stayed on screen after it popped: the scene HUD queue was cleared only by a scene's `on_update`, and with the stack empty none runs. Invisible with the built-in pause (it draws no HUD); a project pause scene's HUD lingered over the resumed game. Found in the Phase 9 gate's live pass | `ember2d-sim/src/simulation/scenes.rs` (`run_scene_step`) | `[x]` Phase 9 gate (`HASHG9`) — cleared when no scene is left; test `r112_a_popped_scenes_hud_goes_with_it` |
 
 ### 3.3 Editor defects carried from the Phase 7 plan (E-series)
 
@@ -5141,6 +5145,31 @@ Deterministic test in `ember2d/tests/rpg_*.rs` drives a full encounter.
 This is the third genre proof and exercises every 9-x item.
 
 **Phase 9 gate:** §0.5, all three demos play; tag `v0.5.10`.
+
+- **Gate pass for 9-1..9-4 (2026-10-01, by the agent; not tagged — the
+  phase isn't done until 9-5, and `v0.5.8`/`v0.5.9` are still untagged):**
+  - Automated: 595 tests pass (`cargo test --workspace`); clippy
+    `--all-targets` 188 (190 before Phase 9; zero new warnings by
+    message-by-message diff at every step); `scripts/check.ps1` clean;
+    `tests/replay.rs` 5× identical; `bench_sim --release` clean (floor2
+    0.009 ms/step, 76 allocs/step — +6 for the per-pass scene/UI contexts;
+    synthetic n=10,000 0.065 ms).
+  - Live (real exe, synthetic input, ~120 screenshots): every Phase 8
+    gate scenario re-run on the Phase 9 build — checklist §1, §3–§12 and
+    every Phase 8 feature (stress level at 60 FPS, importer, clips, asset
+    drag-and-drop) — with R103/R104/R106 confirmed still fixed. Then
+    Phase 9: the built-in pause scene in an editor preview (Back to
+    Editor) and a direct run (no Back to Editor); a project's own
+    `scenes/pause.rhai` replacing it, opening a nested inventory scene
+    with `data`, closing back to the menu beneath, and resuming; a
+    non-pausing scene with the level still moving underneath; camera
+    zoom 2x, pan to a target tile, return; paged dialogue and a titled
+    menu; an exit to `floor2.level#door` arriving at the door; a v6 level
+    with duplicate spawn names migrated and saved as v7.
+  - Found and fixed in this pass: R109, R110, R111, R112 and R107's
+    modal-Enter half (`HASHG9`). The live harness itself got a focus
+    guard: it stops sending input when the game isn't the foreground
+    window (a failed launch had let a typed path reach another window).
 
 ---
 

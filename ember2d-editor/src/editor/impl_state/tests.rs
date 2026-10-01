@@ -371,3 +371,22 @@ fn loading_a_palette_with_an_out_of_range_selected_index_clamps_it() {
 
     let _ = std::fs::remove_file(&path);
 }
+
+// ── Test: R109 (Phase 9 gate pass) — saving a script keeps its line endings.
+
+#[test]
+fn r109_saving_a_script_keeps_its_crlf_line_endings_and_final_newline() {
+    let dir = std::env::temp_dir().join(format!("ember2d-{}", std::process::id())).join("r109");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+    let mut editor = EditorState::new("");
+    editor.open_project_folder(dir.to_string_lossy().into_owned());
+    for (name, text) in [("crlf.rhai", "a\r\nb\r\n"), ("lf.rhai", "a\nb"), ("empty.rhai", "")] {
+        std::fs::write(dir.join(name), text).unwrap();
+        editor.load_script(name);
+        editor.save_script();
+        let back = std::fs::read_to_string(dir.join(name)).unwrap();
+        let want = if text.is_empty() { "\n" } else { text };
+        assert_eq!(back, want, "{name} saved unchanged");
+    }
+}

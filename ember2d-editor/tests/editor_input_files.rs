@@ -185,3 +185,22 @@ fn renaming_a_level_also_renames_its_file_on_disk() {
         h.state.file_browser_files()
     );
 }
+
+/// R107's Enter half (fixed in the Phase 9 gate pass): Enter answers a
+/// confirm modal the way its highlighted `[ YES ]` button promises — it
+/// used to do nothing.
+#[test]
+fn r107_enter_confirms_a_modal() {
+    ensure_workspace_root_cwd();
+    let dir = std::env::temp_dir().join(format!("ember2d-{}", std::process::id())).join("r107");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("test temp dir must be creatable");
+    let level_path = dir.join("current.level").to_string_lossy().into_owned();
+    let mut h = EditorHarness::with_state(ember2d_editor::editor::EditorState::new(&level_path));
+    h.state.open_project_folder(dir.to_string_lossy().into_owned());
+    open_menu(&mut h, MenuKind::Level);
+    click_menu_item(&mut h, MenuKind::Level, |a| matches!(a, ToolbarAction::NewLevel));
+    assert!(matches!(h.state.mode(), EditorMode::Modal(_)));
+    h.key(Key::Enter);
+    assert!(matches!(h.state.mode(), EditorMode::Prompt(TextInputPurpose::NewLevelName)));
+}

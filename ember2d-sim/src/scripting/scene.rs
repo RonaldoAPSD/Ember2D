@@ -89,6 +89,12 @@ impl ScriptEngine {
     /// What every pass's `ScriptState` sees of the scene stack — set by
     /// `Simulation` whenever the stack changes, cloned (an `Rc` bump) into
     /// each pass.
+    /// True once `path`'s script failed at runtime and was disabled — R111:
+    /// `Simulation::run_scene_step` closes a scene whose script this is.
+    pub fn is_script_disabled(&self, path: &str) -> bool {
+        self.disabled_scripts.contains(path)
+    }
+
     pub fn set_scene_view(&mut self, stack: Vec<SceneInfo>, editor_preview: bool) {
         self.scene_view = Rc::new(stack);
         self.editor_preview = editor_preview;

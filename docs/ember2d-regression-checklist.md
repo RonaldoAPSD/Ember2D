@@ -224,11 +224,39 @@ Only until visual scripting is shelved. Afterwards, confirm old levels with grap
       demo uses a textured tile; not exercisable without one
 - [✓] Script-drawn HUD (`ctx.draw_hud`) survives opening the pause menu instead of vanishing (Step 4g fixed a real bug here, catalogued as D16) (7B gate, 2026-09-07 — HP/Gold/Potions/Depth/Turn HUD stayed visible with the pause overlay open)
 - [ ] Last 3 log lines render at the bottom of the viewport (now full-height as of Step 4g — no bottom bar to sit "above" anymore) — no loggable event triggered this pass
-- [ ] Exit trigger loads the next level; relative paths resolve — not
-      exercised live (didn't walk to the stairs); covered by
+- [✓] Exit trigger loads the next level; relative paths resolve — live
+      in the Phase 9 gate pass (2026-10-01): floor 1's stairs to
+      `floor2.level#door`, arriving at the named spawn; also covered by
       `an_unlocked_exit_triggers_a_level_transition`/
       `a_locked_exit_does_not_trigger_a_level_transition` (automated)
 - [ ] Script log transfers to the editor console on exit — not exercised live
+
+### Phase 9 — scenes, camera, menus/dialogue, spawns (gate pass 2026-10-01)
+
+- [✓] Esc in play pushes the "pause" scene: the engine menu (PAUSED,
+      Resume / Back to Editor / Quit Game) in the bundled TTF font, world
+      frozen beneath; Up/Down + Enter drive it; Escape resumes. In a
+      direct run (`ember2d level.level`) there is no Back to Editor
+- [✓] A project's `scenes/pause.rhai` replaces the built-in menu; a scene
+      it pushes with `data` reads it back; closing the top scene returns
+      the keyboard to the menu beneath; resuming leaves no HUD behind
+      (R112)
+- [✓] A scene pushed with `pauses_world: false` draws over the level while
+      the player still moves
+- [✓] Script camera: `set_camera_zoom(2)` zooms around the player,
+      `set_camera_target(id)` pans smoothly to that tile,
+      `clear_camera_target()` pans back
+- [✓] `draw_dialogue`: speaker line, word-wrapped text, three lines a page,
+      Enter turns the page and closes it; `menu_open`: title, highlight
+      moves with Up/Down (the player doesn't), Enter confirms
+- [✓] Named spawns: an exit to `path#spawn` (or `load_level(path, spawn)`)
+      enters at that spawn; a v6 level opens in the editor with its named
+      spawns in the Hierarchy and saves as v7 (duplicate names renamed
+      `_2`)
+- [ ] Save mid-scene / mid-menu and load — covered by
+      `a_save_made_with_a_scene_open_reopens_it_on_load` and
+      `an_open_menu_survives_a_save_and_load` (automated); not live, no
+      demo binds a save key yet (9-5's RPG demo will)
 
 ## 12. Turn-based mode
 
