@@ -248,7 +248,16 @@ impl Simulation {
             }
         }
 
-        let (sx, sy) = self.level.spawn_point;
+        // Step 9-4: the spawn the transition into this level named
+        // (`LevelData::entry_spawn`), else the level's `"player"` spawn.
+        let ((sx, sy), found) = self.level.entry_point();
+        if !found {
+            logs.push(LogEntry::warn(format!(
+                "Level '{}' has no spawn point named '{}'; starting at the player spawn",
+                self.level.name,
+                self.level.entry_spawn.as_deref().unwrap_or_default()
+            )));
+        }
         let player = world.spawn();
         world.add_transform(player, Transform::new(sx, sy));
 
@@ -316,7 +325,7 @@ impl Simulation {
                 input: InputSnapshot::default(),
                 mouse: MouseSnapshot::default(),
                 gamepad: GamepadSnapshot::default(),
-                spawns: &self.level.extra_spawns,
+                spawns: &self.level.spawns,
                 globals,
                 clips,
                 camera_pos: Vec2::new(cam_x, cam_y),

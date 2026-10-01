@@ -22,7 +22,7 @@ fn test_temp_dir() -> std::path::PathBuf {
 
 fn run_scripts_once(engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<LogEntry>) {
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(world, &engine.layers, &[]));
+    let snapshot = Rc::new(WorldSnapshot::build(world, &engine.layers, &Default::default()));
     engine.run_scripts(
         world,
         snapshot,
@@ -34,7 +34,7 @@ fn run_scripts_once(engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<
             input: crate::command::InputSnapshot::default(),
             mouse: crate::command::MouseSnapshot::default(),
             gamepad: crate::command::GamepadSnapshot::default(),
-            spawns: &[],
+            spawns: &Default::default(),
             globals: BTreeMap::new(),
             clips: BTreeMap::new(),
             camera_pos: crate::math::Vec2::ZERO,
@@ -89,7 +89,7 @@ fn run_source_with_result(name: &str, source: &str) -> (World, ScriptUpdateResul
     world.add_script(driver, Script::new(&path));
 
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &Default::default()));
     let result = engine.run_scripts(
         &mut world,
         snapshot,
@@ -101,7 +101,7 @@ fn run_source_with_result(name: &str, source: &str) -> (World, ScriptUpdateResul
             input: crate::command::InputSnapshot::default(),
             mouse: crate::command::MouseSnapshot::default(),
             gamepad: crate::command::GamepadSnapshot::default(),
-            spawns: &[],
+            spawns: &Default::default(),
             globals: BTreeMap::new(),
             clips: BTreeMap::new(),
             camera_pos: crate::math::Vec2::ZERO,

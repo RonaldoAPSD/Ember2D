@@ -22,7 +22,7 @@ use crate::scripting::{LogEntry, PassArgs, ScriptUpdateResult, WorldSnapshot};
 use crate::world::{EntityId, World};
 
 use super::{
-    actor_has_physics, drain_diagnostics_into, is_local_player, resolve_exit_path, Simulation,
+    actor_has_physics, drain_diagnostics_into, is_local_player, Simulation,
     StepInput, StepOutcome,
 };
 
@@ -89,7 +89,7 @@ impl Simulation {
         // on_input/on_update/on_turn below — see `WorldSnapshot`'s own doc
         // comment (scripting/state.rs) for the perf regression this fixes.
         let world_snapshot =
-            std::rc::Rc::new(WorldSnapshot::build(world, &self.layers, &self.level.extra_spawns));
+            std::rc::Rc::new(WorldSnapshot::build(world, &self.layers, &self.level.spawns));
 
         // Step 9-1: scene scripts run first; a paused level stops here.
         self.run_scene_step(
@@ -137,7 +137,7 @@ impl Simulation {
                         input: input_snapshot.clone(),
                         mouse: mouse_snapshot,
                         gamepad: gamepad_snapshot.clone(),
-                        spawns: &self.level.extra_spawns,
+                        spawns: &self.level.spawns,
                         globals,
                         clips,
                         camera_pos: camera_origin,
@@ -180,7 +180,7 @@ impl Simulation {
                 input: input_snapshot.clone(),
                 mouse: mouse_snapshot,
                 gamepad: gamepad_snapshot.clone(),
-                spawns: &self.level.extra_spawns,
+                spawns: &self.level.spawns,
                 globals,
                 clips,
                 camera_pos: camera_origin,
@@ -261,7 +261,7 @@ impl Simulation {
                 input: InputSnapshot::default(),
                 mouse: MouseSnapshot::default(),
                 gamepad: GamepadSnapshot::default(),
-                spawns: &self.level.extra_spawns,
+                spawns: &self.level.spawns,
                 globals,
                 clips,
                 camera_pos: camera_origin,
@@ -386,9 +386,7 @@ impl Simulation {
             // itself, not a Simulation-side map rebuilt from tile order.
             if let Some(path) = world.exits.get(&other).cloned() {
                 if !locked {
-                    let full_path =
-                        resolve_exit_path(&path, &self.level.path, &|p| self.level_source_exists(p));
-                    match self.level_source.load_level(&full_path) {
+                    match self.load_transition(&path) {
                         Ok(next) => {
                             outcome.pending_level = Some(next);
                         }
@@ -413,7 +411,7 @@ impl Simulation {
                 input: InputSnapshot::default(),
                 mouse: MouseSnapshot::default(),
                 gamepad: GamepadSnapshot::default(),
-                spawns: &self.level.extra_spawns,
+                spawns: &self.level.spawns,
                 globals,
                 clips,
                 camera_pos: camera_origin,
@@ -480,8 +478,7 @@ impl Simulation {
             self.scheduler.remove(id);
         }
         if let Some(level_path) = res.pending_level {
-            let full = resolve_exit_path(&level_path, &self.level.path, &|p| self.level_source_exists(p));
-            match self.level_source.load_level(&full) {
+            match self.load_transition(&level_path) {
                 Ok(next) => {
                     outcome.pending_level = Some(next);
                 }

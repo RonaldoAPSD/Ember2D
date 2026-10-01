@@ -132,7 +132,7 @@ fn check_hot_reload_only_runs_once_every_throttle_interval() {
 
 fn run_scripts_once(engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<LogEntry>) {
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(world, &engine.layers, &[]));
+    let snapshot = Rc::new(WorldSnapshot::build(world, &engine.layers, &Default::default()));
     engine.run_scripts(
         world,
         snapshot,
@@ -144,7 +144,7 @@ fn run_scripts_once(engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<
             input: crate::command::InputSnapshot::default(),
             mouse: crate::command::MouseSnapshot::default(),
             gamepad: crate::command::GamepadSnapshot::default(),
-            spawns: &[],
+            spawns: &Default::default(),
             globals: BTreeMap::new(),
             clips: BTreeMap::new(),
             camera_pos: crate::math::Vec2::ZERO,
@@ -563,7 +563,7 @@ fn clip_finished_reports_true_for_entities_whose_animator_just_finished_this_tic
     world.animators.insert(entity, animator);
 
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &Default::default()));
     let result = engine.run_scripts(
         &mut world,
         snapshot,
@@ -575,7 +575,7 @@ fn clip_finished_reports_true_for_entities_whose_animator_just_finished_this_tic
             input: crate::command::InputSnapshot::default(),
             mouse: crate::command::MouseSnapshot::default(),
             gamepad: crate::command::GamepadSnapshot::default(),
-            spawns: &[],
+            spawns: &Default::default(),
             globals: BTreeMap::new(),
             clips: BTreeMap::new(),
             camera_pos: crate::math::Vec2::ZERO,
@@ -626,7 +626,7 @@ fn run_source_reporting_is_animating(
 
     let animating_ids: Vec<EntityId> = if animating_is_self { vec![driver] } else { vec![driver + 1] };
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &Default::default()));
     let result = engine.run_scripts(
         &mut world,
         snapshot,
@@ -638,7 +638,7 @@ fn run_source_reporting_is_animating(
             input: crate::command::InputSnapshot::default(),
             mouse: crate::command::MouseSnapshot::default(),
             gamepad: crate::command::GamepadSnapshot::default(),
-            spawns: &[],
+            spawns: &Default::default(),
             globals: BTreeMap::new(),
             clips: BTreeMap::new(),
             camera_pos: crate::math::Vec2::ZERO,
@@ -676,7 +676,7 @@ fn is_animating_is_false_for_an_id_not_in_the_animating_list() {
     );
 }
 
-// ── Test: 7.5-10 (docs/ember2d-master-plan.md §5.6) — `extra_spawns` moved
+// ── Test: 7.5-10 (docs/ember2d-master-plan.md §5.6) — the spawn points (`extra_spawns` then, `spawns` since Step 9-4) moved
 // onto `WorldSnapshot`, built once per step instead of once per `run_*`
 // call — this pins that `ctx.get_spawn_point` still resolves correctly
 // through the new `ScriptState` -> `WorldSnapshot` `Deref` path. ──────────
@@ -707,7 +707,7 @@ fn get_spawn_point_resolves_through_the_snapshots_extra_spawns() {
     world.add_script(entity, Script::new(&path));
 
     let mut persistent = BTreeMap::new();
-    let spawns = vec![("start".to_string(), 3.0_f32, 4.0_f32)];
+    let spawns = BTreeMap::from([("start".to_string(), (3.0_f32, 4.0_f32))]);
     let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &spawns));
     let result = engine.run_scripts(
         &mut world,

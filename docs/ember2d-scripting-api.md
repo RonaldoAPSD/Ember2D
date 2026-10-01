@@ -680,7 +680,24 @@ script and its own hidden entity (the `id` its functions receive, so
   made with a scene open restores it on load.
 
 ### Flow
-`load_level(path)` · `save_game(path)` · `load_game(path)` · `log(msg)` · `get_delta()` · `get_elapsed()` · `get_spawn_point(name)` → `[x,y]` or `[]` · `get_viewport_width()` · `get_viewport_height()` · `api_version()` → int, this API's breaking-change generation (see §6)
+`load_level(path)` · `load_level(path, spawn)` · `save_game(path)` · `load_game(path)` · `log(msg)` · `get_delta()` · `get_elapsed()` · `get_spawn_point(name)` → `[x,y]` or `[]` · `get_viewport_width()` · `get_viewport_height()` · `api_version()` → int, this API's breaking-change generation (see §6)
+
+**Spawn points and level transitions** (Step 9-4). A level's spawn points
+are one set of names (format v7's `spawns`): `"player"` is where the
+player starts when the level is entered normally, and every point placed
+with Shift+P in the editor is another name. `get_spawn_point(name)` reads
+any of them, `"player"` included.
+
+- `load_level(path, spawn)` enters the next level at its spawn point
+  `spawn` instead of `"player"` — walking out of the inn puts the player
+  at the inn's door on the town map.
+- An exit tile's target can do the same: `town.level#inn_door`.
+- A name the level doesn't have logs a warning and uses `"player"`.
+
+Structured state needs no new type: `set_persistent` (and
+`set_global`) accept nested maps and arrays — a party roster as an array
+of maps, an inventory as a map of counts — and they survive save files and
+level changes intact.
 
 > `trigger_turn()` was removed in Step 5f (docs/ember2d-phase5-plan.md) —
 > see "The command boundary" above for `ctx.act`, its replacement.
@@ -783,6 +800,7 @@ numeric literals in one consistent style, though; mixing (`draw_hud(1,
 | 9 | Step 9-1 (docs/ember2d-master-plan.md §5.8): the scene stack — `push_scene`/`pop_scene`/`current_scene`/`scene_count`/`scene_data`/`quit_game`/`return_to_editor`/`is_editor_preview`, and the `on_start`/`on_input`/`on_update` contract for scene scripts. The Esc pause menu became a scene. | **No** — purely additive; a level's own scripts run exactly as before whenever no world-pausing scene is open. |
 | 9 | Step 9-2: `set_camera_target`/`clear_camera_target`/`set_camera_zoom`/`get_camera_zoom`/`set_camera_bounds`/`clear_camera_bounds`/`set_camera_speed`; `get_mouse_world_x/y` account for zoom | **No** — additive. `set_camera(x,y)` now behaves as `set_camera_target(x,y)` (same effect, but `clear_camera_target()` can now undo it); at the default zoom of 1 every existing function returns what it did before. |
 | 9 | Step 9-3: `menu_open`/`menu_selection`/`menu_closed`/`menu_close`, `draw_dialogue`/`dialogue_advance`/`dialogue_open`/`dialogue_done`/`close_dialogue`, `wrap_text`; R108 — every letter key now reaches `is_held`/`just_pressed` | **No** — additive (`draw_menu` and the cell HUD are unchanged). While a widget is open its keys are withheld from scripts, which no script could rely on before because no widget existed. |
+| 9 | Step 9-4: `load_level(path, spawn)`; exit targets `path#spawn`; `get_spawn_point("player")` now returns the player's start | **No** — additive. Level format v7 (`spawns`) is a level-file change, not an API one; older levels are migrated when they load. |
 
 **Phase 6 is a zero-API-break phase** — `API_VERSION` stayed `6` through
 Step 5f. Phase 7.5-1 is the next break after it; 7.5-2 and 7.5-3 (the two

@@ -70,7 +70,7 @@ fn a_timer_reports_done_only_once_decay_carries_it_to_zero_or_below() {
     engine.timers.entry(entity).or_default().insert("t".to_string(), TimerState::Running(1.5 / 60.0));
 
     let mut persistent = BTreeMap::new();
-    let snapshot1 = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
+    let snapshot1 = Rc::new(WorldSnapshot::build(&world, &engine.layers, &Default::default()));
     let r1 = engine.run_scripts(
         &mut world,
         snapshot1,
@@ -82,7 +82,7 @@ fn a_timer_reports_done_only_once_decay_carries_it_to_zero_or_below() {
             input: crate::command::InputSnapshot::default(),
             mouse: crate::command::MouseSnapshot::default(),
             gamepad: crate::command::GamepadSnapshot::default(),
-            spawns: &[],
+            spawns: &Default::default(),
             globals: BTreeMap::new(),
             clips: BTreeMap::new(),
             camera_pos: crate::math::Vec2::ZERO,
@@ -98,7 +98,7 @@ fn a_timer_reports_done_only_once_decay_carries_it_to_zero_or_below() {
         "must not report done before decay carries it past zero"
     );
 
-    let snapshot2 = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
+    let snapshot2 = Rc::new(WorldSnapshot::build(&world, &engine.layers, &Default::default()));
     let r2 = engine.run_scripts(
         &mut world,
         snapshot2,
@@ -110,7 +110,7 @@ fn a_timer_reports_done_only_once_decay_carries_it_to_zero_or_below() {
             input: crate::command::InputSnapshot::default(),
             mouse: crate::command::MouseSnapshot::default(),
             gamepad: crate::command::GamepadSnapshot::default(),
-            spawns: &[],
+            spawns: &Default::default(),
             globals: BTreeMap::new(),
             clips: BTreeMap::new(),
             camera_pos: crate::math::Vec2::ZERO,
@@ -146,7 +146,7 @@ fn despawn_removes_the_entitys_timers() {
     engine.timers.entry(entity).or_default().insert("t".to_string(), TimerState::Running(5.0));
 
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &Default::default()));
     engine.run_scripts(
         &mut world,
         snapshot,
@@ -158,7 +158,7 @@ fn despawn_removes_the_entitys_timers() {
             input: crate::command::InputSnapshot::default(),
             mouse: crate::command::MouseSnapshot::default(),
             gamepad: crate::command::GamepadSnapshot::default(),
-            spawns: &[],
+            spawns: &Default::default(),
             globals: BTreeMap::new(),
             clips: BTreeMap::new(),
             camera_pos: crate::math::Vec2::ZERO,
@@ -247,7 +247,7 @@ fn timer_done_returns_true_exactly_once_not_forever() {
     engine.timers.entry(entity).or_default().insert("t".to_string(), TimerState::Fired);
 
     let run = |engine: &mut ScriptEngine, world: &mut World, log: &mut Vec<LogEntry>| {
-        let snapshot = Rc::new(WorldSnapshot::build(world, &engine.layers, &[]));
+        let snapshot = Rc::new(WorldSnapshot::build(world, &engine.layers, &Default::default()));
         engine
             .run_scripts(
                 world,
@@ -260,7 +260,7 @@ fn timer_done_returns_true_exactly_once_not_forever() {
                     input: crate::command::InputSnapshot::default(),
                     mouse: crate::command::MouseSnapshot::default(),
                     gamepad: crate::command::GamepadSnapshot::default(),
-                    spawns: &[],
+                    spawns: &Default::default(),
                     globals: BTreeMap::new(),
                     clips: BTreeMap::new(),
                     camera_pos: crate::math::Vec2::ZERO,
@@ -313,7 +313,7 @@ fn cancel_timer_prevents_timer_done_from_ever_firing() {
     engine.timers.entry(entity).or_default().insert("t".to_string(), TimerState::Cancelled);
 
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &Default::default()));
     let result = engine.run_scripts(
         &mut world,
         snapshot,
@@ -325,7 +325,7 @@ fn cancel_timer_prevents_timer_done_from_ever_firing() {
             input: crate::command::InputSnapshot::default(),
             mouse: crate::command::MouseSnapshot::default(),
             gamepad: crate::command::GamepadSnapshot::default(),
-            spawns: &[],
+            spawns: &Default::default(),
             globals: BTreeMap::new(),
             clips: BTreeMap::new(),
             camera_pos: crate::math::Vec2::ZERO,

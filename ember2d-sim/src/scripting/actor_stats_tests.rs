@@ -45,7 +45,7 @@ fn run_source_with_actor(
     world.add_actor(driver, actor);
 
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &Default::default()));
     let result = engine.run_scripts(
         &mut world,
         snapshot,
@@ -57,7 +57,7 @@ fn run_source_with_actor(
             input: crate::command::InputSnapshot::default(),
             mouse: crate::command::MouseSnapshot::default(),
             gamepad: crate::command::GamepadSnapshot::default(),
-            spawns: &[],
+            spawns: &Default::default(),
             globals: BTreeMap::new(),
             clips: BTreeMap::new(),
             camera_pos: crate::math::Vec2::ZERO,
@@ -131,7 +131,7 @@ fn get_stat_on_a_non_actor_entity_returns_zero() {
     // Deliberately no `world.add_actor` — this entity has no Actor at all.
 
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &Default::default()));
     let result = engine.run_scripts(
         &mut world,
         snapshot,
@@ -143,7 +143,7 @@ fn get_stat_on_a_non_actor_entity_returns_zero() {
             input: crate::command::InputSnapshot::default(),
             mouse: crate::command::MouseSnapshot::default(),
             gamepad: crate::command::GamepadSnapshot::default(),
-            spawns: &[],
+            spawns: &Default::default(),
             globals: BTreeMap::new(),
             clips: BTreeMap::new(),
             camera_pos: crate::math::Vec2::ZERO,
@@ -209,7 +209,7 @@ fn get_tint_on_a_non_actor_entity_returns_reset() {
     world.add_script(driver, Script::new(&path));
 
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &Default::default()));
     let result = engine.run_scripts(
         &mut world,
         snapshot,
@@ -221,7 +221,7 @@ fn get_tint_on_a_non_actor_entity_returns_reset() {
             input: crate::command::InputSnapshot::default(),
             mouse: crate::command::MouseSnapshot::default(),
             gamepad: crate::command::GamepadSnapshot::default(),
-            spawns: &[],
+            spawns: &Default::default(),
             globals: BTreeMap::new(),
             clips: BTreeMap::new(),
             camera_pos: crate::math::Vec2::ZERO,

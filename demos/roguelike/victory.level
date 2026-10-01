@@ -1,9 +1,11 @@
 (
-    version: 6,
+    version: 7,
     name: "Victory!",
     width: 20,
     height: 10,
-    spawn_point: (10.0, 5.0),
+    spawns: {
+        "player": (10.0, 5.0),
+    },
     tiles: [],
     player: (
         glyph: '@',

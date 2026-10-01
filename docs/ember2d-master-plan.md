@@ -5091,12 +5091,48 @@ HUD API, additive beside the cell-based one.
     text) and a titled menu; Down moved the menu, not the player; Enter
     confirmed; the pause menu draws through the same widget.
 
-#### `[ ]` 9-4 — Positional continuity and structured state
+#### `[x]` 9-4 — Positional continuity and structured state (`HASH94`)
 `load_level(path, spawn_name)` spawns at a named spawn point (level format
 gains `spawns: BTreeMap<String, Vec2>`, replacing the single `spawn_point`
 — a v4 change, folded into 8-1's bump). Nested `Dynamic` maps/arrays in
 `persistent` verified to round-trip through RON (test), giving a party
 roster and inventory without a new type.
+
+- **Scoped (2026-10-01, by the agent; additive API, level format v7):**
+  8-1 didn't fold this in (its own scoping note), so it took its own bump:
+  `LEVEL_FORMAT_VERSION` 7. `spawns: BTreeMap<String, (f32, f32)>` — the
+  tuple every other position in the format already uses, not `Vec2` —
+  replaces BOTH `spawn_point` (now the entry `"player"`, `PLAYER_SPAWN`)
+  and the editor's named `extra_spawns`, which were already named spawn
+  points. `LevelData::load` migrates a pre-v7 file; the editor keeps its
+  player-spawn + list shape and converts at `to_level_data`/
+  `from_level_data`, renaming a duplicate (`door` → `door_2`) instead of
+  dropping it. Added beyond the plan: an exit tile's target may be
+  `path#spawn`, the same request through the same code
+  (`Simulation::load_transition`) as `load_level(path, spawn)`.
+- **Landed as** (`HASH94`):
+  - `ember2d-sim/src/level/spawns.rs` (new): `PLAYER_SPAWN`,
+    `player_spawn`/`set_player_spawn`/`add_spawn`/`entry_point`,
+    `migrate_spawns` (private legacy fields read by a custom
+    deserializer: RON refuses a bare `(x, y)` as an `Option`, which would
+    have failed every old level — caught by the existing v2 test), and
+    `split_spawn_target`.
+  - `LevelData::entry_spawn` (`serde(skip)`): set on the loaded level by
+    `Simulation::load_transition`, read by `do_on_start` via
+    `entry_point` (warning when the name is missing).
+  - `ScriptCtx::load_level_at` (registered as the two-argument
+    `load_level`); `WorldSnapshot`/`PassArgs` carry the `spawns` map, so
+    `get_spawn_point("player")` works too.
+  - Every shipped demo level regenerated to v7 (only the spawn lines and
+    the version change).
+  - **Tests (12 new):** 4 in `level/spawns.rs` (migration with duplicate
+    and `"player"` clashes, v7 writes no legacy fields, entry-point
+    fallback, target splitting), 7 in `ember2d/tests/spawn_points.rs`
+    (script transition with and without a spawn name, unknown name warns,
+    an exit to `path#spawn`, `get_spawn_point("player")`, a v7 file
+    round-trip, and a nested party roster + inventory in `persistent`
+    through a save file), 1 editor `grid.rs` conversion test; the v2-level
+    test now also checks its migrated spawn.
 
 #### `[ ]` 9-5 — The RPG demo
 `rpg/`: a town with three NPCs and dialogue, a field with wild encounters,

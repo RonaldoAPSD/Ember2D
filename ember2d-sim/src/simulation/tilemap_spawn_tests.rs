@@ -51,7 +51,7 @@ fn walls_then_stairs() -> LevelData {
         TileRecord::new(4, 4, 1, '>', Color::Yellow, Color::Reset, false, true, "stairs");
     stairs.next_level = Some("next.level".to_string());
     level.tiles.push(stairs);
-    level.spawn_point = (4.0, 4.0);
+    level.set_player_spawn((4.0, 4.0));
     level
 }
 

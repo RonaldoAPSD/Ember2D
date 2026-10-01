@@ -68,6 +68,7 @@ pub(super) fn register_all(engine: &mut Engine) {
     engine.register_fn("spawn_entity", ScriptCtx::spawn_entity_full);
     engine.register_fn("spawn_entity", ScriptCtx::spawn_entity_full_i);
     engine.register_fn("load_level", ScriptCtx::load_level);
+    engine.register_fn("load_level", ScriptCtx::load_level_at);
     engine.register_fn("log", ScriptCtx::log);
     engine.register_fn("draw_hud", ScriptCtx::draw_hud);
     engine.register_fn("draw_hud", ScriptCtx::draw_hud_f);

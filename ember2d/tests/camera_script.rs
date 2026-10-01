@@ -23,7 +23,7 @@ fn play_with(tag: &str, script: &str) -> (PlayState, World) {
     let path = common::test_temp_dir().join(format!("camera_{tag}.rhai"));
     std::fs::write(&path, script).unwrap();
     let mut data = LevelData::empty(60, 40);
-    data.spawn_point = (5.0, 5.0);
+    data.set_player_spawn((5.0, 5.0));
     data.player.script = Some(path.to_string_lossy().into_owned());
     let mut play = PlayState::from_level(data, BTreeMap::new());
     let mut world = World::new();

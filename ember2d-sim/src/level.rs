@@ -18,7 +18,7 @@
 //       name: "My Level",
 //       width: 80,
 //       height: 24,
-//       spawn_point: (5.0, 5.0),
+//       spawns: { "player": (5.0, 5.0), "from_cave": (40.0, 3.0) },
 //       tiles: [
 //           TileRecord(x: 2, y: 2, glyph: '#', fg: Grey, bg: Reset,
 //                      solid: true, trigger: false, tag: "wall"),
@@ -50,6 +50,9 @@ use std::fs;
 // Step 8-1: which tiles are static, and baking them into / unpacking them
 // out of `LevelData.tilemap` — see that file's own header comment.
 mod bake;
+mod spawns;
+
+pub use spawns::{split_spawn_target, PLAYER_SPAWN};
 
 // ── TileRecord ────────────────────────────────────────────────────────────────
 
@@ -416,7 +419,13 @@ impl TileRecord {
 /// every sprite tile as its fallback glyph.
 /// Version 6 is Step 8-3: `TileRecord::clip`, an animated tile. Same
 /// reasoning again — a pre-8-3 engine would draw it frozen.
-pub const LEVEL_FORMAT_VERSION: u32 = 6;
+/// Version 7 is Step 9-4: `spawns`, one name → position map, replaces both
+/// `spawn_point` (now the entry named `"player"`) and the editor's named
+/// `extra_spawns` list. The first non-additive change since v0: an older
+/// file is migrated by `load` (level/spawns.rs), and a pre-9-4 engine can't
+/// read a v7 file at all — it has no `spawn_point` — which the version
+/// check would have refused anyway.
+pub const LEVEL_FORMAT_VERSION: u32 = 7;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LevelData {
@@ -436,15 +445,41 @@ pub struct LevelData {
     /// Level height in character rows (must match the editor viewport).
     pub height: usize,
 
-    /// Where the player entity spawns when the level is played.
-    /// Stored as (column, row) in character-cell space.
-    pub spawn_point: (f32, f32),
+    /// Every named spawn point, as (column, row) in character-cell space —
+    /// Step 9-4, format v7. `"player"` (`PLAYER_SPAWN`) is where the
+    /// player starts when the level is entered normally; every other name
+    /// is a point placed with Shift+P in the editor, which a script reads
+    /// with `ctx.get_spawn_point(name)` and which `ctx.load_level(path,
+    /// name)` (or an exit tile's `"path#name"`) can enter the level at
+    /// instead. A `BTreeMap`, so it saves in one stable order.
+    /// `player_spawn`/`set_player_spawn`/`entry_point` (level/spawns.rs)
+    /// are the accessors.
+    #[serde(default)]
+    pub spawns: BTreeMap<String, (f32, f32)>,
 
-    /// Named entity spawn points placed with Shift+P in the editor.
-    /// Each entry is (name, x, y). Game code can look these up by name
-    /// to spawn enemies, NPCs, or other scripted entities at level start.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub extra_spawns: Vec<(String, f32, f32)>,
+    /// Pre-v7 `spawn_point`, read only so `load` can migrate it into
+    /// `spawns` (`migrate_spawns`, level/spawns.rs); never written. Read
+    /// through `legacy_point`: an old file holds a bare `(x, y)`, which
+    /// RON would refuse as an `Option` without a `Some(..)` around it.
+    #[serde(
+        default,
+        rename = "spawn_point",
+        skip_serializing,
+        deserialize_with = "spawns::legacy_point"
+    )]
+    legacy_spawn_point: Option<(f32, f32)>,
+
+    /// Pre-v7 `extra_spawns` (name, x, y), likewise migrated by `load`.
+    #[serde(default, rename = "extra_spawns", skip_serializing)]
+    legacy_extra_spawns: Vec<(String, f32, f32)>,
+
+    /// Which entry of `spawns` this visit enters at — set by a level
+    /// transition (`ctx.load_level(path, name)`, an exit to `"path#name"`)
+    /// on the freshly loaded level, read by `Simulation::do_on_start` via
+    /// `entry_point`. `None` (or a name the level lacks) means `"player"`.
+    /// Not written to disk: it describes how this one visit began.
+    #[serde(skip, default)]
+    pub entry_spawn: Option<String>,
 
     /// The tiles that are their own entities, in the order the editor
     /// placed them. On a v4 (Step 8-1) level these are only the
@@ -529,8 +564,10 @@ impl LevelData {
             name: String::from("Untitled"),
             width,
             height,
-            spawn_point: (1.0, 1.0),
-            extra_spawns: Vec::new(),
+            spawns: BTreeMap::from([(PLAYER_SPAWN.to_string(), (1.0, 1.0))]),
+            legacy_spawn_point: None,
+            legacy_extra_spawns: Vec::new(),
+            entry_spawn: None,
             tiles: Vec::new(),
             player: PlayerRecord::default(),
             path: String::new(),
@@ -610,6 +647,10 @@ impl LevelData {
             ).into());
         }
 
+        // Step 9-4: a pre-v7 file's `spawn_point`/`extra_spawns` become
+        // `spawns` entries (level/spawns.rs).
+        level.migrate_spawns();
+
         Ok(level)
     }
 }
@@ -659,6 +700,7 @@ mod tests {
         let level =
             LevelData::load(path.to_str().unwrap()).expect("an older-format level must still load");
         assert_eq!(level.collision_layers, vec!["solid".to_string()], "a version-2 level predates collision_layers entirely — it must default to the one layer name pre-Step-7 levels actually used");
+        assert_eq!(level.player_spawn(), (1.0, 1.0), "its spawn_point migrated (Step 9-4)");
         let _ = std::fs::remove_file(&path);
     }
 

@@ -269,7 +269,7 @@ impl ScriptCtx {
     pub fn get_spawn_point(&mut self, name: String) -> Array {
         self.inner
             .borrow_mut()
-            .extra_spawns
+            .spawns
             .get(&name)
             .map(|&(x, y)| vec![Dynamic::from(x as f64), Dynamic::from(y as f64)])
             .unwrap_or_default()
@@ -446,6 +446,14 @@ impl ScriptCtx {
     /// the same pass now gets the LAST one, matching those two.
     pub fn load_level(&mut self, path: String) {
         self.inner.borrow_mut().pending_level = Some(path);
+    }
+    /// Step 9-4: `load_level(path, spawn)` — enter the level at its spawn
+    /// point named `spawn` instead of `"player"`. The same request as the
+    /// `"path#spawn"` target an exit tile can hold (`Simulation::
+    /// load_transition` splits it), so both routes share one path.
+    pub fn load_level_at(&mut self, path: String, spawn: String) {
+        let target = if spawn.is_empty() { path } else { format!("{path}#{spawn}") };
+        self.inner.borrow_mut().pending_level = Some(target);
     }
     pub fn log(&mut self, msg: String) {
         self.inner.borrow_mut().pending_logs.push(msg);

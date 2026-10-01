@@ -251,7 +251,7 @@ impl Simulation {
                 input: input.input.clone(),
                 mouse: input.mouse,
                 gamepad: input.gamepad.clone(),
-                spawns: &self.level.extra_spawns,
+                spawns: &self.level.spawns,
                 globals,
                 clips,
                 camera_pos: input.camera_origin,

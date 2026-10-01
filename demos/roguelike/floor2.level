@@ -1,9 +1,11 @@
 (
-    version: 6,
+    version: 7,
     name: "Floor 2",
     width: 80,
     height: 32,
-    spawn_point: (5.0, 5.0),
+    spawns: {
+        "player": (5.0, 5.0),
+    },
     tiles: [
         (
             x: 66,

@@ -127,7 +127,7 @@ fn every_script_and_next_level_path_a_level_references_exists_on_disk() {
 fn every_levels_spawn_point_is_not_inside_a_solid_tile() {
     for path in LEVELS {
         let data = LevelData::load(path).unwrap_or_else(|e| panic!("load {}: {}", path, e));
-        let (sx, sy) = (data.spawn_point.0.round() as i32, data.spawn_point.1.round() as i32);
+        let (sx, sy) = (data.player_spawn().0.round() as i32, data.player_spawn().1.round() as i32);
         // Step 8-1: every tile, baked tilemap cells included (see above).
         let blocked = data.all_tiles().iter().any(|t| t.x == sx && t.y == sy && t.solid);
         assert!(!blocked, "{}: spawn point ({},{}) must not be inside a solid tile", path, sx, sy);
@@ -190,7 +190,7 @@ fn every_level_is_fully_walkable_from_spawn_to_the_stairs_and_every_enemy() {
             }
         }
 
-        let start = (data.spawn_point.0.round() as i32, data.spawn_point.1.round() as i32);
+        let start = (data.player_spawn().0.round() as i32, data.player_spawn().1.round() as i32);
         let (w, h) = (data.width as i32, data.height as i32);
         let mut visited: HashSet<(i32, i32)> = HashSet::new();
         let mut queue = VecDeque::new();

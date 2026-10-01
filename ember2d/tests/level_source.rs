@@ -38,7 +38,7 @@ fn exit_tile_level() -> LevelData {
     let mut exit = TileRecord::new(5, 5, 1, '>', Color::Cyan, Color::Reset, false, true, "stairs");
     exit.next_level = Some("next.level".to_string());
     data.tiles.push(exit);
-    data.spawn_point = (5.0, 5.0);
+    data.set_player_spawn((5.0, 5.0));
     data
 }
 

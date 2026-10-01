@@ -85,7 +85,7 @@ fn an_ai_actor_with_physics_disabled_is_left_overlapping_the_wall() {
 fn the_local_player_is_still_pushed_out_of_a_wall_it_overlaps() {
     let mut data = LevelData::empty(10, 10);
     data.tiles.push(TileRecord::new(5, 5, 1, '#', Color::White, Color::Reset, true, false, "wall"));
-    data.spawn_point = (5.0, 5.0);
+    data.set_player_spawn((5.0, 5.0));
     let (mut sim, mut world) = spawn(data);
 
     let player = world.find_by_tag("player").expect("player should have spawned");

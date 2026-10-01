@@ -137,7 +137,7 @@ fn synth_level(n_tiles: usize, n_actors: usize, seed: u64) -> LevelData {
     // script and turn-scheduler eligibility, matching how
     // examples/gen_roguelike.rs's rat()/boss() tiles are authored.
     if let Some(&(sx, sy)) = floor_cells.first() {
-        data.spawn_point = (sx as f32, sy as f32);
+        data.set_player_spawn((sx as f32, sy as f32));
     }
     data.player.script = Some("demos/roguelike/scripts/player.rhai".to_string());
 
@@ -287,7 +287,7 @@ fn bench_phases(world: &World, layers: &LayerRegistry, n_iters: usize) {
     for _ in 0..n_iters {
         let w = world.clone();
         let start = Instant::now();
-        let _snap = WorldSnapshot::build(&w, layers, &[]);
+        let _snap = WorldSnapshot::build(&w, layers, &Default::default());
         snapshot_times.push(start.elapsed());
     }
     snapshot_times.sort();

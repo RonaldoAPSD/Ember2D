@@ -71,7 +71,12 @@ pub struct LevelGrid {
     /// Additional named spawn points placed with Shift+P.
     ///
     /// Each entry is (name, column, row). Game logic can look these up by name
-    /// to spawn enemies, NPCs, or scripted entities at the right location.
+    /// to spawn enemies, NPCs, or scripted entities at the right location,
+    /// and a level transition can enter at one (Step 9-4). Since format v7
+    /// the file keeps these and `spawn_point` in ONE name → position map
+    /// (`LevelData::spawns`, `spawn_point` under `"player"`); the editor
+    /// keeps this list shape — the hierarchy, undo, and the inspector all
+    /// index it — and converts in `to_level_data`/`from_level_data`.
     pub extra_spawns: Vec<(String, f32, f32)>,
 
     /// Human-readable level name shown in the editor title bar and saved in the file.
@@ -225,20 +230,21 @@ impl LevelGrid {
     pub fn to_level_data(&self) -> LevelData {
         let mut tiles: Vec<TileRecord> = self.tiles.values().cloned().collect();
         tiles.sort_by_key(|t| (t.layer, t.y, t.x));
-        let mut data = LevelData {
-            version: ember2d_sim::level::LEVEL_FORMAT_VERSION,
-            name: self.name.clone(),
-            width: self.width,
-            height: self.height,
-            spawn_point: self.spawn_point,
-            extra_spawns: self.extra_spawns.clone(),
-            tiles,
-            player: self.player.clone(),
-            path: String::new(),
-            seed: self.seed,
-            collision_layers: self.collision_layers.clone(),
-            tilemap: None,
-        };
+        // `LevelData::empty` rather than a struct literal: since Step 9-4 it
+        // has private fields (the pre-v7 spawn fields `load` migrates).
+        let mut data = LevelData::empty(self.width, self.height);
+        data.name = self.name.clone();
+        data.tiles = tiles;
+        data.player = self.player.clone();
+        data.seed = self.seed;
+        data.collision_layers = self.collision_layers.clone();
+        // Step 9-4: the player spawn under "player", then each named one in
+        // list order — `add_spawn` renames a duplicate ("door" twice, or a
+        // spawn literally named "player") to "door_2" rather than dropping it.
+        data.set_player_spawn(self.spawn_point);
+        for (name, x, y) in &self.extra_spawns {
+            data.add_spawn(name, (*x, *y));
+        }
         data.bake_tilemap();
         data
     }
@@ -254,8 +260,15 @@ impl LevelGrid {
     pub fn from_level_data(data: &LevelData) -> Self {
         let mut grid = LevelGrid::new(data.width, data.height);
         grid.name = data.name.clone();
-        grid.spawn_point = data.spawn_point;
-        grid.extra_spawns = data.extra_spawns.clone();
+        // Step 9-4: `spawns` back into the editor's two fields — every
+        // entry except "player" becomes a named spawn, in name order.
+        grid.spawn_point = data.player_spawn();
+        grid.extra_spawns = data
+            .spawns
+            .iter()
+            .filter(|(name, _)| name.as_str() != ember2d_sim::level::PLAYER_SPAWN)
+            .map(|(name, &(x, y))| (name.clone(), x, y))
+            .collect();
         grid.player = data.player.clone();
         grid.seed = data.seed;
         grid.collision_layers = data.collision_layers.clone();
@@ -358,5 +371,27 @@ mod tests {
         // Step 8-1: the baked tilemap itself (palette order, cell values)
         // must be just as deterministic as the tile order.
         assert_eq!(format!("{:?}", first.tilemap), format!("{:?}", second.tilemap));
+    }
+
+    /// Step 9-4: the grid's player spawn + named list go into the file's one
+    /// `spawns` map and come back out — a duplicate name, or a named spawn
+    /// called "player", is renamed rather than lost.
+    #[test]
+    fn spawns_convert_to_the_v7_map_and_back_without_losing_a_duplicate() {
+        let mut grid = LevelGrid::new(10, 10);
+        grid.spawn_point = (2.0, 3.0);
+        grid.extra_spawns = vec![
+            ("door".into(), 1.0, 1.0),
+            ("door".into(), 4.0, 4.0),
+            ("player".into(), 9.0, 9.0),
+        ];
+        let data = grid.to_level_data();
+        assert_eq!(data.player_spawn(), (2.0, 3.0));
+        assert_eq!(data.spawns.len(), 4);
+        let back = LevelGrid::from_level_data(&data);
+        assert_eq!(back.spawn_point, (2.0, 3.0));
+        let names: Vec<&str> = back.extra_spawns.iter().map(|(n, _, _)| n.as_str()).collect();
+        assert_eq!(names, ["door", "door_2", "player_2"]);
+        assert_eq!(back.extra_spawns[1], ("door_2".into(), 4.0, 4.0));
     }
 }

@@ -140,7 +140,7 @@ fn build_level(map: &Arena, features: Vec<TileRecord>) -> LevelData {
     let mut data = LevelData::empty(W, H);
     data.name = "Arena".to_string();
     data.seed = SEED;
-    data.spawn_point = (40.0, 12.0);
+    data.set_player_spawn((40.0, 12.0));
 
     for y in 0..H {
         for x in 0..W {

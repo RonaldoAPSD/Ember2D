@@ -24,7 +24,7 @@ use super::types::*;
 // iteration order; a `HashMap` there means that result changes between
 // runs for reasons with nothing to do with game state. Maps only ever
 // accessed by `.get(&known_key)` (`velocities`, `parents`, `glyphs`,
-// `colors`, `textures`, `tag_to_id`, `extra_spawns`, gamepad state) stay
+// `colors`, `textures`, `tag_to_id`, gamepad state) stay
 // `HashMap` — their own iteration order, if any, is never observed.
 //
 // PULLED OUT OF `ScriptState` INTO ITS OWN, SHARED, `Rc`-WRAPPED TYPE IN
@@ -148,8 +148,10 @@ pub struct WorldSnapshot {
     /// has no entry here — `get_var` treats that the same as an entry with
     /// no matching key.
     pub(super) vars: BTreeMap<i64, BTreeMap<String, rhai::Dynamic>>,
-    /// Named spawn points from the level's own `extra_spawns` — backs
-    /// `ctx.get_spawn_point`. Built once here, not once per `ScriptState`
+    /// The level's named spawn points (`LevelData::spawns`, one map since
+    /// Step 9-4 — `"player"` included) — backs `ctx.get_spawn_point`. A
+    /// clone of the level's own `BTreeMap`. Built once here, not once per
+    /// `ScriptState`
     /// (Step 7.5-10, docs/ember2d-master-plan.md §5.6): the level's spawn
     /// list never changes mid-play, but every `run_*` method used to
     /// rebuild this same `HashMap` from scratch every single call —
@@ -158,7 +160,7 @@ pub struct WorldSnapshot {
     /// whatever `run_collisions` added on a collision-heavy step. Now built
     /// once per `WorldSnapshot`, shared via the same `Rc::clone` every
     /// other field here already relies on.
-    pub(super) extra_spawns: HashMap<String, (f32, f32)>,
+    pub(super) spawns: BTreeMap<String, (f32, f32)>,
     /// Every `Tilemap` in the world (Step 8-1, docs/ember2d-master-plan.md
     /// §5.7), keyed by its entity id — what `is_solid_at`/`raycast`/
     /// `get_path`/etc. (`api_spatial.rs`) check alongside `colliders`.
@@ -172,7 +174,7 @@ impl WorldSnapshot {
     pub fn build(
         world: &World,
         layers: &crate::layers::LayerRegistry,
-        spawns: &[(String, f32, f32)],
+        spawns: &BTreeMap<String, (f32, f32)>,
     ) -> Self {
         // Phase 6 Step 4 (docs/ember2d-phase6-plan.md): pre-sized against
         // `World`'s own store lengths rather than growing by reallocation —
@@ -278,8 +280,6 @@ impl WorldSnapshot {
             vars.insert(*id as i64, v.values.clone());
         }
 
-        let extra_spawns: HashMap<String, (f32, f32)> =
-            spawns.iter().map(|(name, x, y)| (name.clone(), (*x, *y))).collect();
 
         WorldSnapshot {
             positions,
@@ -301,7 +301,7 @@ impl WorldSnapshot {
             actor_tints,
             vars,
             layers: layers.clone(),
-            extra_spawns,
+            spawns: spawns.clone(),
             tilemaps: world.tilemaps.iter().map(|(id, m)| (*id as i64, Rc::clone(m))).collect(),
         }
     }
@@ -323,12 +323,12 @@ pub(super) struct ScriptState {
     /// introduced the sim-safe `InputSnapshot` type — see that type's own
     /// doc comment (command.rs) for why raw input is now this shape.
     pub(super) input: InputSnapshot,
-    // `extra_spawns` used to live here, rebuilt on every `ScriptState`
-    // construction — Step 7.5-10 (docs/ember2d-master-plan.md §5.6) moved it
-    // onto `WorldSnapshot` instead (see that field's own doc comment), built
-    // once per step and shared the same way every other snapshot field is.
-    // `self.extra_spawns` (api.rs's `get_spawn_point`) still resolves —
-    // `ScriptState` derefs to `WorldSnapshot`.
+    // The level's spawn points used to live here, rebuilt on every
+    // `ScriptState` construction — Step 7.5-10 (docs/ember2d-master-plan.md
+    // §5.6) moved them onto `WorldSnapshot` instead (see that field's own
+    // doc comment), built once per step and shared the same way every other
+    // snapshot field is. `self.spawns` (api.rs's `get_spawn_point`) still
+    // resolves — `ScriptState` derefs to `WorldSnapshot`.
     pub(super) mouse_pos: (f32, f32),
     pub(super) mouse_held: (bool, bool),
     pub(super) mouse_pressed: (bool, bool),
@@ -526,7 +526,7 @@ pub struct PassArgs<'a> {
     pub input: InputSnapshot,
     pub mouse: MouseSnapshot,
     pub gamepad: GamepadSnapshot,
-    pub spawns: &'a [(String, f32, f32)],
+    pub spawns: &'a BTreeMap<String, (f32, f32)>,
     pub globals: BTreeMap<String, rhai::Dynamic>,
     pub clips: BTreeMap<String, AnimationClip>,
     pub camera_pos: crate::math::Vec2,
@@ -566,7 +566,7 @@ impl ScriptState {
         persistent: BTreeMap<String, rhai::Dynamic>,
         args: PassArgs,
     ) -> Self {
-        // `spawns` deliberately unused here — `extra_spawns` is now built
+        // `spawns` deliberately unused here — the snapshot's copy is built
         // once inside `WorldSnapshot::build` (see that field's own doc
         // comment) and read back through `ScriptState`'s `Deref`, not
         // rebuilt per pass. `..` drops `spawns` along with `args`'s other

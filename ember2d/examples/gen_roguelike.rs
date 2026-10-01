@@ -122,7 +122,7 @@ fn build_level(
     let mut data = LevelData::empty(map.w, map.h);
     data.name = name.to_string();
     data.seed = seed;
-    data.spawn_point = spawn;
+    data.set_player_spawn(spawn);
 
     for y in 0..map.h {
         for x in 0..map.w {

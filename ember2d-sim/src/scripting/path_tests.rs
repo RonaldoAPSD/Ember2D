@@ -24,7 +24,7 @@ fn run_scripts_once(
     log: &mut Vec<LogEntry>,
 ) -> ScriptUpdateResult {
     let mut persistent = BTreeMap::new();
-    let snapshot = Rc::new(WorldSnapshot::build(world, &engine.layers, &[]));
+    let snapshot = Rc::new(WorldSnapshot::build(world, &engine.layers, &Default::default()));
     engine.run_scripts(
         world,
         snapshot,
@@ -36,7 +36,7 @@ fn run_scripts_once(
             input: crate::command::InputSnapshot::default(),
             mouse: crate::command::MouseSnapshot::default(),
             gamepad: crate::command::GamepadSnapshot::default(),
-            spawns: &[],
+            spawns: &Default::default(),
             globals: BTreeMap::new(),
             clips: BTreeMap::new(),
             camera_pos: crate::math::Vec2::ZERO,

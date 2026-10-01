@@ -81,7 +81,7 @@ fn run_source_with_result_full(
     let driver = world.spawn();
     world.add_script(driver, Script::new(&path));
 
-    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &[]));
+    let snapshot = Rc::new(WorldSnapshot::build(&world, &engine.layers, &Default::default()));
     let result = engine.run_scripts(
         &mut world,
         snapshot,
@@ -93,7 +93,7 @@ fn run_source_with_result_full(
             input: crate::command::InputSnapshot::default(),
             mouse: crate::command::MouseSnapshot::default(),
             gamepad: crate::command::GamepadSnapshot::default(),
-            spawns: &[],
+            spawns: &Default::default(),
             globals,
             clips: BTreeMap::new(),
             camera_pos: crate::math::Vec2::ZERO,

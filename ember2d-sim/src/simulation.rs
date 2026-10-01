@@ -371,6 +371,20 @@ impl Simulation {
         self.level_source.exists(path)
     }
 
+    /// Loads the level a transition names — an exit tile's target or a
+    /// script's `load_level` — resolved against this level's own path.
+    /// Step 9-4: a target may end in `#spawn` (`"town.level#inn_door"`);
+    /// the loaded level then enters at that spawn point
+    /// (`LevelData::entry_spawn`, read by `do_on_start`). One function for
+    /// both routes, so an exit and a script can never disagree on it.
+    fn load_transition(&self, target: &str) -> Result<LevelData, String> {
+        let (path, spawn) = crate::level::split_spawn_target(target);
+        let full = resolve_exit_path(path, &self.level.path, &|p| self.level_source_exists(p));
+        let mut next = self.level_source.load_level(&full)?;
+        next.entry_spawn = spawn.map(str::to_string);
+        Ok(next)
+    }
+
     /// Sets which `TurnModel` `run_actor_turn`'s own cost fallback uses —
     /// a setter, not a constructor parameter, same reasoning
     /// `set_pixels_per_unit`'s own doc comment gives (`ember2d::play::
@@ -613,7 +627,7 @@ impl Simulation {
                     input: InputSnapshot::default(),
                     mouse: MouseSnapshot::default(),
                     gamepad: GamepadSnapshot::default(),
-                    spawns: &self.level.extra_spawns,
+                    spawns: &self.level.spawns,
                     globals,
                     clips,
                     camera_pos: Vec2::new(cam_x, cam_y),

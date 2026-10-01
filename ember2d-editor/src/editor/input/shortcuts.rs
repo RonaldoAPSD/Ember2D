@@ -102,7 +102,7 @@ impl EditorState {
             data.path = self.save_path.clone();
             if shift {
                 if let Some((gx, gy)) = self.mouse_to_grid(mouse.pixel_x, mouse.pixel_y) {
-                    data.spawn_point = (gx as f32, gy as f32);
+                    data.set_player_spawn((gx as f32, gy as f32));
                 }
             }
             self.pending_transition = Some(ember2d::engine::Transition::ToPlay(data));
