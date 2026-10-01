@@ -115,6 +115,8 @@ impl SaveState {
         fs::write(path, ron).map_err(|e| e.to_string())
     }
 
+    // (Step 9.5-5's `write_data_file` is below, outside this impl.)
+
     /// Load a state from a RON string.
     pub fn from_ron(ron_str: &str) -> Result<Self, String> {
         ron::de::from_str(ron_str).map_err(|e| e.to_string())
@@ -126,6 +128,15 @@ impl SaveState {
         let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
         Self::from_ron(&content)
     }
+}
+
+/// Step 9.5-5: writes one script value (`save_data`) as RON. Exempt from
+/// `disallowed-methods` for the same reason `SaveState::save_to_file` is:
+/// it's the data format's own save entry point, run between passes.
+#[allow(clippy::disallowed_methods)]
+pub fn write_data_file(path: &str, value: &rhai::Dynamic) -> Result<(), String> {
+    let text = ron::ser::to_string_pretty(value, ron::ser::PrettyConfig::default()).map_err(|e| e.to_string())?;
+    fs::write(path, text).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

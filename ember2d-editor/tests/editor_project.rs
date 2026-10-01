@@ -101,3 +101,24 @@ fn r114_new_script_creates_the_folder_it_names() {
     assert!(dir.join("scripts").join("ai.rhai").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Step 9.5-5: Level > Collision Layers... edits the names a level's
+/// collider layers and masks resolve against — the shooter's "enemy" and
+/// "pbullet" layers had no other way into a level.
+#[test]
+fn collision_layers_are_edited_from_the_level_menu_and_saved() {
+    let (mut h, dir) = project("layers955");
+    open_menu(&mut h, MenuKind::Level);
+    click_menu_item(&mut h, MenuKind::Level, |a| matches!(a, ToolbarAction::CollisionLayers));
+    assert!(matches!(h.state.mode(), EditorMode::Prompt(_)), "a prompt, prefilled with the list");
+    for _ in 0..12 {
+        h.key(Key::Backspace);
+    }
+    h.type_text("solid, enemy pbullet,enemy,  ");
+    h.key(Key::Enter);
+    h.frame();
+    h.key(Key::S); // save the level
+    h.frame();
+    let level = ember2d_sim::level::LevelData::load(&dir.join("main.level").to_string_lossy()).unwrap();
+    assert_eq!(level.collision_layers, vec!["solid", "enemy", "pbullet"], "trimmed, de-duplicated, in order");
+}

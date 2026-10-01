@@ -541,6 +541,13 @@ impl Simulation {
         self.commands = res.commands;
         *persistent = res.persistent;
 
+        // Step 9.5-5: `save_data` values, each to its own small file.
+        for (path, value) in std::mem::take(&mut res.data_saves) {
+            if let Err(e) = crate::save::write_data_file(&path, &value) {
+                logs.push(LogEntry::error(format!("save_data(\"{path}\") failed: {e}")));
+            }
+        }
+
         if let Some(save_path) = res.pending_save {
             // globals/clips were just refreshed from `res` above, so this
             // captures the exact state a script saw the moment it called

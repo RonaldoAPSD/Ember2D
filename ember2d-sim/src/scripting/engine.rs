@@ -40,6 +40,15 @@ pub struct ScriptEngine {
     pub(super) engine: Engine,
     /// `pub(super)`, same reasoning as `engine` immediately above.
     pub(super) ast_cache: HashMap<String, AST>,
+    /// Step 9.5-5: which lifecycle functions (`on_update`, `on_collide`, ...)
+    /// each cached script defines, by path — kept in step with `ast_cache`
+    /// by `cache_ast`. `call_lifecycle_fn` skips a function a script doesn't
+    /// define instead of asking Rhai and getting a "function not found"
+    /// error back: that miss built an error value every time, for every
+    /// entity, every step — a stress level's hundred `on_collide`-only
+    /// bullets paid it a hundred times a frame. A `BTreeMap` like
+    /// everything new in this crate, though it's only looked up by key.
+    lifecycle_fns: BTreeMap<String, Vec<String>>,
     mod_times: HashMap<String, SystemTime>,
     /// Script paths that threw a runtime error and are no longer called —
     /// defect D9: previously an error only suppressed its own log message
@@ -181,6 +190,7 @@ impl ScriptEngine {
         ScriptEngine {
             engine,
             ast_cache: HashMap::new(),
+            lifecycle_fns: BTreeMap::new(),
             mod_times: HashMap::new(),
             disabled_scripts: HashSet::new(),
             rng: Rc::new(RefCell::new(rand::rngs::SmallRng::seed_from_u64(seed))),
@@ -209,7 +219,7 @@ impl ScriptEngine {
         }
         match self.engine.compile(source) {
             Ok(ast) => {
-                self.ast_cache.insert(key.to_string(), ast);
+                self.cache_ast(key.to_string(), ast);
                 true
             }
             Err(e) => {
@@ -242,7 +252,7 @@ impl ScriptEngine {
                         self.mod_times.insert(path.to_string(), t);
                     }
                 }
-                self.ast_cache.insert(path.to_string(), ast);
+                self.cache_ast(path.to_string(), ast);
                 true
             }
             Err(e) => {
@@ -299,6 +309,21 @@ impl ScriptEngine {
     /// past that same call anyway, since rhai's default `CallFnOptions`
     /// rewinds it on the way out, so persisting one across calls bought
     /// nothing.
+    /// Step 9.5-5: caches `ast` under `path`, with the names of the
+    /// lifecycle functions it defines (`lifecycle_fns`). Every insertion
+    /// into `ast_cache` goes through here, so the two can't disagree.
+    fn cache_ast(&mut self, path: String, ast: AST) {
+        const LIFECYCLE: [&str; 6] = ["on_start", "on_update", "on_collide", "on_input", "on_turn", "on_load"];
+        let defined: Vec<String> = ast
+            .iter_functions()
+            .map(|f| f.name)
+            .filter(|n| LIFECYCLE.contains(n))
+            .map(str::to_string)
+            .collect();
+        self.lifecycle_fns.insert(path.clone(), defined);
+        self.ast_cache.insert(path, ast);
+    }
+
     pub(super) fn call_lifecycle_fn(
         &mut self,
         path: &str,
@@ -311,6 +336,10 @@ impl ScriptEngine {
             return;
         }
         let Some(ast) = self.ast_cache.get(path) else { return };
+        // Step 9.5-5: a function this script doesn't define isn't called.
+        if !self.lifecycle_fns.get(path).is_some_and(|fns| fns.iter().any(|f| f == fn_name)) {
+            return;
+        }
         let mut scope = Scope::new();
         if let Err(e) = self.engine.call_fn::<()>(&mut scope, ast, fn_name, args) {
             if !Self::is_missing_optional_fn(&e, fn_name) {
@@ -530,7 +559,7 @@ impl ScriptEngine {
             if self.mod_times.get(&path).map(|old| t > *old).unwrap_or(false) {
                 match self.engine.compile_file(path.clone().into()) {
                     Ok(ast) => {
-                        self.ast_cache.insert(path.clone(), ast);
+                        self.cache_ast(path.clone(), ast);
                         self.mod_times.insert(path.clone(), t);
                         // Defect D9: a script disabled by a prior runtime
                         // error gets one more chance once its source changes —

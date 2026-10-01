@@ -99,6 +99,13 @@ impl EditorState {
                         self.mode = EditorMode::Prompt(TextInputPurpose::LevelName);
                         return true;
                     }
+                    // Step 9.5-5: the names collider layers and masks resolve
+                    // against, prefilled with the level's current list.
+                    ToolbarAction::CollisionLayers => {
+                        self.prompt_buffer = self.grid.collision_layers.join(", ");
+                        self.mode = EditorMode::Prompt(TextInputPurpose::CollisionLayers);
+                        return true;
+                    }
                     ToolbarAction::ResizeLevel => {
                         self.prompt_buffer.clear();
                         self.mode = EditorMode::Prompt(TextInputPurpose::ResizeLevel);

@@ -161,9 +161,9 @@ fn is_local_player(world: &World, id: EntityId) -> bool {
 /// what `late_step`'s solid-collision resolution gates on now, broader
 /// than `is_local_player`'s narrower "who receives on_input" question.
 /// `unwrap_or(false)`: an entity with no `Actor` at all (every enemy in
-/// the shooter demo, deliberately — see `gen_shooter.rs`'s own header for
-/// why giving them one would stall the local player's `on_input` under
-/// `TurnScheduler`) never gets engine-side resolution this way either;
+/// the shooter demo, deliberately — an actor in a real-time level would
+/// stall the local player's `on_input` under `TurnScheduler`; the retired
+/// `gen_shooter.rs` explained it at length) never gets engine-side resolution this way either;
 /// `physics: false` is the same "opt out" for an entity that DOES have an
 /// `Actor` but manages its own collision by hand.
 fn actor_has_physics(world: &World, id: EntityId) -> bool {
@@ -559,6 +559,11 @@ impl Simulation {
     }
     pub fn globals(&self) -> &BTreeMap<String, rhai::Dynamic> {
         &self.globals
+    }
+    /// Step 9.5-5: the globals, writable — for tests and tools that set up
+    /// a situation directly (a wave, a score) rather than playing to it.
+    pub fn globals_mut(&mut self) -> &mut BTreeMap<String, rhai::Dynamic> {
+        &mut self.globals
     }
     pub fn clips(&self) -> &BTreeMap<String, AnimationClip> {
         &self.clips

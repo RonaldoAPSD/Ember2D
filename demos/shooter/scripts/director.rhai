@@ -1,351 +1,334 @@
-// demos/shooter/scripts/director.rhai — the whole game except the player and
-// bullets: the ten-wave state machine, enemy spawning and steering, contact
-// damage, scoring, and the wave banner.
+// demos/shooter/scripts/director.rhai — the game around the player: twelve
+// waves, every enemy's movement and shooting, the boss, contact damage,
+// the wave HUD, victory — and, on the stress level, a flood of enemies and
+// bullets to measure the engine with.
 //
-// Attached to one invisible, collider-less tile at (0, 0) (see
-// ember2d/examples/gen_shooter.rs's `director()`), so its `on_update` runs
-// every simulation step for the life of the level.
+// It lives on one tile of the arena (the top-left corner, under the wall),
+// so its `on_update` runs every step. Tagged "stress" (stress.level), it
+// runs the stress test instead of the waves.
 //
-// ── WHY THIS SCRIPT STILL DRIVES EVERY ENEMY, EVEN THOUGH BULLETS DON'T
-//    NEED IT ANYMORE ──────────────────────────────────────────────────────
+// ENEMIES are spawned entities with no script of their own: their stats
+// live in vars ("hp", "points", "colour", ...), and this script steers all
+// of them each step, kind by kind (`steer`). One script looping over a
+// hundred enemies is far cheaper than a hundred scripts. Bullets are the
+// opposite case — each has its own tiny `on_collide`-only script (see
+// bullet.rhai) because a hit is per-bullet news.
 //
-// Before Step 7.5-5 (docs/ember2d-master-plan.md §5.6), Rhai could spawn
-// entities (`ctx.spawn_entity`) but not attach a script to one — no
-// `set_script` in the API, so a spawned enemy or bullet had no `on_update`/
-// `on_collide` of its own, and everything either needed to DO had to be
-// driven from a script that already existed, iterating them by tag. That's
-// this file's own origin. `set_script` closed that gap; `bullet.rhai` (see
-// `demos/shooter/scripts/player.rhai`'s `do_shoot`, which attaches it) is
-// what a bullet's own hit detection and kill resolution moved into —
-// `update_bullets`/`resolve_hits` used to live here and are gone.
+//   grunt   g  walks at you              swarmer s  fast, fragile
+//   brute   B  slow, 2x2, hits hard      gunner  G  keeps its distance, shoots
+//   boss       an armoured core (wave 12) that fires rings of shots
 //
-// Enemies stay here BY CHOICE, not because `set_script` couldn't reach them
-// too: `contact_damage` below is a "take the single largest hit touching the
-// player this step, not the sum of all of them" rule, gated by one shared
-// cooldown ("hurt_until"). That's a genuinely CENTRAL operation — spreading
-// it across each enemy's own `on_update` would either silently stop
-// stacking correctly (two enemies' `ctx.set_global("hp", ...)` in the same
-// pass both read the same pre-pass "hp"; deferred writes mean neither sees
-// the other's, so whichever runs last simply overwrites the first — not a
-// sum, not even reliably the larger of the two) or need a per-enemy cooldown
-// instead of one shared one, which would measurably raise damage taken when
-// surrounded by multiple enemies — a real difficulty change, not a neutral
-// refactor. `steer_enemies`/`steer_group` stay here too, mostly for the same
-// "this would just be per-enemy busywork with no correctness upside" reason,
-// though nothing stops a future step from moving pure per-enemy steering out
-// if a reason to actually needs it shows up.
-//
-// ── THE ONE RULE THAT SHAPES EVERY RUNNING TOTAL HERE ─────────────────────────
-//
-// A `get_global` never observes a `set_global` from the same script pass —
-// writes queue and apply only once every script has run. A running total
-// accumulated by hand (`set_global(k, get_global(k) + d)`) breaks the moment
-// two writes to the same key land in one pass: both read the same pre-pass
-// value and the second write silently erases the first.
-//
-// `add_global`/`add_persistent`/`add_var` (docs/ember2d-master-plan.md §5.6,
-// 7.5-2/7.5-3) exist precisely to remove that hazard: each call reads the
-// CURRENT value — this pass's own already-queued write if there's one, the
-// resolved store otherwise — and adds to it, so any number of calls to the
-// same key in one pass land as that many additions. Every running total in
-// this file (score, kills via `add_global`) uses one now — as does
-// `bullet.rhai`'s own `resolve_hit` (Step 7.5-5), the file that used to hand-
-// tally duplicate hits on one enemy here before a single read-modify-write
-// specifically to dodge this hazard; it now just applies each hit as its own
-// call, since a bullet resolving its own hit means there's no batch left to
-// dedupe across. Per-enemy HP also used to live in a `"ehp_" + id` global —
-// real per-entity `Vars` state (7.5-3) replaced that too; see
-// `spawn_enemy`'s own comment.
+// A wave's enemies don't appear all at once: they queue ("queue") and
+// three arrive per step at random spots well away from the player.
 
-// ── Tuning knobs ─────────────────────────────────────────────────────────────
-// Functions, not top-level `const`: `Engine::call_fn` evaluates only the named
-// function, so top-level statements in the AST never run and a `const` there
-// would not reliably be in scope. Same reasoning as player.rhai.
+fn total_waves() { 12 }
 
-fn total_waves()  { 10 }
-fn intro_delay()  { 3.0 }   // seconds before wave 1
-fn breather()     { 3.0 }   // seconds between waves
+/// `[grunts, swarmers, brutes, gunners]` per wave.
+fn wave_plan(w) {
+    let t = [[8, 0, 0, 0], [12, 8, 0, 0], [12, 10, 0, 2], [16, 14, 1, 3], [16, 20, 2, 4], [20, 24, 2, 6],
+             [24, 30, 3, 6], [26, 36, 4, 8], [30, 40, 4, 10], [34, 48, 6, 10], [40, 56, 6, 12], [16, 24, 2, 6]];
+    t[w - 1]
+}
 
-fn grunt_speed()   { 3.4 }  // cells/second
-fn swarmer_speed() { 6.2 }
-fn brute_speed()   { 1.9 }
+/// `[glyph, colour, hp, speed, size, points, contact damage]`.
+fn stats(kind) {
+    switch kind {
+        "grunt" => ["g", "#ff5050", 2, 3.6, 1.0, 10, 1],
+        "swarmer" => ["s", "#ffe040", 1, 6.4, 1.0, 5, 1],
+        "brute" => ["B", "#e060ff", 9, 2.0, 2.0, 50, 3],
+        "gunner" => ["G", "#40e0ff", 3, 2.6, 1.0, 25, 1],
+        _ => ["O", "#ff4000", 150, 1.6, 1.0, 1000, 3],
+    }
+}
 
-fn grunt_hp()   { 2 }
-fn swarmer_hp() { 1 }
-fn brute_hp()   { 9 }
-
-/// Arena interior, in cells — the wall ring occupies row/column 0 and
-/// row 23 / column 79 (gen_shooter.rs `Arena::ring`).
-fn min_x() { 1.0 }
-fn max_x() { 78.0 }
-fn min_y() { 1.0 }
-fn max_y() { 22.0 }
-
-/// Per-wave enemy counts. Index is `wave - 1`.
-fn grunts_for(w)   { let t = [4, 6, 4, 6, 4, 8,  6, 10,  8, 10]; t[w - 1] }
-fn swarmers_for(w) { let t = [0, 0, 6, 6, 4, 6, 10,  8, 12, 14]; t[w - 1] }
-fn brutes_for(w)   { let t = [0, 0, 0, 0, 1, 1,  2,  2,  3,  4]; t[w - 1] }
-
-// ── Lifecycle ────────────────────────────────────────────────────────────────
-
-/// `phase_until` is armed to -1.0 rather than to a real deadline because
-/// `ScriptEngine::run_on_start_all` builds its `ScriptState` with `elapsed`
-/// hardcoded to 0.0 — `ctx.get_elapsed()` inside `on_start` returns 0.0, not
-/// the engine's actual clock. Computing `0.0 + intro_delay()` here would work
-/// on a cold start and then break on every restart, because a restart happens
-/// at whatever the real elapsed time has reached and the deadline would
-/// already be in the past. The sentinel defers the arithmetic to the first
-/// `on_update`, where `elapsed` is real.
 fn on_start(id, ctx) {
     ctx.set_global("wave", 0);
     ctx.set_global("phase", "breather");
     ctx.set_global("phase_until", -1.0);
+    ctx.set_global("queue", []);
+    if ctx.get_tag(id) == "stress" { ctx.set_global("stress", true); }
 }
 
 fn on_update(id, ctx) {
     let now = ctx.get_elapsed();
     let player = ctx.find_by_tag("player");
-
-    // Arm the opening countdown on the first real step. See on_start.
+    if player < 0 { return; }
+    // Arm the opening countdown on the first real step (`on_start` sees
+    // `get_elapsed()` as 0 whatever the clock says).
     if ctx.get_global("phase_until") < 0.0 {
-        ctx.set_global("phase_until", now + intro_delay());
+        ctx.set_global("phase_until", now + 3.0);
         return;
     }
-
-    // Enemies are driven in every phase, not just "fighting": medkits
-    // dropped by the final kill should still be collectable, and a wave's
-    // last live bullet (each now driven by its own bullet.rhai, Step
-    // 7.5-5) should still be able to land after the wave ends regardless of
-    // what this script does here.
-    steer_enemies(ctx, player);
+    if ctx.has_global("stress") { stress(ctx, player, now); }
+    else { waves(ctx, now); }
+    steer(ctx, player, now);
     contact_damage(ctx, player, now);
+}
 
+// ── Waves ────────────────────────────────────────────────────────────────
+
+fn waves(ctx, now) {
     let phase = ctx.get_global("phase");
+    spawn_queued(ctx, 3);
     if phase == "won" {
-        draw_centre(ctx, 11, "ARENA CLEARED", "Green");
-        let s = "All " + total_waves();
-        s += " waves survived - press R to play again";
-        draw_centre(ctx, 12, s, "White");
+        centre(ctx, 10, " ARENA CLEARED ", "Black", "#60ff60");
+        centre(ctx, 12, "Final score " + ctx.get_global("score").to_int() + "  -  press R to play again", "White", "Reset");
     } else if phase == "breather" {
         let left = ctx.get_global("phase_until") - now;
-        if left <= 0.0 { begin_next_wave(ctx); }
-        else { draw_breather(ctx, left); }
+        if left <= 0.0 { next_wave(ctx); }
+        else {
+            let n = ctx.get_global("wave") + 1;
+            let title = if n == total_waves() { "THE CORE AWAKENS" } else { "WAVE " + n + " OF " + total_waves() };
+            centre(ctx, 10, " " + title + " ", "Black", "#40c0ff");
+            centre(ctx, 11, "in " + (left + 1.0).to_int(), "#40c0ff", "Reset");
+        }
     } else {
-        draw_wave_status(ctx);
-        // `count_by_tag` reads the `WorldSnapshot` built at the top of this
-        // step, so an enemy a bullet's own on_update despawns this same step
-        // (bullet.rhai's `resolve_hit`, Step 7.5-5) is still counted here —
-        // this test only passes on the FOLLOWING step, a one-step lag, not a
-        // defect: that kill needs this step to finish landing before the
-        // wave can be declared cleared.
-        if enemies_left(ctx) == 0 { end_wave(ctx, now); }
+        wave_hud(ctx);
+        if ctx.get_global("queue").len() == 0 && enemies_left(ctx) == 0 && !ctx.has_global("boss_alive") {
+            ctx.set_global("phase", "breather");
+            ctx.set_global("phase_until", now + 3.0);
+        }
     }
 }
-
-// ── Wave state machine ───────────────────────────────────────────────────────
 
 fn enemies_left(ctx) {
-    ctx.count_by_tag("grunt") + ctx.count_by_tag("swarmer") + ctx.count_by_tag("brute")
+    ctx.count_by_tag("grunt") + ctx.count_by_tag("swarmer") + ctx.count_by_tag("brute") + ctx.count_by_tag("gunner") + ctx.count_by_tag("boss")
 }
 
-fn end_wave(ctx, now) {
-    ctx.set_global("phase", "breather");
-    ctx.set_global("phase_until", now + breather());
-}
-
-/// Pays out the cleared wave's bonus, then either starts the next wave or
-/// declares the run won.
-fn begin_next_wave(ctx) {
+fn next_wave(ctx) {
     let cleared = ctx.get_global("wave");
-    if cleared > 0 {
-        ctx.add_global("score", 25 * cleared);
-    }
-
+    if cleared > 0 { ctx.add_global("score", 25 * cleared); }
     if cleared >= total_waves() {
         ctx.set_global("phase", "won");
+        ctx.set_global("won", true);
+        let score = ctx.get_global("score");
+        if score > ctx.get_global("best") {
+            ctx.set_global("best", score);
+            ctx.save_data("ember_assault_best.sav", score);
+        }
         return;
     }
-
-    let next = cleared + 1;
-    ctx.set_global("wave", next);
+    let w = cleared + 1;
+    ctx.set_global("wave", w);
     ctx.set_global("phase", "fighting");
-    spawn_wave(ctx, next);
+    ctx.play_sound("audio/wave.ogg");
+    let plan = wave_plan(w);
+    let kinds = ["grunt", "swarmer", "brute", "gunner"];
+    let q = [];
+    for k in 0..4 { for n in 0..plan[k] { q.push(kinds[k]); } }
+    // Shuffle so kinds arrive mixed.
+    for i in 0..q.len() {
+        let j = ctx.random_int(0, q.len() - 1);
+        let t = q[i];
+        q[i] = q[j];
+        q[j] = t;
+    }
+    ctx.set_global("queue", q);
+    if w == total_waves() { spawn_boss(ctx); }
 }
 
-fn spawn_wave(ctx, wave) {
-    for i in 0..grunts_for(wave) {
-        spawn_enemy(ctx, "grunt", "g", "Red", grunt_hp(), 1.0, 1.0);
+fn spawn_queued(ctx, n) {
+    let q = ctx.get_global("queue");
+    if q.len() == 0 { return; }
+    for i in 0..n {
+        if q.len() == 0 { break; }
+        spawn_enemy(ctx, q.pop());
     }
-    for i in 0..swarmers_for(wave) {
-        spawn_enemy(ctx, "swarmer", "s", "Yellow", swarmer_hp(), 1.0, 1.0);
-    }
-    for i in 0..brutes_for(wave) {
-        spawn_enemy(ctx, "brute", "B", "Magenta", brute_hp(), 2.0, 2.0);
-    }
+    ctx.set_global("queue", q);
 }
 
-/// Spawns one enemy and records its HP.
-///
-/// Non-solid on purpose: a solid enemy would be pushed out of the player by
-/// `late_step`'s resolver (the player is the one entity that resolver acts
-/// on), turning every contact into a shove instead of a hit. As a trigger it
-/// overlaps freely and `contact_damage` decides what that means.
-///
-/// HP lives in this enemy's own `Vars` (`ctx.set_var`, Step 7.5-3,
-/// docs/ember2d-master-plan.md §5.6) — real per-entity component state that
-/// doesn't need the entity to have a script of its own (unlike `globals`/
-/// `persistent`, which live on `PlayState`, not `World`, and have no
-/// concept of "this entity's own" data at all). This used to be a
-/// `"ehp_" + id` global specifically because a spawned, unscripted enemy
-/// had no OTHER way to own per-entity state; `Vars` closes that gap
-/// directly, so `bullet.rhai`'s own `resolve_hit` (Step 7.5-5) no longer
-/// needs to `remove_global` by hand on a kill either — `World::despawn`
-/// clears the whole component.
-fn spawn_enemy(ctx, tag, glyph, colour, hp, w, h) {
-    let p = spawn_pos(ctx);
-    let e = ctx.spawn_entity(glyph, p[0], p[1], tag, colour, "Reset", 8, false, w, h, "enemy");
-    ctx.set_var(e, "hp", hp);
-}
-
-/// A random open cell at least 12 cells from the player, so a wave never
-/// materialises on top of them. Falls back to the last candidate after 20
-/// tries rather than looping forever — a crowded arena still has to spawn
-/// something, and an enemy that starts slightly too close is a far better
-/// failure than a hung frame.
-fn spawn_pos(ctx) {
+/// A random open spot 25-60 cells from the player (off screen, but not
+/// so far it takes forever to arrive).
+fn spawn_spot(ctx) {
     let player = ctx.find_by_tag("player");
     let px = ctx.get_x(player);
     let py = ctx.get_y(player);
-
     let x = 0.0;
     let y = 0.0;
-    for tries in 0..20 {
-        x = ctx.random_int(2, 76).to_float();
-        y = ctx.random_int(2, 20).to_float();
-        if ctx.is_solid_at(x, y) { continue; }
-        let dx = x - px;
-        let dy = y - py;
-        if dx * dx + dy * dy < 144.0 { continue; }
-        return [x, y];
+    for tries in 0..25 {
+        x = ctx.random_int(2, 157).to_float();
+        y = ctx.random_int(2, 57).to_float();
+        if ctx.is_solid_at(x, y) || ctx.is_solid_at(x + 1.0, y + 1.0) { continue; }
+        let d2 = (x - px) * (x - px) + (y - py) * (y - py);
+        if d2 > 625.0 && d2 < 3600.0 { return [x, y]; }
     }
     [x, y]
 }
 
-// ── Enemies ──────────────────────────────────────────────────────────────────
-
-fn steer_enemies(ctx, player) {
-    if player == -1 { return; }
-    let px = ctx.get_x(player);
-    let py = ctx.get_y(player);
-    steer_group(ctx, "grunt", grunt_speed(), px, py);
-    steer_group(ctx, "swarmer", swarmer_speed(), px, py);
-    steer_group(ctx, "brute", brute_speed(), px, py);
+fn spawn_enemy(ctx, kind) {
+    let s = stats(kind);
+    let at = spawn_spot(ctx);
+    let e = ctx.spawn_entity(s[0], at[0], at[1], kind, s[1], "Reset", 8, false, s[4], s[4], "enemy");
+    ctx.set_var(e, "hp", s[2]);
+    ctx.set_var(e, "points", s[5]);
+    ctx.set_var(e, "colour", s[1]);
+    if kind == "gunner" { ctx.set_var(e, "next_shot", ctx.get_elapsed() + 1.0 + ctx.random_float()); }
+    e
 }
 
-/// Points every enemy of one type at the player and writes its velocity;
-/// `World::integrate_physics` does the actual moving.
-///
-/// Re-steered every step rather than once at spawn, which is what makes them
-/// track a moving target. It is also cheap: this is a velocity write, not a
-/// path search.
-fn steer_group(ctx, tag, speed, px, py) {
-    let list = ctx.find_all_by_tag(tag);
-    for e in list {
-        let ex = ctx.get_x(e);
-        let ey = ctx.get_y(e);
-        let dx = px - ex;
-        let dy = py - ey;
-        let d2 = dx * dx + dy * dy;
-        if d2 < 0.01 {
-            ctx.set_velocity(e, 0.0, 0.0);
-            continue;
-        }
-        let inv = 1.0 / d2.sqrt();
-        dx *= inv;
-        dy *= inv;
-
-        // Wall slide. The engine resolves solid overlap for the player only,
-        // so without this an enemy walks straight through a cover block.
-        // Testing the adjacent cell on each axis and dropping whichever one is
-        // blocked leaves the other component intact, so the enemy slides along
-        // the face instead of stopping dead against it.
-        //
-        // Deliberately a one-cell point probe, not a swept box: it under-tests
-        // the 2x2 brute, which can clip a block corner. Visible only if you go
-        // looking, and a real fix belongs in the engine's collision resolver
-        // rather than in nine lines of Rhai.
-        if dx > 0.0 && ctx.is_solid_at(ex + 1.0, ey) { dx = 0.0; }
-        else if dx < 0.0 && ctx.is_solid_at(ex - 1.0, ey) { dx = 0.0; }
-        if dy > 0.0 && ctx.is_solid_at(ex, ey + 1.0) { dy = 0.0; }
-        else if dy < 0.0 && ctx.is_solid_at(ex, ey - 1.0) { dy = 0.0; }
-
-        ctx.set_velocity(e, dx * speed, dy * speed);
+/// The boss: an armoured core (`O`) ringed by eight parts that move with
+/// it (each parented to the core). A bullet hitting a part hurts the core
+/// (bullet.rhai passes the hit to the part's parent).
+fn spawn_boss(ctx) {
+    let core = spawn_enemy(ctx, "boss");
+    ctx.set_var(core, "next_ring", ctx.get_elapsed() + 2.0);
+    ctx.set_global("boss_alive", true);
+    let parts = [[-1, -1, "/"], [0, -1, "-"], [1, -1, "\\"], [-1, 0, "|"], [1, 0, "|"], [-1, 1, "\\"], [0, 1, "-"], [1, 1, "/"]];
+    for p in parts {
+        let part = ctx.spawn_entity(p[2], p[0] * 1.0, p[1] * 1.0, "boss_part", "#ff8040", "#401008", 8, false, 1.0, 1.0, "enemy");
+        ctx.set_parent(part, core);
     }
 }
 
-fn is_enemy(ctx, e) {
-    ctx.has_tag(e, "grunt") || ctx.has_tag(e, "swarmer") || ctx.has_tag(e, "brute")
+fn wave_hud(ctx) {
+    let s = "WAVE " + ctx.get_global("wave") + "/" + total_waves() + "  LEFT " + (enemies_left(ctx) + ctx.get_global("queue").len());
+    ctx.draw_hud(ctx.get_viewport_width() - s.len() - 2, 1, s, "#40c0ff", "#101018");
+    let core = ctx.find_by_tag("boss");
+    if core >= 0 {
+        let hp = ctx.get_var(core, "hp");
+        let w = 40;
+        let x = ctx.get_viewport_width() / 2 - w / 2;
+        ctx.fill_rect(x, 2, w, 1, " ", "White", "#401008");
+        let fill = (hp * w / 150).to_int();
+        if fill > 0 { ctx.fill_rect(x, 2, fill, 1, " ", "White", "#e04010"); }
+        ctx.draw_hud(x + 15, 2, " THE CORE ", "White", "#e04010");
+    } else if ctx.has_global("boss_alive") {
+        ctx.remove_global("boss_alive");
+        for p in ctx.find_all_by_tag("boss_part") { ctx.despawn(p); }
+    }
 }
 
-fn contact_dmg_for(ctx, e) {
-    if ctx.has_tag(e, "brute") { return 3; }
-    if is_enemy(ctx, e) { return 1; }
-    0
+fn centre(ctx, y, text, fg, bg) {
+    ctx.draw_hud((ctx.get_viewport_width() - text.len()) / 2, y, text, fg, bg);
 }
 
-/// One contact hit at a time, gated by an invulnerability deadline — without
-/// it, standing in a swarmer would deal damage on all 60 steps of a second.
-///
-/// Takes the single largest damage value among everything touching the player
-/// rather than summing, so being surrounded is punishing but not instantly
-/// lethal, and so this stays a single "hp" write per pass.
-fn contact_damage(ctx, player, now) {
-    if player == -1 { return; }
-    if !ctx.has_global("hp") { return; }
-    let hp = ctx.get_global("hp");
-    if hp <= 0 { return; }
-    if now < ctx.get_global("hurt_until") { return; }
+// ── Steering and shooting ────────────────────────────────────────────────
 
+/// Every enemy, kind by kind: point it at the player (sliding along walls,
+/// since nothing pushes an enemy out of a wall but this), and let gunners
+/// and the boss shoot.
+fn steer(ctx, player, now) {
     let px = ctx.get_x(player);
     let py = ctx.get_y(player);
-    // The player's collider is 0.7x0.7 anchored at (px, py); widened half a
-    // cell each way so a hit registers as the glyphs meet rather than after
-    // they visibly overlap.
-    let near = ctx.find_entities_in_rect(px - 0.3, py - 0.3, 1.3, 1.3);
+    let wander = ctx.has_global("stress");
+    for kind in ["grunt", "swarmer", "brute", "gunner", "boss"] {
+        let speed = stats(kind)[3];
+        for e in ctx.find_all_by_tag(kind) {
+            let ex = ctx.get_x(e);
+            let ey = ctx.get_y(e);
+            // The stress test's crowd wanders between random goals instead
+            // of mobbing the player (so the bullet ring has room to fly).
+            let tx = if wander { ctx.get_var(e, "gx") } else { px };
+            let ty = if wander { ctx.get_var(e, "gy") } else { py };
+            let dx = tx - ex;
+            let dy = ty - ey;
+            if wander && dx * dx + dy * dy < 4.0 {
+                ctx.set_var(e, "gx", ctx.random_int(3, 156).to_float());
+                ctx.set_var(e, "gy", ctx.random_int(3, 56).to_float());
+            }
+            let d2 = dx * dx + dy * dy;
+            if d2 < 0.01 { ctx.set_velocity(e, 0.0, 0.0); continue; }
+            let d = d2.sqrt();
+            dx /= d;
+            dy /= d;
+            if kind == "gunner" {
+                // Hold at 8-13 cells: back off when close, circle when in range.
+                if d < 8.0 { dx = -dx; dy = -dy; }
+                else if d < 13.0 { let t = dx; dx = -dy; dy = t; }
+                if d < 24.0 && now >= ctx.get_var(e, "next_shot") {
+                    fire(ctx, ex, ey, (px - ex) / d, (py - ey) / d, 16.0);
+                    ctx.set_var(e, "next_shot", now + 1.4 + ctx.random_float() * 0.6);
+                }
+            } else if kind == "boss" {
+                if d < 10.0 { let t = dx; dx = -dy; dy = t; }
+                boss_attack(ctx, e, ex, ey, now);
+            }
+            if dx > 0.0 && ctx.is_solid_at(ex + 1.0, ey) { dx = 0.0; }
+            else if dx < 0.0 && ctx.is_solid_at(ex - 1.0, ey) { dx = 0.0; }
+            if dy > 0.0 && ctx.is_solid_at(ex, ey + 1.0) { dy = 0.0; }
+            else if dy < 0.0 && ctx.is_solid_at(ex, ey - 1.0) { dy = 0.0; }
+            ctx.set_velocity(e, dx * speed, dy * speed);
+        }
+    }
+}
 
+/// An enemy shot from (x, y) along the unit direction (dx, dy).
+fn fire(ctx, x, y, dx, dy, speed) {
+    let b = ctx.spawn_entity("o", x + dx * 0.8, y + dy * 0.8, "ebullet", "#ff7040", "Reset", 11, false, 0.4, 0.4, "ebullet");
+    ctx.set_collider_mask(b, ["player", "solid"]);
+    ctx.set_velocity(b, dx * speed, dy * speed);
+    ctx.set_script(b, "scripts/ebullet.rhai");
+}
+
+/// Sixteen directions around a circle, written down rather than computed
+/// with sin/cos (see player.rhai's header: the simulation must be the same
+/// on every machine).
+fn ring16() {
+    [[1.0, 0.0], [0.9239, 0.3827], [0.7071, 0.7071], [0.3827, 0.9239], [0.0, 1.0], [-0.3827, 0.9239],
+     [-0.7071, 0.7071], [-0.9239, 0.3827], [-1.0, 0.0], [-0.9239, -0.3827], [-0.7071, -0.7071], [-0.3827, -0.9239],
+     [0.0, -1.0], [0.3827, -0.9239], [0.7071, -0.7071], [0.9239, -0.3827]]
+}
+
+fn boss_attack(ctx, e, x, y, now) {
+    if now < ctx.get_var(e, "next_ring") { return; }
+    let angry = ctx.get_var(e, "hp") < 75;
+    for d in ring16() { fire(ctx, x, y, d[0], d[1], 11.0); }
+    ctx.play_sound("audio/enemy_shot.ogg");
+    ctx.set_var(e, "next_ring", now + if angry { 1.0 } else { 1.8 });
+    if angry && ctx.random_bool(0.3) {
+        for k in 0..3 { spawn_enemy(ctx, "swarmer"); }
+    }
+}
+
+/// One contact hit at a time — the largest of whatever touches the player
+/// — then a short invulnerability ("hurt_until", shared with enemy shots).
+fn contact_damage(ctx, player, now) {
+    if ctx.get_global("hp") <= 0 || now < ctx.get_global("hurt_until") { return; }
+    let px = ctx.get_x(player);
+    let py = ctx.get_y(player);
     let dmg = 0;
-    for e in near {
-        let d = contact_dmg_for(ctx, e);
+    for e in ctx.find_entities_in_rect(px - 0.3, py - 0.3, 1.3, 1.3) {
+        let d = if ctx.has_tag(e, "brute") || ctx.has_tag(e, "boss") || ctx.has_tag(e, "boss_part") { 3 }
+            else if ctx.has_var(e, "points") { 1 } else { 0 };
         if d > dmg { dmg = d; }
     }
     if dmg == 0 { return; }
-
-    ctx.set_global("hp", hp - dmg);
+    let _hp = ctx.add_global("hp", -dmg);
     ctx.set_global("hurt_until", now + 0.7);
-    ctx.shake_camera(2.0, 0.15);
+    ctx.play_sound("audio/hurt.ogg");
     ctx.emit_particles(px, py, "!", "Red");
+    if ctx.get_global("shake") { ctx.shake_camera(2.0, 0.15); }
 }
 
-// ── HUD ──────────────────────────────────────────────────────────────────────
+// ── The stress test (stress.level) ───────────────────────────────────────
 
-fn draw_centre(ctx, y, text, fg) {
-    let x = (ctx.get_viewport_width() - text.len()) / 2;
-    ctx.draw_hud(x, y, text, fg, "Reset");
-}
-
-fn draw_breather(ctx, left) {
-    let next = ctx.get_global("wave") + 1;
-    // +1.0 then truncate, so the countdown reads 3, 2, 1 rather than 2, 1, 0.
-    let secs = (left + 1.0).to_int();
-    let s = "WAVE " + next;
-    s += " OF " + total_waves();
-    s += "  IN  " + secs;
-    draw_centre(ctx, 11, s, "Cyan");
-}
-
-fn draw_wave_status(ctx) {
-    let s = "WAVE " + ctx.get_global("wave");
-    s += "/" + total_waves();
-    s += "   LEFT " + enemies_left(ctx);
-    ctx.draw_hud(58, 0, s, "Cyan", "Reset");
+/// Keeps about 240 enemies alive and a ring of player bullets pouring out,
+/// with the player unharmed — 300-400 live entities, steadily, to watch the
+/// frame rate (F3) and measure the simulation (`bench_sim`).
+fn stress(ctx, player, now) {
+    ctx.set_global("hp", 12);
+    let alive = ctx.count_by_tag("grunt") + ctx.count_by_tag("swarmer");
+    for i in 0..4 {
+        if alive + i < 240 {
+            // Tough enough that the bullet ring doesn't thin them out: the
+            // point is a steady crowd, not a fair fight.
+            let e = spawn_enemy(ctx, if ctx.random_bool(0.5) { "grunt" } else { "swarmer" });
+            ctx.set_var(e, "hp", 50);
+            ctx.set_var(e, "gx", ctx.random_int(3, 156).to_float());
+            ctx.set_var(e, "gy", ctx.random_int(3, 56).to_float());
+        }
+    }
+    let k = ctx.add_global("stress_tick", 1);
+    let dirs = ring16();
+    let px = ctx.get_x(player);
+    let py = ctx.get_y(player);
+    for j in 0..6 {
+        let d = dirs[(k.to_int() * 5 + j * 3) % 16];
+        let b = ctx.spawn_entity("*", px + d[0], py + d[1], "bullet", "White", "Reset", 12, false, 0.4, 0.4, "pbullet");
+        ctx.set_collider_mask(b, ["enemy", "solid"]);
+        ctx.set_velocity(b, d[0] * 34.0, d[1] * 34.0);
+        ctx.set_script(b, "scripts/bullet.rhai");
+    }
+    let n = alive + ctx.count_by_tag("bullet") + ctx.count_by_tag("ebullet");
+    ctx.draw_hud(ctx.get_viewport_width() - 32, 1, " STRESS TEST  entities " + n + " ", "Black", "#ffe040");
 }

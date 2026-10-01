@@ -24,7 +24,12 @@ fn on_update(id, ctx)
 fn on_turn(id, ctx)
 fn on_collide(id, other, ctx)
 ```
-All optional. A missing function is not an error.
+All optional. A missing function is not an error, and since Step 9.5-5 it
+costs nothing either: the engine notes which of these each script defines
+when it compiles it, and doesn't call the rest. A bullet whose script has
+only `on_collide` is free every frame until it hits something. Before,
+every scripted entity's `on_update` was looked up every step, and a miss
+built an error value that was then thrown away.
 
 `on_load` (Step 7.5-5, docs/ember2d-master-plan.md §5.6) runs once per
 scripted entity, **instead of** `on_start`, on the one path `on_start`
@@ -689,6 +694,24 @@ Per-entity (`Vars`, cleared on despawn): `set_var(id,key,value)` · `get_var(id,
 > `docs/ember2d-scripting-api.md` §2's note above), and `add_var` gives it
 > the same atomic-accumulate guarantee `add_global`/`add_persistent` have.
 
+### Save data (Step 9.5-5)
+`save_data(path, value)` · `load_data(path)` → value or `()`
+
+Keeps one script value (a number, a string, a map) in its own small RON
+file, for what has to outlive a run: a best score, an option.
+`save_game` stores a whole game, which is the wrong tool for that.
+
+- **Paths** work as `save_game`'s do: as given, relative to the working
+  directory. The demos use `.sav` names, which the repository ignores.
+- **`save_data`** writes after the pass, alongside `save_game`.
+- **`load_data`** reads at once, through the simulation's level source. A
+  missing or unreadable file reads as `()`: test it with
+  `type_of(v) == "()"`.
+- **Not replay-safe:** a loaded value is whatever is on this machine's
+  disk. Keep it for things a replay needn't reproduce.
+
+See `demos/shooter/scripts/player.rhai`.
+
 ### Timers
 `start_timer(name,seconds)` · `timer_done(name)` · `cancel_timer(name)`
 
@@ -966,6 +989,7 @@ Rhai (`go` is one) and can't name a function.
 | 9 | Step 9-4: `load_level(path, spawn)`; exit targets `path#spawn`; `get_spawn_point("player")` now returns the player's start | **No** — additive. Level format v7 (`spawns`) is a level-file change, not an API one; older levels are migrated when they load. |
 | 9 | Step 9-5: `project.ron`'s `world_cell` — `get_mouse_world_x/y` divide by it | **No** — additive; a project without `world_cell` behaves exactly as before. |
 | 9 | Step 9-7: `set_size`, `set_flip`, `set_sprite`, `play_project_clip`/`play_project_clip_once`, `set_y_sort` | **No** — additive. |
+| 9.5 | Step 9.5-5: `save_data`, `load_data`; lifecycle functions a script doesn't define are no longer called | **No** — additive; skipping an undefined function changes nothing a script can observe. |
 | 9.5 | Step 9.5-3: `make_actor`, `set_random_seed`; the project setting `ai_turns_per_step` | **No** — additive; a project without the setting resolves one actor per step, exactly as before. |
 | 9.5 | Step 9.5-2: `compute_fov`, `is_in_fov`, `is_explored`, `fov_reset`, `set_fov_visibility` | **No** — additive; a level that never calls `compute_fov` draws exactly as before. A save gains `World::fov`/`fov_visibility` (`serde(default)`). |
 | 9.5 | Step 9.5-1: `tile_def`, `tilemap_resize`, `tile_set`/`tile_set_layer`, `tile_fill`/`tile_fill_layer`, `tile_clear`/`tile_clear_layer`, `tile_clear_rect`/`tile_clear_rect_layer`, `get_tile` | **No** — additive. A save gains `World::tile_defs` (`serde(default)`; older saves load without it). |

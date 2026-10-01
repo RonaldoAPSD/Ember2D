@@ -187,7 +187,7 @@ start screen's New/Open Project browsers start from.
 | 7.5 | Scripting completeness | `[~]` — §5.6: all 13 steps `[x]`; gate open, awaiting the user's live checklist §11–§13 pass (shooter LOC exception accepted 2026-09-29) |
 | 8 | Tilemap, assets, animation authoring | `[~]` — §5.7: all 4 steps `[x]`; gate pass run 2026-10-01 (automated + live, R103/R104/R106 fixed in it), awaiting the user's OK to tag `v0.5.9` |
 | 9 | Scene and UI layer + RPG demo | `[~]` — §5.8: 9-1 to 9-8 landed and the gate pass is done (2026-10-01): all three demos play, the RPG tutorial replayed in a fresh project. Awaiting the user's OK to tag `v0.5.10` |
-| 9.5 | Demo expansion as engine stress tests | `[~]` — §5.8.5: 9.5-1 tilemap API (`c07dc73`), 9.5-2 field of view (`fc7e0a4`) and 9.5-3/9.5-4 the generated roguelike (`25b5325`, then items and progression `dabe571`) landed; next the 20-floor procedural roguelike, the shooter as a stress test, tutorials (planned 2026-10-01) |
+| 9.5 | Demo expansion as engine stress tests | `[~]` — §5.8.5: 9.5-1 tilemap API (`c07dc73`), 9.5-2 field of view (`fc7e0a4`) and 9.5-3/9.5-4 the generated roguelike (`25b5325`, `dabe571`) and 9.5-5 the shooter landed; next the 20-floor procedural roguelike, the shooter as a stress test, tutorials (planned 2026-10-01) |
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
 
@@ -5597,7 +5597,7 @@ loot; victory by carrying the Amulet up from floor 20; balance across the
 generated and connected; a scripted fight). Tutorial
 `docs/tutorials/roguelike.md`.
 
-- **Landed as:** no engine change. All in `demos/roguelike/scripts/`.
+- **Landed as** (`dabe571`): no engine change. All in `demos/roguelike/scripts/`.
   - **`player.rhai`**, rewritten around menus and aiming in `on_input`.
     Only the final choice becomes a command, carrying the pack slot and
     the target cell, so turns and replays stay in `on_turn`.
@@ -5644,13 +5644,80 @@ generated and connected; a scripted fight). Tutorial
     - the generator and the turn-based player typed into the Scripter;
     - F5: a generated floor revealed under fog, walked turn by turn.
 
-#### `[ ]` 9.5-5 — Shooter expansion
+#### `[x]` 9.5-5 — Shooter expansion
 A large scrolling arena (camera follow and bounds), enemy projectiles,
 spread and shotgun powerups, a boss wave, particles, shake, audio, a
 saved high score, a pause scene with options. Stress target: about 300
 live bullets and enemies at 60 FPS in the debug build, plus a
 `bench_sim` shooter scenario. Retires `gen_shooter.rs`. Tutorial
 `docs/tutorials/shooter.md`.
+
+- **Landed as:** "Ember Assault", `demos/shooter/`, rebuilt around a
+  160×60 arena: a wall ring, cover blocks, corner bunkers, a central
+  ring, floor dots so scrolling reads.
+  - **Scripts:**
+    - `player.rhai`: WASD and mouse aim. Four weapons: pistol, spread,
+      shotgun, rapid. The spread angles are precomputed cosines and sines,
+      so no libm. Pickups, the HUD, the best score.
+    - `bullet.rhai`, `ebullet.rhai`: `on_collide` only. `pellet.rhai`
+      adds a lifetime.
+    - `director.rhai`:
+      - twelve waves from a shuffled queue, three spawns a frame, 25–60
+        cells from the player;
+      - grunts, swarmers, 2×2 brutes, and gunners that keep their
+        distance and shoot;
+      - the Core boss: eight `set_parent` armour parts pass hits to the
+        core, rings of 16 shots, swarmer calls when hurt, a health bar;
+      - contact damage with shared i-frames;
+      - loot drops, Kenney CC0 sci-fi sound effects (`audio/`, credited),
+        camera bounds;
+      - on `stress.level` (director tile tagged `stress`): about 240
+        wandering enemies plus a six-a-frame bullet ring.
+    - `scenes/pause.rhai`: Resume / Restart / Screen shake ON-OFF (saved)
+      / Quit.
+  - **Engine additions** (additive):
+    - `save_data`/`load_data`: one value per small RON file, read through
+      the level source, written alongside `save_game`.
+    - Lifecycle functions a script doesn't define aren't called any more
+      (`ScriptEngine::lifecycle_fns`, filled in `cache_ast`). Every miss
+      used to build and drop an error, for every entity, every step.
+    - **Level > Collision Layers...** in the editor. A level's layer
+      names had no UI, so script-spawned "enemy"/"pbullet" layers
+      resolved to no bit and masks filtered nothing.
+    - `Simulation::globals_mut` for tests.
+    - `bench_sim`: a real-time scenario (step, physics, collisions and
+      late step each frame, after a warm-up) for the stress level, with a
+      phase breakdown.
+  - **The old shooter.** The classic 80×24 arena and its scripts are test
+    fixtures in `ember2d/tests/fixtures/classic_shooter/`
+    (`shooter_arena.rs` repointed). `gen_shooter.rs` is deleted.
+  - **Stress numbers:** **60 FPS live in a debug build with 315
+    entities** (F3). `bench_sim --release` gives 2.64 ms/step for ~293
+    entities, of which snapshot 0.29 and collisions 0.05; the rest is the
+    director's Rhai loop. 7.7k allocations a step, down from 8.1k with
+    the lifecycle skip. Headless debug: 3.35 ms/step for 310.
+  - **Tests (9 new):**
+    - `tests/shooter_siege.rs` (8):
+      - the arena and its layers;
+      - wave 1 trickling in away from the player;
+      - bullets killing and expiring;
+      - spread and shotgun patterns;
+      - gunners firing;
+      - the boss's ring and its death;
+      - a death saving the best score;
+      - the stress level holding 300+.
+    - The editor's Collision Layers prompt (trimmed, de-duplicated; commas
+      or spaces).
+
+    690 workspace tests.
+  - **Live:** waves and fighting while scrolling; the boss wave with
+    gunners, shots and the shotgun timer; the pause menu toggling and
+    saving shake; the stress level at 60 FPS.
+  - **Tutorial:** `docs/tutorials/shooter.md`, 9 screenshots. Its first
+    stages were replayed in a fresh real-time project through the GUI:
+    a wall line, the spawn, the layers typed into the new prompt, a
+    director tile with its script, three scripts typed in the Scripter;
+    F5, then grunts chasing and shot down.
 
 #### `[ ]` 9.5-6 — Tutorials index and gate
 `docs/tutorials/README.md`, a "your first project" tutorial, stress

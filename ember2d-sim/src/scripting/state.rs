@@ -432,6 +432,9 @@ pub(super) struct ScriptState {
     pub(super) tile_ops: Vec<super::tiles::TileOp>,
     /// Step 9.5-2: this pass's field-of-view requests (`fov_api.rs`).
     pub(super) fov_ops: Vec<super::fov_api::FovOp>,
+    /// Step 9.5-5: `save_data` requests, and where `load_data` reads.
+    pub(super) pending_data_saves: Vec<(String, rhai::Dynamic)>,
+    pub(super) data_source: Option<Rc<dyn crate::level_source::LevelSource>>,
     pub(super) pending_shake: Option<ShakeState>,
     pub(super) pending_visibility: Vec<(i64, bool)>,
     pub(super) pending_z_order: Vec<(i64, i32)>,
@@ -660,6 +663,8 @@ impl ScriptState {
             sprite_ops: Vec::new(),
             tile_ops: Vec::new(),
             fov_ops: Vec::new(),
+            pending_data_saves: Vec::new(),
+            data_source: None,
             pending_shake: None,
             pending_visibility: Vec::new(),
             pending_z_order: Vec::new(),

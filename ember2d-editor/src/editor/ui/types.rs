@@ -186,6 +186,8 @@ pub enum ToolbarAction {
     CloseProject,
     RenameLevel,
     ResizeLevel,
+    /// Step 9.5-5: Level > Collision Layers... (the level's layer names).
+    CollisionLayers,
     SetSpawn,
     AddNamedSpawn,
     NewLevel,

@@ -16,7 +16,7 @@ Ember2D is a 2D/ASCII game engine and editor in Rust. GPU rendering via `wgpu` w
 | `docs/ember2d-scripting-api.md` | The Rhai API. This is the engine's real public contract — treat breaking it like breaking the level format. |
 | `docs/ember2d-regression-checklist.md` | Manual test checklist. Run the sections named in the phase at every phase gate (master plan §0.5). |
 | `docs/ember2d-theming.md` | Editor chrome theme file format, palette/slice roles, how to author a chrome atlas, runtime theme switching (7D-4, master plan §5.4). |
-| `docs/tutorials/` | Build-along tutorials, one per demo (`rpg.md`: the sprite RPG in `demos/rpg/`; `roguelike.md`: the generated 20-floor roguelike in `demos/roguelike/`). Each is written against the shipped demo and is replayed in a fresh project as its step's acceptance test. |
+| `docs/tutorials/` | Build-along tutorials, one per demo (`rpg.md`: the sprite RPG in `demos/rpg/`; `roguelike.md`: the generated 20-floor roguelike in `demos/roguelike/`; `shooter.md`: the arena shooter and stress test in `demos/shooter/`). Each is written against the shipped demo and is replayed in a fresh project as its step's acceptance test. |
 | `docs/archive/` | Completed phase plans, the original refactor plan, the RPG feasibility study, the old handoff note. Historical record only — master plan Appendix B says what each still holds. Never update these. |
 
 ## Build & Run
@@ -61,7 +61,8 @@ those aren't reachable from `ember2d` at all anymore; use
 repo root, 7C-5 follow-up, docs/ember2d-master-plan.md §5.3 R-series —
 and the `rpg` sprite demo, Step 9-8; the roguelike became a generated
 20-floor game in Step 9.5-3, its old hand-built floors now test fixtures in
-`ember2d/tests/fixtures/classic_roguelike/`) and
+`ember2d/tests/fixtures/classic_roguelike/`; the shooter's classic arena
+likewise in `fixtures/classic_shooter/` since 9.5-5) and
 `docs/` stay at the **repo root**, not inside any crate — `cargo run`'s CWD
 is wherever it's invoked from (the repo root, by convention), so
 `cargo run -- demos/roguelike/title.level` keeps working unchanged.
@@ -87,7 +88,7 @@ own comment on this for the full explanation.
   until Phase 7.
 - **Engine loop** — `ember2d/src/engine.rs`: `winit` via `pump_events`, fixed-timestep accumulator, state stack (push/pop/pause/resume). The actual per-step sequence (consume input, update, conditionally physics/collisions/late_update) lives in `ember2d/src/sim.rs` (Step 5d) — shared with the headless `TurnHarness` test harness so there's only one copy of it.
 - **Level format** — RON via `serde`/`ron`, `.level` files, `LEVEL_FORMAT_VERSION` (currently 7 — master plan step 8-1 added the baked `tilemap` section, every static tile in one compact `Tilemap` grid on one entity instead of an entity per tile (a v3 level still loads and collapses at load); step 8-2 added `TileRecord::sprite`, a tile drawn from a named region of a tileset (`<project>/assets/tilesets/<name>.ron`, written by the editor's File > Import Tileset...); step 8-3 added `TileRecord::clip`, an animated tile playing a project clip (`<project>/assets/clips/<name>.ron`, built in File > Animation Clips...); step 9-4 replaced `spawn_point`/`extra_spawns` with one `spawns` name → position map (`"player"` is the default start; a pre-v7 level migrates at load) so a transition can enter at a named spawn. Every shipped `roguelike/`/`shooter/` level is regenerated to the current version, and `LevelData::load` rejects a level from a newer format version instead of loading it blind, R8/7A-4).
-- **Scripting** — `ember2d-sim/src/scripting/`: 243 registered functions (`API_VERSION` 7), deferred mutation queue. `on_input`/`on_turn` (Phase 5 Steps 5e/5f) split "read input" from "act" from the older `on_update`/`on_start`/`on_collide` lifecycle — see `docs/ember2d-scripting-api.md`.
+- **Scripting** — `ember2d-sim/src/scripting/`: 245 registered functions (`API_VERSION` 7), deferred mutation queue. `on_input`/`on_turn` (Phase 5 Steps 5e/5f) split "read input" from "act" from the older `on_update`/`on_start`/`on_collide` lifecycle — see `docs/ember2d-scripting-api.md`.
 - **Turn scheduling** — `ember2d-sim/src/scheduler.rs`: `TurnScheduler`, a deterministic min-heap turn queue (Step 5f).
 - **Editor** — `ember2d-editor/src/editor/`: layer-aware grid, float zoom, dockable panels, palette editor, in-engine script editor, node-based visual scripter (generates Rhai via `ember2d-sim/src/graph/`).
 - **Save system** — `ember2d-sim/src/save.rs`: full `World` serialization, plus script `globals`/`clips` (Step 5c, D17 fix).
@@ -134,6 +135,7 @@ own comment on this for the full explanation.
 | Math utilities | ember2d-sim/src/math.rs |
 | Top-level Editor↔Play orchestration | ember2d-app/src/app.rs |
 | RPG demo (Step 9-8) + its tests | demos/rpg/, ember2d/tests/rpg_demo.rs, ember2d-editor/tests/editor_demo_levels.rs |
+| Shooter demo (Step 9.5-5: arena, waves, boss, stress level) + its tests | demos/shooter/, ember2d/tests/shooter_siege.rs; the classic 80x24 arena: ember2d/tests/fixtures/classic_shooter/ |
 | Roguelike demo (generated floors, Step 9.5-3) + its tests | demos/roguelike/ (dungeon.rhai builds each floor), ember2d/tests/roguelike_dungeon.rs; the classic floors: ember2d/tests/fixtures/classic_roguelike/ |
 
 ## Development Rules

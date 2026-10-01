@@ -104,6 +104,7 @@ pub fn menu_entries(kind: MenuKind) -> Vec<MenuEntry> {
             Sep,
             Item { label: "Rename Level", shortcut: "N   ", action: RenameLevel },
             Item { label: "Resize Level", shortcut: "Z   ", action: ResizeLevel },
+            Item { label: "Collision Layers...", shortcut: "    ", action: CollisionLayers },
             Sep,
             Item { label: "Set Spawn", shortcut: "P   ", action: SetSpawn },
             Item { label: "Add Spawn...", shortcut: "S+P ", action: AddNamedSpawn },

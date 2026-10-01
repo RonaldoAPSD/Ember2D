@@ -1,119 +1,56 @@
-// demos/shooter/scripts/bullet.rhai — a fired bullet's own hit detection and
-// kill resolution (Step 7.5-5, docs/ember2d-master-plan.md §5.6).
-//
-// Attached by `demos/shooter/scripts/player.rhai`'s `do_shoot`, via
-// `ctx.set_script`, to every bullet it fires — previously impossible (no
-// `set_script` in the API), which is why director.rhai used to scan every
-// "bullet"-tagged entity by hand each step (`update_bullets`/`resolve_hits`,
-// now gone from that file). This file replaces both: hit detection and kill
-// resolution collapse into one function since there's no longer a batch of
-// bullets to dedupe hits across — this bullet's own on_update runs once,
-// finds at most one hit, and resolves it completely right there.
-//
-// THE FIRST-CALL STALENESS GUARD BELOW ISN'T OPTIONAL. `ctx.set_script`
-// attaches immediately, but this entity's `on_update` still runs against
-// whichever `WorldSnapshot` this call's `run_scripts` was handed — and when
-// `do_shoot` spawns-and-attaches a bullet from `on_input`, that snapshot was
-// built at the TOP of this same step, before the spawn landed. `ctx.get_x`/
-// `get_y` read that frozen snapshot, not live `World`, and default to 0.0
-// for an id they don't recognize — so this bullet's very first on_update
-// would see itself at (0.0, 0.0), outside the arena, and self-destruct on
-// the spot without ever having moved. `armed` (a `Vars` flag, Step 7.5-3)
-// skips exactly one call so real hit detection only starts once a FRESH
-// snapshot (built at the top of the NEXT step, by which point this bullet's
-// spawn is old news) exists — matching the pre-7.5-5 director.rhai's own
-// comment on this exact timing: "a bullet gets its first hit test on the
-// step after it exists... by which point physics has moved it off the
-// muzzle."
-//
-// ── Arena bounds (mirrors director.rhai's own copy) ─────────────────────────
-// Duplicated, not shared: this engine has no cross-script `use`/import today
-// (7.5-13 is the open question on whether Rhai modules are worth enabling
-// for that) — every script in this demo already owns its own tuning
-// constants as plain functions rather than reaching for another file's.
+// demos/shooter/scripts/bullet.rhai — a player bullet. It has no `on_update`
+// at all: physics flies it (its velocity), and the only moment it needs a
+// script is when it touches something — `on_collide`. Its collider tests
+// only the "enemy" and "solid" layers (player.rhai sets the mask), so that
+// means an enemy or a wall. A script with no `on_update` costs nothing per
+// frame (since Step 9.5-5 the engine skips a lifecycle function a script
+// doesn't define), which is what lets hundreds of bullets fly at once.
 
-fn min_x() { 1.0 }
-fn max_x() { 78.0 }
-fn min_y() { 1.0 }
-fn max_y() { 22.0 }
-
-fn is_enemy(ctx, e) {
-    ctx.has_tag(e, "grunt") || ctx.has_tag(e, "swarmer") || ctx.has_tag(e, "brute")
-}
-
-fn points_for(ctx, e) {
-    if ctx.has_tag(e, "brute") { return 50; }
-    if ctx.has_tag(e, "grunt") { return 10; }
-    5
-}
-
-fn on_update(id, ctx) {
-    if !ctx.has_var(id, "armed") {
-        ctx.set_var(id, "armed", true);
-        return;
-    }
-
-    let bx = ctx.get_x(id);
-    let by = ctx.get_y(id);
-
-    // Safety net only — the unbroken wall ring should always catch a bullet
-    // first. Kept so opening the arena boundary later can't leak bullets
-    // forever.
-    if bx < min_x() || bx > max_x() || by < min_y() || by > max_y() {
-        ctx.emit_particles(bx, by, "*", "DarkGrey");
+fn on_collide(id, other, ctx) {
+    if ctx.is_tilemap(other) {
+        ctx.emit_particles(ctx.get_x(id), ctx.get_y(id), ".", "DarkGrey");
         ctx.despawn(id);
         return;
     }
-
-    let player = ctx.find_by_tag("player");
-    // Matches this bullet's own 0.4x0.4 collider, so this query returns
-    // exactly what an engine-side collision would have. It also returns the
-    // bullet itself and anything harmless it happens to be flying over (a
-    // medkit), so both are skipped rather than treated as a hit.
-    //
-    // Walls are static tiles, which since engine Step 8-1 live in the
-    // level's one tilemap rather than as their own entities — so a wall hit
-    // comes back as the tilemap's id (`is_tilemap`), not an id tagged
-    // "wall". The `has_tag` half still catches a wall that IS its own
-    // entity (e.g. one given a script later), so nothing that used to stop
-    // a bullet stops stopping one.
-    let hits = ctx.find_entities_in_rect(bx, by, 0.4, 0.4);
-    for h in hits {
-        if h == id || h == player { continue; }
-        if ctx.is_tilemap(h) || ctx.has_tag(h, "wall") {
-            ctx.emit_particles(bx, by, "*", "DarkGrey");
-            ctx.despawn(id);
-            return;
-        }
-        if is_enemy(ctx, h) {
-            ctx.emit_particles(bx, by, "*", "DarkGrey");
-            ctx.despawn(id);
-            resolve_hit(ctx, h);
-            return;
-        }
-    }
+    // A boss part passes the hit to the boss itself (its parent).
+    let target = if ctx.has_tag(other, "boss_part") { ctx.get_parent(other) } else { other };
+    if target < 0 || !ctx.has_var(target, "hp") { return; }
+    ctx.despawn(id);
+    hit(ctx, target);
 }
 
-/// Applies this bullet's one point of damage to `e`; awards the kill and
-/// drops loot if it lands. `add_var`, not a read-modify-write — accumulates
-/// correctly even in the (currently impossible, since the fire cooldown
-/// spaces consecutive shots well apart) case of two bullets hitting the same
-/// enemy in one pass, same reasoning `demos/roguelike/scripts/enemy.rhai`'s
-/// own damage writes give.
-fn resolve_hit(ctx, e) {
+/// One point of damage; at exactly zero the enemy dies. (`add_var`
+/// returns the new value and is safe when several bullets hit the same
+/// enemy in one pass — each sees its own result — so only the hit that
+/// takes it to zero does the killing, once.)
+fn hit(ctx, e) {
     let hp = ctx.add_var(e, "hp", -1);
-    if hp > 0 { return; }
-    ctx.add_global("score", points_for(ctx, e));
+    if hp != 0 { return; }
+    ctx.add_global("score", ctx.get_var(e, "points"));
     ctx.add_global("kills", 1);
-    ctx.emit_particles(ctx.get_x(e), ctx.get_y(e), "x", "Red");
-    maybe_drop(ctx, e);
+    let x = ctx.get_x(e);
+    let y = ctx.get_y(e);
+    ctx.emit_particles(x, y, "*", ctx.get_var(e, "colour"));
+    if ctx.has_tag(e, "boss") {
+        ctx.set_global("boss_dead", true);
+        ctx.play_sound("audio/boss_explode.ogg");
+        for k in 0..6 { ctx.emit_particles(x - 2.0 + k, y - 1.0 + k % 3, "*", "#ff8020"); }
+    } else {
+        ctx.play_sound("audio/explode.ogg");
+    }
+    drop_loot(ctx, e, x, y);
     ctx.despawn(e);
 }
 
-/// Brutes always drop a medkit; anything else rarely does. Spawned non-solid
-/// so it's a trigger — player.rhai's `on_collide` picks it up.
-fn maybe_drop(ctx, e) {
-    if !ctx.has_tag(e, "brute") && !ctx.random_bool(0.06) { return; }
-    ctx.spawn_entity("+", ctx.get_x(e), ctx.get_y(e), "medkit", "Green", "Reset",
-                     6, false, 1.0, 1.0, "pickup");
+/// Brutes always leave a medkit; gunners sometimes leave a weapon; the
+/// rest rarely leave a medkit.
+fn drop_loot(ctx, e, x, y) {
+    let kind = "";
+    if ctx.has_tag(e, "brute") { kind = "medkit"; }
+    else if ctx.has_tag(e, "gunner") && ctx.random_bool(0.3) { kind = ctx.random_choice(["spread", "shotgun", "rapid"]); }
+    else if ctx.random_bool(0.03) { kind = "medkit"; }
+    if kind == "" { return; }
+    let look = if kind == "medkit" { ["+", "Green"] } else if kind == "spread" { ["S", "Yellow"] } else if kind == "shotgun" { ["G", "#ffc060"] } else { ["R", "Cyan"] };
+    let p = ctx.spawn_entity(look[0], x, y, "pickup", look[1], "#202030", 6, false, 1.0, 1.0, "pickup");
+    ctx.set_var(p, "kind", kind);
 }

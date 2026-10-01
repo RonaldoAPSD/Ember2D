@@ -50,6 +50,8 @@ pub enum TextInputPurpose {
     TileGlyph { gx: i32, gy: i32 },
     NamedSpawn,
     ResizeLevel,
+    /// Step 9.5-5: the level's collision layer names, comma-separated.
+    CollisionLayers,
     PlayerTag,
     PlayerScript,
     PlayerGlyph,

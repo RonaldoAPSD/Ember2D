@@ -1,6 +1,6 @@
 (
     version: 7,
-    name: "Ember Assault",
+    name: "Ember Assault - stress test",
     width: 160,
     height: 60,
     spawns: {
@@ -15,7 +15,7 @@
             bg: Reset,
             solid: false,
             trigger: false,
-            tag: "director",
+            tag: "stress",
             layer: 2,
             script: Some("scripts/director.rhai"),
         ),

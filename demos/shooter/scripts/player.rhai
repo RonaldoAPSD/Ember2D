@@ -1,260 +1,187 @@
-// demos/shooter/scripts/player.rhai — twin-stick player controller for the
-// realtime arena demo: WASD moves, the mouse aims and left-click shoots, and
-// this script owns the player's HP, the stats bar, and the death/restart
-// screen.
+// demos/shooter/scripts/player.rhai — the player: WASD to move, the mouse
+// to aim, hold the left button to fire; the pickups (medkits and the three
+// weapon powerups); the top HUD; the death screen and the high score.
 //
-// Companion to director.rhai, which owns waves, enemy steering, and contact
-// damage, and to bullet.rhai (Step 7.5-5, docs/ember2d-master-plan.md §5.6),
-// which a bullet this script fires gets attached to via `ctx.set_script` in
-// `do_shoot` below — a bullet resolves its own hit instead of director.rhai
-// scanning every live one every step, the way it (and every enemy, still)
-// had to before `set_script` existed. See ember2d/examples/gen_shooter.rs's
-// header for the full reasoning, including why enemies stay centrally driven
-// by choice rather than the same engine limitation that used to force it.
+// The run's numbers are GLOBALS (hp, score, kills, weapon...): a restart is
+// just `load_level("arena.level")`, and globals start empty on every load.
+// The two things that outlive a run are kept on disk with `save_data`: the
+// best score (`ember_assault_best.sav`) and the options the pause menu sets
+// (`ember_assault_options.sav`), read back with `load_data` in `on_start`.
 //
-// ── WHY THIS SCRIPT LOOKS DIFFERENT FROM roguelike/scripts/player.rhai ───────
-//
-// STATE LIVES IN GLOBALS, NOT PERSISTENT. Globals are level-scoped and reset
-// on every level load. This demo is a single level whose restart IS a reload
-// of that same level, so "reset on load" is exactly the desired behavior and
-// `ctx.load_level` alone is a complete restart — no `clear_persistent` book-
-// keeping. The roguelike needed `persistent` only because a run spans four
-// level files.
-//
-// INIT HAPPENS IN on_start, NOT LAZILY IN on_update. The roguelike deliberately
-// avoids `on_start` because its save/load path (`Simulation::is_loading_save`)
-// never runs `on_start` scripts, so a loaded save would start uninitialized.
-// This demo has no save/load, so `on_start` is available and is the right
-// place: it runs once, before any step, which means on_input can read "hp" on
-// step 1 without racing its own initializer. (That race is real — a deferred
-// `set_global` is not visible to a `get_global` in the same pass — and it is
-// exactly what the roguelike's own player.rhai has to route around, since
-// its lazy-init can't use on_start; see that script's header comment.)
-//
-// NOTHING IS SUBMITTED AND ctx.act IS NEVER CALLED. `submit`/`on_turn`/`act`
-// are the turn-based command boundary; in realtime the player just writes
-// velocity directly from on_input and lets `World::integrate_physics` carry
-// it. Not calling `act` also keeps this actor at the front of `TurnScheduler`
-// forever, which is precisely what makes `on_input` run every single step —
-// see gen_shooter.rs fact (3).
-//
-// WALLS ARE FREE, EVERYTHING ELSE IS NOT. `Simulation::late_step` resolves
-// solid collisions only for the local player, so the arena walls stop this
-// entity with no script involvement at all. A bullet spawned by this script
-// handles its own wall/enemy hit itself (bullet.rhai); an enemy still relies
-// on director.rhai for the same reason (steering + contact damage).
+// DIRECTIONS WITHOUT TRIGONOMETRY. A spread shot needs the aim direction
+// turned by a few degrees. `sin`/`cos` would do it, but they come from the
+// platform's maths library, which can differ by a bit between machines —
+// and the simulation must be identical everywhere (CLAUDE.md). So the few
+// angles used are written down once (`turn6`, `turn12`, `turn18`) and a
+// direction is turned by plain multiplication with them.
 
-// ── Tuning knobs ─────────────────────────────────────────────────────────────
-// Plain functions rather than top-level `const`: `ScriptEngine` invokes these
-// files through `Engine::call_fn`, which evaluates the named function only —
-// top-level statements in the AST are never re-run, so a top-level `const`
-// would not reliably be in scope inside a call.
+fn hp_max()        { 12 }
+fn move_speed()    { 12.0 }   // cells/second
+fn bullet_speed()  { 34.0 }
+fn powerup_time()  { 12.0 }   // seconds a weapon powerup lasts
+fn medkit_heal()   { 4 }
 
-fn hp_max()        { 10 }
-fn move_speed()    { 11.0 }   // cells/second
-fn fire_cooldown() { 0.16 }   // seconds between shots
-fn bullet_speed()  { 30.0 }   // cells/second
-fn medkit_heal()   { 3 }
-
-/// Below this the mouse is considered "on top of the player" and aim direction
-/// is left as whatever it last was, rather than normalising a near-zero vector
-/// (which would amplify floating-point noise into a direction that visibly
-/// jitters at the muzzle).
-fn min_aim_dist_sq() { 0.01 }
-
-/// Diagonal input normaliser (1/sqrt(2)), for movement only now — aim is a
-/// continuous direction toward the mouse, not a snapped 8-way key
-/// combination, so it needs no such correction.
-fn diag() { 0.70710678 }
-
-// ── Lifecycle ────────────────────────────────────────────────────────────────
-
-/// Runs once when the level loads, before any simulation step — see the header
-/// note on why this demo can use `on_start` where the roguelike can't.
-///
-/// "score"/"kills" are written here but owned by director.rhai; they're
-/// initialised in one place so a restart can't leave a stale value behind for
-/// whichever script happens to read first.
 fn on_start(id, ctx) {
     ctx.set_global("hp", hp_max());
     ctx.set_global("score", 0);
     ctx.set_global("kills", 0);
     ctx.set_global("fire_ready", 0.0);
     ctx.set_global("hurt_until", 0.0);
+    ctx.set_global("weapon", "pistol");
+    ctx.set_global("weapon_until", 0.0);
+    let best = ctx.load_data("ember_assault_best.sav");
+    ctx.set_global("best", if type_of(best) == "()" { 0 } else { best });
+    let options = ctx.load_data("ember_assault_options.sav");
+    ctx.set_global("shake", if type_of(options) == "map" && options.contains("shake") { options.shake } else { true });
+    // The view never leaves the arena.
+    ctx.set_camera_bounds(0, 0, 160, 60);
 }
 
-/// The only place this script reads raw key state. In realtime that's every
-/// step, for as long as this actor stays at the scheduler's front.
 fn on_input(id, ctx) {
-    if is_dead(ctx) {
-        // Stop dead rather than coasting: velocity persists in `Transform`
-        // until something overwrites it, so skipping this would leave the
-        // corpse drifting into a wall.
+    if ctx.get_global("hp") <= 0 || ctx.has_global("won") {
         ctx.set_velocity(id, 0.0, 0.0);
         if ctx.just_pressed("r") { ctx.load_level("arena.level"); }
         return;
     }
-    do_move(id, ctx);
-    do_shoot(id, ctx);
-}
-
-/// Presentation only — the stats bar and, if it applies, the death screen.
-/// Gameplay state is mutated in on_input (this script) and on_update
-/// (director.rhai), never here.
-fn on_update(id, ctx) {
-    draw_stats(ctx);
-    if is_dead(ctx) { draw_death_screen(ctx); }
-}
-
-/// Medkits are the one pickup, and this is the only `on_collide` in the demo.
-///
-/// It works precisely because the PLAYER is scripted: `ScriptEngine::run_collisions`
-/// dispatches `on_collide` to whichever side of a colliding pair has a script,
-/// and a director-spawned medkit has none. A medkit is spawned non-solid, so
-/// it's a trigger — overlapping it never pushes the player.
-fn on_collide(id, other, ctx) {
-    if !ctx.has_tag(other, "medkit") { return; }
-
-    // Reads the post-damage value: director.rhai's contact damage lands during
-    // the on_update pass, which is fully applied before the collision pass
-    // runs. Two medkits touched in the SAME pass would heal only once (both
-    // reads see the same pre-pass "hp", last write wins) — harmless here given
-    // the cap below, and not worth a per-pass accumulator for a 1x1 pickup.
-    let healed = ctx.get_global("hp") + medkit_heal();
-    if healed > hp_max() { healed = hp_max(); }
-    ctx.set_global("hp", healed);
-    ctx.emit_particles(ctx.get_x(id), ctx.get_y(id), "+", "Green");
-    ctx.despawn(other);
-}
-
-// ── Movement and shooting ────────────────────────────────────────────────────
-
-/// Eight-directional movement from WASD. Writes velocity and nothing else —
-/// `World::integrate_physics` does the moving, and the engine's own solid
-/// resolution does the wall stopping.
-fn do_move(id, ctx) {
     let vx = 0.0;
     let vy = 0.0;
-    if ctx.is_held("a") { vx -= 1.0; }
-    if ctx.is_held("d") { vx += 1.0; }
-    if ctx.is_held("w") { vy -= 1.0; }
-    if ctx.is_held("s") { vy += 1.0; }
-    if vx != 0.0 && vy != 0.0 { vx *= diag(); vy *= diag(); }
+    if ctx.is_held("a") || ctx.is_held("left") { vx -= 1.0; }
+    if ctx.is_held("d") || ctx.is_held("right") { vx += 1.0; }
+    if ctx.is_held("w") || ctx.is_held("up") { vy -= 1.0; }
+    if ctx.is_held("s") || ctx.is_held("down") { vy += 1.0; }
+    if vx != 0.0 && vy != 0.0 { vx *= 0.70710678; vy *= 0.70710678; }
     ctx.set_velocity(id, vx * move_speed(), vy * move_speed());
+    if ctx.mouse_left_held() { shoot(id, ctx); }
 }
 
-/// Aims at the mouse's world position and fires left-click, on a cooldown.
-///
-/// `mouse_left_held`, not `mouse_left_pressed`: a shooter wants to hold the
-/// button down and keep firing, and the cooldown (not the click rate) is what
-/// sets the actual rate of fire.
-///
-/// `get_mouse_world_x/y` add the mouse's screen cell to the camera's own
-/// position (see that function's doc comment in
-/// docs/ember2d-scripting-api.md) — since this arena is exactly
-/// viewport-sized, the camera never scrolls, so that's the one case where the
-/// "not replay-safe" warning attached to camera-derived reads doesn't apply:
-/// a value that never leaves a single fixed point can't diverge between runs.
-/// A scrolling level using this same pattern would need to reason about that.
-///
-/// The cooldown is kept as an absolute deadline in "fire_ready" rather than a
-/// counter decremented each step, because a decrement would have to read its
-/// own previous value — and a `get_global` never observes a `set_global` from
-/// the same pass, so a value written and re-read across passes is fine but a
-/// running total accumulated within one is not. Deadlines sidestep the whole
-/// question.
-fn do_shoot(id, ctx) {
-    if !ctx.mouse_left_held() { return; }
+// ── Shooting ─────────────────────────────────────────────────────────────
+
+/// (dx, dy) turned by the angle whose cosine and sine are `c` and `s`.
+fn turn(d, c, s) { [d[0] * c - d[1] * s, d[0] * s + d[1] * c] }
+fn turn6(d, sign) { turn(d, 0.9945219, 0.1045285 * sign) }
+fn turn12(d, sign) { turn(d, 0.9781476, 0.2079117 * sign) }
+fn turn18(d, sign) { turn(d, 0.9510565, 0.3090170 * sign) }
+
+fn shoot(id, ctx) {
     let now = ctx.get_elapsed();
     if now < ctx.get_global("fire_ready") { return; }
-
     let px = ctx.get_x(id);
     let py = ctx.get_y(id);
     let dx = ctx.get_mouse_world_x() - px;
     let dy = ctx.get_mouse_world_y() - py;
     let d2 = dx * dx + dy * dy;
-    // The cursor sitting exactly on the player has no meaningful direction —
-    // skip the shot entirely rather than fire toward (0, 0)/normalise noise
-    // into a jittering muzzle.
-    if d2 < min_aim_dist_sq() { return; }
+    if d2 < 0.01 { return; }
     let inv = 1.0 / d2.sqrt();
-    dx *= inv;
-    dy *= inv;
+    let aim = [dx * inv, dy * inv];
 
-    // Spawned 0.8 cells out so the muzzle clears the player's own 0.7 collider
-    // — otherwise director.rhai's hit query would find the player on the
-    // bullet's very first step.
-    //
-    // The extended `spawn_entity` overload (defect D10's fix) sets colour,
-    // z-order, solidity and size at spawn time; the four-argument version
-    // would hardcode white/z=2/1x1/non-solid and need three follow-up setters.
-    // Non-solid matters: a solid bullet would be shoved out of walls by the
-    // physics resolver instead of being destroyed by director.rhai.
-    let b = ctx.spawn_entity("*", px + dx * 0.8, py + dy * 0.8,
-                             "bullet", "White", "Reset", 12, false, 0.4, 0.4, "bullet");
-    ctx.set_velocity(b, dx * bullet_speed(), dy * bullet_speed());
-    // Step 7.5-5: gives this bullet its own on_update, so it finds and
-    // resolves its own hit next step instead of director.rhai scanning
-    // every "bullet"-tagged entity by hand every step. Deferred like every
-    // setter — bullet.rhai's own on_start (it has none) would run the step
-    // after this one regardless; its on_update picks up on the same step
-    // director.rhai's other scripted entities' on_update already runs on.
+    let weapon = ctx.get_global("weapon");
+    if weapon != "pistol" && now > ctx.get_global("weapon_until") {
+        weapon = "pistol";
+        ctx.set_global("weapon", weapon);
+    }
+    if weapon == "spread" {
+        for d in [turn12(aim, -1.0), aim, turn12(aim, 1.0)] { bullet(ctx, px, py, d, "*", "Yellow"); }
+        ctx.set_global("fire_ready", now + 0.18);
+        ctx.play_sound("audio/shoot.ogg");
+    } else if weapon == "shotgun" {
+        let fan = [turn18(aim, -1.0), turn12(aim, -1.0), turn6(aim, -1.0), aim, turn6(aim, 1.0), turn12(aim, 1.0), turn18(aim, 1.0)];
+        for d in fan { pellet(ctx, px, py, d, now); }
+        ctx.set_global("fire_ready", now + 0.42);
+        ctx.play_sound("audio/shotgun.ogg");
+    } else {
+        bullet(ctx, px, py, aim, "*", "White");
+        ctx.set_global("fire_ready", now + if weapon == "rapid" { 0.07 } else { 0.15 });
+        ctx.play_sound("audio/shoot.ogg");
+    }
+}
+
+/// A player bullet: it flies until `bullet.rhai`'s `on_collide` sees it hit
+/// an enemy or a wall. Its collider is on the "pbullet" layer and only
+/// tests against "enemy" and "solid", so bullets never collide with each
+/// other or with the player — hundreds can be in the air cheaply.
+fn bullet(ctx, px, py, d, glyph, colour) {
+    let b = ctx.spawn_entity(glyph, px + d[0] * 0.8, py + d[1] * 0.8, "bullet", colour, "Reset", 12, false, 0.4, 0.4, "pbullet");
+    ctx.set_collider_mask(b, ["enemy", "solid"]);
+    ctx.set_velocity(b, d[0] * bullet_speed(), d[1] * bullet_speed());
     ctx.set_script(b, "scripts/bullet.rhai");
-    ctx.set_global("fire_ready", now + fire_cooldown());
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-/// `has_global` first, so a step that somehow ran before `on_start` would read
-/// as alive rather than as instantly dead. Cheap insurance against the single
-/// worst failure mode this script has.
-fn is_dead(ctx) {
-    ctx.has_global("hp") && ctx.get_global("hp") <= 0
+/// A shotgun pellet: short-lived (`pellet.rhai` times it out).
+fn pellet(ctx, px, py, d, now) {
+    let b = ctx.spawn_entity(".", px + d[0] * 0.8, py + d[1] * 0.8, "bullet", "#ffc060", "Reset", 12, false, 0.4, 0.4, "pbullet");
+    ctx.set_collider_mask(b, ["enemy", "solid"]);
+    ctx.set_velocity(b, d[0] * 30.0, d[1] * 30.0);
+    ctx.set_var(b, "until", now + 0.35);
+    ctx.set_script(b, "scripts/pellet.rhai");
 }
 
-// ── HUD ──────────────────────────────────────────────────────────────────────
+// ── Pickups ──────────────────────────────────────────────────────────────
 
-/// The stats bar on row 0. Drawn over the top wall row, which is why the arena
-/// can be exactly viewport-sized without losing playfield to chrome.
+fn on_collide(id, other, ctx) {
+    if !ctx.has_tag(other, "pickup") || ctx.get_global("hp") <= 0 { return; }
+    let kind = ctx.get_var(other, "kind");
+    if kind == "medkit" {
+        let hp = ctx.get_global("hp") + medkit_heal();
+        ctx.set_global("hp", if hp > hp_max() { hp_max() } else { hp });
+        ctx.emit_particles(ctx.get_x(id), ctx.get_y(id), "+", "Green");
+    } else {
+        ctx.set_global("weapon", kind);
+        ctx.set_global("weapon_until", ctx.get_elapsed() + powerup_time());
+        ctx.emit_particles(ctx.get_x(id), ctx.get_y(id), "*", "Cyan");
+    }
+    ctx.play_sound("audio/powerup.ogg");
+    ctx.despawn(other);
+}
+
+// ── HUD, death, the high score ───────────────────────────────────────────
+
+fn on_update(id, ctx) {
+    let hp = ctx.get_global("hp");
+    if hp <= 0 && !ctx.has_global("over") { game_over(ctx); }
+    draw_stats(ctx);
+    if hp <= 0 { draw_death(ctx); }
+}
+
+/// Once, when the run ends: keep the score if it's the best yet.
+fn game_over(ctx) {
+    ctx.set_global("over", true);
+    let score = ctx.get_global("score");
+    if score > ctx.get_global("best") {
+        ctx.set_global("best", score);
+        ctx.set_global("new_best", true);
+        ctx.save_data("ember_assault_best.sav", score);
+    }
+}
+
 fn draw_stats(ctx) {
     let hp = ctx.get_global("hp");
-    if hp < 0 { hp = 0; }
-
-    // Built with `+=` rather than one long `a + b + c + ...` chain: Rhai parses
-    // the latter as a single deeply-nested expression tree and trips its
-    // max-complexity guard at compile time. The roguelike's HUD hit exactly
-    // this and the fix is the same.
     let bar = "";
-    for i in 0..hp_max() {
-        if i < hp { bar += "|"; } else { bar += "."; }
-    }
-
-    let colour = "Green";
-    if hp <= 3 { colour = "Red"; }
-    else if hp <= 6 { colour = "Yellow"; }
-
-    ctx.draw_hud(2, 0, "HP ", "Grey", "Reset");
-    ctx.draw_hud(5, 0, bar, colour, "Reset");
-
-    // `.to_int()`: director.rhai accumulates both with `add_global`, which
-    // always stores its result as a float — Rhai renders a whole-number
-    // float with a trailing ".0" in string concatenation, so an uncast
-    // read here would show "SCORE 10.0" the moment either total is first
-    // touched.
+    for i in 0..hp_max() { bar += if i < hp { "|" } else { "." }; }
+    let colour = if hp <= 3 { "Red" } else if hp <= 6 { "Yellow" } else { "Green" };
+    // Only as wide as the stats: the right of row 0 is where F3's debug
+    // bar (the frame rate) shows.
+    ctx.fill_rect(0, 0, 56, 1, " ", "White", "#101018");
+    ctx.draw_hud(1, 0, "HP", "Grey", "#101018");
+    ctx.draw_hud(4, 0, bar, colour, "#101018");
     let s = "SCORE " + ctx.get_global("score").to_int();
-    s += "   KILLS " + ctx.get_global("kills").to_int();
-    ctx.draw_hud(20, 0, s, "White", "Reset");
-
+    s += "  BEST " + ctx.get_global("best").to_int();
+    ctx.draw_hud(18, 0, s, "White", "#101018");
+    let weapon = ctx.get_global("weapon");
+    if weapon != "pistol" {
+        let left = (ctx.get_global("weapon_until") - ctx.get_elapsed()).to_int();
+        if left >= 0 { ctx.draw_hud(42, 0, weapon.to_upper() + " " + left, "Cyan", "#101018"); }
+    }
     let vh = ctx.get_viewport_height();
-    ctx.draw_hud(2, vh - 1, "WASD move   Mouse aim   Click shoot   R restart   Esc pause", "DarkGrey", "Reset");
+    ctx.draw_hud(1, vh - 1, "WASD move   Mouse aim   Hold click: fire   R restart   Esc menu", "DarkGrey", "Reset");
 }
 
-fn draw_death_screen(ctx) {
-    ctx.fill_rect(25, 8, 30, 7, " ", "White", "DarkRed");
-    ctx.draw_box(25, 8, 30, 7, "White", "DarkRed");
-    ctx.draw_hud(35, 10, "YOU DIED", "Yellow", "DarkRed");
-    let s = "Score " + ctx.get_global("score").to_int();
-    s += "  Kills " + ctx.get_global("kills").to_int();
-    ctx.draw_hud(30, 11, s, "White", "DarkRed");
-    ctx.draw_hud(30, 13, "Press R to restart", "White", "DarkRed");
+fn draw_death(ctx) {
+    let x = ctx.get_viewport_width() / 2 - 16;
+    ctx.fill_rect(x, 8, 32, 8, " ", "White", "#400808");
+    ctx.draw_box(x, 8, 32, 8, "#ff6060", "#400808");
+    ctx.draw_hud(x + 12, 10, "YOU DIED", "Yellow", "#400808");
+    let s = "Score " + ctx.get_global("score").to_int() + "  Wave " + ctx.get_global("wave");
+    ctx.draw_hud(x + 16 - s.len() / 2, 11, s, "White", "#400808");
+    if ctx.has_global("new_best") { ctx.draw_hud(x + 8, 12, "A NEW BEST SCORE!", "#ffd040", "#400808"); }
+    ctx.draw_hud(x + 7, 14, "Press R to restart", "#c0c0c0", "#400808");
 }

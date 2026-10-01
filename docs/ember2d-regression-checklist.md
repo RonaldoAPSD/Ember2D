@@ -322,6 +322,21 @@ Only until visual scripting is shelved. Afterwards, confirm old levels with grap
 - [✓] (9.5-4) Enough XP opens the level-up choice; floor 20's Amulet
       carried to the `<` wins (the victory screen, then the title)
 
+### Phase 9.5 — the shooter demo (`cargo run -- demos/shooter/arena.level`, Step 9.5-5)
+
+- [✓] The 160x60 arena scrolls with the player (camera bounded to it);
+      floor dots show motion; the HUD's row 0 leaves F3's bar visible
+- [✓] A countdown, then wave 1's grunts arrive away from the player;
+      holding the mouse fires; kills score and explode (sound)
+- [✓] Gunners keep their distance and shoot; the spread/shotgun/rapid
+      powerups change the shot and time out (HUD timer)
+- [✓] Wave 12's Core: an armoured ring, a health bar, rings of shots
+- [✓] Esc: Resume / Restart / Screen shake ON-OFF (saved to
+      `ember_assault_options.sav`) / Quit
+- [ ] A death saves a new best score (`ember_assault_best.sav`) — by test
+      (`a_death_saves_the_best_score`), not live
+- [✓] `stress.level`: 300+ live entities at 60 FPS in a debug build (F3)
+
 ## 12. Turn-based mode
 
 **Corrected in Step 4k: promoted to the primary play-mode section** —

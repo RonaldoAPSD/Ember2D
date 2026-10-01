@@ -172,6 +172,24 @@ impl EditorState {
                         self.save_message_timer = 0;
                     }
                 }
+                // Step 9.5-5: the level's collision layers. A collider's
+                // layer or mask name that isn't in this list resolves to no
+                // bit at all, so masks can't filter by it — a level whose
+                // scripts spawn "enemy"/"bullet" colliders lists them here.
+                TextInputPurpose::CollisionLayers => {
+                    let mut names: Vec<String> = Vec::new();
+                    // Commas or spaces between names (a layer name never
+                    // has a space in it).
+                    for name in buffer.split([',', ' ']).filter(|n| !n.is_empty()) {
+                        if !names.iter().any(|n| n == name) && names.len() < 32 {
+                            names.push(name.to_string());
+                        }
+                    }
+                    if names != self.grid.collision_layers {
+                        self.grid.collision_layers = names;
+                        self.unsaved = true;
+                    }
+                }
                 TextInputPurpose::ResizeLevel => {
                     let s = buffer.replace(['x', 'X', ','], " ");
                     let parts: Vec<&str> = s.split_whitespace().collect();

@@ -131,6 +131,8 @@ pub struct ScriptUpdateResult {
     /// Step 9.5-3: entities `make_actor` just made actors — `Simulation`
     /// adds them to its turn scheduler.
     pub actors_added: Vec<EntityId>,
+    /// Step 9.5-5: `save_data` requests — written with `pending_save`.
+    pub data_saves: Vec<(String, rhai::Dynamic)>,
 }
 
 /// A queued write to `ScriptState::pending_globals`/`pending_persistent`

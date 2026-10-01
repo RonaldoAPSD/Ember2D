@@ -136,6 +136,8 @@ impl ScriptEngine {
         state.camera_view = self.camera_view;
         state.cell_scale = self.world_cell_scale;
         state.ui = self.ui_ctx();
+        // Step 9.5-5: `load_data` reads through the same source as paths.
+        state.data_source = self.path_base.as_ref().map(|(_, s)| std::rc::Rc::clone(s));
     }
 }
 

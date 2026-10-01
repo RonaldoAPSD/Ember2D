@@ -631,6 +631,7 @@ impl EditorState {
                 TextInputPurpose::TileGlyph { .. } => "Glyph char",
                 TextInputPurpose::NamedSpawn => "Spawn name",
                 TextInputPurpose::ResizeLevel => resize_hint.as_str(),
+                TextInputPurpose::CollisionLayers => "Collision layers (separated by commas or spaces; up to 32)",
                 TextInputPurpose::PlayerTag => "Player tag",
                 TextInputPurpose::PlayerScript => "Player script",
                 TextInputPurpose::PlayerGlyph => "Player glyph",

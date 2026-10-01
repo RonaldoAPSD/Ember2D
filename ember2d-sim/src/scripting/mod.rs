@@ -18,6 +18,7 @@ mod widgets;
 mod sprite;
 mod tiles;
 mod fov_api;
+mod data;
 mod state;
 mod types;
 

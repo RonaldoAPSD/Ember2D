@@ -252,6 +252,74 @@ fn run_steps(
     costs
 }
 
+/// Step 9.5-5: a REAL-TIME level, stepped the way the engine steps one
+/// (`ember2d::sim::step`'s RealTime branch): the simulation step, then
+/// physics, collision detection and the late step, every frame. The first
+/// `warmup` steps aren't measured — the shooter's stress level takes a
+/// second to fill its crowd.
+// A benchmark times itself: `Instant::now` is what it's for.
+#[allow(clippy::disallowed_methods)]
+fn run_realtime(
+    world: &mut World,
+    sim: &mut Simulation,
+    persistent: &mut BTreeMap<String, rhai::Dynamic>,
+    warmup: usize,
+    n_steps: usize,
+) -> Vec<StepCost> {
+    let mut costs = Vec::with_capacity(n_steps);
+    for i in 0..warmup + n_steps {
+        let input = InputSnapshot::default();
+        let (alloc_before, bytes_before) = alloc_snapshot();
+        let start = Instant::now();
+        let elapsed = i as f32 * BENCH_DT;
+        let prev_positions = world.snapshot_positions();
+        sim.step(
+            world,
+            StepInput {
+                input: &input,
+                mouse: MouseSnapshot::default(),
+                gamepad: &GamepadSnapshot::default(),
+                external_commands: &[],
+                animating: &[],
+                camera_origin: Vec2::ZERO,
+                sim_dt: BENCH_DT,
+                elapsed,
+                viewport_w: 80,
+                viewport_h: 24,
+            },
+            persistent,
+        );
+        world.integrate_physics(BENCH_DT);
+        let mut events = EventBus::new();
+        world.detect_collisions(&mut events);
+        sim.late_step(world, &events, &prev_positions, Vec2::ZERO, BENCH_DT, elapsed, 80, 24, persistent);
+        let duration = start.elapsed();
+        let (alloc_after, bytes_after) = alloc_snapshot();
+        if i >= warmup {
+            costs.push(StepCost { duration, allocs: alloc_after - alloc_before, bytes: bytes_after - bytes_before });
+        }
+    }
+    costs
+}
+
+fn bench_realtime_level(path: &str, n_steps: usize) {
+    let Ok(data) = LevelData::load(path) else {
+        eprintln!("skipping {path} (not found — run from the repo root)");
+        return;
+    };
+    let mut world = World::new();
+    let mut persistent = BTreeMap::new();
+    let mut sim = Simulation::new(data);
+    sim.set_level_source(Box::new(FsSource));
+    let logs = sim.on_start(&mut world, 80, 24, &mut persistent);
+    if load_problems(path, &logs) {
+        return;
+    }
+    let costs = run_realtime(&mut world, &mut sim, &mut persistent, 240, n_steps);
+    report(&format!("{} (real time, {} entities after warm-up)", path, world.transforms.len()), costs);
+    bench_phases(&world, sim.layers(), 20);
+}
+
 fn percentile(sorted: &[Duration], p: f64) -> Duration {
     if sorted.is_empty() {
         return Duration::ZERO;
@@ -460,4 +528,7 @@ fn main() {
     ] {
         bench_real_level(path, steps);
     }
+    // Step 9.5-5: the shooter's stress level — ~240 wandering enemies and a
+    // ring of bullets, 300+ live entities — stepped in real time.
+    bench_realtime_level("demos/shooter/stress.level", steps);
 }
