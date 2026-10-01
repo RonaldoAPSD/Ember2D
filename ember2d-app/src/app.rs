@@ -30,6 +30,17 @@ pub fn run_editor_app(
             Transition::ToPlay(mut level_data) => {
                 // ── Switch to play mode ────────────────────────────────────
                 engine.gameplay_loop = play_gameplay_loop;
+                // R96 (docs/ember2d-master-plan.md §3.2): this arm is a
+                // FRESH run (F5 / File > Play from the editor) — the inner
+                // loop's own `ToPlay(next_data)` arm below is a level
+                // transition WITHIN a run, which must keep it. `persistent`
+                // is the engine's cross-level store and outlives every
+                // `PlayState`, so without this a second F5 inherited the
+                // last run's hp/gold/depth — masked until R96 itself, since
+                // the roguelike's player script used to re-seed the run on
+                // every level load anyway (the bug R96 fixes). A loaded
+                // save replaces the whole map regardless (`pending_save`).
+                engine.persistent.clear();
                 let mut pending_save: Option<SaveState> = None;
                 loop {
                     engine.reset_world();

@@ -73,6 +73,18 @@
 // no presentation-only state to re-derive after a load that `persistent`
 // doesn't already cover.
 //
+// R96 (docs/ember2d-master-plan.md §3.2): that move dropped the
+// `!has_persistent(..)` guard along with the lazy-init, which was wrong in a
+// way 7.5-5 didn't see — "a fresh spawn" isn't only a new run. Every level
+// LOAD is a fresh spawn of this player entity (Simulation::do_on_start runs
+// per level), so taking the stairs re-ran on_start and reset hp, gold,
+// potions and depth: floor 2 always read "Depth 1", and the run's gold and
+// damage vanished at every descent. The guard is back (on "hp_max", the key
+// only this init ever writes): on_start seeds the run once, and a new level
+// of the same run finds it already there. A NEW run still starts clean —
+// the restart command below re-seeds explicitly, and the editor clears the
+// whole persistent store on each fresh F5 (ember2d-app/src/app.rs).
+//
 // `or_zero()` used to paper over both the fresh-spawn and loaded-save cases
 // uniformly inside the lazy-init check above (and, for "hp"/"hp_max",
 // incorrectly — a wrong default there isn't cosmetic, 0 reads as "already
@@ -113,19 +125,21 @@ fn on_input(id, ctx) {
     }
 }
 
-/// Runs exactly once, only on a fresh spawn (Step 7.5-5) — never on a
-/// loaded save (R7, 7A-3; see the header's "RUN INIT MOVED TO on_start"
-/// note for why that's still correct, not a gap this step left open).
-/// Seeds this run's stats and starts the level music — both used to be
-/// guarded lazy-init inside on_update specifically because this hook
-/// wasn't reliably available before 7.5-5.
+/// Runs on every fresh spawn of the player — every level load (Step
+/// 7.5-5) — never on a loaded save (R7, 7A-3; see the header's "RUN INIT
+/// MOVED TO on_start" note for why that's still correct). Seeds this run's
+/// stats only if the run hasn't started yet (R96 — see the header note:
+/// without the guard, every staircase reset the run), and (re)starts the
+/// level music every time.
 fn on_start(id, ctx) {
-    ctx.set_persistent("hp", 12);
-    ctx.set_persistent("hp_max", 12);
-    ctx.set_persistent("gold", 0);
-    ctx.set_persistent("potions", 1);
-    ctx.set_persistent("depth", 1);
-    ctx.set_persistent("turns_taken", 0);
+    if !ctx.has_persistent("hp_max") {
+        ctx.set_persistent("hp", 12);
+        ctx.set_persistent("hp_max", 12);
+        ctx.set_persistent("gold", 0);
+        ctx.set_persistent("potions", 1);
+        ctx.set_persistent("depth", 1);
+        ctx.set_persistent("turns_taken", 0);
+    }
     ctx.play_music("demos/roguelike/audio/music.ogg");
 }
 

@@ -74,8 +74,23 @@ impl TurnHarness {
     pub fn load(path: &str) -> Self {
         ensure_workspace_root_cwd();
         let data = LevelData::load(path).unwrap_or_else(|e| panic!("load {}: {}", path, e));
+        Self::start(data, BTreeMap::new())
+    }
+
+    /// R96 (docs/ember2d-master-plan.md §3.2): a level reached THROUGH a
+    /// transition — `data` is the `LevelData` a previous harness's
+    /// `take_pending_level` produced, and `persistent` is that run's own
+    /// store, carried over exactly the way `ember2d-app`'s inner play loop
+    /// carries `engine.persistent` into the next `PlayState`.
+    #[allow(dead_code)]
+    pub fn continue_run(data: LevelData, persistent: BTreeMap<String, rhai::Dynamic>) -> Self {
+        ensure_workspace_root_cwd();
+        Self::start(data, persistent)
+    }
+
+    fn start(data: LevelData, persistent: BTreeMap<String, rhai::Dynamic>) -> Self {
         let mut world = World::new();
-        let mut persistent = BTreeMap::new();
+        let mut persistent = persistent;
         let mut sim = Simulation::new(data);
         // Step 7.5-9 (docs/ember2d-master-plan.md §5.6, R17 fix): set
         // BEFORE `on_start` — `do_on_start` resolves every tile's texture/

@@ -101,3 +101,43 @@ fn stairs_stay_unlocked_when_no_boss_is_present() {
     let locked = h.world.colliders.get(&stairs_id).unwrap().locked;
     assert!(!locked, "stairs must stay unlocked on a floor with no boss tiles");
 }
+
+/// R96 (docs/ember2d-master-plan.md §3.2): taking the stairs used to reset
+/// the whole run — `player.rhai`'s `on_start` re-seeded hp/gold/potions/
+/// depth on every level load, so floor 2 always read "Depth 1" and the
+/// run's gold and damage vanished at each descent. Walks floor1's real
+/// player onto the real stairs, follows the transition into floor2 with
+/// the run's own persistent store, and checks the run survived it.
+#[test]
+fn r96_descending_the_stairs_keeps_the_run_and_increments_depth() {
+    let mut h = TurnHarness::load(FLOOR1);
+    assert_eq!(dynamic_as_i64(h.persistent.get("depth").unwrap()), Some(1));
+    // Mid-run state the descent must carry: some gold, some damage taken.
+    h.persistent.insert("gold".to_string(), rhai::Dynamic::from(7_i64));
+    h.persistent.insert("hp".to_string(), rhai::Dynamic::from(5_i64));
+
+    // Spawn (4,4) -> stairs (36,16): 32 right along row 4, then 12 down
+    // column 36 — both clear of floor1's gold and potion (see this file's
+    // header for the layout).
+    let mut next = None;
+    for key in std::iter::repeat_n("d", 32).chain(std::iter::repeat_n("s", 12)) {
+        h.frame(Some(key));
+        if let Some(level) = h.take_pending_level() {
+            next = Some(level);
+            break;
+        }
+    }
+    let next = next.expect("stepping onto floor1's stairs must start a level transition");
+    assert_eq!(
+        dynamic_as_i64(h.persistent.get("depth").unwrap()),
+        Some(2),
+        "the stairs add a level"
+    );
+
+    let floor2 = TurnHarness::continue_run(next, h.persistent.clone());
+    let get = |k: &str| dynamic_as_i64(floor2.persistent.get(k).unwrap());
+    assert_eq!(get("depth"), Some(2), "floor 2's on_start must not reset depth to 1");
+    assert_eq!(get("gold"), Some(7), "gold collected on floor 1 must survive the descent");
+    assert_eq!(get("hp"), Some(5), "damage taken on floor 1 must survive the descent");
+    assert_eq!(get("hp_max"), Some(12));
+}
