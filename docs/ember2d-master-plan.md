@@ -184,60 +184,34 @@ start screen's New/Open Project browsers start from.
 | 7C | Editor foundation | `[x]` `v0.5.7c` — A.12 (all 9 steps `[x]`, 7C-9's own §7.1 decision recorded) |
 | 7D | Theme and restyle | `[x]` `v0.5.7d` — A.13 (7D-1/7D-4's own deferred remainder — `themes/ember-pixel` — stays unbuilt by design, not a gap; R88/R89 and the `UI Scale: 1.5x` follow-up landed as part of this same closing pass) |
 | 7E | Editor features | `[-]` deferred, 2026-09-13 (by user direction) — §5.5. Feature/UX polish (rulers, Inspector 2.0, toasts, command palette, rendering perf, undo audit) rather than refactoring work; revisit as a future update, not blocking the phase sequence below |
-| 7.5 | Scripting completeness | `[~]` — §5.6: all 13 steps `[x]`; gate open, awaiting the user's live checklist §11–§13 pass (shooter LOC exception accepted 2026-09-29) |
-| 8 | Tilemap, assets, animation authoring | `[~]` — §5.7: all 4 steps `[x]`; gate pass run 2026-10-01 (automated + live, R103/R104/R106 fixed in it), awaiting the user's OK to tag `v0.5.9` |
-| 9 | Scene and UI layer + RPG demo | `[~]` — §5.8: 9-1 to 9-8 landed and the gate pass is done (2026-10-01): all three demos play, the RPG tutorial replayed in a fresh project. Awaiting the user's OK to tag `v0.5.10` |
-| 9.5 | Demo expansion as engine stress tests | `[~]` — §5.8.5: all six steps landed (9.5-1 tilemap API `c07dc73`, 9.5-2 field of view `fc7e0a4`, 9.5-3/9.5-4 the generated roguelike `25b5325`/`dabe571`, 9.5-5 the shooter `67a9307`, the Visual Style removal `cccd508`, 9.5-6 tutorials `d1fb91a`) and the gate pass is done (2026-10-01). Awaiting the user's OK to tag `v0.5.11` |
+| 7.5 | Scripting completeness | `[x]` `v0.5.8` at `5e0e88d` — A.14 (tagged 2026-10-01 on the user's OK; the live §11–§13 pass the gate waited on was covered by the Phase 8 and 9 gate passes) |
+| 8 | Tilemap, assets, animation authoring | `[x]` `v0.5.9` at `9b1d19e` — A.15 |
+| 9 | Scene and UI layer + RPG demo | `[x]` `v0.5.10` at `afa6201` — A.16 |
+| 9.5 | Demo expansion as engine stress tests | `[x]` `v0.5.11` — A.17 (all six steps, the Visual Style removal `cccd508`, and the gate pass) |
 | 10 | Networked 2-player | `[ ]` — §5.9 |
 | 11 | Presets, cleanup, 0.6.0 | `[ ]` — §5.10 |
 
-**Next up (handoff note, updated 2026-09-13):** 7C and 7D are closed —
-tags `v0.5.7c`/`v0.5.7d`, `main` fast-forwarded (§9). The gate closed on
-the user's own direct sign-off ("everything looks good enough for now")
-rather than a formal item-by-item run of `docs/ember2d-regression-
-checklist.md` §3–§9/§11 — that file's own checkboxes are still `[ ]`,
-not a claim this pass ticked them one at a time. What actually backs the
-sign-off: extensive live use surfaced and fixed two real bugs this same
-session (R88, R89 — §3.2), the `UI Scale: 1.5x` follow-up shipped, both
-demos smoke-tested live (floor2, arena — §0.5 item 6, screenshots
-confirmed HUD/enemies/player all rendering), and every automated §0.5
-criterion passed (build, full test suite, clippy unchanged, replay ×3,
-`check.ps1`). If a future session's own live use turns up something the
-checklist would have caught, that's still fair game to log as a fresh
-R-row — this sign-off isn't a claim nothing's left, only that nothing
-currently known is blocking. Known-open rows a fresh session should NOT
-re-discover: R46 (wheel `PixelDelta` hardcoded cell size), R79/R80 (graph
-mode and start screen don't scale — by design), R81 (dropdowns/context
-menus not clamped on-screen — reachable at high UI scale), R82 (unpadded
-glyph atlas), R83 (`ContextMenu.x/y` still cell-based), the §11
-parking-lot note on `WgpuBackend::render`'s zero-instance early return,
-and the two 7D-3 live observations already logged as expected behavior:
-chrome text overlaps at 4× on a small window, and a bigger UI scale
-SHRINKS the viewport (fixed-point-width side panels eat more of a fixed
-window). **Phase 7E (Editor features) deferred by user direction, same
-day** — feature/UX polish, not refactoring work; its 6 steps stand as
-written in §5.5 for whenever it's picked back up. **Phase 7.5 — Scripting
-completeness (§5.6): every numbered step (7.5-1 through 7.5-13) is now
-`[x]`**
-(`a3d483e`/`fe75ef6`/`0c1ebb2`/`d84e821`/`8e3ebff`/`b1964af`/`83d598a`/
-`aff65d4`/`57de3c2`/`1d965f1`/`26e3e82`/`869f919`, 7.5-13 itself a
-decision-only step recorded in §7.4 with no commit). The phase itself
-stays `[~]`, not `[x]` (§0.5: a phase needs the gate to pass too, not just
-every step) — the phase gate (§0.5 in full: both demos rewritten smaller,
-`API_VERSION` 7 migration table, tag `v0.5.8`) hasn't run yet. Four things
-still owed from earlier steps, each flagged in its own step's
-"Landed as" note: neither demo has been launched live this session (no
-windowed/GPU sandbox available to this agent) — a real playtest of both,
-not just the headless suite, is still worth doing (7.5-11 in particular
-still needs a live check that music actually survives a floor transition
-and that spatial-sound panning sounds right); the shooter's `director.rhai`
-still hand-rolls its own enemy wall-slide (7.5-6 deliberately scoped
-shooter enemies out of engine-side solid resolution); no project ships
-with `TurnModel::Energy`/`ActionCost` yet (7.5-7, both new and opt-in); and
-R91/R92 (§3.2, 7.5-9/7.5-10) — the ~66 remaining pre-existing lookup-only
-`HashMap`/`HashSet` sites still need their own `#[allow(clippy::
-disallowed_types)]` annotation, and the per-step spatial index +
-collider-layer `Rc<str>` pair 7.5-10 deferred are both unscheduled.**
+**Next up (handoff note, updated 2026-10-01):** Phases 7.5, 8, 9 and 9.5
+are closed and tagged on the user's OK (`v0.5.8`..`v0.5.11`, §9). The
+three older tags sit on the last commit of their own phase, so each marks
+where that phase really ended; only `v0.5.11` carries a version bump (the
+workspace jumps 0.5.7-d → 0.5.11). `main` is fast-forwarded to `v0.5.11`.
+
+What's left, in plan order:
+- **Phase 10 — Networked 2-player** (§5.9, tag `v0.5.12`): six steps,
+  10-1 loopback transport and desync detector first. 10-2 changes
+  `EntityId` and bumps the save format; ask before it (public shape).
+- **Phase 11 — Presets, cleanup, 0.6.0** (§5.10): the New Project
+  template menu the user plans, dead-code deletions, `PlayerRecord` as an
+  entity, the `rand` 0.9 decision, README.md, a doc-comment pass; tag
+  `v0.6.0`.
+- **Phase 7E — Editor features** (§5.5) stays deferred by the user's
+  choice; pick it back up only when asked.
+
+Known-open defects a fresh session shouldn't re-discover: R46, R79–R83
+(by design or unscheduled), R97–R100, R105 and R107's cosmetic half (§3).
+An exported game's window is still titled "Ember2D", not the game's name
+(noted at the Phase 9.5 gate, not logged as a defect).
 
 ### 2.3 Baseline numbers (at `v0.5.7d`)
 
@@ -1425,7 +1399,7 @@ draws. Doing these after the theme lands would mean redoing the theme.
 
 ---
 
-### 5.3 `[ ]` Phase 7C — Editor foundation
+### 5.3 `[x]` Phase 7C — Editor foundation
 
 **Purpose.** Finish what Phase 7 Part 1 started, structurally: one rect per
 widget, one canvas rect, one focus/mode state, a headless way to test input,
@@ -2359,7 +2333,7 @@ below; manual regression pass and the tag itself are pending the user.)*
 
 ---
 
-### 5.4 `[~]` Phase 7D — Theme and restyle
+### 5.4 `[x]` Phase 7D — Theme and restyle
 
 *(Phase 7 plan Parts 3–4, with the unspecified types now specified. If §7.1
 resolves to egui, this phase becomes "write the pixel egui style and port
@@ -3390,7 +3364,7 @@ undo stack and batching correctly. Checklist §5 extended.
 
 ---
 
-### 5.6 `[~]` Phase 7.5 — Scripting completeness
+### 5.6 `[x]` Phase 7.5 — Scripting completeness
 
 **Purpose.** New phase. The demo scripts and the RPG feasibility study show
 the same gaps from two directions: `or_zero()` copy-pasted into five
@@ -4663,7 +4637,7 @@ meantime; 7.5 stays `[~]` and untagged until that pass is done.
 
 ---
 
-### 5.7 `[~]` Phase 8 — Tilemap, assets, animation authoring
+### 5.7 `[x]` Phase 8 — Tilemap, assets, animation authoring
 
 **Purpose.** The old Phase 8 (tileset importer, clip editor) plus the one
 data-model change that moves the entity ceiling by an order of magnitude.
@@ -4984,7 +4958,7 @@ a tile.
 
 ---
 
-### 5.8 `[~]` Phase 9 — Scene and UI layer, and the RPG demo
+### 5.8 `[x]` Phase 9 — Scene and UI layer, and the RPG demo
 
 **Purpose.** New phase, from the RPG feasibility study. Ember2D is a
 tile-and-turn engine with no scene or UI layer scripts can drive: scenes are
@@ -5420,7 +5394,7 @@ exercises every 9-x item.
 
 ---
 
-### 5.8.5 `[ ]` Phase 9.5 — Demo expansion as engine stress tests
+### 5.8.5 `[x]` Phase 9.5 — Demo expansion as engine stress tests
 
 *(Planned 2026-10-01 with the user.)* The roguelike and shooter stay
 ASCII but grow into real stress tests, each built in the engine with a
@@ -6065,10 +6039,10 @@ the commit message. "Appearance unchanged" is a claim that needs evidence.
 | `v0.5.7c` | Phase 7C | 2026-09-13 | 381 (was 252 at `v0.5.7b`) | 43 at `--lib` scope, 55 at `--all-targets` (down from 59/71) | not re-measured (no sim-path change) | local only — CI still blocked by the account billing lock (R37/R40) |
 | `v0.5.7d` | Phase 7D | 2026-09-13 | 381, same as `v0.5.7c` (tagged together — R88/R89 and the `UI Scale: 1.5x` follow-up landed as part of this same closing pass) | 43/55, unchanged from `v0.5.7c` | not re-measured (no sim-path change) | local only, same as `v0.5.7c` |
 | `v0.5.7` | Phase 7E | | | | | |
-| `v0.5.8` | Phase 7.5 | *pending — not tagged, see §5.6's own gate note* | 455 (was 381 at `v0.5.7d`) | 217 at `--all-targets` (was 55 at `v0.5.7d`; the jump is almost entirely 7.5-9's new `disallowed_types`/`disallowed_methods` lint categories firing on pre-existing lookup-only `HashMap`/`HashSet` and test-only `std::fs` use — R91/R92, already tracked, unscheduled — not a regression: message-by-message diffing at every step since 7.5-9 found zero new warnings from that step's own changes) | not re-measured (no sim-path perf change across 7.5) | local only — CI still blocked by the account billing lock (R37/R40) |
-| `v0.5.9` | Phase 8 | *pending — gate pass run 2026-10-01, see §5.7; awaiting the user's OK* | 538 | 192 at `--all-targets`, zero new across 8-1..8-4 | floor2 0.009 ms/step, 70 allocs/step (`bench_sim --release`) | local only — CI still blocked by the account billing lock (R37/R40) |
-| `v0.5.10` | Phase 9 | *pending — gate pass run 2026-10-01, see §5.8; awaiting the user's OK* | 641 | 188 at `--all-targets`, zero new across 9-1..9-8 | floor2 0.058 ms/step, 343 allocs/step, scripts running (R118 corrected the earlier 0.009) | local only — CI still blocked by the account billing lock (R37/R40) |
-| `v0.5.11` | Phase 9.5 | *pending — gate pass run 2026-10-01, see §5.8.5; awaiting the user's OK* | 695 | 187 at `--all-targets`, zero new across 9.5-1..9.5-6 | floor2 fixture 0.056 ms/step, 323 allocs/step; shooter stress 2.70 ms/step, 293 entities | local only — CI still blocked by the account billing lock (R37/R40) |
+| `v0.5.8` | Phase 7.5 | 2026-10-01, at `5e0e88d` (tagged after the fact, on the user's OK) | 455 (was 381 at `v0.5.7d`) | 217 at `--all-targets` (was 55 at `v0.5.7d`; the jump is almost entirely 7.5-9's new `disallowed_types`/`disallowed_methods` lint categories firing on pre-existing lookup-only `HashMap`/`HashSet` and test-only `std::fs` use — R91/R92, already tracked, unscheduled — not a regression: message-by-message diffing at every step since 7.5-9 found zero new warnings from that step's own changes) | not re-measured (no sim-path perf change across 7.5) | local only — CI still blocked by the account billing lock (R37/R40) |
+| `v0.5.9` | Phase 8 | 2026-10-01, at `9b1d19e` | 538 | 192 at `--all-targets`, zero new across 8-1..8-4 | floor2 0.009 ms/step, 70 allocs/step (`bench_sim --release`) | local only — CI still blocked by the account billing lock (R37/R40) |
+| `v0.5.10` | Phase 9 | 2026-10-01, at `afa6201` | 641 | 188 at `--all-targets`, zero new across 9-1..9-8 | floor2 0.058 ms/step, 343 allocs/step, scripts running (R118 corrected the earlier 0.009) | local only — CI still blocked by the account billing lock (R37/R40) |
+| `v0.5.11` | Phase 9.5 | 2026-10-01 (the tag commit; versions bumped to 0.5.11) | 695 | 187 at `--all-targets`, zero new across 9.5-1..9.5-6 | floor2 fixture 0.056 ms/step, 323 allocs/step; shooter stress 2.70 ms/step, 293 entities | local only — CI still blocked by the account billing lock (R37/R40) |
 | `v0.5.12` | Phase 10 | | | | | |
 | `v0.6.0` | Phase 11 | | | | | |
 
@@ -6333,6 +6307,35 @@ readout) and R89 (`99ee94b`, the dropdown menu's hover highlight) — both
 the identical points/logical unit mismatch in sibling code paths, each
 found via a user screenshot and pinned with a regression test.
 `v0.5.7d`.
+
+**A.14 Phase 7.5 — Scripting completeness.** 13 steps (`a3d483e` through
+`6af6f42`): data-driven actor stats and one merged enemy script,
+`set_script`/`on_load`, engine-side solid resolution, the Energy and
+ActionCost turn models, timers, the sim-boundary lints and `LevelSource`,
+scripting-engine cleanup (R22), audio, node-graph codegen hardening (R34),
+and the decision to keep Rhai modules off. `API_VERSION` 7. Tagged
+`v0.5.8` at `5e0e88d`.
+
+**A.15 Phase 8 — Tilemap, assets, animation authoring.** 4 steps: the
+baked tilemap (8-1, level format v4; the 200×200 synthetic level from
+42.4 to 0.30 ms/step), the tileset importer (8-2, v5), animation clips
+(8-3, v6), the asset browser and drag-and-drop (8-4). Gate fixes R103,
+R104, R106. Tagged `v0.5.9` at `9b1d19e`.
+
+**A.16 Phase 9 — Scene and UI layer, and the RPG demo.** 8 steps: the
+scene stack (9-1), script camera (9-2), engine menus and dialogue (9-3),
+named spawns and format v7 (9-4), per-project world cells (9-5), editor
+authoring completeness (9-6), the sprite API (9-7), and Emberfall, the
+Kenney-sprite RPG, with its tutorial (9-8). R107–R118 along the way.
+Tagged `v0.5.10` at `afa6201`.
+
+**A.17 Phase 9.5 — Demo expansion as engine stress tests.** 6 steps: the
+script tilemap API (9.5-1), symmetric-shadowcasting field of view
+(9.5-2), Depths of Ember, a 20-floor generated roguelike (9.5-3, 9.5-4),
+Ember Assault, a scrolling-arena shooter with a 300-entity stress level
+at 60 FPS (9.5-5), and the tutorials index and first-project guide
+(9.5-6, R119, R120). The Visual Style option was removed in between, at
+the user's request. 695 tests, clippy 187. Tagged `v0.5.11`.
 
 ## Appendix B — Archived documents and what they still hold
 
